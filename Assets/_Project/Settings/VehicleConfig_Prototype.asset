@@ -120,4 +120,4 @@ MonoBehaviour:
     m_PostInfinity: 2
     m_RotationOrder: 4
   HandbrakeGrip: 0.22
-  Downforce: 6
+  Downforce: 2.5

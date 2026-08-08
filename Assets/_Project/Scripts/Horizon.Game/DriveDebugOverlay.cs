@@ -68,9 +68,18 @@ namespace Horizon.Game
 
             GUILayout.BeginArea(new Rect(12f, 12f, 290f, 260f), GUIContent.none, panelStyle);
 
-            GUILayout.Label(vehicle != null
-                ? $"{vehicle.SpeedKmh:0} km/h    wheels down: {vehicle.GroundedWheelCount}/4"
-                : "waiting for world…");
+            if (vehicle != null)
+            {
+                GUILayout.Label($"{vehicle.SpeedKmh:0} km/h    wheels down: {vehicle.GroundedWheelCount}/4");
+
+                string gear = vehicle.Gear == 0 ? "R" : vehicle.Gear.ToString();
+                string shifting = vehicle.IsShifting ? "  shifting" : string.Empty;
+                GUILayout.Label($"gear {gear}   {vehicle.EngineRpm:0} rpm{shifting}");
+            }
+            else
+            {
+                GUILayout.Label("waiting for world…");
+            }
 
             if (inputRouter != null)
             {

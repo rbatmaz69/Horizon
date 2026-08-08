@@ -40,6 +40,32 @@ namespace Horizon.World
             return right.sqrMagnitude < 0.0001f ? Vector3.right : right.normalized;
         }
 
+        /// <summary>
+        /// Curvature at a distance, in radians per metre — the reciprocal of the corner radius.
+        /// Measured from how much the heading swings over a short arc, so it works for any path
+        /// implementation without needing a second derivative.
+        /// </summary>
+        public static float GetCurvatureAtDistance(this IRoadPath path, float distance, float sampleArc = 4f)
+        {
+            float half = Mathf.Max(0.5f, sampleArc) * 0.5f;
+
+            Vector3 before = path.GetDirectionAtDistance(path.NormalizeDistance(distance - half));
+            Vector3 after = path.GetDirectionAtDistance(path.NormalizeDistance(distance + half));
+
+            float swing = Vector3.Angle(before, after) * Mathf.Deg2Rad;
+            return swing / Mathf.Max(0.5f, sampleArc);
+        }
+
+        /// <summary>
+        /// Corner radius at a distance, metres. Returns <see cref="float.MaxValue"/> on a straight,
+        /// so callers can compare against a threshold without special-casing zero curvature.
+        /// </summary>
+        public static float GetRadiusAtDistance(this IRoadPath path, float distance, float sampleArc = 4f)
+        {
+            float curvature = path.GetCurvatureAtDistance(distance, sampleArc);
+            return curvature < 0.00001f ? float.MaxValue : 1f / curvature;
+        }
+
         /// <summary>Wraps or clamps a distance depending on whether the road loops.</summary>
         public static float NormalizeDistance(this IRoadPath path, float distance)
         {

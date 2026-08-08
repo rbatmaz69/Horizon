@@ -35,6 +35,10 @@ namespace Horizon.Vehicle
         private float steerAngle;
         private float forwardSpeed;
 
+        private int gearIndex;
+        private float shiftTimer;
+        private float engineRpm;
+
         /// <summary>Per-wheel runtime state. Allocated once — nothing here may allocate per frame.</summary>
         private sealed class WheelState
         {
@@ -57,6 +61,21 @@ namespace Horizon.Vehicle
 
         /// <summary>Current steering angle in degrees.</summary>
         public float SteerAngle => steerAngle;
+
+        /// <summary>Engine speed in rpm. Comes from the wheels through the gearbox, not from a guess.</summary>
+        public float EngineRpm => engineRpm;
+
+        /// <summary>Selected gear: 1-based forwards, 0 while reversing.</summary>
+        public int Gear => reversing ? 0 : gearIndex + 1;
+
+        /// <summary>True during the torque interruption of a shift.</summary>
+        public bool IsShifting => shiftTimer > 0f;
+
+        /// <summary>Engine speed as a fraction of the redline, for audio and instruments.</summary>
+        public float RpmNormalized =>
+            config != null ? Mathf.Clamp01(engineRpm / Mathf.Max(1f, config.RedlineRpm)) : 0f;
+
+        private bool reversing;
 
         /// <summary>How many wheels are touching the ground.</summary>
         public int GroundedWheelCount
@@ -189,13 +208,23 @@ namespace Horizon.Vehicle
                 brake = 0f;
             }
 
+            float driveForcePerWheel = UpdateDrivetrain(deltaTime, throttle, reverse);
+
             for (int i = 0; i < WheelCount; i++)
             {
-                UpdateWheel(i, deltaTime, speed01, throttle, brake, reverse, drive.Handbrake);
+                UpdateWheel(i, deltaTime, speed01, driveForcePerWheel, brake, drive.Handbrake);
             }
 
             ApplyAntiRoll(FrontLeft, FrontRight);
             ApplyAntiRoll(RearLeft, RearRight);
+
+            // Aerodynamic drag, on the body once — not per wheel. Applying drag four times over is how
+            // the car ended up with a top speed of about 45 km/h.
+            float speed = velocity.magnitude;
+            if (speed > 0.1f)
+            {
+                body.AddForce(-velocity / speed * (config.AeroDrag * speed * speed));
+            }
 
             // Downforce only while in contact: in the air it would make jumps feel like anchors.
             if (GroundedWheelCount > 0)
@@ -205,13 +234,104 @@ namespace Horizon.Vehicle
             }
         }
 
+        /// <summary>
+        /// Runs the engine and gearbox, and returns the drive force each driven wheel should apply.
+        ///
+        /// Engine speed is derived from how fast the wheels are turning through the current gear, so the
+        /// gearbox is a real part of the physics rather than a sound effect: the ratio multiplies torque,
+        /// and the interruption during a shift is a genuine gap in thrust. That gap is what a gear change
+        /// feels like, and it is the reason the car no longer accelerates like a single-speed electric.
+        /// </summary>
+        private float UpdateDrivetrain(float deltaTime, float throttle, float reverse)
+        {
+            if (shiftTimer > 0f)
+            {
+                shiftTimer -= deltaTime;
+            }
+
+            reversing = reverse > 0f;
+
+            float ratio = reversing ? config.RatioForGear(-1) : config.RatioForGear(gearIndex);
+            float driveRatio = Mathf.Abs(ratio) * config.FinalDrive;
+
+            // Engine speed from road speed, through the gearbox.
+            float wheelRevsPerSecond = Mathf.Abs(forwardSpeed) / (2f * Mathf.PI * config.WheelRadius);
+            float geared = wheelRevsPerSecond * 60f * driveRatio;
+
+            // Rolling away from a standstill the clutch or converter slips, so the engine can rev while
+            // the wheels barely turn. Without this the car has no voice at all until it is moving.
+            float command = Mathf.Max(throttle, reverse);
+            float slipping = Mathf.Lerp(config.IdleRpm, config.RedlineRpm * 0.55f, command);
+            float blend = Mathf.Clamp01(Mathf.Abs(forwardSpeed) / 3.5f);
+
+            engineRpm = Mathf.Clamp(
+                Mathf.Max(geared, Mathf.Lerp(slipping, config.IdleRpm, blend)),
+                config.IdleRpm,
+                config.RedlineRpm);
+
+            if (!reversing && shiftTimer <= 0f)
+            {
+                if (engineRpm >= config.UpshiftRpm && gearIndex < config.ForwardGearCount - 1)
+                {
+                    gearIndex++;
+                    shiftTimer = config.ShiftTime;
+                }
+                else if (engineRpm <= config.DownshiftRpm && gearIndex > 0)
+                {
+                    gearIndex--;
+                    shiftTimer = config.ShiftTime;
+                }
+            }
+
+            if (reversing)
+            {
+                gearIndex = 0;
+            }
+
+            // No drive while the box is between gears.
+            if (shiftTimer > 0f)
+            {
+                return 0f;
+            }
+
+            // Rev limiter. Without it, clamping the displayed rpm to the redline would hide the fact
+            // that top gear still has thrust in reserve, and the car would quietly accelerate past the
+            // speed its gearing allows. Cutting here is what makes top speed a real limit — and the
+            // stutter it produces at 225 km/h is what a limiter sounds like.
+            if (geared > config.RedlineRpm)
+            {
+                return 0f;
+            }
+
+            float torqueFraction = config.TorqueByRpm.Evaluate(RpmNormalized);
+            float engineTorque = config.MaxTorqueNm * Mathf.Max(0f, torqueFraction) * command;
+
+            if (engineTorque <= 0f)
+            {
+                return 0f;
+            }
+
+            float wheelForce = engineTorque * driveRatio * config.DrivetrainEfficiency / config.WheelRadius;
+
+            if (reversing)
+            {
+                if (forwardSpeed <= -config.ReverseSpeed)
+                {
+                    return 0f;
+                }
+
+                wheelForce = -wheelForce;
+            }
+
+            return wheelForce / Mathf.Max(1, config.DrivenWheelCount);
+        }
+
         private void UpdateWheel(
             int index,
             float deltaTime,
             float speed01,
-            float throttle,
+            float driveForcePerWheel,
             float brake,
-            float reverse,
             bool handbrake)
         {
             Transform anchor = wheelAnchors[index];
@@ -279,26 +399,17 @@ namespace Horizon.Vehicle
             body.AddForceAtPosition(right * (lateralAcceleration * wheelShareOfMass), hit.point);
 
             // --- Longitudinal: drive, then everything that opposes motion.
-            float longitudinalForce = 0f;
-            if (config.IsDriven(index))
-            {
-                float share = 1f / config.DrivenWheelCount;
-                if (throttle > 0f)
-                {
-                    longitudinalForce += throttle * config.EnginePower
-                                       * config.PowerBySpeed.Evaluate(speed01) * share;
-                }
+            float longitudinalForce = config.IsDriven(index) ? driveForcePerWheel : 0f;
 
-                if (reverse > 0f && forwardSpeed > -config.ReverseSpeed)
-                {
-                    longitudinalForce -= reverse * config.EnginePower * 0.45f * share;
-                }
-            }
+            // Rolling resistance is a constant force opposing the direction of travel, not something
+            // proportional to speed. The old speed-proportional version, applied to all four wheels,
+            // reached 800 N per m/s and capped the car at walking pace.
+            float rollingSign = longitudinalVelocity > 0f ? 1f : -1f;
+            float resistive = rollingSign * config.RollingResistanceN;
 
-            float resistive = longitudinalVelocity * config.RollingResistance;
             if (brake > 0f)
             {
-                resistive += Mathf.Sign(longitudinalVelocity) * (brake * config.BrakeForce * 0.25f);
+                resistive += rollingSign * (brake * config.BrakeForce * 0.25f);
             }
 
             // Clamp so braking and rolling resistance can bring the wheel to a stop but never drag

@@ -112,7 +112,8 @@ namespace Horizon.EditorTools
         /// <summary>Materials for the prototype. Created once, then left alone so retints survive.</summary>
         private sealed class PrototypeMaterials
         {
-            public readonly Material Asphalt;
+            public readonly Material RoadSurface;
+            public readonly Material RoadShoulder;
             public readonly Material Grass;
             public readonly Material Rock;
             public readonly Material CarBody;
@@ -125,8 +126,27 @@ namespace Horizon.EditorTools
 
             public PrototypeMaterials()
             {
-                Asphalt = HorizonAssetUtility.LoadOrCreateMaterial(
-                    MaterialsFolder + "/M_Asphalt.mat", "M_Asphalt", new Color(0.20f, 0.19f, 0.21f), 0.28f);
+                // New names rather than reusing M_Asphalt: materials are created only if missing, so an
+                // existing one would never pick up a texture.
+                RoadShape roadShape = RoadShape.Default;
+
+                Texture2D surfaceTexture = HorizonAssetUtility.LoadOrCreateTexture(
+                    ProjectRoot + "/Art/T_RoadSurface.png",
+                    () => RoadTextureBuilder.BuildSurface(roadShape),
+                    anisoLevel: 8);
+
+                Texture2D shoulderTexture = HorizonAssetUtility.LoadOrCreateTexture(
+                    ProjectRoot + "/Art/T_RoadShoulder.png",
+                    () => RoadTextureBuilder.BuildShoulder(),
+                    anisoLevel: 4);
+
+                RoadSurface = HorizonAssetUtility.LoadOrCreateMaterial(
+                    MaterialsFolder + "/M_RoadSurface.mat", "M_RoadSurface", Color.white, 0.34f, 0f, null,
+                    surfaceTexture);
+
+                RoadShoulder = HorizonAssetUtility.LoadOrCreateMaterial(
+                    MaterialsFolder + "/M_RoadShoulder.mat", "M_RoadShoulder", Color.white, 0.12f, 0f, null,
+                    shoulderTexture);
                 Grass = HorizonAssetUtility.LoadOrCreateMaterial(
                     MaterialsFolder + "/M_Grass.mat", "M_Grass", new Color(0.36f, 0.48f, 0.26f), 0.08f);
                 Rock = HorizonAssetUtility.LoadOrCreateMaterial(
@@ -371,11 +391,25 @@ namespace Horizon.EditorTools
             var pathObject = new GameObject("RoadPath");
             pathObject.transform.SetParent(worldRoot.transform, false);
             RoadPath path = pathObject.AddComponent<RoadPath>();
-            path.SetControlPoints(BuildMountainPassControlPoints());
+
+            RoadCourse course = MountainPassCourse.Build();
+            path.SetControlPoints(course.ControlPoints);
+            ReportCourse(course, path);
 
             // --- Generated geometry.
             RoadShape roadShape = RoadShape.Default;
+
+            // M1 stand-in: the pass covers far more ground than the old test road, and the terrain is
+            // still one mesh over the whole bounding box. A thinner margin keeps that generatable while
+            // the course is being tuned. M2 replaces this with streamed corridor tiles.
+            //
+            // The cell size stays at 12 m. It must: the flat shelf around the road is forced to at
+            // least two cells, so coarser cells widen the shelf, and once the shelf is wider than half
+            // the 38.5 m gap between stacked switchback legs the two shelves fight over the ground
+            // between them. Expect a hard step there until the mountain field lands in M2 — the road
+            // itself stays clear, because a point on one leg is always nearest to its own leg.
             TerrainShape terrainShape = TerrainShape.Default;
+            terrainShape.Margin = 60f;
 
             Mesh roadMesh = RoadMeshBuilder.BuildRoad(path, roadShape, "RoadMesh");
             Mesh terrainMesh = RoadMeshBuilder.BuildTerrain(path, terrainShape, "TerrainMesh");
@@ -386,8 +420,9 @@ namespace Horizon.EditorTools
 
             CreateMeshObject(worldRoot.transform, "Terrain", terrainMesh,
                 new[] { materials.Grass, materials.Rock });
+            // Material order follows the Submesh constants on RoadMeshBuilder.
             CreateMeshObject(worldRoot.transform, "Road", roadMesh,
-                new[] { materials.Asphalt });
+                new[] { materials.RoadSurface, materials.RoadShoulder });
 
             WorldChunk chunk = worldRoot.AddComponent<WorldChunk>();
             chunk.RecalculateBounds();
@@ -417,7 +452,13 @@ namespace Horizon.EditorTools
                 ? config.SuspensionRestLength + config.WheelRadius + 0.05f
                 : 0.75f;
 
-            Vector3 spawnPosition = path.GetPositionAtDistance(spawnDistance) + Vector3.up * rideHeight;
+            // In the right-hand lane, not astride the centre line. Small thing, but with markings drawn
+            // it is a large part of the road reading as something you drive on.
+            Vector3 laneOffset = path.GetRightAtDistance(spawnDistance) * (roadShape.HalfWidth * 0.5f);
+
+            Vector3 spawnPosition = path.GetPositionAtDistance(spawnDistance)
+                                    + laneOffset
+                                    + Vector3.up * rideHeight;
 
             var vehicle = (GameObject)PrefabUtility.InstantiatePrefab(vehiclePrefab);
             vehicle.transform.SetPositionAndRotation(
@@ -447,6 +488,10 @@ namespace Horizon.EditorTools
             });
 
             timeOfDay.Apply();
+
+            // Rendered here, while the world objects are in the active scene and before it is saved, so
+            // the temporary camera never ends up in the saved scene.
+            CoursePreviewRenderer.Render(path);
 
             EditorSceneManager.SaveScene(scene, WorldScenePath);
         }
@@ -488,43 +533,78 @@ namespace Horizon.EditorTools
         }
 
         /// <summary>
-        /// A climbing serpentine, generated rather than hand-placed so it is reproducible. The
-        /// lateral swing tightens as the road climbs, which is what makes the upper section feel
-        /// like a pass rather than a wavy line.
+        /// Measures the finished course and logs it, warning on anything outside what the car can
+        /// comfortably do.
+        ///
+        /// The M1 gate is "are the hairpins enjoyable", which only driving can answer — but grade and
+        /// radius are numbers, and getting them wrong is the likeliest reason driving would feel bad.
+        /// Checking them here means a bad profile table is caught before anyone drives it.
         /// </summary>
-        private static List<Vector3> BuildMountainPassControlPoints()
+        private static void ReportCourse(RoadCourse course, RoadPath path)
         {
-            var points = new List<Vector3>
+            float length = path.Length;
+            const float step = 5f;
+
+            float steepest = 0f;
+            float steepestAt = 0f;
+            float tightestRadius = float.MaxValue;
+            float tightestAt = 0f;
+
+            for (float distance = 0f; distance + step < length; distance += step)
             {
-                // Straight lead-in, so the car has room before the first corner.
-                new Vector3(0f, 0f, -140f),
-                new Vector3(0f, 0f, -70f),
-            };
+                Vector3 here = path.GetPositionAtDistance(distance);
+                Vector3 ahead = path.GetPositionAtDistance(distance + step);
 
-            const int segments = 22;
-            const float runLength = 1150f;
-            const float climb = 125f;
-            const float baseAmplitude = 105f;
-            const float waves = 3.1f;
+                float horizontal = new Vector2(ahead.x - here.x, ahead.z - here.z).magnitude;
+                if (horizontal > 0.01f)
+                {
+                    float grade = Mathf.Abs(ahead.y - here.y) / horizontal * 100f;
+                    if (grade > steepest)
+                    {
+                        steepest = grade;
+                        steepestAt = distance;
+                    }
+                }
 
-            for (int i = 0; i <= segments; i++)
-            {
-                float t = i / (float)segments;
+                // Radius from how much the heading swings over a known arc length.
+                float turned = Vector3.Angle(
+                    path.GetDirectionAtDistance(distance),
+                    path.GetDirectionAtDistance(distance + step)) * Mathf.Deg2Rad;
 
-                // Amplitude falls off with height: broad sweeps low down, tighter corners near the top.
-                float amplitude = baseAmplitude * Mathf.Lerp(1f, 0.45f, t);
-                float x = Mathf.Sin(t * Mathf.PI * 2f * waves) * amplitude;
-                float z = t * runLength;
-                float y = Mathf.SmoothStep(0f, 1f, t) * climb;
-
-                points.Add(new Vector3(x, y, z));
+                if (turned > 0.0005f)
+                {
+                    float radius = step / turned;
+                    if (radius < tightestRadius)
+                    {
+                        tightestRadius = radius;
+                        tightestAt = distance;
+                    }
+                }
             }
 
-            // Level run-out at the summit, somewhere to stop and look at the view.
-            points.Add(new Vector3(0f, climb + 3f, runLength + 90f));
-            points.Add(new Vector3(0f, climb + 4f, runLength + 170f));
+            float elevationGain = course.Summit.y - course.LowestElevation;
 
-            return points;
+            Debug.Log(
+                $"[Horizon] Pass course: {length:0} m long, {elevationGain:0} m of elevation, "
+                + $"summit at {course.Summit.y:0} m. Steepest {steepest:0.0}% at {steepestAt:0} m, "
+                + $"tightest radius {tightestRadius:0.0} m at {tightestAt:0} m. "
+                + $"{course.Features.Count} features.");
+
+            // The car's minimum radius is about 4.3 m at full lock and ~8 m at the reduced lock it has
+            // at speed, so 12 m is the point where a hairpin stops being generous.
+            if (tightestRadius < 12f)
+            {
+                Debug.LogWarning(
+                    $"[Horizon] Tightest radius is {tightestRadius:0.0} m at {tightestAt:0} m — the car "
+                    + "may need to reverse. Open up the hairpin radius in MountainPassCourse.");
+            }
+
+            if (steepest > 12f)
+            {
+                Debug.LogWarning(
+                    $"[Horizon] Steepest grade is {steepest:0.0}% at {steepestAt:0} m. Above roughly 12% "
+                    + "the car struggles uphill and runs away downhill; ease the grade or lengthen the leg.");
+            }
         }
 
         /// <summary>

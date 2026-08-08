@@ -18,14 +18,6 @@ namespace Horizon.Vehicle
         [SerializeField] private AudioSource engineSource;
         [SerializeField] private AudioSource windSource;
 
-        [Header("Gearbox")]
-        [Tooltip("Upper speed of each gear, as a fraction of top speed. Crossing one drops the revs. "
-               + "Three long ratios, like the automatics these cars came with.")]
-        [SerializeField] private float[] gearTopSpeeds = { 0.30f, 0.62f, 1f };
-
-        [Tooltip("Revs at the bottom of a gear, 0-1. High, because the ratios are long.")]
-        [SerializeField] private float revsAtGearBottom = 0.40f;
-
         [Header("Engine")]
         [Tooltip("Playback pitch at idle.")]
         [SerializeField] private float idlePitch = 0.46f;
@@ -59,8 +51,8 @@ namespace Horizon.Vehicle
         /// <summary>Current revs, 0-1. Useful for a HUD later.</summary>
         public float Revs => revs;
 
-        /// <summary>Gear the simulated box is in, from 1.</summary>
-        public int Gear { get; private set; } = 1;
+        /// <summary>Selected gear, straight from the drivetrain. There is no separate audio gearbox.</summary>
+        public int Gear => vehicle != null ? vehicle.Gear : 1;
 
         private void Awake()
         {
@@ -92,14 +84,24 @@ namespace Horizon.Vehicle
             smoothedThrottle = Mathf.MoveTowards(smoothedThrottle, throttle, 4f * deltaTime);
 
             float speed01 = vehicle != null ? vehicle.SpeedNormalized : 0f;
-            float targetRevs = ResolveRevs(speed01, smoothedThrottle);
+            float targetRevs = ResolveRevs();
 
             revs = Mathf.Lerp(revs, targetRevs, 1f - Mathf.Exp(-revSmoothing * deltaTime));
 
             if (engineSource != null)
             {
                 engineSource.pitch = Mathf.Lerp(idlePitch, redlinePitch, revs);
-                engineSource.volume = idleVolume + loadVolume * Mathf.Clamp01(smoothedThrottle * 0.65f + revs * 0.45f);
+
+                float load = Mathf.Clamp01(smoothedThrottle * 0.65f + revs * 0.45f);
+
+                // Drop off during the shift. The gearbox has cut the torque, so the engine should go
+                // quiet for that moment too — it is half of why a gear change registers.
+                if (vehicle != null && vehicle.IsShifting)
+                {
+                    load *= 0.35f;
+                }
+
+                engineSource.volume = idleVolume + loadVolume * load;
             }
 
             if (windSource != null)
@@ -113,39 +115,24 @@ namespace Horizon.Vehicle
         }
 
         /// <summary>
-        /// Maps road speed onto revs through the gear table, so the pitch climbs within a gear and
-        /// drops when it changes up.
+        /// Takes the revs straight from the vehicle's own gearbox.
+        ///
+        /// This used to model a second, invented gearbox purely for the sound. Now that the drivetrain
+        /// has real ratios there is exactly one gearbox, and the note follows the machine instead of
+        /// running alongside it and gradually disagreeing.
         /// </summary>
-        private float ResolveRevs(float speed01, float throttle)
+        private float ResolveRevs()
         {
-            if (gearTopSpeeds == null || gearTopSpeeds.Length == 0)
+            if (vehicle == null || vehicle.Config == null)
             {
-                return Mathf.Max(throttle * 0.5f, speed01);
+                return 0.15f + smoothedThrottle * 0.4f;
             }
 
-            int gearIndex = gearTopSpeeds.Length - 1;
-            for (int i = 0; i < gearTopSpeeds.Length; i++)
-            {
-                if (speed01 <= gearTopSpeeds[i])
-                {
-                    gearIndex = i;
-                    break;
-                }
-            }
+            VehicleConfig config = vehicle.Config;
+            float span = Mathf.Max(1f, config.RedlineRpm - config.IdleRpm);
 
-            Gear = gearIndex + 1;
-
-            float lower = gearIndex == 0 ? 0f : gearTopSpeeds[gearIndex - 1];
-            float upper = gearTopSpeeds[gearIndex];
-            float within = upper - lower > 0.0001f ? Mathf.Clamp01((speed01 - lower) / (upper - lower)) : 0f;
-
-            float geared = Mathf.Lerp(revsAtGearBottom, 1f, within);
-
-            // Standing still, the revs should still answer the throttle so blipping it does something.
-            float stationaryBlend = Mathf.Clamp01(speed01 / 0.06f);
-            float idling = 0.12f + throttle * 0.42f;
-
-            return Mathf.Lerp(idling, geared, stationaryBlend);
+            // Zero at idle rather than at zero rpm, so the pitch range maps onto the usable band.
+            return Mathf.Clamp01((vehicle.EngineRpm - config.IdleRpm) / span);
         }
 
         /// <summary>

@@ -5343,11 +5343,6 @@ MonoBehaviour:
   vehicle: {fileID: 0}
   engineSource: {fileID: 2721439067420018826}
   windSource: {fileID: 1761507652644327341}
-  gearTopSpeeds:
-  - 0.3
-  - 0.62
-  - 1
-  revsAtGearBottom: 0.4
   idlePitch: 0.46
   redlinePitch: 1.5
   idleVolume: 0.3

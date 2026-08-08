@@ -193,7 +193,8 @@ namespace Horizon.EditorTools
             Color baseColor,
             float smoothness,
             float metallic = 0f,
-            Color? emission = null)
+            Color? emission = null,
+            Texture2D baseMap = null)
         {
             Material existing = AssetDatabase.LoadAssetAtPath<Material>(assetPath);
             if (existing != null)
@@ -202,6 +203,14 @@ namespace Horizon.EditorTools
             }
 
             Material created = CreateLitMaterial(name, baseColor, smoothness, metallic);
+
+            if (baseMap != null)
+            {
+                created.SetTexture("_BaseMap", baseMap);
+
+                // The tint multiplies the map, so it has to be white or the texture comes out darkened.
+                created.SetColor("_BaseColor", Color.white);
+            }
 
             if (emission.HasValue)
             {
@@ -214,6 +223,43 @@ namespace Horizon.EditorTools
 
             AssetDatabase.CreateAsset(created, assetPath);
             return Reload(created, assetPath);
+        }
+
+        /// <summary>
+        /// Writes a generated texture out as a PNG asset and imports it, creating it only if missing.
+        ///
+        /// <paramref name="anisoLevel"/> matters for anything seen at a grazing angle — road markings
+        /// above all, which is precisely the case anisotropic filtering exists for. It is also the first
+        /// thing to turn down if mobile fill rate becomes a problem.
+        /// </summary>
+        public static Texture2D LoadOrCreateTexture(
+            string assetPath,
+            Func<Texture2D> factory,
+            int anisoLevel = 4,
+            bool wrap = true)
+        {
+            var existing = AssetDatabase.LoadAssetAtPath<Texture2D>(assetPath);
+            if (existing != null)
+            {
+                return existing;
+            }
+
+            Texture2D generated = factory();
+            File.WriteAllBytes(assetPath, generated.EncodeToPNG());
+            UnityEngine.Object.DestroyImmediate(generated);
+
+            AssetDatabase.ImportAsset(assetPath, ImportAssetOptions.ForceSynchronousImport);
+
+            if (AssetImporter.GetAtPath(assetPath) is TextureImporter importer)
+            {
+                importer.mipmapEnabled = true;
+                importer.wrapMode = wrap ? TextureWrapMode.Repeat : TextureWrapMode.Clamp;
+                importer.filterMode = FilterMode.Trilinear;
+                importer.anisoLevel = anisoLevel;
+                importer.SaveAndReimport();
+            }
+
+            return AssetDatabase.LoadAssetAtPath<Texture2D>(assetPath);
         }
 
         /// <summary>
