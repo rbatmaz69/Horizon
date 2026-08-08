@@ -1,0 +1,17 @@
+{
+    "name": "Horizon.Input",
+    "rootNamespace": "Horizon.Input",
+    "references": [
+        "Horizon.Core",
+        "Unity.InputSystem"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

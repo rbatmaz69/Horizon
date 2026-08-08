@@ -1,0 +1,17 @@
+{
+    "name": "Horizon.Vehicle",
+    "rootNamespace": "Horizon.Vehicle",
+    "references": [
+        "Horizon.Core",
+        "Horizon.Input"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

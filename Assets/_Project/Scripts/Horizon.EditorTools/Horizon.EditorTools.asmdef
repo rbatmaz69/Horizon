@@ -1,0 +1,23 @@
+{
+    "name": "Horizon.EditorTools",
+    "rootNamespace": "Horizon.EditorTools",
+    "references": [
+        "Horizon.Core",
+        "Horizon.Input",
+        "Horizon.Vehicle",
+        "Horizon.World",
+        "Horizon.Atmosphere",
+        "Horizon.Game"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

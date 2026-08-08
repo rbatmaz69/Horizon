@@ -1,0 +1,21 @@
+{
+    "name": "Horizon.Game",
+    "rootNamespace": "Horizon.Game",
+    "references": [
+        "Horizon.Core",
+        "Horizon.Input",
+        "Horizon.Vehicle",
+        "Horizon.World",
+        "Horizon.Atmosphere",
+        "Unity.InputSystem"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

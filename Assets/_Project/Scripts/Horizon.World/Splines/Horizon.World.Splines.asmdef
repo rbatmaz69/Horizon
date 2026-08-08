@@ -1,0 +1,25 @@
+{
+    "name": "Horizon.World.Splines",
+    "rootNamespace": "Horizon.World",
+    "references": [
+        "Horizon.World",
+        "Unity.Splines"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "HORIZON_SPLINES"
+    ],
+    "versionDefines": [
+        {
+            "name": "com.unity.splines",
+            "expression": "2.0.0",
+            "define": "HORIZON_SPLINES"
+        }
+    ],
+    "noEngineReferences": false
+}

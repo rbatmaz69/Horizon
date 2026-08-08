@@ -1,0 +1,16 @@
+{
+    "name": "Horizon.World",
+    "rootNamespace": "Horizon.World",
+    "references": [
+        "Horizon.Core"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
