@@ -32,6 +32,20 @@ namespace Horizon.Vehicle
                + "and the lag is a large part of why the car sounds big.")]
         [SerializeField] private float revSmoothing = 4.5f;
 
+        [Header("Under cover")]
+        [Tooltip("Shared cover probe. Found automatically if left empty.")]
+        [SerializeField] private VehicleCover cover;
+
+        [Tooltip("Reverb on the engine layer, faded in under cover. This is what actually sells being "
+               + "inside a tunnel — more than the darkness does.")]
+        [SerializeField] private AudioReverbFilter engineReverb;
+
+        [Tooltip("How much louder the engine gets with walls around it.")]
+        [SerializeField] private float coveredEngineBoost = 0.3f;
+
+        [Tooltip("How much of the wind is cut when the airflow is enclosed.")]
+        [Range(0f, 1f)] [SerializeField] private float coveredWindCut = 0.65f;
+
         [Header("Wind")]
         [SerializeField] private float windVolume = 0.35f;
 
@@ -61,6 +75,11 @@ namespace Horizon.Vehicle
                 vehicle = GetComponentInParent<VehicleController>();
             }
 
+            if (cover == null)
+            {
+                cover = GetComponentInParent<VehicleCover>();
+            }
+
             if (engineSource != null)
             {
                 engineSource.clip = BuildEngineClip();
@@ -83,6 +102,7 @@ namespace Horizon.Vehicle
             float throttle = Mathf.Clamp01(DriveInput.Current.Throttle);
             smoothedThrottle = Mathf.MoveTowards(smoothedThrottle, throttle, 4f * deltaTime);
 
+            float coverAmount = cover != null ? cover.CoverAmount : 0f;
             float speed01 = vehicle != null ? vehicle.SpeedNormalized : 0f;
             float targetRevs = ResolveRevs();
 
@@ -101,7 +121,16 @@ namespace Horizon.Vehicle
                     load *= 0.35f;
                 }
 
-                engineSource.volume = idleVolume + loadVolume * load;
+                // Walls put the engine back in your ears.
+                engineSource.volume = (idleVolume + loadVolume * load) * (1f + coveredEngineBoost * coverAmount);
+            }
+
+            if (engineReverb != null)
+            {
+                // Faded rather than switched: a preset toggling on a frame boundary is audible as a click,
+                // and the mouth of a tunnel is a gradual thing anyway.
+                engineReverb.reverbLevel = Mathf.Lerp(-10000f, 600f, coverAmount);
+                engineReverb.dryLevel = Mathf.Lerp(0f, -280f, coverAmount);
             }
 
             if (windSource != null)
@@ -109,7 +138,8 @@ namespace Horizon.Vehicle
                 float wind = Mathf.Clamp01(speed01 / Mathf.Max(0.01f, windFullSpeed));
 
                 // Squared so wind stays out of the way at town speeds and only builds up high.
-                windSource.volume = windVolume * wind * wind;
+                // Enclosed air is not rushing past the windows any more.
+                windSource.volume = windVolume * wind * wind * (1f - coveredWindCut * coverAmount);
                 windSource.pitch = Mathf.Lerp(0.85f, 1.3f, wind);
             }
         }

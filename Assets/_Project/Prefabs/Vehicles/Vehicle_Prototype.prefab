@@ -5240,6 +5240,7 @@ GameObject:
   - component: {fileID: 3477034878547232955}
   - component: {fileID: 2715252100618246842}
   - component: {fileID: 8343582832020894963}
+  - component: {fileID: 3606194995847740693}
   - component: {fileID: 791373693238603165}
   - component: {fileID: 4756572234515738944}
   - component: {fileID: 8773917188604497082}
@@ -5328,6 +5329,24 @@ BoxCollider:
   serializedVersion: 3
   m_Size: {x: 2, y: 1.18, z: 4.7}
   m_Center: {x: 0, y: 0.06, z: 0}
+--- !u!114 &3606194995847740693
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4042918132950006160}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a2d9eed3f3bb04c5e8bc73d37b7ba297, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Horizon.Vehicle::Horizon.Vehicle.VehicleCover
+  probeHeight: 16
+  roofMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  probeInterval: 0.08
+  responseTime: 0.35
 --- !u!114 &791373693238603165
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -5348,6 +5367,10 @@ MonoBehaviour:
   idleVolume: 0.3
   loadVolume: 0.5
   revSmoothing: 4.5
+  cover: {fileID: 3606194995847740693}
+  engineReverb: {fileID: 4324448775353333521}
+  coveredEngineBoost: 0.3
+  coveredWindCut: 0.65
   windVolume: 0.35
   windFullSpeed: 0.75
 --- !u!114 &4756572234515738944
@@ -5369,6 +5392,7 @@ MonoBehaviour:
   headlightMaterialIndex: 2
   taillightMaterialIndex: 3
   nightSunIntensity: 0.35
+  cover: {fileID: 3606194995847740693}
   headlightColor: {r: 1, g: 0.96, b: 0.84, a: 1}
   taillightColor: {r: 1, g: 0.1, b: 0.06, a: 1}
   taillightIdleGlow: 0.5
@@ -5501,6 +5525,7 @@ GameObject:
   m_Component:
   - component: {fileID: 879512331683253328}
   - component: {fileID: 2721439067420018826}
+  - component: {fileID: 4324448775353333521}
   m_Layer: 0
   m_Name: Audio_Engine
   m_TagString: Untagged
@@ -5620,6 +5645,29 @@ AudioSource:
     m_PreInfinity: 2
     m_PostInfinity: 2
     m_RotationOrder: 4
+--- !u!164 &4324448775353333521
+AudioReverbFilter:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4398386901659717715}
+  m_Enabled: 1
+  m_DryLevel: 0
+  m_Room: -900
+  m_RoomHF: -400
+  m_DecayTime: 1.5
+  m_DecayHFRatio: 0.7
+  m_ReflectionsLevel: -400
+  m_ReverbLevel: -10000
+  m_ReverbDelay: 0.02
+  m_Diffusion: 100
+  m_Density: 100
+  m_HFReference: 5000
+  m_RoomLF: 0
+  m_LFReference: 250
+  m_ReflectionsDelay: 0
+  m_ReverbPreset: 27
 --- !u!1 &4883376285967646515
 GameObject:
   m_ObjectHideFlags: 0

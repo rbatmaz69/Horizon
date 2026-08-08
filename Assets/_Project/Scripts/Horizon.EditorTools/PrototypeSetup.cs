@@ -114,6 +114,8 @@ namespace Horizon.EditorTools
         {
             public readonly Material RoadSurface;
             public readonly Material RoadShoulder;
+            public readonly Material Concrete;
+            public readonly Material GuardRail;
             public readonly Material Grass;
             public readonly Material Rock;
             public readonly Material CarBody;
@@ -151,6 +153,10 @@ namespace Horizon.EditorTools
                     MaterialsFolder + "/M_Grass.mat", "M_Grass", new Color(0.36f, 0.48f, 0.26f), 0.08f);
                 Rock = HorizonAssetUtility.LoadOrCreateMaterial(
                     MaterialsFolder + "/M_Rock.mat", "M_Rock", new Color(0.44f, 0.39f, 0.34f), 0.12f);
+                Concrete = HorizonAssetUtility.LoadOrCreateMaterial(
+                    MaterialsFolder + "/M_Concrete.mat", "M_Concrete", new Color(0.52f, 0.51f, 0.49f), 0.20f);
+                GuardRail = HorizonAssetUtility.LoadOrCreateMaterial(
+                    MaterialsFolder + "/M_GuardRail.mat", "M_GuardRail", new Color(0.66f, 0.68f, 0.70f), 0.55f, 0.6f);
                 CarBody = HorizonAssetUtility.LoadOrCreateMaterial(
                     MaterialsFolder + "/M_CarBody.mat", "M_CarBody", new Color(0.86f, 0.36f, 0.17f), 0.62f, 0.1f);
                 Tyre = HorizonAssetUtility.LoadOrCreateMaterial(
@@ -298,11 +304,31 @@ namespace Horizon.EditorTools
             AudioSource engineSource = CreateAudioSource(root.transform, "Audio_Engine", 0.25f);
             AudioSource windSource = CreateAudioSource(root.transform, "Audio_Wind", 0f);
 
+            // Reverb on the engine layer only. Configured as a stone corridor but starting silent — the
+            // level is faded in from the cover probe, so an open road is unaffected.
+            AudioReverbFilter reverb = engineSource.gameObject.AddComponent<AudioReverbFilter>();
+            reverb.reverbPreset = AudioReverbPreset.User;
+            reverb.room = -900f;
+            reverb.roomHF = -400f;
+            reverb.decayTime = 1.5f;
+            reverb.decayHFRatio = 0.7f;
+            reverb.reflectionsLevel = -400f;
+            reverb.reverbDelay = 0.02f;
+            reverb.diffusion = 100f;
+            reverb.density = 100f;
+            reverb.reverbLevel = -10000f;
+
+            // One probe for the whole car: the lights and the engine note both read it, so they agree and
+            // it costs a single raycast.
+            VehicleCover cover = root.AddComponent<VehicleCover>();
+
             EngineAudio engineAudio = root.AddComponent<EngineAudio>();
             HorizonAssetUtility.Configure(engineAudio, serialized =>
             {
                 serialized.FindProperty("engineSource").objectReferenceValue = engineSource;
                 serialized.FindProperty("windSource").objectReferenceValue = windSource;
+                serialized.FindProperty("engineReverb").objectReferenceValue = reverb;
+                serialized.FindProperty("cover").objectReferenceValue = cover;
             });
 
             VehicleLights lights = root.AddComponent<VehicleLights>();
@@ -313,6 +339,7 @@ namespace Horizon.EditorTools
                     bodyObject.GetComponent<MeshRenderer>();
                 serialized.FindProperty("headlightMaterialIndex").intValue = CarMeshBuilder.HeadlightSubmesh;
                 serialized.FindProperty("taillightMaterialIndex").intValue = CarMeshBuilder.TaillightSubmesh;
+                serialized.FindProperty("cover").objectReferenceValue = root.GetComponent<VehicleCover>();
             });
 
             // Anchors sit at the top of the suspension travel; wheels hang below by spring length.
@@ -399,34 +426,41 @@ namespace Horizon.EditorTools
             // --- Generated geometry.
             RoadShape roadShape = RoadShape.Default;
 
-            // M1 stand-in: the pass covers far more ground than the old test road, and the terrain is
-            // still one mesh over the whole bounding box. A thinner margin keeps that generatable while
-            // the course is being tuned. M2 replaces this with streamed corridor tiles.
-            //
-            // The cell size stays at 12 m. It must: the flat shelf around the road is forced to at
-            // least two cells, so coarser cells widen the shelf, and once the shelf is wider than half
-            // the 38.5 m gap between stacked switchback legs the two shelves fight over the ground
-            // between them. Expect a hard step there until the mountain field lands in M2 — the road
-            // itself stays clear, because a point on one leg is always nearest to its own leg.
             TerrainShape terrainShape = TerrainShape.Default;
-            terrainShape.Margin = 60f;
 
             Mesh roadMesh = RoadMeshBuilder.BuildRoad(path, roadShape, "RoadMesh");
-            Mesh terrainMesh = RoadMeshBuilder.BuildTerrain(path, terrainShape, "TerrainMesh");
 
-            // Use the returned instances: these are the imported assets, not the in-memory meshes.
-            terrainMesh = HorizonAssetUtility.ReplaceAsset(terrainMesh, GeneratedFolder + "/TerrainMesh.asset");
+            // Use the returned instance: it is the imported asset, not the in-memory mesh.
             roadMesh = HorizonAssetUtility.ReplaceAsset(roadMesh, GeneratedFolder + "/RoadMesh.asset");
 
-            CreateMeshObject(worldRoot.transform, "Terrain", terrainMesh,
-                new[] { materials.Grass, materials.Rock });
             // Material order follows the Submesh constants on RoadMeshBuilder.
-            CreateMeshObject(worldRoot.transform, "Road", roadMesh,
+            GameObject roadObject = CreateMeshObject(worldRoot.transform, "Road", roadMesh,
                 new[] { materials.RoadSurface, materials.RoadShoulder });
 
-            WorldChunk chunk = worldRoot.AddComponent<WorldChunk>();
-            chunk.RecalculateBounds();
-            EditorUtility.SetDirty(chunk);
+            // The road is a chunk of its own with a radius large enough that it never unloads: it is a
+            // thin ribbon costing little, and the car is by definition standing on it.
+            WorldChunk roadChunk = roadObject.AddComponent<WorldChunk>();
+            roadChunk.RecalculateBounds();
+            roadChunk.SetBounds(roadChunk.Center, 100000f);
+            EditorUtility.SetDirty(roadChunk);
+
+            // One field, shared: the terrain is built from it, the guard rails ask it where the ground falls
+            // away, and the tunnel bodies use it to bury their feet. Building a second would be slow and
+            // could disagree with the first.
+            var field = new MountainField(path, terrainShape);
+
+            ValidateRoadClearance(path, roadShape, field, course);
+
+            BuildTerrainTiles(worldRoot.transform, field, terrainShape, materials);
+            BuildCoveredSections(worldRoot.transform, path, roadShape, course, field, materials);
+            BuildGuardRails(worldRoot.transform, path, roadShape, field, course, materials);
+
+            // --- Streaming.
+            var streamingObject = new GameObject("Streaming");
+            WorldStreamer streamer = streamingObject.AddComponent<WorldStreamer>();
+            WorldStreamingDriver driver = streamingObject.AddComponent<WorldStreamingDriver>();
+            HorizonAssetUtility.Configure(driver, serialized =>
+                serialized.FindProperty("streamer").objectReferenceValue = streamer);
 
             // --- Sun and atmosphere.
             var sunObject = new GameObject("Sun");
@@ -467,6 +501,10 @@ namespace Horizon.EditorTools
 
             // --- Camera.
             var cameraObject = new GameObject("ChaseCamera");
+
+            // Tagged, so Camera.main resolves — the streaming driver uses it to find the viewer.
+            cameraObject.tag = "MainCamera";
+
             Camera camera = cameraObject.AddComponent<Camera>();
             camera.fieldOfView = 60f;
 
@@ -736,6 +774,202 @@ namespace Horizon.EditorTools
 
                 emitterObject.AddComponent<ExhaustSmoke>();
             }
+        }
+
+        /// <summary>
+        /// Generates the terrain as streamable tiles along a corridor either side of the road.
+        ///
+        /// Each tile is its own mesh asset, renderer, collider and <see cref="WorldChunk"/>. The tiles
+        /// sit on a global lattice and the height field is purely a function of world position, so
+        /// neighbouring tiles agree exactly along their shared edges — sampling per-tile instead is the
+        /// standard way to end up with cracks between them.
+        /// </summary>
+        private static void BuildTerrainTiles(
+            Transform parent,
+            MountainField field,
+            in TerrainShape terrainShape,
+            PrototypeMaterials materials)
+        {
+            List<TerrainTileKey> tiles = TerrainTileBuilder.ListTiles(field, terrainShape, terrainShape.CorridorWidth);
+
+            var terrainRoot = new GameObject("Terrain");
+            terrainRoot.transform.SetParent(parent, false);
+
+            float tileSize = TerrainTileBuilder.TileSize(terrainShape);
+            int totalTriangles = 0;
+
+            for (int i = 0; i < tiles.Count; i++)
+            {
+                TerrainTileKey key = tiles[i];
+                string name = $"Terrain_{key.Column}_{key.Row}";
+
+                Mesh mesh = TerrainTileBuilder.BuildTile(key, field, terrainShape, name);
+                totalTriangles += mesh.triangles.Length / 3;
+
+                mesh = HorizonAssetUtility.ReplaceAsset(mesh, $"{GeneratedFolder}/{name}.asset");
+
+                GameObject tileObject = CreateMeshObject(
+                    terrainRoot.transform, name, mesh, new[] { materials.Grass, materials.Rock });
+
+                WorldChunk chunk = tileObject.AddComponent<WorldChunk>();
+                chunk.RecalculateBounds();
+                EditorUtility.SetDirty(chunk);
+            }
+
+            Debug.Log($"[Horizon] Terrain: {tiles.Count} tiles of {tileSize:0} m, "
+                      + $"{totalTriangles} triangles total, corridor {terrainShape.CorridorWidth:0} m.");
+        }
+
+        /// <summary>
+        /// Builds a bore or a gallery for every covered stretch the course declares.
+        ///
+        /// These stay resident rather than streaming: there are two of them, they are small, and a bore
+        /// that has not loaded yet is a hole in the mountain you drive into.
+        /// </summary>
+        private static void BuildCoveredSections(
+            Transform parent,
+            RoadPath path,
+            in RoadShape roadShape,
+            RoadCourse course,
+            MountainField field,
+            PrototypeMaterials materials)
+        {
+            var root = new GameObject("CoveredSections");
+            root.transform.SetParent(parent, false);
+
+            int built = 0;
+
+            for (int i = 0; i < course.Features.Count; i++)
+            {
+                RoadFeature feature = course.Features[i];
+                bool covers = feature.Kind == RoadFeatureKind.Tunnel || feature.Kind == RoadFeatureKind.Gallery;
+                if (!covers)
+                {
+                    continue;
+                }
+
+                string name = $"{feature.Kind}_{feature.Name}";
+                Mesh mesh = TunnelBuilder.Build(path, roadShape, feature, field, name);
+                if (mesh == null)
+                {
+                    Debug.LogWarning($"[Horizon] '{feature.Name}' is too short to build ({feature.Length:0} m).");
+                    continue;
+                }
+
+                mesh = HorizonAssetUtility.ReplaceAsset(mesh, $"{GeneratedFolder}/{name}.asset");
+
+                // Material order follows the Submesh constants on TunnelBuilder.
+                CreateMeshObject(root.transform, name, mesh,
+                    new[] { materials.Rock, materials.Concrete }, addCollider: true, markStatic: true);
+
+                built++;
+            }
+
+            Debug.Log($"[Horizon] Built {built} covered section(s).");
+        }
+
+        /// <summary>
+        /// Walks the carriageway and reports anywhere the terrain stands above it.
+        ///
+        /// "The mountain cuts through the road in places" is not something to search for by eye across
+        /// five kilometres. The height field is a pure function, so the same question can simply be asked
+        /// at every metre of road and answered with numbers — including *where*, and by how much.
+        /// </summary>
+        private static void ValidateRoadClearance(
+            RoadPath path,
+            in RoadShape roadShape,
+            MountainField field,
+            RoadCourse course)
+        {
+            const float step = 2f;
+            float length = path.Length;
+
+            int breaches = 0;
+            float worst = 0f;
+            float worstAt = 0f;
+            float worstAcross = 0f;
+
+            // Checked across the full paved width, not just the centreline: the terrain intrudes from the
+            // side, so the centreline is the last place it would show up.
+            float[] offsets = { -roadShape.HalfWidth, -roadShape.HalfWidth * 0.5f, 0f,
+                                roadShape.HalfWidth * 0.5f, roadShape.HalfWidth };
+
+            for (float distance = 0f; distance <= length; distance += step)
+            {
+                // Inside a bore the mountain is meant to be overhead.
+                if (course != null && course.IsCovered(distance))
+                {
+                    continue;
+                }
+
+                Vector3 center = path.GetPositionAtDistance(distance);
+                Vector3 right = path.GetBankedRightAtDistance(
+                    distance, roadShape.MaxBankDegrees, roadShape.FullBankRadius);
+
+                for (int i = 0; i < offsets.Length; i++)
+                {
+                    Vector3 point = center + right * offsets[i];
+                    float surface = point.y + roadShape.SurfaceLift;
+                    float ground = field.HeightAt(point.x, point.z);
+
+                    float intrusion = ground - surface;
+                    if (intrusion <= 0.02f)
+                    {
+                        continue;
+                    }
+
+                    breaches++;
+                    if (intrusion > worst)
+                    {
+                        worst = intrusion;
+                        worstAt = distance;
+                        worstAcross = offsets[i];
+                    }
+                }
+            }
+
+            if (breaches == 0)
+            {
+                Debug.Log("[Horizon] Road clearance: the terrain is below the carriageway everywhere.");
+                return;
+            }
+
+            Debug.LogWarning(
+                $"[Horizon] Road clearance: terrain stands above the asphalt at {breaches} sampled points. "
+                + $"Worst is {worst:0.00} m at {worstAt:0} m along the course, {worstAcross:0.0} m across "
+                + "from the centreline.");
+        }
+
+        /// <summary>
+        /// Builds the guard rails. They stay resident with the road rather than streaming: it is a few
+        /// thousand triangles in one draw call, and a missing rail on an exposed hairpin is worse than the
+        /// cost of keeping it.
+        /// </summary>
+        private static void BuildGuardRails(
+            Transform parent,
+            RoadPath path,
+            in RoadShape roadShape,
+            MountainField field,
+            RoadCourse course,
+            PrototypeMaterials materials)
+        {
+            Mesh mesh = GuardRailBuilder.Build(path, roadShape, field, course);
+            if (mesh == null)
+            {
+                Debug.Log("[Horizon] No guard rails needed — nothing on the course is exposed enough.");
+                return;
+            }
+
+            int triangles = mesh.triangles.Length / 3;
+            mesh = HorizonAssetUtility.ReplaceAsset(mesh, GeneratedFolder + "/GuardRailMesh.asset");
+
+            // No collider: the rails are visual. Hitting one should not be a wall the car can lean on
+            // until the vehicle has a proper collision response, and a concave mesh collider here would
+            // catch the car in ways that feel arbitrary.
+            CreateMeshObject(parent, "GuardRails", mesh, new[] { materials.GuardRail },
+                addCollider: false, markStatic: true);
+
+            Debug.Log($"[Horizon] Guard rails: {triangles} triangles.");
         }
 
         private static GameObject CreateMeshObject(

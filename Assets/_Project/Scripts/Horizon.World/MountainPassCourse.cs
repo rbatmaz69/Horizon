@@ -61,8 +61,11 @@ namespace Horizon.World
                 // A tunnel partway up, where the road would otherwise have to cut through a spur.
                 if (i == 3)
                 {
+                    // 170 m, not 80. A tunnel has to last long enough that the outside is genuinely gone
+                    // and you are driving on your own headlights — at 80 m and 100 km/h it is over in
+                    // under three seconds, which reads as a covered cutting rather than a bore.
                     float tunnelStart = builder.Distance;
-                    builder.Straight(80f, 6f);
+                    builder.Straight(170f, 6f);
                     builder.AddFeature(RoadFeatureKind.Tunnel, tunnelStart, builder.Distance, "Kehrtunnel");
                 }
 

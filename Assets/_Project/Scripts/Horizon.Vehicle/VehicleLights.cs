@@ -30,6 +30,9 @@ namespace Horizon.Vehicle
         [Tooltip("Sun intensity below which the headlights come on.")]
         [SerializeField] private float nightSunIntensity = 0.35f;
 
+        [Tooltip("Shared cover probe. Found automatically if left empty.")]
+        [SerializeField] private VehicleCover cover;
+
         [Header("Emission")]
         [SerializeField] private Color headlightColor = new Color(1f, 0.96f, 0.84f);
         [SerializeField] private Color taillightColor = new Color(1f, 0.10f, 0.06f);
@@ -56,11 +59,16 @@ namespace Horizon.Vehicle
         {
             headlightBlock = new MaterialPropertyBlock();
             taillightBlock = new MaterialPropertyBlock();
+
+            if (cover == null)
+            {
+                cover = GetComponentInParent<VehicleCover>();
+            }
         }
 
         private void Update()
         {
-            HeadlightsOn = IsDark();
+            HeadlightsOn = IsDark() || (cover != null && cover.IsCovered);
 
             for (int i = 0; i < headlights.Length; i++)
             {
@@ -98,5 +106,6 @@ namespace Horizon.Vehicle
 
             return !sun.enabled || sun.intensity < nightSunIntensity;
         }
+
     }
 }

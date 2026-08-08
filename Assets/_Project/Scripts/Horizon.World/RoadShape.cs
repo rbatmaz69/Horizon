@@ -65,6 +65,13 @@ namespace Horizon.World
 
         public RoadMarkings Markings;
 
+        [Tooltip("Camber at full lock, degrees. The carriageway rolls into a corner, which the car feels "
+               + "through the wheel raycasts without any change to the vehicle.")]
+        public float MaxBankDegrees;
+
+        [Tooltip("Corner radius at which the camber reaches its maximum. Tighter corners get no more.")]
+        public float FullBankRadius;
+
         [Tooltip("Below this corner radius the centre line becomes solid — no overtaking.")]
         public float SolidLineBelowRadius;
 
@@ -81,7 +88,12 @@ namespace Horizon.World
             // 1.86 m across and tilt steering is not precise to the centimetre.
             HalfWidth = 4.5f,
             ShoulderWidth = 1.5f,
-            ShoulderDrop = 0.3f,
+
+            // 0.5 m, and it has to be read together with TerrainShape.RoadShelfDrop and MaxBankDegrees.
+            // The camber lowers the inner edge of the carriageway by HalfWidth × sin(bank); if the terrain
+            // shelf is not below *that*, the hillside comes up through the asphalt on the inside of every
+            // corner. At 4° that is 0.31 m, so the shelf at 0.45 m leaves 0.14 m of clearance.
+            ShoulderDrop = 0.5f,
 
             // 2.5 m, not 4 m: on a 20 m hairpin radius, 4 m steps are 11° apart and the corner
             // visibly facets. Hairpins are the whole point of the pass, so they set this number.
@@ -93,6 +105,11 @@ namespace Horizon.World
 
             Markings = RoadMarkings.Default,
 
+            // Held at 4°, not the 6° an alpine hairpin is really built with, because the camber lowers the
+            // inner edge and every degree of it has to be paid for out of the terrain clearance above.
+            MaxBankDegrees = 4f,
+            FullBankRadius = 30f,
+
             // Hairpins are R=20 and the legs sweep at R=150, so both sit clearly on their own side.
             SolidLineBelowRadius = 60f,
             DashedLineAboveRadius = 90f,
@@ -100,18 +117,18 @@ namespace Horizon.World
     }
 
     /// <summary>
-    /// Controls the low-poly valley generated around a road. A mountain pass reads as one because
-    /// the terrain rises on the inside of the curve and falls away on the outside — on a serpentine
-    /// that alternates on its own as the road hairpins back.
+    /// Controls the terrain generated around a road: how finely it is meshed, how far it extends, and how
+    /// the carriageway is cut into it.
+    ///
+    /// Note what is *not* here any more: there used to be settings for how far the uphill side rose and
+    /// how deep the downhill side fell. That rule could not survive a road that doubles back on itself,
+    /// and <see cref="MountainField"/> replaced it.
     /// </summary>
     [Serializable]
     public struct TerrainShape
     {
         [Tooltip("Grid cell size, metres. Larger cells give a more faceted look and fewer triangles.")]
         public float CellSize;
-
-        [Tooltip("How far the terrain extends beyond the road's bounding box, metres.")]
-        public float Margin;
 
         [Tooltip("Flat ground either side of the road before the relief starts. Enforced to at least "
                + "two cells wide, so no terrain triangle can span from road level into full relief "
@@ -125,17 +142,9 @@ namespace Horizon.World
                + "and the road appears to float on a plinth.")]
         public float RoadShelfDrop;
 
-        [Tooltip("Distance over which terrain blends from road level into full relief.")]
+        [Tooltip("Distance over which the ground blends from the road's shelf into the open mountain. "
+               + "Longer means the carriageway sits in a gentler cutting.")]
         public float BlendDistance;
-
-        [Tooltip("Rise per metre away from the road, on the uphill side.")]
-        public float SlopeRise;
-
-        [Tooltip("Cap on relief height, metres.")]
-        public float MaxRelief;
-
-        [Tooltip("How deep the downhill side drops, as a fraction of the uphill rise.")]
-        public float ValleyDepth;
 
         [Tooltip("Amplitude of the large rolling shapes, metres.")]
         public float RidgeAmplitude;
@@ -151,24 +160,36 @@ namespace Horizon.World
         [Tooltip("Faces steeper than this are treated as rock rather than grass, degrees.")]
         public float RockSlopeThreshold;
 
+        [Tooltip("Target side length of a terrain tile, metres. Rounded to a whole number of cells so "
+               + "tile edges always land on the lattice.")]
+        public float TileSize;
+
+        [Tooltip("How far either side of the road terrain is generated at all. A folded pass leaves most "
+               + "of its bounding box empty, so a corridor skips the work rather than the detail.")]
+        public float CorridorWidth;
+
         public static TerrainShape Default => new TerrainShape
         {
             CellSize = 12f,
-            Margin = 140f,
             VergeWidth = 24f,
 
-            // Where the outer edge of the verge lands: SurfaceLift 0.08 minus ShoulderDrop 0.30, plus a
-            // little margin so the asphalt is reliably proud of the terrain.
-            RoadShelfDrop = 0.25f,
-            BlendDistance = 30f,
-            SlopeRise = 0.55f,
-            MaxRelief = 85f,
-            ValleyDepth = 0.85f,
+            // Must clear the lowest point of the cambered carriageway, which is the inner edge in a
+            // corner: HalfWidth 4.5 × sin(4°) = 0.31 m below the centreline. 0.45 leaves 0.14 m, and it
+            // also lands close to where the outer edge of the verge falls to.
+            RoadShelfDrop = 0.45f,
+            // 70 m, not 30: this is now the width of the cutting the road sits in, and a short blend
+            // makes the carriageway look like it is running along the top of a dyke.
+            BlendDistance = 70f,
             RidgeAmplitude = 26f,
             RidgeScale = 0.0055f,
             DetailAmplitude = 5f,
             DetailScale = 0.03f,
             RockSlopeThreshold = 34f,
+
+            // 168 m is fourteen 12 m cells: about 400 triangles a tile, and roughly 70 tiles for the
+            // pass. Small enough to stream, large enough not to drown in draw calls.
+            TileSize = 168f,
+            CorridorWidth = 200f,
         };
     }
 }

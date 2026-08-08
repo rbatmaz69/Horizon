@@ -103,6 +103,32 @@ namespace Horizon.World
             }
         }
 
+        /// <summary>
+        /// True if <paramref name="distance"/> is inside a covered stretch or within
+        /// <paramref name="margin"/> of one.
+        ///
+        /// The margin exists for roadside furniture. The ground beside a portal is cut away for the bore, so
+        /// a guard rail placed by a plain drop test finds a large drop and puts a post there — standing in
+        /// mid-air next to the entrance.
+        /// </summary>
+        public bool IsCoveredOrNear(float distance, float margin)
+        {
+            for (int i = 0; i < features.Count; i++)
+            {
+                RoadFeature feature = features[i];
+                bool covers = feature.Kind == RoadFeatureKind.Tunnel || feature.Kind == RoadFeatureKind.Gallery;
+
+                if (covers
+                    && distance >= feature.StartDistance - margin
+                    && distance <= feature.EndDistance + margin)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         /// <summary>True if <paramref name="distance"/> falls inside a tunnel or gallery.</summary>
         public bool IsCovered(float distance)
         {

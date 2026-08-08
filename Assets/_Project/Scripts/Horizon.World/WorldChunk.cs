@@ -3,11 +3,12 @@ using UnityEngine;
 namespace Horizon.World
 {
     /// <summary>
-    /// One loadable piece of the world. The prototype has a single chunk that is simply always on —
-    /// this type exists now so the streaming boundary is decided before the world grows, and adding
-    /// zones later does not mean restructuring scenes.
+    /// One loadable piece of the world, and the unit the streamer works in.
     ///
-    /// A chunk is responsible for nothing except knowing where it is and being cheap to switch off.
+    /// Rendering and collision are switched **separately**, not by activating the whole object.
+    /// Enabling a MeshCollider makes Unity cook it, which is a visible hitch if it happens while
+    /// driving, so <see cref="WorldStreamer"/> keeps physics alive over a wider radius than graphics.
+    /// Toggling the GameObject would make that impossible.
     /// </summary>
     public sealed class WorldChunk : MonoBehaviour
     {
@@ -17,8 +18,8 @@ namespace Horizon.World
         [Tooltip("Radius covering the chunk's contents, metres.")]
         [SerializeField] private float radius = 250f;
 
-        [Tooltip("Root that gets switched off when the chunk unloads. Defaults to this object.")]
-        [SerializeField] private GameObject content;
+        private Renderer[] renderers;
+        private Collider[] colliders;
 
         /// <summary>Chunk centre in world space.</summary>
         public Vector3 Center => center;
@@ -26,49 +27,95 @@ namespace Horizon.World
         /// <summary>Bounding radius in metres.</summary>
         public float Radius => radius;
 
-        /// <summary>Whether the chunk's content is currently active.</summary>
-        public bool IsLoaded => content != null && content.activeSelf;
+        /// <summary>Whether the chunk is currently being drawn.</summary>
+        public bool IsLoaded { get; private set; } = true;
+
+        /// <summary>Whether the chunk's colliders are live.</summary>
+        public bool IsCollidable { get; private set; } = true;
 
         private void Awake()
         {
-            if (content == null)
+            CacheComponents();
+        }
+
+        private void CacheComponents()
+        {
+            if (renderers == null)
             {
-                content = gameObject;
+                renderers = GetComponentsInChildren<Renderer>(true);
+            }
+
+            if (colliders == null)
+            {
+                colliders = GetComponentsInChildren<Collider>(true);
             }
         }
 
-        /// <summary>Activates or deactivates the chunk's content.</summary>
+        /// <summary>Shows or hides the chunk's geometry.</summary>
         public void SetLoaded(bool loaded)
         {
-            if (content == null)
+            if (IsLoaded == loaded && renderers != null)
             {
-                content = gameObject;
+                return;
             }
 
-            if (content.activeSelf != loaded)
+            CacheComponents();
+            IsLoaded = loaded;
+
+            for (int i = 0; i < renderers.Length; i++)
             {
-                content.SetActive(loaded);
+                if (renderers[i] != null)
+                {
+                    renderers[i].enabled = loaded;
+                }
+            }
+        }
+
+        /// <summary>Enables or disables the chunk's colliders.</summary>
+        public void SetCollisionEnabled(bool enabled)
+        {
+            if (IsCollidable == enabled && colliders != null)
+            {
+                return;
+            }
+
+            CacheComponents();
+            IsCollidable = enabled;
+
+            for (int i = 0; i < colliders.Length; i++)
+            {
+                if (colliders[i] != null)
+                {
+                    colliders[i].enabled = enabled;
+                }
             }
         }
 
         /// <summary>Recomputes centre and radius from the renderers underneath. Editor-time helper.</summary>
         public void RecalculateBounds()
         {
-            Renderer[] renderers = GetComponentsInChildren<Renderer>();
-            if (renderers.Length == 0)
+            Renderer[] found = GetComponentsInChildren<Renderer>(true);
+            if (found.Length == 0)
             {
                 center = transform.position;
                 return;
             }
 
-            Bounds bounds = renderers[0].bounds;
-            for (int i = 1; i < renderers.Length; i++)
+            Bounds bounds = found[0].bounds;
+            for (int i = 1; i < found.Length; i++)
             {
-                bounds.Encapsulate(renderers[i].bounds);
+                bounds.Encapsulate(found[i].bounds);
             }
 
             center = bounds.center;
             radius = bounds.extents.magnitude;
+        }
+
+        /// <summary>Sets the bounds directly, for chunks whose extent is known before they are filled.</summary>
+        public void SetBounds(Vector3 worldCenter, float worldRadius)
+        {
+            center = worldCenter;
+            radius = worldRadius;
         }
 
         /// <summary>Distance from a point to the chunk's shell. Zero when inside.</summary>
