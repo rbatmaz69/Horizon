@@ -36,7 +36,13 @@ namespace Horizon.EditorTools
         /// Half the distance between the wheel centres. Must match the prefab's anchors. Set so the
         /// tyre stands a few centimetres proud of the fender — flush wheels read as recessed.
         /// </summary>
-        public const float TrackHalfWidth = 0.90f;
+        public const float TrackHalfWidth = 0.99f;
+
+        /// <summary>How far the widebody arches blister out beyond the flank, metres.</summary>
+        private const float FlareWidth = 0.09f;
+
+        /// <summary>How far either side of a wheel centre the flare fades back to nothing, metres.</summary>
+        private const float FlareReach = 0.75f;
 
         /// <summary>Distance of the wheel centres from the car's middle, along Z.</summary>
         public const float WheelBaseHalf = 1.35f;
@@ -51,11 +57,22 @@ namespace Horizon.EditorTools
         /// <summary>
         /// Top of the wheel arch openings. Sized so the wheel nearly fills the opening — an arch much
         /// larger than its wheel makes the car look like it is on the wrong rims.
+        ///
+        /// Note this is a *request*, not the final height: <see cref="BuildRing"/> clamps the arch to
+        /// <c>belt - 0.08</c> so the opening can never reach the beltline. It sat at 0.15 against a
+        /// beltline of 0.21 and was therefore doing nothing at all — the clamp won. Raising it only has
+        /// an effect because <see cref="KeyStations"/> now lifts the beltline over the wheels to match.
         /// </summary>
-        private const float ArchTopY = 0.15f;
+        private const float ArchTopY = 0.22f;
 
-        /// <summary>Half-length of an arch opening along Z. Roughly the wheel radius plus a margin.</summary>
-        private const float ArchHalfLength = 0.44f;
+        /// <summary>
+        /// Half-length of an arch opening along Z. Roughly the wheel radius plus a margin.
+        ///
+        /// 0.50 exactly, because <c>WheelBaseHalf - 0.50 = 0.85</c> lands on the cowl crease, where the
+        /// arch contributes nothing anyway — so the front opening cannot ripple the base of the
+        /// windscreen.
+        /// </summary>
+        private const float ArchHalfLength = 0.50f;
 
         private readonly struct Station
         {
@@ -85,7 +102,7 @@ namespace Horizon.EditorTools
         /// <summary>
         /// The silhouette, tail to nose. Note the shape of it: the hood runs flat from z 0.62 to 2.30
         /// (1.7 m of it), the deck behind the cabin is only 0.6 m, and TopY falls continuously from the
-        /// roof at 0.60 all the way to the tail — that unbroken slope is the fastback.
+        /// roof at 0.68 all the way to the tail — that unbroken slope is the fastback.
         /// </summary>
         private static readonly Station[] KeyStations =
         {
@@ -95,30 +112,66 @@ namespace Horizon.EditorTools
             // near-vertical rather than drooping, which is the difference between a muscle car and a
             // seventies boat nose.
             //
-            // The roof is short (0.25 to -0.45) and TopY then falls 0.36 over the last 1.9 m, ending at
-            // a low tail. A shallower drop with a longer roof is precisely what makes a car read as an
-            // estate instead of a fastback.
+            // The roof sits at 0.68 against a beltline of 0.22, so the glasshouse is about four tenths of
+            // the body's height. At 0.57 it was a third, and the car read as pressed flat: a deep slab of
+            // door with a letterbox on top, and a roofline whose fall to the tail was too shallow to see.
+            // The fall is now 0.47 over the last 1.9 m and follows a straight line from the roof to the
+            // tail panel, bowed out by a couple of centimetres — that line *is* the fastback. Flatten it
+            // and the same car reads as an estate.
             //
             // The two fender stations are noticeably wider than the body between them, which is the
             // widebody flare. TrackHalfWidth is set so the tyres still stand proud of it.
+            // Two more things the table now does.
+            //
+            // BeltY rises to about 0.30 over each axle and drops back to 0.22 in the middle. That is the
+            // haunch, and it is not only styling: BuildRing caps the wheel arch at belt - 0.08, so the
+            // beltline is what physically decides how big an arch opening can be. Without the hips, the
+            // 0.42 m wheels stand in the bodywork whatever ArchTopY says.
+            //
+            // At the tail, TopY falls to 0.29 and then kicks back *up* to 0.36 before cutting off. That
+            // is the ducktail — a real one is an upturn pressed into the deck lid, not a part bolted on,
+            // so it is built the same way here and the shell stays closed.
             //           z       halfW  belt   top    topHalf sill
-            new Station(-2.34f, 0.84f, 0.14f, 0.21f, 0.62f, -0.42f),
-            new Station(-2.26f, 0.92f, 0.17f, 0.25f, 0.70f, -0.48f),
-            new Station(-2.10f, 0.96f, 0.19f, 0.29f, 0.74f, -0.52f),
-            new Station(-1.80f, 0.98f, 0.20f, 0.35f, 0.74f, -0.52f),
-            new Station(-1.35f, 1.02f, 0.21f, 0.45f, 0.70f, -0.52f),
-            new Station(-0.90f, 0.96f, 0.22f, 0.53f, 0.66f, -0.52f),
-            new Station(-0.45f, 0.93f, 0.22f, 0.57f, 0.64f, -0.52f),
-            new Station(0.25f, 0.92f, 0.22f, 0.56f, 0.62f, -0.52f),
-            new Station(0.85f, 0.93f, 0.21f, 0.30f, 0.78f, -0.52f),
-            new Station(1.40f, 1.00f, 0.20f, 0.28f, 0.80f, -0.52f),
-            new Station(1.95f, 0.94f, 0.18f, 0.28f, 0.78f, -0.51f),
-            new Station(2.20f, 0.90f, 0.16f, 0.28f, 0.74f, -0.49f),
-            new Station(2.32f, 0.82f, 0.13f, 0.26f, 0.62f, -0.44f),
+            new Station(-2.36f, 0.80f, 0.15f, 0.24f, 0.58f, -0.38f),
+            new Station(-2.30f, 0.88f, 0.17f, 0.33f, 0.66f, -0.45f),
+            new Station(-2.20f, 0.93f, 0.19f, 0.36f, 0.72f, -0.50f),
+            new Station(-2.05f, 0.96f, 0.21f, 0.29f, 0.74f, -0.52f),
+            new Station(-1.80f, 0.98f, 0.24f, 0.36f, 0.74f, -0.52f),
+            new Station(-1.55f, 1.00f, 0.28f, 0.44f, 0.72f, -0.52f),
+            new Station(-1.35f, 1.02f, 0.30f, 0.48f, 0.71f, -0.52f),
+            new Station(-1.15f, 1.00f, 0.28f, 0.53f, 0.70f, -0.52f),
+            new Station(-0.90f, 0.96f, 0.24f, 0.59f, 0.68f, -0.52f),
+            new Station(-0.45f, 0.93f, 0.22f, 0.68f, 0.66f, -0.52f),
+            new Station(0.25f, 0.92f, 0.22f, 0.67f, 0.65f, -0.52f),
+            new Station(0.85f, 0.93f, 0.24f, 0.31f, 0.78f, -0.52f),
+            new Station(1.15f, 0.97f, 0.27f, 0.33f, 0.79f, -0.52f),
+            new Station(1.40f, 1.00f, 0.29f, 0.34f, 0.80f, -0.52f),
+            new Station(1.70f, 0.99f, 0.27f, 0.33f, 0.80f, -0.52f),
+
+            // The nose. It used to end in a 1.64 m wide, 0.73 m tall flat disc — AddCap forces every
+            // vertex of the last ring to one Z, so the whole front shaded as a single plate, and that
+            // was most of why it read as a block. HalfWidth also fell only 13 % over the last 0.37 m and
+            // SillY rose only 8 cm, so there was nothing curving into it either.
+            //
+            // Six rings now taper over 0.57 m and the cap is down to about a third of its old area, with
+            // the sill rising 0.31 m to dome the underside. Not tapered to a point: a Mustang has a full
+            // rounded snout, and a wedge would be the wrong car.
+            new Station(1.95f, 0.94f, 0.24f, 0.31f, 0.78f, -0.51f),
+            new Station(2.16f, 0.93f, 0.21f, 0.30f, 0.77f, -0.49f),
+            new Station(2.30f, 0.90f, 0.18f, 0.29f, 0.74f, -0.45f),
+            new Station(2.40f, 0.84f, 0.14f, 0.26f, 0.68f, -0.39f),
+            new Station(2.47f, 0.72f, 0.09f, 0.21f, 0.56f, -0.31f),
+            new Station(2.52f, 0.54f, 0.03f, 0.14f, 0.40f, -0.20f),
         };
 
-        /// <summary>Z positions that get a duplicated ring: the deck edge and both ends of the screen.</summary>
-        private static readonly float[] CreaseZ = { -1.80f, 0.25f, 0.85f };
+        /// <summary>
+        /// Z positions that get a duplicated ring, so no normal averages across the edge: the ducktail's
+        /// leading edge, the deck edge, and both ends of the screen.
+        ///
+        /// The ducktail needs its crease or the upturn reads as a soft swelling in the deck rather than
+        /// as a spoiler with a lip.
+        /// </summary>
+        private static readonly float[] CreaseZ = { -2.20f, -1.80f, 0.25f, 0.85f };
 
         /// <summary>Spacing of the interpolated cross-sections.</summary>
         private const float StationStep = 0.13f;
@@ -285,6 +338,37 @@ namespace Horizon.EditorTools
         }
 
         /// <summary>
+        /// How far the bodywork blisters outwards at a given Z — the widebody arches.
+        ///
+        /// Deliberately a function of position applied to the flank points of the cross-section rather
+        /// than new bolt-on geometry. The ring stays a closed loop and the ring-to-ring stitching is
+        /// untouched, so there is no seam to leak and nothing to keep in step with the shell. Widening
+        /// <see cref="Station.HalfWidth"/> instead would have been simpler still, but that moves the
+        /// whole flank from sill to roof rail and gives a car that is uniformly fatter — not one with
+        /// arches over its wheels.
+        ///
+        /// SmoothStep rather than a linear ramp: a cone has a visible kink where it meets the flank,
+        /// and the point of a flare is that it swells.
+        /// </summary>
+        private static float FlareAt(float z)
+        {
+            float flare = 0f;
+
+            for (int side = -1; side <= 1; side += 2)
+            {
+                float distance = Mathf.Abs(z - side * WheelBaseHalf) / FlareReach;
+                if (distance >= 1f)
+                {
+                    continue;
+                }
+
+                flare = Mathf.Max(flare, FlareWidth * Mathf.SmoothStep(0f, 1f, 1f - distance));
+            }
+
+            return flare;
+        }
+
+        /// <summary>
         /// Underside height at a given Z. Rises into a roughly circular arch over each wheel — that
         /// opening is what stops the wheels looking like castors bolted under a slab.
         /// </summary>
@@ -324,8 +408,16 @@ namespace Horizon.EditorTools
             float bottom = Mathf.Min(BottomAt(z, station.SillY), belt - 0.08f);
             float half = station.HalfWidth;
             float topHalf = station.TopHalfWidth;
-            float sillX = half * 0.72f;
             float crown = topHalf * CrownFraction;
+
+            // The flare is carried by the flank points only. The sill takes a third of it so the arch
+            // does not look pinched underneath, the point just above the beltline takes under half so
+            // the blister tucks back in towards the glasshouse, and the roof takes none at all — a
+            // widebody widens the body, never the cabin.
+            float flare = FlareAt(z);
+            float flank = half + flare;
+            float sillX = half * 0.72f + flare * 0.35f;
+            float shoulderX = half * 0.985f + flare * 0.45f;
 
             // Intermediate heights are fractions of the available span, never fixed offsets. Over a
             // wheel arch the gap between the underside and the belt shrinks to a few centimetres, and
@@ -340,10 +432,10 @@ namespace Horizon.EditorTools
             var key = new[]
             {
                 new Vector3(sillX, bottom, z),
-                new Vector3(half * 0.99f, flankLow, z),
-                new Vector3(half, flankHigh, z),
-                new Vector3(half, belt, z),
-                new Vector3(half * 0.985f, shoulderLow, z),
+                new Vector3(flank * 0.99f, flankLow, z),
+                new Vector3(flank, flankHigh, z),
+                new Vector3(flank, belt, z),
+                new Vector3(shoulderX, shoulderLow, z),
                 new Vector3(topHalf * 1.02f, shoulderHigh, z),
                 new Vector3(topHalf, top, z),
                 new Vector3(topHalf * 0.58f, top + crown * 0.85f, z),
@@ -351,10 +443,10 @@ namespace Horizon.EditorTools
                 new Vector3(-topHalf * 0.58f, top + crown * 0.85f, z),
                 new Vector3(-topHalf, top, z),
                 new Vector3(-topHalf * 1.02f, shoulderHigh, z),
-                new Vector3(-half * 0.985f, shoulderLow, z),
-                new Vector3(-half, belt, z),
-                new Vector3(-half, flankHigh, z),
-                new Vector3(-half * 0.99f, flankLow, z),
+                new Vector3(-shoulderX, shoulderLow, z),
+                new Vector3(-flank, belt, z),
+                new Vector3(-flank, flankHigh, z),
+                new Vector3(-flank * 0.99f, flankLow, z),
                 new Vector3(-sillX, bottom, z),
             };
 
@@ -409,17 +501,23 @@ namespace Horizon.EditorTools
         /// </summary>
         private static void AddFrontDetails(List<Vector3> vertices, List<int>[] submeshTriangles)
         {
-            const float z = 2.34f;
+            // Just ahead of the nose cap, which now ends at 2.52 and is ±0.54 wide. A panel placed back
+            // where the body is widest ends up buried inside the shell and renders nothing — which is
+            // exactly what would have happened if these had been left at the old 2.34 after the nose was
+            // extended, and it would have looked like the grille had simply vanished.
+            const float z = 2.54f;
 
-            AddPanel(vertices, submeshTriangles[GlassSubmesh], z, -0.36f, 0.36f, -0.14f, 0.09f, true);
-            AddPanel(vertices, submeshTriangles[HeadlightSubmesh], z, 0.42f, 0.66f, -0.07f, 0.09f, true);
-            AddPanel(vertices, submeshTriangles[HeadlightSubmesh], z, -0.66f, -0.42f, -0.07f, 0.09f, true);
+            AddPanel(vertices, submeshTriangles[GlassSubmesh], z, -0.30f, 0.30f, -0.13f, 0.02f, true);
+            AddPanel(vertices, submeshTriangles[HeadlightSubmesh], z, 0.34f, 0.50f, -0.02f, 0.10f, true);
+            AddPanel(vertices, submeshTriangles[HeadlightSubmesh], z, -0.50f, -0.34f, -0.02f, 0.10f, true);
         }
 
         /// <summary>Three vertical bars each side, which is the tail this car is quoting.</summary>
         private static void AddRearDetails(List<Vector3> vertices, List<int>[] submeshTriangles)
         {
-            const float z = -2.36f;
+            // Two centimetres behind the tail cap at -2.36, so the bars sit proud of it rather than
+            // coplanar with it and z-fighting.
+            const float z = -2.38f;
             var barStarts = new[] { 0.18f, 0.34f, 0.50f };
             const float barWidth = 0.13f;
 

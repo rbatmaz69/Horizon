@@ -68,6 +68,15 @@ namespace Horizon.Vehicle
         /// <summary>Selected gear: 1-based forwards, 0 while reversing.</summary>
         public int Gear => reversing ? 0 : gearIndex + 1;
 
+        /// <summary>
+        /// How hard the driver is actually braking, 0 to 1 — zero while the same pedal is being used
+        /// to reverse. Not the same thing as <c>IDriveInput.Brake</c>, which cannot tell them apart.
+        /// </summary>
+        public float BrakeInput { get; private set; }
+
+        /// <summary>True while the brake pedal is driving the car backwards rather than slowing it.</summary>
+        public bool IsReversing => reversing;
+
         /// <summary>True during the torque interruption of a shift.</summary>
         public bool IsShifting => shiftTimer > 0f;
 
@@ -207,6 +216,10 @@ namespace Horizon.Vehicle
                 reverse = brake;
                 brake = 0f;
             }
+
+            // Published because the pedal alone cannot tell the two apart, and anything downstream that
+            // treats reversing as braking gets it wrong — brake lights being the obvious one.
+            BrakeInput = brake;
 
             float driveForcePerWheel = UpdateDrivetrain(deltaTime, throttle, reverse);
 

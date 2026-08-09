@@ -34,8 +34,18 @@ namespace Horizon.World
         /// <summary>Points around the arch and around the massif. Shared, so the two can be stitched.</summary>
         private const int ArchSegments = 15;
 
-        /// <summary>Spacing of the rings along the bore, metres.</summary>
-        private const float RingSpacing = 5f;
+        /// <summary>
+        /// Spacing of the rings along the bore, metres.
+        ///
+        /// 12, matching <c>TerrainShape.CellSize</c>. Once the body is flat-shaded the ring spacing *is* its
+        /// facet size, and at 5 m the facets were finer than the hillside's — which reads as corrugation, a
+        /// ribbed caterpillar lying on the mountain, rather than as rock. Cutting the massif at the same
+        /// pitch as the terrain is what makes the two look like the same material.
+        ///
+        /// Safe only because both covered stretches bracket a straight; a bore following a curve would need
+        /// its rings closer together than its facets ideally are.
+        /// </summary>
+        private const float RingSpacing = 12f;
 
         /// <summary>How far the massif runs past each portal before its flanks settle into the ground.</summary>
         private const float EndOverhang = 24f;
@@ -44,14 +54,18 @@ namespace Horizon.World
         /// Half-width of the massif at its widest, metres.
         ///
         /// This is the number that decides whether the thing reads as a mountain or as a lump. A tunnel is
-        /// built because a mountain is in the way, so the body has to be a mountain: a hundred metres across
-        /// and thirty tall, not the seventeen-metre casing this started as. Because the body is closed it can
-        /// be any size without risking a hole — the size is purely an artistic choice.
+        /// built because a mountain is in the way, so the body has to be a mountain, not the seventeen-metre
+        /// casing this started as. Because the body is closed it can be any size without risking a hole —
+        /// the size is purely an artistic choice.
+        ///
+        /// 40, down from 52. On a switchback, neighbouring legs are only 40–80 m apart in plan, and at 52 m
+        /// the body swallowed the leg below it whole. 40 keeps it a spur the road passes rather than a dome
+        /// the road disappears under.
         /// </summary>
-        private const float MoundHalfWidth = 52f;
+        private const float MoundHalfWidth = 40f;
 
         /// <summary>Height of the massif over the carriageway at its highest, metres.</summary>
-        private const float MoundHeight = 32f;
+        private const float MoundHeight = 26f;
 
         /// <summary>How much the massif narrows towards its ends, as a fraction of full size.</summary>
         private const float EndTaper = 0.6f;
@@ -66,6 +80,40 @@ namespace Horizon.World
             RoadFeature feature,
             MountainField field,
             string meshName)
+        {
+            return Build(path, roadShape, feature, field, meshName, includeSkin: true);
+        }
+
+        /// <summary>
+        /// The same body with only the surfaces a car should be able to hit: the bore lining, the portal
+        /// rings and a gallery's pillars.
+        ///
+        /// The outer skin is deliberately left out of collision. It contributes nothing — the terrain is
+        /// never cut for a tunnel, so the ground under the massif is already solid and already has its own
+        /// collider — while adding a large concave surface right beside the carriageway for the car to catch
+        /// on. That is not hypothetical: with the skin's feet pinned at road level, the descent gallery's
+        /// massif came up through the road and stopped the car dead.
+        ///
+        /// Leaving it out means driving off the road into the flank of the massif clips through rock rather
+        /// than stopping. That is the better failure: it is off the racing line, and it is visible.
+        /// </summary>
+        public static Mesh BuildCollision(
+            IRoadPath path,
+            in RoadShape roadShape,
+            RoadFeature feature,
+            MountainField field,
+            string meshName)
+        {
+            return Build(path, roadShape, feature, field, meshName, includeSkin: false);
+        }
+
+        private static Mesh Build(
+            IRoadPath path,
+            in RoadShape roadShape,
+            RoadFeature feature,
+            MountainField field,
+            string meshName,
+            bool includeSkin)
         {
             if (feature.Length < RingSpacing * 2f)
             {
@@ -85,11 +133,13 @@ namespace Horizon.World
             int rings = Mathf.Max(4, Mathf.CeilToInt((endDistance - startDistance) / RingSpacing) + 1);
             int stride = ArchSegments * 2;
 
-            var vertices = new List<Vector3>(rings * stride);
-            var normals = new List<Vector3>(rings * stride);
-            var uvs = new List<Vector2>(rings * stride);
-            var rock = new List<int>(rings * ArchSegments * 12);
-            var portal = new List<int>(ArchSegments * 12);
+            // The ring lattice is built as bare positions first, and the triangles are then emitted from it
+            // with their own vertices. That is what makes the body flat-shaded, like every other mesh in the
+            // world. It used to share vertices between rings and carry analytic smooth normals, and the
+            // result was the only smooth-shaded object in a faceted landscape — a body the size of a hill
+            // that read as a rubber lump laid over the mountain rather than as part of it.
+            var points = new Vector3[rings * stride];
+            var pointUvs = new Vector2[rings * stride];
 
             for (int ring = 0; ring < rings; ring++)
             {
@@ -108,27 +158,28 @@ namespace Horizon.World
                 float moundHalf = MoundHalfWidth * taper * wobble;
                 float moundTop = MoundHeight * taper * wobble;
 
-                // Inner ring first, then outer, so the portal ring can index both from one offset.
+                int ringStart = ring * stride;
+
+                // Inner half of the stride first, then outer, so a portal ring can index both from one offset.
                 for (int i = 0; i < ArchSegments; i++)
                 {
                     float u = i / (float)(ArchSegments - 1);
-                    Vector3 inner = ArchPoint(center, right, u, archHalfWidth, springLine, crown, gallery);
 
-                    vertices.Add(inner);
-                    normals.Add((center + Vector3.up * (springLine * 0.8f) - inner).normalized);
-                    uvs.Add(new Vector2(u * 2f, distance * 0.1f));
-                }
+                    points[ringStart + i] =
+                        ArchPoint(center, right, u, archHalfWidth, springLine, crown, gallery);
+                    pointUvs[ringStart + i] = new Vector2(u * 2f, distance * 0.1f);
 
-                for (int i = 0; i < ArchSegments; i++)
-                {
-                    float u = i / (float)(ArchSegments - 1);
-                    Vector3 outer = MoundPoint(center, right, u, moundHalf, moundTop, field);
-
-                    vertices.Add(outer);
-                    normals.Add((outer - (center + Vector3.up * (moundTop * 0.3f))).normalized);
-                    uvs.Add(new Vector2(u * 3f, distance * 0.06f));
+                    points[ringStart + ArchSegments + i] =
+                        MoundPoint(center, right, u, moundHalf, moundTop, field);
+                    pointUvs[ringStart + ArchSegments + i] = new Vector2(u * 3f, distance * 0.06f);
                 }
             }
+
+            var vertices = new List<Vector3>(rings * stride * 6);
+            var normals = new List<Vector3>(rings * stride * 6);
+            var uvs = new List<Vector2>(rings * stride * 6);
+            var rock = new List<int>(rings * ArchSegments * 12);
+            var portal = new List<int>(ArchSegments * 12);
 
             for (int ring = 0; ring < rings - 1; ring++)
             {
@@ -140,19 +191,25 @@ namespace Horizon.World
                     // Bore lining faces inwards — the only side it is ever seen from. The outer skin is the
                     // same stitch with the opposite winding. Unity culls by winding, not by the normal that
                     // gets assigned, which is what made an earlier version of this invisible from inside.
-                    AddQuad(rock, here + i, here + i + 1, ahead + i, ahead + i + 1, reverse: false);
+                    AddFlatQuad(vertices, normals, uvs, rock, points, pointUvs,
+                        here + i, here + i + 1, ahead + i, ahead + i + 1, reverse: false);
+
+                    if (!includeSkin)
+                    {
+                        continue;
+                    }
 
                     int outerHere = here + ArchSegments;
                     int outerAhead = ahead + ArchSegments;
-                    AddQuad(rock, outerHere + i, outerHere + i + 1, outerAhead + i, outerAhead + i + 1,
-                        reverse: true);
+                    AddFlatQuad(vertices, normals, uvs, rock, points, pointUvs,
+                        outerHere + i, outerHere + i + 1, outerAhead + i, outerAhead + i + 1, reverse: true);
                 }
             }
 
             // Portal rings: the annulus between bore and skin at each end. Both boundaries come from the same
             // parameter, so this closes the body exactly — no gap to measure, no wall to size.
-            AddPortalRing(vertices, normals, uvs, portal, 0, false);
-            AddPortalRing(vertices, normals, uvs, portal, (rings - 1) * stride, true);
+            AddPortalRing(points, vertices, normals, uvs, portal, 0, false);
+            AddPortalRing(points, vertices, normals, uvs, portal, (rings - 1) * stride, true);
 
             if (gallery)
             {
@@ -203,6 +260,16 @@ namespace Horizon.World
         /// <summary>
         /// A point on the outer skin: a half-ellipse over the road, with its feet buried in the ground so the
         /// body needs no floor and shows no bottom edge.
+        ///
+        /// The burial used to be written as <c>Mathf.Max(center.y + above, buried)</c>, and it never once
+        /// took effect: <c>above</c> is a sine over [0, π] scaled by a positive roughness factor, so it is
+        /// never negative, so the maximum was always the skin. The body therefore stood on the plane of the
+        /// *covered* road rather than in the hillside — a flat rim at road level, 52 m out to each side. On a
+        /// switchback that rim sweeps straight over the neighbouring leg: hanging rock where the tunnel road
+        /// is higher than its neighbour, and rock coming up through the carriageway where it is lower.
+        ///
+        /// So the feet are now pulled down explicitly instead of being clamped from below. The outer third of
+        /// the arc dives under the terrain, which is what the class comment claimed all along.
         /// </summary>
         private static Vector3 MoundPoint(
             Vector3 center,
@@ -214,7 +281,7 @@ namespace Horizon.World
         {
             float angle = Mathf.PI * u;
             float across = -Mathf.Cos(angle) * halfWidth;
-            float above = Mathf.Sin(angle) * height;
+            float lift = Mathf.Sin(angle);
 
             Vector3 point = center + right * across;
 
@@ -222,12 +289,16 @@ namespace Horizon.World
             // before the portal rings are built, and they read the finished vertices — so roughening the
             // skin cannot open the body up.
             float roughness = Mathf.PerlinNoise(point.x * 0.02f, point.z * 0.02f) - 0.5f;
-            above *= 1f + roughness * 0.34f;
+
+            float skin = center.y + lift * height * (1f + roughness * 0.34f);
 
             float ground = field != null ? field.HeightAt(point.x, point.z) : center.y;
-            float buried = Mathf.Min(center.y, ground) - FootBurial;
+            float foot = Mathf.Min(center.y, ground) - FootBurial;
 
-            return new Vector3(point.x, Mathf.Max(center.y + above, buried), point.z);
+            // Reaches the ellipse by the time the arch is half up, so only the skirt is spent descending.
+            float y = Mathf.Lerp(foot, skin, Mathf.Clamp01(lift * 2f));
+
+            return new Vector3(point.x, y, point.z);
         }
 
         /// <summary>
@@ -235,6 +306,7 @@ namespace Horizon.World
         /// parameter so the ring is watertight.
         /// </summary>
         private static void AddPortalRing(
+            Vector3[] points,
             List<Vector3> vertices,
             List<Vector3> normals,
             List<Vector2> uvs,
@@ -251,9 +323,9 @@ namespace Horizon.World
             Vector3 faceNormal = Vector3.zero;
             for (int i = 0; i < ArchSegments - 1; i++)
             {
-                Vector3 a = vertices[innerStart + i];
-                Vector3 b = vertices[innerStart + i + 1];
-                Vector3 c = vertices[outerStart + i];
+                Vector3 a = points[innerStart + i];
+                Vector3 b = points[innerStart + i + 1];
+                Vector3 c = points[outerStart + i];
                 faceNormal += Vector3.Cross(b - a, c - a);
             }
 
@@ -265,10 +337,10 @@ namespace Horizon.World
 
             for (int i = 0; i < ArchSegments - 1; i++)
             {
-                Vector3 inner0 = vertices[innerStart + i];
-                Vector3 inner1 = vertices[innerStart + i + 1];
-                Vector3 outer1 = vertices[outerStart + i + 1];
-                Vector3 outer0 = vertices[outerStart + i];
+                Vector3 inner0 = points[innerStart + i];
+                Vector3 inner1 = points[innerStart + i + 1];
+                Vector3 outer1 = points[outerStart + i + 1];
+                Vector3 outer0 = points[outerStart + i];
 
                 int baseIndex = vertices.Count;
                 vertices.Add(inner0);
@@ -287,29 +359,79 @@ namespace Horizon.World
             }
         }
 
-        /// <summary>Two triangles across a quad given as two pairs, wound one way or the other.</summary>
-        private static void AddQuad(List<int> triangles, int a, int b, int c, int d, bool reverse)
+        /// <summary>
+        /// Two flat-shaded triangles across a quad of the ring lattice, wound one way or the other.
+        ///
+        /// Every triangle gets its own three vertices so it can keep a single face normal. That costs six
+        /// vertices per quad instead of sharing four, which for a body of this size is a few thousand
+        /// vertices — nothing against making it read as the same kind of rock as the terrain.
+        /// </summary>
+        private static void AddFlatQuad(
+            List<Vector3> vertices,
+            List<Vector3> normals,
+            List<Vector2> uvs,
+            List<int> triangles,
+            Vector3[] points,
+            Vector2[] pointUvs,
+            int a,
+            int b,
+            int c,
+            int d,
+            bool reverse)
         {
             if (reverse)
             {
-                triangles.Add(a);
-                triangles.Add(c);
-                triangles.Add(b);
-
-                triangles.Add(b);
-                triangles.Add(c);
-                triangles.Add(d);
+                AddFlatTriangle(vertices, normals, uvs, triangles, points, pointUvs, a, c, b);
+                AddFlatTriangle(vertices, normals, uvs, triangles, points, pointUvs, b, c, d);
             }
             else
             {
-                triangles.Add(a);
-                triangles.Add(b);
-                triangles.Add(c);
-
-                triangles.Add(b);
-                triangles.Add(d);
-                triangles.Add(c);
+                AddFlatTriangle(vertices, normals, uvs, triangles, points, pointUvs, a, b, c);
+                AddFlatTriangle(vertices, normals, uvs, triangles, points, pointUvs, b, d, c);
             }
+        }
+
+        private static void AddFlatTriangle(
+            List<Vector3> vertices,
+            List<Vector3> normals,
+            List<Vector2> uvs,
+            List<int> triangles,
+            Vector3[] points,
+            Vector2[] pointUvs,
+            int a,
+            int b,
+            int c)
+        {
+            Vector3 pa = points[a];
+            Vector3 pb = points[b];
+            Vector3 pc = points[c];
+
+            Vector3 normal = Vector3.Cross(pb - pa, pc - pa);
+            if (normal.sqrMagnitude < 0.000001f)
+            {
+                // Degenerate. The arch outline collapses to a point at the springing, so this is expected
+                // rather than exceptional.
+                return;
+            }
+
+            normal.Normalize();
+
+            int baseIndex = vertices.Count;
+            vertices.Add(pa);
+            vertices.Add(pb);
+            vertices.Add(pc);
+
+            normals.Add(normal);
+            normals.Add(normal);
+            normals.Add(normal);
+
+            uvs.Add(pointUvs[a]);
+            uvs.Add(pointUvs[b]);
+            uvs.Add(pointUvs[c]);
+
+            triangles.Add(baseIndex);
+            triangles.Add(baseIndex + 1);
+            triangles.Add(baseIndex + 2);
         }
 
         /// <summary>Two triangles across four consecutive vertices.</summary>

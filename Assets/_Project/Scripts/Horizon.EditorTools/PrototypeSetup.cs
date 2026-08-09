@@ -118,6 +118,10 @@ namespace Horizon.EditorTools
             public readonly Material GuardRail;
             public readonly Material Grass;
             public readonly Material Rock;
+            public readonly Material Bark;
+            public readonly Material Conifer;
+            public readonly Material Broadleaf;
+            public readonly Material Undergrowth;
             public readonly Material CarBody;
             public readonly Material Tyre;
             public readonly Material CarGlass;
@@ -143,11 +147,11 @@ namespace Horizon.EditorTools
                     anisoLevel: 4);
 
                 RoadSurface = HorizonAssetUtility.LoadOrCreateMaterial(
-                    MaterialsFolder + "/M_RoadSurface.mat", "M_RoadSurface", Color.white, 0.34f, 0f, null,
+                    MaterialsFolder + "/M_RoadSurface.mat", "M_RoadSurface", Color.white, 0.34f, 0f,
                     surfaceTexture);
 
                 RoadShoulder = HorizonAssetUtility.LoadOrCreateMaterial(
-                    MaterialsFolder + "/M_RoadShoulder.mat", "M_RoadShoulder", Color.white, 0.12f, 0f, null,
+                    MaterialsFolder + "/M_RoadShoulder.mat", "M_RoadShoulder", Color.white, 0.12f, 0f,
                     shoulderTexture);
                 Grass = HorizonAssetUtility.LoadOrCreateMaterial(
                     MaterialsFolder + "/M_Grass.mat", "M_Grass", new Color(0.36f, 0.48f, 0.26f), 0.08f);
@@ -155,6 +159,18 @@ namespace Horizon.EditorTools
                     MaterialsFolder + "/M_Rock.mat", "M_Rock", new Color(0.44f, 0.39f, 0.34f), 0.12f);
                 Concrete = HorizonAssetUtility.LoadOrCreateMaterial(
                     MaterialsFolder + "/M_Concrete.mat", "M_Concrete", new Color(0.52f, 0.51f, 0.49f), 0.20f);
+
+                // Four flat colours carry the whole forest. URP/Lit does not read vertex colours, so
+                // variation between one tree and the next has to come from geometry — but variation between
+                // *kinds* of tree is what actually reads at driving speed, and that is these.
+                Bark = HorizonAssetUtility.LoadOrCreateMaterial(
+                    MaterialsFolder + "/M_Bark.mat", "M_Bark", new Color(0.29f, 0.21f, 0.16f), 0.05f);
+                Conifer = HorizonAssetUtility.LoadOrCreateMaterial(
+                    MaterialsFolder + "/M_Conifer.mat", "M_Conifer", new Color(0.16f, 0.29f, 0.22f), 0.06f);
+                Broadleaf = HorizonAssetUtility.LoadOrCreateMaterial(
+                    MaterialsFolder + "/M_Broadleaf.mat", "M_Broadleaf", new Color(0.43f, 0.53f, 0.24f), 0.07f);
+                Undergrowth = HorizonAssetUtility.LoadOrCreateMaterial(
+                    MaterialsFolder + "/M_Undergrowth.mat", "M_Undergrowth", new Color(0.32f, 0.44f, 0.22f), 0.06f);
                 GuardRail = HorizonAssetUtility.LoadOrCreateMaterial(
                     MaterialsFolder + "/M_GuardRail.mat", "M_GuardRail", new Color(0.66f, 0.68f, 0.70f), 0.55f, 0.6f);
                 CarBody = HorizonAssetUtility.LoadOrCreateMaterial(
@@ -168,16 +184,16 @@ namespace Horizon.EditorTools
                     MaterialsFolder + "/M_CarGlass.mat", "M_CarGlass", new Color(0.10f, 0.13f, 0.17f), 0.92f);
                 CarRim = HorizonAssetUtility.LoadOrCreateMaterial(
                     MaterialsFolder + "/M_CarRim.mat", "M_CarRim", new Color(0.62f, 0.64f, 0.67f), 0.78f, 0.85f);
-                // Emissive so the lamps read as lamps. VehicleLights animates the glow at runtime
-                // through a property block, which only works because _EMISSION is on here.
-                LightFront = HorizonAssetUtility.LoadOrCreateMaterial(
+                // Unlit, not emissive Lit. A lamp lens should be drawn at its own brightness whatever
+                // the scene lighting is doing, and VehicleLights animates _BaseColor through a property
+                // block — no shader keyword involved, which is what made the emissive version fail
+                // silently for the whole life of the project. See LoadOrCreateUnlitMaterial.
+                LightFront = HorizonAssetUtility.LoadOrCreateUnlitMaterial(
                     MaterialsFolder + "/M_LightFront.mat", "M_LightFront",
-                    new Color(0.95f, 0.94f, 0.82f), 0.9f, 0f,
-                    new Color(0.95f, 0.92f, 0.78f) * 0.3f);
-                LightRear = HorizonAssetUtility.LoadOrCreateMaterial(
+                    new Color(0.62f, 0.60f, 0.50f));
+                LightRear = HorizonAssetUtility.LoadOrCreateUnlitMaterial(
                     MaterialsFolder + "/M_LightRear.mat", "M_LightRear",
-                    new Color(0.42f, 0.05f, 0.04f), 0.85f, 0f,
-                    new Color(1f, 0.10f, 0.06f) * 0.5f);
+                    new Color(0.34f, 0.04f, 0.03f));
 
                 Texture2D smokeTexture = HorizonAssetUtility.LoadOrCreateSoftCircleTexture(
                     ProjectRoot + "/Art/T_SmokePuff.png");
@@ -275,9 +291,15 @@ namespace Horizon.EditorTools
 
             // Collider spans the body shell. It only matters for hitting scenery — the wheels are
             // raycasts, so this box has no say in how the car drives.
+            //
+            // Every figure here tracks CarMeshBuilder's silhouette and has to be revisited whenever that
+            // changes, or bodywork ends up outside its own collider and clips through scenery.
+            //   X: widest flank is 1.02 + FlareWidth 0.09 = 1.11 over the rear arch.
+            //   Y: sill -0.52 to crowned roof ~0.72.
+            //   Z: tail cap -2.36 to nose cap 2.52, so 4.88 long and biased forward.
             BoxCollider collider = root.AddComponent<BoxCollider>();
-            collider.center = new Vector3(0f, 0.06f, 0f);
-            collider.size = new Vector3(2.00f, 1.18f, 4.70f);
+            collider.center = new Vector3(0f, 0.10f, 0.08f);
+            collider.size = new Vector3(2.25f, 1.25f, 4.94f);
 
             Mesh bodyMesh = HorizonAssetUtility.ReplaceAsset(
                 CarMeshBuilder.BuildBody(), GeneratedFolder + "/CarBodyMesh.asset");
@@ -364,7 +386,7 @@ namespace Horizon.EditorTools
             // the pivot's rotation directly as spin plus steer, with no correcting child transform.
             // Wide enough to stand slightly proud of the arch, which is what makes the stance read.
             Mesh wheelMesh = HorizonAssetUtility.ReplaceAsset(
-                CarMeshBuilder.BuildWheel(config.WheelRadius, 0.28f),
+                CarMeshBuilder.BuildWheel(config.WheelRadius, 0.34f),
                 GeneratedFolder + "/WheelMesh.asset");
 
             for (int i = 0; i < 4; i++)
@@ -393,6 +415,12 @@ namespace Horizon.EditorTools
             });
 
             HorizonAssetUtility.AssertReferenceAssigned(controller, "config");
+
+            // Wired here rather than with the rest of VehicleLights, because the controller does not
+            // exist yet at that point. VehicleLights falls back to a GetComponentInParent in Awake, but
+            // an explicit reference is one less thing to be surprised by.
+            HorizonAssetUtility.Configure(lights, serialized =>
+                serialized.FindProperty("controller").objectReferenceValue = controller);
 
             HorizonAssetUtility.EnsureFolder(PrefabsFolder);
             GameObject prefab = PrefabUtility.SaveAsPrefabAsset(root, VehiclePrefabPath);
@@ -451,9 +479,12 @@ namespace Horizon.EditorTools
 
             ValidateRoadClearance(path, roadShape, field, course);
 
-            BuildTerrainTiles(worldRoot.transform, field, terrainShape, materials);
+            BuildTerrainTiles(worldRoot.transform, path, roadShape, course, field, terrainShape, materials);
             BuildCoveredSections(worldRoot.transform, path, roadShape, course, field, materials);
             BuildGuardRails(worldRoot.transform, path, roadShape, field, course, materials);
+
+            // After every builder and before the car exists — otherwise the car is the obstruction.
+            ValidateDriveableCorridor(path);
 
             // --- Streaming.
             var streamingObject = new GameObject("Streaming");
@@ -786,6 +817,9 @@ namespace Horizon.EditorTools
         /// </summary>
         private static void BuildTerrainTiles(
             Transform parent,
+            RoadPath path,
+            in RoadShape roadShape,
+            RoadCourse course,
             MountainField field,
             in TerrainShape terrainShape,
             PrototypeMaterials materials)
@@ -797,6 +831,12 @@ namespace Horizon.EditorTools
 
             float tileSize = TerrainTileBuilder.TileSize(terrainShape);
             int totalTriangles = 0;
+
+            VegetationShape vegetationShape = VegetationShape.Default;
+            var vegetationContext = new VegetationContext(path, course, vegetationShape);
+            var vegetationTotal = new VegetationStats();
+            int heaviestTile = 0;
+            string heaviestTileName = "none";
 
             for (int i = 0; i < tiles.Count; i++)
             {
@@ -811,6 +851,33 @@ namespace Horizon.EditorTools
                 GameObject tileObject = CreateMeshObject(
                     terrainRoot.transform, name, mesh, new[] { materials.Grass, materials.Rock });
 
+                Mesh plants = VegetationBuilder.BuildTile(
+                    key, field, terrainShape, vegetationShape, vegetationContext,
+                    name + "_Plants", out VegetationStats stats);
+
+                if (plants != null)
+                {
+                    plants = HorizonAssetUtility.ReplaceAsset(plants, $"{GeneratedFolder}/{name}_Plants.asset");
+
+                    // Static, but not batched and not lit-baked. The mesh is already one merged draw, so
+                    // BatchingStatic would only duplicate a few hundred thousand vertices into the static
+                    // batch buffer, and putting this much geometry into a lightmap bake is not a trade worth
+                    // making for foliage. Trees are poor occluders, so they are only ever occludees.
+                    CreateMeshObject(
+                        tileObject.transform, name + "_Plants", plants, PlantMaterials(materials, stats),
+                        addCollider: false, markStatic: true,
+                        staticFlags: StaticEditorFlags.OccludeeStatic);
+
+                    vegetationTotal.Add(stats);
+                    if (stats.Triangles > heaviestTile)
+                    {
+                        heaviestTile = stats.Triangles;
+                        heaviestTileName = name;
+                    }
+                }
+
+                // After the plants, never before: the chunk takes its radius from the renderers below it, and
+                // a tree standing proud of the terrain bounds would pop in and out on its own.
                 WorldChunk chunk = tileObject.AddComponent<WorldChunk>();
                 chunk.RecalculateBounds();
                 EditorUtility.SetDirty(chunk);
@@ -818,6 +885,87 @@ namespace Horizon.EditorTools
 
             Debug.Log($"[Horizon] Terrain: {tiles.Count} tiles of {tileSize:0} m, "
                       + $"{totalTriangles} triangles total, corridor {terrainShape.CorridorWidth:0} m.");
+
+            ReportVegetation(vegetationTotal, vegetationShape, roadShape, vegetationContext,
+                heaviestTile, heaviestTileName);
+        }
+
+        /// <summary>
+        /// The materials for a tile's plants, in the order the mesh's submeshes ended up in.
+        ///
+        /// Empty submeshes are dropped when the mesh is built, so this cannot just be a fixed array — a tile
+        /// above the tree line has boulders and nothing else.
+        /// </summary>
+        private static Material[] PlantMaterials(PrototypeMaterials materials, VegetationStats stats)
+        {
+            var result = new Material[stats.Submeshes.Count];
+
+            for (int i = 0; i < stats.Submeshes.Count; i++)
+            {
+                switch (stats.Submeshes[i])
+                {
+                    case PlantMeshes.BarkSubmesh:
+                        result[i] = materials.Bark;
+                        break;
+                    case PlantMeshes.ConiferSubmesh:
+                        result[i] = materials.Conifer;
+                        break;
+                    case PlantMeshes.BroadleafSubmesh:
+                        result[i] = materials.Broadleaf;
+                        break;
+                    case PlantMeshes.UndergrowthSubmesh:
+                        result[i] = materials.Undergrowth;
+                        break;
+                    default:
+                        result[i] = materials.Rock;
+                        break;
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Summarises the vegetation and checks the two things that would be invisible in the editor until
+        /// they were a problem: something growing on the carriageway, and a tile heavy enough to cost frames.
+        /// </summary>
+        private static void ReportVegetation(
+            VegetationStats stats,
+            in VegetationShape vegetationShape,
+            in RoadShape roadShape,
+            VegetationContext context,
+            int heaviestTile,
+            string heaviestTileName)
+        {
+            if (stats.Plants == 0)
+            {
+                Debug.LogWarning("[Horizon] Vegetation: nothing grew anywhere. Check the clearances and the "
+                                 + "clump threshold in VegetationShape.");
+                return;
+            }
+
+            float treeLine = context.LowestElevation
+                             + (context.SummitElevation - context.LowestElevation) * vegetationShape.TreeLineHeight;
+
+            Debug.Log($"[Horizon] Vegetation: {stats.Conifers} conifers, {stats.Broadleaves} broadleaves, "
+                      + $"{stats.Shrubs} shrubs, {stats.Tufts} grass tufts, {stats.Boulders} boulders, "
+                      + $"{stats.Snags} snags — {stats.Triangles} triangles, heaviest tile "
+                      + $"{heaviestTileName} at {heaviestTile}. Tree line around {treeLine:0} m.");
+
+            float minimum = roadShape.OuterHalfWidth + 1f;
+            if (stats.ClosestToRoad < minimum)
+            {
+                Debug.LogWarning($"[Horizon] Vegetation: something stands {stats.ClosestToRoad:0.0} m from the "
+                                 + $"centreline, inside the {minimum:0.0} m the carriageway and its shoulders "
+                                 + "occupy.");
+            }
+
+            if (heaviestTile > vegetationShape.MaxTrianglesPerTile)
+            {
+                Debug.LogWarning($"[Horizon] Vegetation: {heaviestTileName} carries {heaviestTile} triangles, "
+                                 + $"over the {vegetationShape.MaxTrianglesPerTile} budget. Raise the cell "
+                                 + "sizes or lower FarDensity in VegetationShape.");
+            }
         }
 
         /// <summary>
@@ -858,14 +1006,113 @@ namespace Horizon.EditorTools
 
                 mesh = HorizonAssetUtility.ReplaceAsset(mesh, $"{GeneratedFolder}/{name}.asset");
 
+                // Collision is the bore, the portal faces and the pillars — not the outer skin. The rock
+                // flank sits on terrain that is already solid, so as a collider it adds nothing but a large
+                // concave surface next to the road for the car to snag on.
+                Mesh collision = TunnelBuilder.BuildCollision(path, roadShape, feature, field, name + "_Collision");
+                collision = HorizonAssetUtility.ReplaceAsset(
+                    collision, $"{GeneratedFolder}/{name}_Collision.asset");
+
                 // Material order follows the Submesh constants on TunnelBuilder.
                 CreateMeshObject(root.transform, name, mesh,
-                    new[] { materials.Rock, materials.Concrete }, addCollider: true, markStatic: true);
+                    new[] { materials.Rock, materials.Concrete }, addCollider: true, markStatic: true,
+                    collisionMesh: collision);
 
                 built++;
             }
 
             Debug.Log($"[Horizon] Built {built} covered section(s).");
+        }
+
+        /// <summary>
+        /// Drives a box the size of a generous vehicle envelope along the whole course and reports anything
+        /// solid in the way.
+        ///
+        /// This exists because <see cref="ValidateRoadClearance"/> cannot answer the question that actually
+        /// matters. That one tests <see cref="MountainField.HeightAt"/>, skips every covered stretch, runs
+        /// before the tunnels are built, and has no notion of clearance above the road — so a tunnel massif
+        /// standing across the carriageway passed it without a murmur, and the first anyone knew of it was
+        /// driving into it. Asking physics is the only check that covers geometry nobody thought of.
+        ///
+        /// Must run after every geometry builder and before the car is placed, or the car is the obstruction.
+        /// </summary>
+        private static void ValidateDriveableCorridor(RoadPath path)
+        {
+            const float step = 2f;
+
+            // Wider and far taller than the car (2.00 x 1.39 m). The point is to fail early on anything that
+            // would even feel close, not to certify the exact hull.
+            const float halfWidth = 1.3f;
+            const float clearance = 4f;
+
+            // Above the asphalt, so the road surface and the shoulder are not themselves hits.
+            const float floorLift = 0.35f;
+
+            var halfExtents = new Vector3(halfWidth, clearance * 0.5f, step * 0.5f);
+            var hits = new Collider[8];
+            float length = path.Length;
+
+            Physics.SyncTransforms();
+
+            // Canary. An edit-mode overlap query that finds nothing may mean the corridor is clear, or it may
+            // mean no collider was registered and the check never ran at all. Those look identical in a log,
+            // so ask a question the answer to which must be "yes": a box sunk into the carriageway has to hit
+            // the road.
+            Vector3 canaryAt = path.GetPositionAtDistance(length * 0.5f);
+            int canary = Physics.OverlapBoxNonAlloc(
+                canaryAt + Vector3.down * 0.5f, new Vector3(halfWidth, 0.6f, 1f), hits,
+                Quaternion.identity, ~0, QueryTriggerInteraction.Ignore);
+
+            if (canary == 0)
+            {
+                Debug.LogWarning("[Horizon] Driveable corridor: the check could not run — a box inside the "
+                                 + "road surface hit nothing, so no collider was queryable. This is not a "
+                                 + "clear corridor, it is no answer.");
+                return;
+            }
+
+            int blocked = 0;
+            float firstAt = 0f;
+            string firstBy = null;
+
+            for (float distance = 0f; distance <= length; distance += step)
+            {
+                Vector3 center = path.GetPositionAtDistance(distance);
+                Vector3 forward = path.GetDirectionAtDistance(distance);
+                if (forward.sqrMagnitude < 0.0001f)
+                {
+                    continue;
+                }
+
+                Vector3 boxCenter = center + Vector3.up * (floorLift + clearance * 0.5f);
+                var rotation = Quaternion.LookRotation(forward, Vector3.up);
+
+                int count = Physics.OverlapBoxNonAlloc(
+                    boxCenter, halfExtents, hits, rotation, ~0, QueryTriggerInteraction.Ignore);
+
+                if (count == 0)
+                {
+                    continue;
+                }
+
+                blocked++;
+                if (firstBy == null)
+                {
+                    firstAt = distance;
+                    firstBy = hits[0] != null ? hits[0].gameObject.name : "unknown";
+                }
+            }
+
+            if (blocked == 0)
+            {
+                Debug.Log($"[Horizon] Driveable corridor: clear over {length:0} m.");
+                return;
+            }
+
+            Debug.LogWarning(
+                $"[Horizon] Driveable corridor: something solid stands in the carriageway at {blocked} of "
+                + $"the {Mathf.CeilToInt(length / step)} sampled points. First at {firstAt:0} m along the "
+                + $"course, against '{firstBy}'.");
         }
 
         /// <summary>
@@ -978,7 +1225,9 @@ namespace Horizon.EditorTools
             Mesh mesh,
             Material[] materials,
             bool addCollider = true,
-            bool markStatic = true)
+            bool markStatic = true,
+            StaticEditorFlags? staticFlags = null,
+            Mesh collisionMesh = null)
         {
             var meshObject = new GameObject(name);
             meshObject.transform.SetParent(parent, false);
@@ -990,17 +1239,20 @@ namespace Horizon.EditorTools
 
             if (addCollider)
             {
-                meshObject.AddComponent<MeshCollider>().sharedMesh = mesh;
+                // Usually the rendered mesh is also the collider. Where the two differ — the tunnels — what
+                // you can see and what you can hit are genuinely different questions.
+                meshObject.AddComponent<MeshCollider>().sharedMesh = collisionMesh != null ? collisionMesh : mesh;
             }
 
             if (markStatic)
             {
                 // Generated world geometry never moves, so let Unity batch and light-bake it. The car
-                // obviously must not be marked static.
-                GameObjectUtility.SetStaticEditorFlags(meshObject, StaticEditorFlags.BatchingStatic
-                                                                 | StaticEditorFlags.ContributeGI
-                                                                 | StaticEditorFlags.OccluderStatic
-                                                                 | StaticEditorFlags.OccludeeStatic);
+                // obviously must not be marked static. Vegetation overrides this: see BuildTerrainTiles.
+                GameObjectUtility.SetStaticEditorFlags(meshObject, staticFlags
+                    ?? (StaticEditorFlags.BatchingStatic
+                        | StaticEditorFlags.ContributeGI
+                        | StaticEditorFlags.OccluderStatic
+                        | StaticEditorFlags.OccludeeStatic));
             }
 
             return meshObject;

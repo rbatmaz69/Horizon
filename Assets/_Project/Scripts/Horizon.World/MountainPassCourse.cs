@@ -42,7 +42,16 @@ namespace Horizon.World
         private const float LegSweep = 14f;
 
         /// <summary>
-        /// Builds the pass. Roughly 4.4 km with about 180 m of elevation, climbing anticlockwise around
+        /// Straight track before a tunnel or gallery portal, metres.
+        ///
+        /// Comfortably more than <c>TunnelBuilder.EndOverhang</c> (24 m), which is how far the rock body
+        /// runs past the portal. The exit side needs nothing: a <see cref="RoadCourseBuilder.Leg"/> follows
+        /// both structures and opens with about a hundred metres of straight.
+        /// </summary>
+        private const float PortalApproach = 60f;
+
+        /// <summary>
+        /// Builds the pass. Roughly 5.2 km with about 190 m of elevation, climbing anticlockwise around
         /// the mountain — the legs are swept in one consistent direction so the switchback stack rotates
         /// around the summit instead of piling up in a flat plane.
         /// </summary>
@@ -61,6 +70,12 @@ namespace Horizon.World
                 // A tunnel partway up, where the road would otherwise have to cut through a spur.
                 if (i == 3)
                 {
+                    // A portal cannot sit in the exit of a hairpin. TunnelBuilder carries its massif
+                    // EndOverhang (24 m) past each portal, and that cross-section is 104 m across — swept
+                    // along a 20 m radius it folds through itself and reaches back over the approach leg.
+                    // Real passes put their portals on straight track for the same reason.
+                    builder.Straight(PortalApproach, 6f);
+
                     // 170 m, not 80. A tunnel has to last long enough that the outside is genuinely gone
                     // and you are driving on your own headlights — at 80 m and 100 km/h it is over in
                     // under three seconds, which reads as a covered cutting rather than a bore.
@@ -98,6 +113,9 @@ namespace Horizon.World
             {
                 if (i == 2)
                 {
+                    // Same as the tunnel: the massif must not be swept through the hairpin above it.
+                    builder.Straight(PortalApproach, DescentGrade);
+
                     float galleryStart = builder.Distance;
                     builder.Straight(110f, DescentGrade);
                     builder.AddFeature(RoadFeatureKind.Gallery, galleryStart, builder.Distance, "Felsgalerie");

@@ -92,6 +92,100 @@ namespace Horizon.World
         }
 
         /// <summary>
+        /// Which diagonal a cell's quad is split along, from its four corner heights. The shorter one, so
+        /// ridges do not look drawn on a grid, and — because the choice depends only on the heights — two
+        /// tiles sharing an edge still agree.
+        ///
+        /// It is a named method rather than an inline expression because <see cref="SampleSurface"/> has to
+        /// make the identical choice. A prop placed against the other diagonal floats or sinks by the full
+        /// height difference across the cell, which on this terrain is a metre or two.
+        /// </summary>
+        public static bool SplitsForward(float y00, float y10, float y01, float y11)
+        {
+            return Mathf.Abs(y00 - y11) <= Mathf.Abs(y10 - y01);
+        }
+
+        /// <summary>
+        /// The point and face normal of the finished terrain *mesh* at a world position.
+        ///
+        /// Not the same thing as <see cref="MountainField.HeightAt"/>, and the difference is the whole
+        /// reason this exists: the mesh is a linear interpolation of the field across 12 m cells, so on a
+        /// slope the two disagree by up to a metre or two. Anything meant to stand on the ground has to use
+        /// this, or it hovers and sinks.
+        ///
+        /// The normal is the flat normal of the triangle actually hit, so it is the slope the mesh really
+        /// has rather than the analytic slope of the field.
+        /// </summary>
+        public static void SampleSurface(
+            MountainField field,
+            in TerrainShape shape,
+            float x,
+            float z,
+            out Vector3 point,
+            out Vector3 normal)
+        {
+            float cell = shape.CellSize;
+
+            // The same global lattice the tiles are built on — TileSize is a whole number of cells, so a
+            // cell never straddles a tile boundary.
+            float originX = Mathf.Floor(x / cell) * cell;
+            float originZ = Mathf.Floor(z / cell) * cell;
+
+            var c00 = new Vector3(originX, field.HeightAt(originX, originZ), originZ);
+            var c10 = new Vector3(originX + cell, field.HeightAt(originX + cell, originZ), originZ);
+            var c01 = new Vector3(originX, field.HeightAt(originX, originZ + cell), originZ + cell);
+            var c11 = new Vector3(originX + cell, field.HeightAt(originX + cell, originZ + cell), originZ + cell);
+
+            float u = (x - originX) / cell;
+            float v = (z - originZ) / cell;
+
+            Vector3 a, b, c;
+            if (SplitsForward(c00.y, c10.y, c01.y, c11.y))
+            {
+                // Diagonal from (0,0) to (1,1); the same two triangles BuildTile emits.
+                if (v >= u)
+                {
+                    a = c00; b = c01; c = c11;
+                }
+                else
+                {
+                    a = c00; b = c11; c = c10;
+                }
+            }
+            else
+            {
+                // Diagonal from (1,0) to (0,1).
+                if (u + v <= 1f)
+                {
+                    a = c00; b = c01; c = c10;
+                }
+                else
+                {
+                    a = c01; b = c11; c = c10;
+                }
+            }
+
+            normal = Vector3.Cross(b - a, c - a);
+            if (normal.sqrMagnitude < 0.000001f)
+            {
+                normal = Vector3.up;
+                point = new Vector3(x, a.y, z);
+                return;
+            }
+
+            normal.Normalize();
+            if (normal.y < 0f)
+            {
+                normal = -normal;
+            }
+
+            // Evaluated on the plane of that triangle rather than through barycentric weights: it is the
+            // same answer, and it cannot drift out of step with the normal computed just above.
+            float height = a.y - (normal.x * (x - a.x) + normal.z * (z - a.z)) / normal.y;
+            point = new Vector3(x, height, z);
+        }
+
+        /// <summary>
         /// Builds one tile. Two submeshes, split by face slope.
         ///
         /// Vertices land on a lattice defined in world space, not relative to the tile, and the height
@@ -142,9 +236,7 @@ namespace Horizon.World
                     Vector3 c01 = Corner(originX, originZ, shape.CellSize, heights, corners, column, row + 1);
                     Vector3 c11 = Corner(originX, originZ, shape.CellSize, heights, corners, column + 1, row + 1);
 
-                    // Split along the shorter diagonal so ridges do not look drawn on a grid. The choice
-                    // depends only on the four heights, so both tiles sharing an edge still agree.
-                    bool splitForward = Mathf.Abs(c00.y - c11.y) <= Mathf.Abs(c10.y - c01.y);
+                    bool splitForward = SplitsForward(c00.y, c10.y, c01.y, c11.y);
 
                     if (splitForward)
                     {

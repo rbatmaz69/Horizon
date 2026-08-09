@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 namespace Horizon.EditorTools
 {
@@ -183,17 +184,13 @@ namespace Horizon.EditorTools
             return material;
         }
 
-        /// <summary>
-        /// Loads a material, creating and saving it only if missing. Pass <paramref name="emission"/>
-        /// to make it glow — applied on creation only, so a later retint is never overwritten.
-        /// </summary>
+        /// <summary>Loads a material, creating and saving it only if missing.</summary>
         public static Material LoadOrCreateMaterial(
             string assetPath,
             string name,
             Color baseColor,
             float smoothness,
             float metallic = 0f,
-            Color? emission = null,
             Texture2D baseMap = null)
         {
             Material existing = AssetDatabase.LoadAssetAtPath<Material>(assetPath);
@@ -212,13 +209,53 @@ namespace Horizon.EditorTools
                 created.SetColor("_BaseColor", Color.white);
             }
 
-            if (emission.HasValue)
+            AssetDatabase.CreateAsset(created, assetPath);
+            return Reload(created, assetPath);
+        }
+
+        /// <summary>
+        /// An unlit material, for surfaces that are meant to *be* a light rather than to catch one —
+        /// lamp lenses above all.
+        ///
+        /// This replaces an emissive Lit material, and the reason is worth recording because it cost a
+        /// long afternoon. URP Lit only renders emission when the <c>_EMISSION</c> shader keyword is on
+        /// the material, and on this Unity version that keyword could not be made to survive being
+        /// written to a .mat: <c>EnableKeyword</c>, the <c>LocalKeyword</c> overload, dirtying and
+        /// saving, deleting the asset and regenerating it — every one reported success in memory and
+        /// left <c>m_ValidKeywords: []</c> on disk, so every fresh load had emission compiled out. The
+        /// lamps had therefore never once glowed since the project started.
+        ///
+        /// Unlit needs no keyword. <c>_BaseColor</c> is drawn at full brightness whatever the scene
+        /// lighting does, which is exactly what a lamp lens should do, animates cleanly through a
+        /// <see cref="MaterialPropertyBlock"/>, blooms when driven above 1, and costs less on a mobile
+        /// GPU than lit shading did. For a game whose art direction is flat colour, it is also simply
+        /// the more honest choice.
+        /// </summary>
+        public static Material LoadOrCreateUnlitMaterial(string assetPath, string name, Color baseColor)
+        {
+            Material existing = AssetDatabase.LoadAssetAtPath<Material>(assetPath);
+            if (existing != null)
             {
-                // The keyword matters: without _EMISSION, URP Lit ignores _EmissionColor entirely, so
-                // a property block trying to animate the glow at runtime would do nothing.
-                created.EnableKeyword("_EMISSION");
-                created.SetColor("_EmissionColor", emission.Value);
-                created.globalIlluminationFlags = MaterialGlobalIlluminationFlags.None;
+                return existing;
+            }
+
+            Shader shader = Shader.Find("Universal Render Pipeline/Unlit");
+            if (shader == null)
+            {
+                Debug.LogWarning("[Horizon] URP Unlit shader not found. Falling back to Unlit/Color.");
+                shader = Shader.Find("Unlit/Color");
+            }
+
+            var created = new Material(shader) { name = name };
+
+            if (created.HasProperty("_BaseColor"))
+            {
+                created.SetColor("_BaseColor", baseColor);
+            }
+
+            if (created.HasProperty("_Color"))
+            {
+                created.SetColor("_Color", baseColor);
             }
 
             AssetDatabase.CreateAsset(created, assetPath);

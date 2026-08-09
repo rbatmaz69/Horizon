@@ -27,10 +27,17 @@ namespace Horizon.Vehicle
         public float AngularDamping = 1.2f;
 
         [Header("Suspension")]
-        public float WheelRadius = 0.34f;
+        /// <summary>
+        /// Rolling radius. **Coupled to <see cref="FinalDrive"/>** — read the note there before changing
+        /// it, because the radius is not only a visual dimension.
+        /// </summary>
+        public float WheelRadius = 0.42f;
 
-        [Tooltip("Suspension travel in metres.")]
-        public float SuspensionRestLength = 0.35f;
+        [Tooltip("Suspension travel in metres.\n\n"
+               + "0.30 rather than 0.35 because the wheels grew: ride height is rest length plus radius, "
+               + "so without this the car would stand 8 cm taller and a muscle car on stilts is not the "
+               + "look. Static compression is only 7 cm, so 30 cm of travel is still ample.")]
+        public float SuspensionRestLength = 0.30f;
 
         [Tooltip("Spring rate in N per metre of compression.")]
         public float SuspensionStiffness = 42000f;
@@ -70,7 +77,19 @@ namespace Horizon.Vehicle
 
         public float ReverseRatio = 2.90f;
 
-        public float FinalDrive = 3.31f;
+        /// <summary>
+        /// Axle ratio — and the counterweight to <see cref="WheelRadius"/>.
+        ///
+        /// The radius enters three separate formulas: top speed scales with it, tractive force scales
+        /// with its inverse, and engine rpm for a given road speed scales with its inverse. All three
+        /// cancel exactly if this ratio is scaled by the same factor, which is why the two numbers move
+        /// together. 4.09 is 3.31 × 0.42/0.34, from the wheels growing from 0.34 m to 0.42 m — so that
+        /// change was purely visual and acceleration, top speed (~225 km/h) and the shift points are
+        /// arithmetically unchanged.
+        ///
+        /// Change the radius on its own and you silently retune the whole car.
+        /// </summary>
+        public float FinalDrive = 4.09f;
 
         [Range(0.5f, 1f)] public float DrivetrainEfficiency = 0.9f;
 
