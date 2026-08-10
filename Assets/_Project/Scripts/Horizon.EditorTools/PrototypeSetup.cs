@@ -593,6 +593,7 @@ namespace Horizon.EditorTools
 
             BuildTerrainTiles(worldRoot.transform, path, roadShape, course, field, terrainShape,
                 townShape, townFootprint, townPlan, materials);
+            ValidateLandmarkVisibility(field, course, path, townPlan);
             BuildCoveredSections(worldRoot.transform, path, roadShape, course, field, materials);
             BuildGuardRails(worldRoot.transform, path, roadShape, field, course, materials);
 
@@ -1439,7 +1440,8 @@ namespace Horizon.EditorTools
                 return;
             }
 
-            Debug.Log($"[Horizon] Town: {stats.Houses} houses, {stats.Windmills} windmill, "
+            Debug.Log($"[Horizon] Town: {stats.Houses} houses, {stats.Churches} church, "
+                      + $"{stats.Windmills} windmill, "
                       + $"{stats.Barns} barns, {stats.Sawmills} sawmills, {stats.Fences} fences, "
                       + $"{stats.Lamps} lamps, {stats.Cars} parked cars — {stats.Triangles} triangles "
                       + $"over {plan.Footprint.size.x:0} x {plan.Footprint.size.z:0} m.");
@@ -1555,12 +1557,15 @@ namespace Horizon.EditorTools
                     continue;
                 }
 
+                bool church = plot.Kind == TownPlotKind.Church;
                 bool tall = plot.Kind == TownPlotKind.Windmill;
                 bool wide = plot.Kind == TownPlotKind.Barn;
 
-                float halfWidth = tall ? 4.5f : wide ? 7.5f : 5.6f;
-                float halfDepth = tall ? 4.5f : wide ? 5.5f : 4.8f;
-                float height = tall ? 16f : wide ? 8f : 6f;
+                // The church gets the nave and leaves the tower out. One box round both would wall off
+                // the churchyard, and the tower is 3.6 m of it against 11 m of nave.
+                float halfWidth = church ? 7f : tall ? 4.5f : wide ? 7.5f : 5.6f;
+                float halfDepth = church ? 12f : tall ? 4.5f : wide ? 5.5f : 4.8f;
+                float height = church ? 15f : tall ? 16f : wide ? 8f : 6f;
 
                 var box = new GameObject($"Plot_{i}");
                 box.transform.SetParent(parent, false);
@@ -1788,6 +1793,76 @@ namespace Horizon.EditorTools
             var marker = new GameObject("TownWorstJunction");
             marker.transform.SetParent(parent, false);
             marker.transform.position = network.Nodes[nodeIndex].Position;
+        }
+
+        /// <summary>
+        /// Whether the church can actually be seen from the pass, in metres of hillside in the way.
+        ///
+        /// <para>The whole claim this milestone rests on is that the town reads from the road above, and
+        /// that claim is testable: walk the sight line from each viewpoint to the tip of the spire,
+        /// sample the height field every ten metres, and report the worst amount by which the ground
+        /// stands above the line. Placing a landmark by eye and checking it in a render means checking it
+        /// from wherever the render happened to stand.</para>
+        /// </summary>
+        private static void ValidateLandmarkVisibility(
+            MountainField field, RoadCourse course, RoadPath path, TownPlan plan)
+        {
+            Vector3 spire = Vector3.zero;
+            bool found = false;
+
+            for (int i = 0; i < plan.Plots.Count; i++)
+            {
+                if (plan.Plots[i].Kind == TownPlotKind.Church)
+                {
+                    spire = plan.Plots[i].Position + Vector3.up * LandmarkMeshes.ChurchHeight;
+                    found = true;
+                    break;
+                }
+            }
+
+            if (!found)
+            {
+                return;
+            }
+
+            for (int i = 0; i < course.Features.Count; i++)
+            {
+                RoadFeature feature = course.Features[i];
+                if (feature.Kind != RoadFeatureKind.Viewpoint)
+                {
+                    continue;
+                }
+
+                Vector3 from = path.GetPositionAtDistance(
+                    Mathf.Clamp(feature.StartDistance, 0f, path.Length)) + Vector3.up * 1.5f;
+
+                float span = Vector3.Distance(from, spire);
+                float worst = 0f;
+                float worstAt = 0f;
+
+                for (float t = 0.05f; t <= 0.95f; t += 10f / Mathf.Max(1f, span))
+                {
+                    Vector3 on = Vector3.Lerp(from, spire, t);
+                    float ground = field.HeightAt(on.x, on.z);
+
+                    if (ground - on.y > worst)
+                    {
+                        worst = ground - on.y;
+                        worstAt = t * span;
+                    }
+                }
+
+                if (worst <= 0f)
+                {
+                    Debug.Log($"[Horizon] Landmark: the spire is clear from '{feature.Name}', "
+                              + $"{span:0} m away.");
+                    continue;
+                }
+
+                Debug.Log($"[Horizon] Landmark: from '{feature.Name}' at {span:0} m, the ground stands "
+                          + $"{worst:0.0} m into the sight line to the spire, worst at {worstAt:0} m "
+                          + "along it.");
+            }
         }
 
         /// <summary>

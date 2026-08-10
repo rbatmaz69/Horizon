@@ -11,6 +11,9 @@ namespace Horizon.World
         /// <summary>The town's landmark, and the only building visible from the pass road above.</summary>
         Windmill = 1,
 
+        /// <summary>The town's landmark, and the thing it is recognised by from the pass above.</summary>
+        Church = 5,
+
         Barn = 2,
         Sawmill = 3,
     }
@@ -60,7 +63,8 @@ namespace Horizon.World
             /// overlapped into one continuous bare strip down every street. A wall needs 8 m of clearance;
             /// a lawn needs none.
             /// </summary>
-            public float BuildingRadius => Kind == TownPlotKind.Windmill ? 11f
+            public float BuildingRadius => Kind == TownPlotKind.Church ? 16f
+                : Kind == TownPlotKind.Windmill ? 11f
                 : Kind == TownPlotKind.Barn ? 9f
                 : 7.5f;
         }
@@ -138,6 +142,7 @@ namespace Horizon.World
     public sealed class TownStats
     {
         public int Houses;
+        public int Churches;
         public int Windmills;
         public int Barns;
         public int Sawmills;
@@ -161,6 +166,7 @@ namespace Horizon.World
         public void Add(TownStats other)
         {
             Houses += other.Houses;
+            Churches += other.Churches;
             Windmills += other.Windmills;
             Barns += other.Barns;
             Sawmills += other.Sawmills;
@@ -289,6 +295,10 @@ namespace Horizon.World
 
             float side = shape.Side;
 
+            // One windmill, not one per industrial street. It is a landmark, and five of them are
+            // scenery — the whole point of the thing is that there is one of it.
+            bool millPlaced = false;
+
             for (int i = 0; i < network.Edges.Count; i++)
             {
                 StreetEdge edge = network.Edges[i];
@@ -313,11 +323,21 @@ namespace Horizon.World
 
                     QuarterStyle style = QuarterStyle.For(quarter);
 
+                    bool allowMill = !millPlaced && left && edge.Quarter == TownQuarter.Industry;
+
+                    int before = plots.Count;
                     AddFrontage(
                         plots, edge, field, terrainShape, shape, style, from, to,
-                        i * 2 + s, left, allowMill: edge.Quarter == TownQuarter.Industry);
+                        i * 2 + s, left, allowMill);
+
+                    for (int p = before; !millPlaced && p < plots.Count; p++)
+                    {
+                        millPlaced = plots[p].Kind == TownPlotKind.Windmill;
+                    }
                 }
             }
+
+            AddChurch(plots, trunk, index, field, terrainShape, shape);
 
             // Lamps down the trunk road through the town, on the town side only. The streets get their
             // own when there is a night to see them in.
@@ -349,6 +369,74 @@ namespace Horizon.World
             }
 
             return new TownPlan(plots, lamps, lampYaws, footprint);
+        }
+
+        /// <summary>
+        /// Puts the church on the highest ground the town has.
+        ///
+        /// <para>Not by eye and not at a hand-picked coordinate: the basin's cross-fall lifts the floor
+        /// four and a half metres from the trunk road out to the far edge, so the highest ground is
+        /// wherever <see cref="TownShape.FloorHeight"/> says it is, and the search asks it. Height is
+        /// what a landmark trades on — every metre of ground under the spire is a metre of spire seen
+        /// from the pass — so the one decision that matters here is made by measurement.</para>
+        ///
+        /// <para>It faces the trunk road rather than the street it stands on, because a spire is read
+        /// from the road that passes the town, not from the lane behind it.</para>
+        /// </summary>
+        private static void AddChurch(
+            List<TownPlan.Plot> plots,
+            IRoadPath trunk,
+            StreetIndex index,
+            MountainField field,
+            in TerrainShape terrainShape,
+            in TownShape shape)
+        {
+            float bestAlong = 0f;
+            float bestAcross = 0f;
+            float bestHeight = float.MinValue;
+
+            // Off the back of the town, where the cross-fall has done its work, and clear of the streets.
+            for (float along = shape.AlongStart + 80f; along <= shape.AlongEnd - 80f; along += 15f)
+            {
+                for (float across = shape.AcrossOuter * 0.62f; across <= shape.AcrossOuter * 0.94f;
+                     across += 15f)
+                {
+                    Vector3 at = TownShape.ToWorld(trunk, shape, along, across);
+
+                    // Not in a street, and not so far from one that the church has no way in.
+                    float toStreet = index.DistanceTo(at.x, at.z, out int _);
+                    if (toStreet < 22f || toStreet > 55f)
+                    {
+                        continue;
+                    }
+
+                    if (at.y > bestHeight)
+                    {
+                        bestHeight = at.y;
+                        bestAlong = along;
+                        bestAcross = across;
+                    }
+                }
+            }
+
+            if (bestHeight <= float.MinValue)
+            {
+                Debug.LogWarning("[Horizon] Town: nowhere to put the church. Every candidate was either "
+                                 + "in a street or too far from one to reach.");
+                return;
+            }
+
+            Vector3 site = TownShape.ToWorld(trunk, shape, bestAlong, bestAcross);
+            TerrainTileBuilder.SampleSurface(field, terrainShape, site.x, site.z,
+                out Vector3 point, out Vector3 _);
+
+            Vector3 towards = trunk.GetPositionAtDistance(
+                Mathf.Clamp(bestAlong, 0f, trunk.Length)) - point;
+            towards.y = 0f;
+
+            plots.Add(new TownPlan.Plot(
+                point, HeadingOf(towards), 16f, 20f, TownPlotKind.Church, false, false,
+                Hash(7717, Mathf.RoundToInt(bestAlong), 0)));
         }
 
         /// <summary>Which block lies on one side of a street, or -1 for the open edge of the town.</summary>
@@ -529,6 +617,11 @@ namespace Horizon.World
 
                 switch (plot.Kind)
                 {
+                    case TownPlotKind.Church:
+                        LandmarkMeshes.AddChurch(buffer, place, ref random);
+                        stats.Churches++;
+                        continue;
+
                     case TownPlotKind.Windmill:
                         MillMeshes.AddWindmill(buffer, place);
                         stats.Windmills++;

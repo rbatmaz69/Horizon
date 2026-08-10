@@ -426,7 +426,7 @@ namespace Horizon.World
         /// another class, and both emit only four side faces because their ends are always buried. A house
         /// needs its lid.
         /// </summary>
-        private static void AddBox(
+        public static void AddBox(
             VegetationMeshBuffer buffer,
             in PlantPlacement place,
             int submesh,
@@ -465,7 +465,7 @@ namespace Horizon.World
         /// A pitched roof with its ridge running across the street face, plus the two gable triangles that
         /// close the walls under it.
         /// </summary>
-        private static void AddGableRoof(
+        public static void AddGableRoof(
             VegetationMeshBuffer buffer,
             in PlantPlacement place,
             int wallSubmesh,
