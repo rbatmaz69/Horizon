@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace Horizon.World
@@ -65,17 +66,38 @@ namespace Horizon.World
         private readonly int coarseColumns;
         private readonly int coarseRows;
 
-        public MountainField(IRoadPath path, in TerrainShape terrainShape, float sampleSpacing = 4f)
+        /// <param name="levelSamples">
+        /// Extra points the ground should be levelled to, on top of the road's own. They behave exactly
+        /// like road samples — the shelf forms around them and the mountain is carved away — which is what
+        /// makes a buildable area possible at all.
+        ///
+        /// A road on its own can only ever flatten a ribbon <see cref="Verge"/> wide, so anything needing
+        /// an *area* of level ground has to say where. A village fills its footprint with a coarse grid of
+        /// these; the shelves merge into one floor as long as the grid pitch stays under twice the verge.
+        /// They carry a height, so the floor can follow the road's grade rather than sitting level in a
+        /// world that is not.
+        /// </param>
+        public MountainField(
+            IRoadPath path,
+            in TerrainShape terrainShape,
+            float sampleSpacing = 4f,
+            IReadOnlyList<Vector3> levelSamples = null)
         {
             shape = terrainShape;
 
             float length = path.Length;
             int count = Mathf.Max(2, Mathf.CeilToInt(length / Mathf.Max(1f, sampleSpacing)) + 1);
+            int extra = levelSamples != null ? levelSamples.Count : 0;
 
-            samples = new Vector3[count];
+            samples = new Vector3[count + extra];
             for (int i = 0; i < count; i++)
             {
                 samples[i] = path.GetPositionAtDistance(length * i / (count - 1));
+            }
+
+            for (int i = 0; i < extra; i++)
+            {
+                samples[count + i] = levelSamples[i];
             }
 
             // The grid has to be described before the buckets can be filled, because filling them uses

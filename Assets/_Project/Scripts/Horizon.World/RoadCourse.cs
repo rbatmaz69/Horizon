@@ -14,6 +14,17 @@ namespace Horizon.World
 
         /// <summary>Roofed but open on the valley side, held up by pillars.</summary>
         Gallery = 2,
+
+        /// <summary>
+        /// A stretch the road runs through a settlement.
+        ///
+        /// Note what this deliberately does *not* do. <see cref="IsCovered"/> and
+        /// <see cref="IsCoveredOrNear"/> test for Tunnel and Gallery by name, so a village does not
+        /// suppress guard rails and is not skipped by the road-clearance check — both of which still
+        /// matter with houses beside the road. It marks the stretch and nothing more; what actually
+        /// stands there comes from <c>VillagePlan</c>.
+        /// </summary>
+        Village = 3,
     }
 
     /// <summary>A stretch of the course that something is built on or into.</summary>

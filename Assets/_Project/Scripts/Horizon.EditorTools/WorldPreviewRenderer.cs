@@ -141,6 +141,35 @@ namespace Horizon.EditorTools
                     }
                 }
 
+                // Through the village, from the driver's eye and then from above it. The first says whether
+                // it reads as somewhere people live; the second whether the plots hang together as a place
+                // rather than as houses dropped on a field.
+                Vector3 villageAt = path.GetPositionAtDistance(length * 0.035f);
+                Vector3 villageForward = path.GetDirectionAtDistance(length * 0.035f);
+                camera.fieldOfView = 60f;
+                camera.transform.position = villageAt - villageForward * 12f + Vector3.up * 3.5f;
+                camera.transform.rotation = Quaternion.LookRotation(
+                    (villageForward + Vector3.down * 0.08f).normalized, Vector3.up);
+                Capture(camera, Path.Combine(directory, "WorldPreview_Village_Street.png"));
+
+                Vector3 overAt = path.GetPositionAtDistance(length * 0.033f);
+                Vector3 overRight = path.GetRightAtDistance(length * 0.033f);
+                camera.fieldOfView = 55f;
+                camera.transform.position = overAt - overRight * 130f + Vector3.up * 85f;
+                camera.transform.rotation = Quaternion.LookRotation(
+                    (overAt - camera.transform.position), Vector3.up);
+                Capture(camera, Path.Combine(directory, "WorldPreview_Village_Above.png"));
+
+                // Down onto one frontage from the far verge. This is the shot that shows how close the
+                // garden boundaries actually come to the asphalt, which no view along the road reveals.
+                Vector3 plotAt = path.GetPositionAtDistance(length * 0.03f);
+                Vector3 plotRight = path.GetRightAtDistance(length * 0.03f);
+                camera.fieldOfView = 50f;
+                camera.transform.position = plotAt + plotRight * 34f + Vector3.up * 17f;
+                camera.transform.rotation = Quaternion.LookRotation(
+                    (plotAt - plotRight * 24f) - camera.transform.position, Vector3.up);
+                Capture(camera, Path.Combine(directory, "WorldPreview_Village_Plot.png"));
+
                 // A close look across the verge at the roadside, which is the one angle that exposes plants
                 // hovering off the ground or buried in it. Straight down the road hides it completely.
                 // 0.88, not the middle of the course: the gallery sits around two thirds of the way along,

@@ -118,6 +118,12 @@ namespace Horizon.EditorTools
             public readonly Material GuardRail;
             public readonly Material Grass;
             public readonly Material Rock;
+            public readonly Material Lane;
+            public readonly Material[] Walls;
+            public readonly Material[] Roofs;
+            public readonly Material Trim;
+            public readonly Material WindowDay;
+            public readonly Material WindowNight;
             public readonly Material Bark;
             public readonly Material Conifer;
             public readonly Material Broadleaf;
@@ -157,6 +163,48 @@ namespace Horizon.EditorTools
                     MaterialsFolder + "/M_Grass.mat", "M_Grass", new Color(0.36f, 0.48f, 0.26f), 0.08f);
                 Rock = HorizonAssetUtility.LoadOrCreateMaterial(
                     MaterialsFolder + "/M_Rock.mat", "M_Rock", new Color(0.44f, 0.39f, 0.34f), 0.12f);
+
+                // Untextured, so it carries no centre line — the markings live in a baked texture, and a
+                // village lane with a dashed centre line reads as a main road.
+                Lane = HorizonAssetUtility.LoadOrCreateMaterial(
+                    MaterialsFolder + "/M_Lane.mat", "M_Lane", new Color(0.27f, 0.27f, 0.29f), 0.30f);
+
+                // A palette, because URP/Lit reads no vertex colours and the building meshes carry no UVs
+                // — a per-house tint has to be a per-house material. Warm plaster tones, the kind an
+                // alpine village is actually rendered and limewashed in.
+                Walls = new[]
+                {
+                    HorizonAssetUtility.LoadOrCreateMaterial(
+                        MaterialsFolder + "/M_Wall.mat", "M_Wall", new Color(0.87f, 0.83f, 0.75f), 0.10f),
+                    HorizonAssetUtility.LoadOrCreateMaterial(
+                        MaterialsFolder + "/M_WallCream.mat", "M_WallCream",
+                        new Color(0.91f, 0.86f, 0.70f), 0.10f),
+                    HorizonAssetUtility.LoadOrCreateMaterial(
+                        MaterialsFolder + "/M_WallOchre.mat", "M_WallOchre",
+                        new Color(0.80f, 0.68f, 0.53f), 0.10f),
+                };
+
+                Roofs = new[]
+                {
+                    HorizonAssetUtility.LoadOrCreateMaterial(
+                        MaterialsFolder + "/M_Roof.mat", "M_Roof", new Color(0.44f, 0.23f, 0.18f), 0.15f),
+                    HorizonAssetUtility.LoadOrCreateMaterial(
+                        MaterialsFolder + "/M_RoofSlate.mat", "M_RoofSlate",
+                        new Color(0.31f, 0.30f, 0.32f), 0.18f),
+                    HorizonAssetUtility.LoadOrCreateMaterial(
+                        MaterialsFolder + "/M_RoofRust.mat", "M_RoofRust",
+                        new Color(0.55f, 0.32f, 0.20f), 0.14f),
+                };
+                Trim = HorizonAssetUtility.LoadOrCreateMaterial(
+                    MaterialsFolder + "/M_Trim.mat", "M_Trim", new Color(0.38f, 0.31f, 0.25f), 0.18f);
+
+                // Unlit, both of them. VillageLights swaps between the two on the window submesh at dusk
+                // and dawn — no keyword, no property block, and nothing written to a material at runtime.
+                WindowDay = HorizonAssetUtility.LoadOrCreateUnlitMaterial(
+                    MaterialsFolder + "/M_WindowDay.mat", "M_WindowDay", new Color(0.20f, 0.23f, 0.27f));
+                WindowNight = HorizonAssetUtility.LoadOrCreateUnlitMaterial(
+                    MaterialsFolder + "/M_WindowNight.mat", "M_WindowNight",
+                    new Color(1.55f, 1.25f, 0.72f));
                 Concrete = HorizonAssetUtility.LoadOrCreateMaterial(
                     MaterialsFolder + "/M_Concrete.mat", "M_Concrete", new Color(0.52f, 0.51f, 0.49f), 0.20f);
 
@@ -472,19 +520,57 @@ namespace Horizon.EditorTools
             roadChunk.SetBounds(roadChunk.Center, 100000f);
             EditorUtility.SetDirty(roadChunk);
 
+            // --- Village lanes. Laid out before the terrain, because they are what flattens the ground it
+            // will stand on. Each gets its own RoadPath — the component carries no singleton, so several
+            // in a scene are fine — and its own narrower ribbon.
+            VillageShape villageShape = VillageShape.Default;
+            List<RoadCourse> laneCourses = VillageBuilder.LayOutLanes(path, villageShape);
+            RoadPath[] lanePaths = BuildVillageLanes(
+                worldRoot.transform, laneCourses, villageShape, materials, out RoadShape[] laneShapes);
+
+            BuildVillageJunctions(worldRoot.transform, path, lanePaths, laneShapes, roadShape,
+                villageShape, materials);
+
             // One field, shared: the terrain is built from it, the guard rails ask it where the ground falls
             // away, and the tunnel bodies use it to bury their feet. Building a second would be slow and
             // could disagree with the first.
-            var field = new MountainField(path, terrainShape);
+            //
+            // The village's floor is levelled by handing the field a grid of level samples over the
+            // village footprint. The lanes alone will not do it — they level a 24 m ribbon each and leave
+            // the ground between them untouched, which measured 22 m of relief. See
+            // VillageBuilder.BuildLevelSamples.
+            List<Vector3> levelSamples = VillageBuilder.BuildLevelSamples(path, villageShape);
+            for (int i = 0; i < lanePaths.Length; i++)
+            {
+                // The lanes as well as the apron. The apron's heights come from the main road, so without
+                // this a lane running its own grade ends up standing on a plinth.
+                VillageBuilder.AddPathSamples(lanePaths[i], 6f, levelSamples);
+            }
+
+            var field = new MountainField(path, terrainShape, 4f, levelSamples);
 
             ValidateRoadClearance(path, roadShape, field, course);
+            ReportVillageGround(field, path, villageShape);
 
-            BuildTerrainTiles(worldRoot.transform, path, roadShape, course, field, terrainShape, materials);
+            // Planned after the field exists, because the plots are seated on the finished terrain.
+            VillagePlan villagePlan = VillageBuilder.Plan(
+                path, lanePaths, field, terrainShape, villageShape);
+
+            BuildTerrainTiles(worldRoot.transform, path, roadShape, course, field, terrainShape,
+                villageShape, villagePlan, materials);
             BuildCoveredSections(worldRoot.transform, path, roadShape, course, field, materials);
             BuildGuardRails(worldRoot.transform, path, roadShape, field, course, materials);
 
             // After every builder and before the car exists — otherwise the car is the obstruction.
-            ValidateDriveableCorridor(path);
+            ValidateDriveableCorridor(path, "the pass");
+            for (int i = 0; i < lanePaths.Length; i++)
+            {
+                // The lanes too. Checking only the main road is why a fence could have stood in a lane
+                // and the build would have called the world clear.
+                ValidateDriveableCorridor(lanePaths[i], $"lane {i}");
+            }
+
+            ValidateVillageStreets(path, lanePaths, roadShape);
 
             // --- Streaming.
             var streamingObject = new GameObject("Streaming");
@@ -815,6 +901,184 @@ namespace Horizon.EditorTools
         /// neighbouring tiles agree exactly along their shared edges — sampling per-tile instead is the
         /// standard way to end up with cracks between them.
         /// </summary>
+        /// <summary>
+        /// Builds a RoadPath and a ribbon for every village lane, and hands back the paths so the height
+        /// field can be given them.
+        /// </summary>
+        private static RoadPath[] BuildVillageLanes(
+            Transform parent,
+            List<RoadCourse> courses,
+            in VillageShape villageShape,
+            PrototypeMaterials materials,
+            out RoadShape[] laneShapes)
+        {
+            if (courses == null || courses.Count == 0)
+            {
+                laneShapes = new RoadShape[0];
+                return new RoadPath[0];
+            }
+
+            var root = new GameObject("VillageLanes");
+            root.transform.SetParent(parent, false);
+
+            // A lane is the pass's cross-section, narrowed and stripped of its markings. The centre line
+            // lives in a baked texture, so a plain untextured surface is also the cheapest way to not have
+            // one — a village lane with a dashed centre line would read as a main road.
+            laneShapes = new RoadShape[courses.Count];
+
+            RoadShape laneShape = RoadShape.Default;
+            laneShape.HalfWidth = villageShape.LaneHalfWidth;
+            laneShape.ShoulderWidth = 0.6f;
+            laneShape.Crown = 0.05f;
+            laneShape.MaxBankDegrees = 0f;
+
+            var paths = new RoadPath[courses.Count];
+
+            for (int i = 0; i < courses.Count; i++)
+            {
+                string name = $"Lane_{i}";
+                laneShapes[i] = laneShape;
+
+                var laneObject = new GameObject(name);
+                laneObject.transform.SetParent(root.transform, false);
+
+                RoadPath lane = laneObject.AddComponent<RoadPath>();
+                lane.SetControlPoints(courses[i].ControlPoints);
+                paths[i] = lane;
+
+                Mesh mesh = RoadMeshBuilder.BuildRoad(lane, laneShape, name + "Mesh");
+                mesh = HorizonAssetUtility.ReplaceAsset(mesh, $"{GeneratedFolder}/{name}Mesh.asset");
+
+                CreateMeshObject(laneObject.transform, name + "_Surface", mesh,
+                    new[] { materials.Lane, materials.RoadShoulder });
+            }
+
+            Debug.Log($"[Horizon] Village lanes: {courses.Count}, {LaneLength(courses):0} m of street.");
+            return paths;
+        }
+
+        /// <summary>
+        /// A throat where each lane leaves a road, so the two surfaces run into one another instead of
+        /// stopping near each other. RoadMeshBuilder leaves every ribbon end open, so there is nothing to
+        /// attach to and this has to be its own geometry.
+        ///
+        /// Only the lanes that actually leave the main road get one — the back lane and the connector meet
+        /// other lanes, whose narrow ribbons already overlap enough not to show a step.
+        /// </summary>
+        private static void BuildVillageJunctions(
+            Transform parent,
+            RoadPath main,
+            RoadPath[] lanes,
+            RoadShape[] laneShapes,
+            in RoadShape roadShape,
+            in VillageShape villageShape,
+            PrototypeMaterials materials)
+        {
+            if (lanes.Length == 0)
+            {
+                return;
+            }
+
+            var root = new GameObject("VillageJunctions");
+            root.transform.SetParent(parent, false);
+
+            float side = Mathf.Sign(villageShape.LaneSide == 0f ? -1f : villageShape.LaneSide);
+            float[] branchAt = { villageShape.FirstLaneAt, villageShape.SecondLaneAt };
+
+            int built = 0;
+            for (int i = 0; i < branchAt.Length && i < lanes.Length; i++)
+            {
+                Mesh mesh = VillageRoadBuilder.Build(
+                    main, branchAt[i], lanes[i], roadShape, laneShapes[i], side,
+                    villageShape.JunctionThroat, $"Junction_{i}");
+
+                if (mesh == null)
+                {
+                    continue;
+                }
+
+                mesh = HorizonAssetUtility.ReplaceAsset(mesh, $"{GeneratedFolder}/Junction_{i}.asset");
+                CreateMeshObject(root.transform, $"Junction_{i}", mesh, new[] { materials.Lane });
+                built++;
+            }
+
+            Debug.Log($"[Horizon] Village junctions: {built} built.");
+        }
+
+        private static float LaneLength(List<RoadCourse> courses)
+        {
+            float total = 0f;
+            for (int i = 0; i < courses.Count; i++)
+            {
+                total += courses[i].PlannedLength;
+            }
+
+            return total;
+        }
+
+        /// <summary>
+        /// Measures how flat the village floor actually came out, as a number rather than an impression.
+        ///
+        /// The whole village rests on the claim that running the lanes through the height field levels the
+        /// ground between them. If that claim is wrong the houses stand on a 22 % slope, and it is far
+        /// cheaper to read that here than to build forty of them and look at a picture.
+        /// </summary>
+        private static void ReportVillageGround(MountainField field, RoadPath path, in VillageShape shape)
+        {
+            const float step = 8f;
+
+            float side = Mathf.Sign(shape.LaneSide == 0f ? -1f : shape.LaneSide);
+            float depth = shape.LaneLength;
+
+            float lowest = float.MaxValue;
+            float highest = float.MinValue;
+            float steepest = 0f;
+            int samples = 0;
+
+            for (float along = shape.AlongStart; along <= shape.AlongEnd; along += step)
+            {
+                Vector3 centre = path.GetPositionAtDistance(Mathf.Clamp(along, 0f, path.Length));
+                Vector3 right = path.GetRightAtDistance(Mathf.Clamp(along, 0f, path.Length));
+
+                for (float across = 10f; across <= depth; across += step)
+                {
+                    Vector3 point = centre + right * (across * side);
+
+                    float here = field.HeightAt(point.x, point.z);
+                    float ahead = field.HeightAt(point.x + step, point.z);
+                    float beside = field.HeightAt(point.x, point.z + step);
+
+                    // Relative to the road beside it, not to sea level — the valley approach climbs 1.5 %,
+                    // so absolute height says nothing about whether the ground is buildable.
+                    float relative = here - centre.y;
+                    lowest = Mathf.Min(lowest, relative);
+                    highest = Mathf.Max(highest, relative);
+
+                    steepest = Mathf.Max(steepest, Mathf.Abs(ahead - here) / step);
+                    steepest = Mathf.Max(steepest, Mathf.Abs(beside - here) / step);
+                    samples++;
+                }
+            }
+
+            if (samples == 0)
+            {
+                return;
+            }
+
+            Debug.Log($"[Horizon] Village ground: {samples} samples over {depth:0} m of depth, "
+                      + $"{lowest:0.0} m to {highest:0.0} m relative to the road, "
+                      + $"steepest {steepest * 100f:0} %.");
+
+            if (highest - lowest > 6f || steepest > 0.25f)
+            {
+                Debug.LogWarning(
+                    "[Horizon] Village ground is not buildable. The level samples from "
+                    + "VillageBuilder.BuildLevelSamples are either not reaching MountainField, or their "
+                    + "grid pitch is too coarse for the shelves to merge — it has to stay under twice "
+                    + $"TerrainShape.VergeWidth, which is {TerrainShape.Default.VergeWidth:0} m.");
+            }
+        }
+
         private static void BuildTerrainTiles(
             Transform parent,
             RoadPath path,
@@ -822,6 +1086,8 @@ namespace Horizon.EditorTools
             RoadCourse course,
             MountainField field,
             in TerrainShape terrainShape,
+            in VillageShape villageShape,
+            VillagePlan villagePlan,
             PrototypeMaterials materials)
         {
             List<TerrainTileKey> tiles = TerrainTileBuilder.ListTiles(field, terrainShape, terrainShape.CorridorWidth);
@@ -833,10 +1099,16 @@ namespace Horizon.EditorTools
             int totalTriangles = 0;
 
             VegetationShape vegetationShape = VegetationShape.Default;
-            var vegetationContext = new VegetationContext(path, course, vegetationShape);
+            var vegetationContext = new VegetationContext(
+                path, course, vegetationShape, villagePlan,
+                villageShape.PlotClearance, villageShape.TreeKeepOut);
             var vegetationTotal = new VegetationStats();
             int heaviestTile = 0;
             string heaviestTileName = "none";
+
+            var villageTotal = new VillageStats();
+            var villageRenderers = new List<MeshRenderer>();
+            var villageWindowSlots = new List<int>();
 
             for (int i = 0; i < tiles.Count; i++)
             {
@@ -876,8 +1148,43 @@ namespace Horizon.EditorTools
                     }
                 }
 
-                // After the plants, never before: the chunk takes its radius from the renderers below it, and
-                // a tree standing proud of the terrain bounds would pop in and out on its own.
+                Mesh buildings = VillageBuilder.BuildTile(
+                    key, terrainShape, villageShape, villagePlan, name + "_Village",
+                    out VillageStats villageStats);
+
+                if (buildings != null)
+                {
+                    buildings = HorizonAssetUtility.ReplaceAsset(
+                        buildings, $"{GeneratedFolder}/{name}_Village.asset");
+
+                    // Houses keep OccluderStatic, unlike the trees. A village street is the one place in
+                    // this world where occlusion culling has something solid to work with.
+                    //
+                    // No MeshCollider on the merged mesh: it would be a large concave collider full of
+                    // window ledges and fence rails for the car to snag on, the same reason the tunnel
+                    // skin was taken out of collision. Each plot gets a box below instead.
+                    GameObject villageObject = CreateMeshObject(
+                        tileObject.transform, name + "_Village", buildings,
+                        VillageMaterials(materials, villageStats),
+                        addCollider: false, markStatic: true,
+                        staticFlags: StaticEditorFlags.BatchingStatic
+                                     | StaticEditorFlags.OccluderStatic
+                                     | StaticEditorFlags.OccludeeStatic);
+
+                    int windowSlot = villageStats.Submeshes.IndexOf(BuildingMeshes.WindowSubmesh);
+                    if (windowSlot >= 0)
+                    {
+                        villageRenderers.Add(villageObject.GetComponent<MeshRenderer>());
+                        villageWindowSlots.Add(windowSlot);
+                    }
+
+                    AddPlotColliders(villageObject.transform, key, terrainShape, villagePlan);
+                    villageTotal.Add(villageStats);
+                }
+
+                // After the plants and the houses, never before: the chunk takes its radius from the
+                // renderers below it, and anything standing proud of the terrain bounds would pop in and
+                // out on its own.
                 WorldChunk chunk = tileObject.AddComponent<WorldChunk>();
                 chunk.RecalculateBounds();
                 EditorUtility.SetDirty(chunk);
@@ -888,6 +1195,325 @@ namespace Horizon.EditorTools
 
             ReportVegetation(vegetationTotal, vegetationShape, roadShape, vegetationContext,
                 heaviestTile, heaviestTileName);
+
+            ReportVillage(villageTotal, villageShape, villagePlan);
+            WireVillageLights(parent, villageRenderers, villageWindowSlots, materials);
+        }
+
+        /// <summary>
+        /// Hangs one VillageLights on the world root, holding every renderer that owns a window submesh.
+        ///
+        /// One component for the whole village rather than one per tile: every window in the place lights
+        /// at the same instant, so there is nothing to be gained by deciding it thirty times over.
+        /// </summary>
+        private static void WireVillageLights(
+            Transform parent,
+            List<MeshRenderer> renderers,
+            List<int> windowSlots,
+            PrototypeMaterials materials)
+        {
+            if (renderers.Count == 0)
+            {
+                return;
+            }
+
+            var lightsObject = new GameObject("VillageLights");
+            lightsObject.transform.SetParent(parent, false);
+
+            VillageLights lights = lightsObject.AddComponent<VillageLights>();
+            HorizonAssetUtility.Configure(lights, serialized =>
+            {
+                HorizonAssetUtility.SetObjectArray(serialized, "renderers", renderers.ToArray());
+
+                SerializedProperty slots = serialized.FindProperty("windowSlots");
+                slots.arraySize = windowSlots.Count;
+                for (int i = 0; i < windowSlots.Count; i++)
+                {
+                    slots.GetArrayElementAtIndex(i).intValue = windowSlots[i];
+                }
+
+                serialized.FindProperty("dayMaterial").objectReferenceValue = materials.WindowDay;
+                serialized.FindProperty("nightMaterial").objectReferenceValue = materials.WindowNight;
+            });
+        }
+
+        private static void ReportVillage(VillageStats stats, in VillageShape shape, VillagePlan plan)
+        {
+            if (plan == null || stats.Houses + stats.Windmills == 0)
+            {
+                Debug.LogWarning("[Horizon] Village: nothing was built. Check VillageShape's extent against "
+                                 + "the course, and that the plots landed inside terrain tiles.");
+                return;
+            }
+
+            Debug.Log($"[Horizon] Village: {stats.Houses} houses, {stats.Windmills} windmill, "
+                      + $"{stats.Barns} barns, {stats.Sawmills} sawmills, {stats.Fences} fences, "
+                      + $"{stats.Lamps} lamps, {stats.Cars} parked cars — {stats.Triangles} triangles "
+                      + $"over {plan.Footprint.size.x:0} x {plan.Footprint.size.z:0} m.");
+
+            if (stats.Triangles > shape.MaxTrianglesPerTile * 4)
+            {
+                Debug.LogWarning($"[Horizon] Village: {stats.Triangles} triangles is heavier than expected. "
+                                 + "Raise PlotSpacing or lower the plot count in VillageShape.");
+            }
+
+            ReportWindingFlips("Village", stats.Flips);
+        }
+
+        /// <summary>
+        /// Whether any face had to be turned round on its way into a mesh buffer.
+        ///
+        /// Zero is the only acceptable answer and it costs nothing to ask. The correction happens either
+        /// way, so a non-zero count is never a broken build — it is a builder whose vertex order has drifted
+        /// from the direction it claims the face looks in, and it is worth knowing on the run that
+        /// introduces it rather than three stages later. Silent self-correction is how the mirrored
+        /// placement basis went unnoticed until every wall in the village was inside out.
+        ///
+        /// <para>This is the only automated winding check there is, and that is a deliberate stopping point
+        /// rather than a gap waiting to be filled. Four attempts were made at a second one that inspects the
+        /// finished meshes — crossing parity on a <c>MeshCollider</c>, the same in exact Möller–Trumbore,
+        /// per-face front visibility, and two-culling-mode ray sampling from outside the mesh bounds. Every
+        /// one of them reported nine of ten wall submeshes riddled with holes on a village that renders
+        /// solid, because none of this geometry is a manifold solid: windows are recesses drawn inside solid
+        /// wall boxes with panes buried behind them, roofs emit their undersides at the same coordinates as
+        /// their slopes, and boxes interpenetrate freely. A check nobody can trust gets switched off, and is
+        /// then worth nothing on the day it is right. If a second layer is wanted, the place for it is a
+        /// signed-volume assertion on each closed primitive at the point it is authored — which needs those
+        /// primitives exposed for test — not an inspection of the merged result.</para>
+        /// </summary>
+        private static void ReportWindingFlips(string what, int flips)
+        {
+            if (flips <= 0)
+            {
+                return;
+            }
+
+            Debug.LogWarning($"[Horizon] {what}: {flips} faces were wound backwards and were corrected at "
+                             + "build time. The helper that emitted them disagrees with its own outward "
+                             + "direction — the geometry is right, the code that wrote it is not.");
+        }
+
+        /// <summary>
+        /// The materials for a tile's buildings, in the order its submeshes ended up in.
+        ///
+        /// The wall and roof palettes are contiguous ranges rather than named cases, so adding a fourth
+        /// colour is one entry in the array and nothing else.
+        /// </summary>
+        private static Material[] VillageMaterials(PrototypeMaterials materials, VillageStats stats)
+        {
+            var result = new Material[stats.Submeshes.Count];
+
+            for (int i = 0; i < stats.Submeshes.Count; i++)
+            {
+                int submesh = stats.Submeshes[i];
+
+                if (submesh >= BuildingMeshes.FirstWallSubmesh
+                    && submesh < BuildingMeshes.FirstWallSubmesh + BuildingMeshes.WallVariants)
+                {
+                    result[i] = materials.Walls[submesh - BuildingMeshes.FirstWallSubmesh];
+                }
+                else if (submesh >= BuildingMeshes.FirstRoofSubmesh
+                         && submesh < BuildingMeshes.FirstRoofSubmesh + BuildingMeshes.RoofVariants)
+                {
+                    result[i] = materials.Roofs[submesh - BuildingMeshes.FirstRoofSubmesh];
+                }
+                else if (submesh == BuildingMeshes.WindowSubmesh)
+                {
+                    // Starts dark. VillageLights swaps in the lit one after sunset.
+                    result[i] = materials.WindowDay;
+                }
+                else if (submesh == BuildingMeshes.GardenSubmesh)
+                {
+                    result[i] = materials.Undergrowth;
+                }
+                else
+                {
+                    result[i] = materials.Trim;
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// One box collider per plot, sized to the house rather than to the garden.
+        ///
+        /// Boxes rather than the merged mesh because the mesh is concave and full of window ledges, fence
+        /// rails and roof eaves — exactly the kind of surface a car catches on in ways that feel arbitrary,
+        /// which is why the guard rails and the tunnel skin are not colliders either.
+        /// </summary>
+        private static void AddPlotColliders(
+            Transform parent,
+            TerrainTileKey key,
+            in TerrainShape terrainShape,
+            VillagePlan plan)
+        {
+            float tileSize = TerrainTileBuilder.TileSize(terrainShape);
+            float originX = key.Column * tileSize;
+            float originZ = key.Row * tileSize;
+
+            for (int i = 0; i < plan.Plots.Count; i++)
+            {
+                VillagePlan.Plot plot = plan.Plots[i];
+
+                if (plot.Position.x < originX || plot.Position.x >= originX + tileSize
+                    || plot.Position.z < originZ || plot.Position.z >= originZ + tileSize)
+                {
+                    continue;
+                }
+
+                bool tall = plot.Kind == VillagePlotKind.Windmill;
+                bool wide = plot.Kind == VillagePlotKind.Barn;
+
+                float halfWidth = tall ? 4.5f : wide ? 7.5f : 5.6f;
+                float halfDepth = tall ? 4.5f : wide ? 5.5f : 4.8f;
+                float height = tall ? 16f : wide ? 8f : 6f;
+
+                var box = new GameObject($"Plot_{i}");
+                box.transform.SetParent(parent, false);
+                box.transform.position = plot.Position;
+                box.transform.rotation = Quaternion.Euler(0f, plot.Yaw, 0f);
+
+                BoxCollider collider = box.AddComponent<BoxCollider>();
+                collider.center = new Vector3(0f, height * 0.5f, 0f);
+                collider.size = new Vector3(halfWidth * 2f, height, halfDepth * 2f);
+
+                GameObjectUtility.SetStaticEditorFlags(box, StaticEditorFlags.BatchingStatic);
+            }
+        }
+
+        /// <summary>
+        /// Checks the village streets against the two things that have actually gone wrong with them.
+        ///
+        /// Both bugs this catches shipped and survived two rounds of looking at screenshots, because a
+        /// lane running the wrong way and a lane standing on a plinth both look plausible in a foggy
+        /// render. Neither survives a number.
+        ///
+        /// 1. **No lane may cross the main carriageway.** A sign error in the turn-off heading sent both
+        ///    lanes straight across it, coplanar to within five millimetres — z-fighting over the full
+        ///    width of the road the player drives on.
+        /// 2. **Junctions between lanes must be flush.** The back lane took its endpoint heights from a
+        ///    helper that returns y = 0, so it met the side lanes with steps of 0.42 m and 0.98 m.
+        /// </summary>
+        private static void ValidateVillageStreets(RoadPath main, RoadPath[] lanes, in RoadShape roadShape)
+        {
+            if (lanes == null || lanes.Length == 0)
+            {
+                return;
+            }
+
+            const float step = 4f;
+            const float flushTolerance = 0.05f;
+
+            int crossings = 0;
+            float worstCrossing = float.MaxValue;
+            int steps = 0;
+            float worstStep = 0f;
+
+            for (int i = 0; i < lanes.Length; i++)
+            {
+                RoadPath lane = lanes[i];
+
+                for (float along = 0f; along <= lane.Length; along += step)
+                {
+                    Vector3 point = lane.GetPositionAtDistance(Mathf.Min(along, lane.Length));
+
+                    // Skip the first few metres: a lane is *meant* to touch the main road where it joins.
+                    if (along < roadShape.OuterHalfWidth * 3f)
+                    {
+                        continue;
+                    }
+
+                    float toMain = PlanDistanceToPath(main, point, 8f);
+                    if (toMain < roadShape.OuterHalfWidth)
+                    {
+                        crossings++;
+                        worstCrossing = Mathf.Min(worstCrossing, toMain);
+                    }
+                }
+
+                // Every other lane end that lands on this one has to meet it at the same height.
+                for (int j = 0; j < lanes.Length; j++)
+                {
+                    if (i == j)
+                    {
+                        continue;
+                    }
+
+                    foreach (float end in new[] { 0f, lanes[j].Length })
+                    {
+                        Vector3 at = lanes[j].GetPositionAtDistance(end);
+                        float plan = PlanDistanceToPath(lane, at, 4f, out float height);
+
+                        if (plan > 2f)
+                        {
+                            continue;
+                        }
+
+                        float drop = Mathf.Abs(height - at.y);
+                        if (drop > flushTolerance)
+                        {
+                            steps++;
+                            worstStep = Mathf.Max(worstStep, drop);
+                        }
+                    }
+                }
+            }
+
+            if (crossings > 0)
+            {
+                Debug.LogWarning($"[Horizon] Village streets: a lane runs across the main carriageway at "
+                                 + $"{crossings} sampled points, closest {worstCrossing:0.0} m from the "
+                                 + $"centreline against a {roadShape.OuterHalfWidth:0.0} m half-width. "
+                                 + "Check the sign of the turn-off heading in VillageBuilder.LayOutLanes.");
+            }
+
+            if (steps > 0)
+            {
+                Debug.LogWarning($"[Horizon] Village streets: {steps} lane junction(s) are not flush, worst "
+                                 + $"{worstStep:0.00} m. Lane endpoints must take their height from the "
+                                 + "course they join, not from a plan-space heading vector.");
+            }
+
+            if (crossings == 0 && steps == 0)
+            {
+                Debug.Log($"[Horizon] Village streets: {lanes.Length} lanes clear of the carriageway and "
+                          + "flush at every junction.");
+            }
+        }
+
+        private static float PlanDistanceToPath(IRoadPath path, Vector3 point, float step)
+        {
+            return PlanDistanceToPath(path, point, step, out float _);
+        }
+
+        /// <summary>
+        /// Plan distance from a point to a path, and the path's height at the nearest point.
+        ///
+        /// A walk rather than a lookup because there is no inverse projection anywhere in the codebase
+        /// and this runs a few thousand times at edit time, not per frame.
+        /// </summary>
+        private static float PlanDistanceToPath(IRoadPath path, Vector3 point, float step, out float height)
+        {
+            float best = float.MaxValue;
+            height = point.y;
+
+            for (float along = 0f; along <= path.Length; along += step)
+            {
+                Vector3 at = path.GetPositionAtDistance(Mathf.Min(along, path.Length));
+
+                float dx = at.x - point.x;
+                float dz = at.z - point.z;
+                float plan = Mathf.Sqrt(dx * dx + dz * dz);
+
+                if (plan < best)
+                {
+                    best = plan;
+                    height = at.y;
+                }
+            }
+
+            return best;
         }
 
         /// <summary>
@@ -966,6 +1592,8 @@ namespace Horizon.EditorTools
                                  + $"over the {vegetationShape.MaxTrianglesPerTile} budget. Raise the cell "
                                  + "sizes or lower FarDensity in VegetationShape.");
             }
+
+            ReportWindingFlips("Vegetation", stats.Flips);
         }
 
         /// <summary>
@@ -1036,7 +1664,7 @@ namespace Horizon.EditorTools
         ///
         /// Must run after every geometry builder and before the car is placed, or the car is the obstruction.
         /// </summary>
-        private static void ValidateDriveableCorridor(RoadPath path)
+        private static void ValidateDriveableCorridor(RoadPath path, string what)
         {
             const float step = 2f;
 
@@ -1065,7 +1693,7 @@ namespace Horizon.EditorTools
 
             if (canary == 0)
             {
-                Debug.LogWarning("[Horizon] Driveable corridor: the check could not run — a box inside the "
+                Debug.LogWarning($"[Horizon] Driveable corridor ({what}): the check could not run — a box inside the "
                                  + "road surface hit nothing, so no collider was queryable. This is not a "
                                  + "clear corridor, it is no answer.");
                 return;
@@ -1105,12 +1733,13 @@ namespace Horizon.EditorTools
 
             if (blocked == 0)
             {
-                Debug.Log($"[Horizon] Driveable corridor: clear over {length:0} m.");
+                Debug.Log($"[Horizon] Driveable corridor ({what}): clear over {length:0} m.");
                 return;
             }
 
             Debug.LogWarning(
-                $"[Horizon] Driveable corridor: something solid stands in the carriageway at {blocked} of "
+                $"[Horizon] Driveable corridor ({what}): something solid stands in the carriageway at {blocked} "
+                + $"of "
                 + $"the {Mathf.CeilToInt(length / step)} sampled points. First at {firstAt:0} m along the "
                 + $"course, against '{firstBy}'.");
         }

@@ -57,6 +57,14 @@ namespace Horizon.World
     ///
     /// The species builders work in the plant's own space and this turns that into world space, because
     /// every mesh in this project is built with world-space vertices and hung on an object at the origin.
+    ///
+    /// <para><b>The basis is right-handed — det[Right, Up, Forward] = +1 — and that is load-bearing.</b>
+    /// Every triangle in this world takes its normal from its own winding
+    /// (<see cref="VegetationMeshBuffer.AddTriangleRaw"/>), so a mirrored basis silently reverses every face
+    /// authored through <see cref="ToWorld"/>: the geometry is then back-face culled *and* lit from behind.
+    /// This basis was mirrored once — <c>Cross(reference, Up)</c> rather than <c>Cross(Up, reference)</c> —
+    /// and the whole village rendered as open dollhouses, roofs floating over visible interiors, for want of
+    /// one swapped argument. Do not reorder these cross products.</para>
     /// </summary>
     public readonly struct PlantPlacement
     {
@@ -75,19 +83,22 @@ namespace Horizon.World
             // Cross with world up fails exactly when the plant is upright, which is the common case, so the
             // reference axis is swapped for the near-vertical ones rather than the other way round.
             Vector3 reference = Mathf.Abs(Up.y) > 0.99f ? Vector3.forward : Vector3.up;
-            Vector3 right = Vector3.Cross(reference, Up);
+            Vector3 right = Vector3.Cross(Up, reference);
             if (right.sqrMagnitude < 0.000001f)
             {
                 right = Vector3.right;
             }
 
             right.Normalize();
-            Vector3 forward = Vector3.Cross(Up, right);
+            Vector3 forward = Vector3.Cross(right, Up);
 
+            // Yaw turns the same way as before the basis was un-mirrored: with these signs Forward comes out
+            // as (sin, 0, cos) for an upright placement, exactly as it always did, and the entire change
+            // reduces to Right -> -Right. That is why no caller's yaw needed re-deriving.
             float sin = Mathf.Sin(yawRadians);
             float cos = Mathf.Cos(yawRadians);
-            Right = right * cos + forward * sin;
-            Forward = forward * cos - right * sin;
+            Right = right * cos - forward * sin;
+            Forward = forward * cos + right * sin;
 
             Scale = scale;
             Seed = seed;
@@ -126,10 +137,22 @@ namespace Horizon.World
         public bool IsEmpty => vertices.Count == 0;
 
         /// <summary>
+        /// How many faces <see cref="AddTriangleFacing"/> had to turn round.
+        ///
+        /// A build that reports anything other than zero has a helper somewhere authoring its vertices in the
+        /// wrong order. The correction keeps the mesh right either way, so this is not an error — it is the
+        /// only cheap way to notice that a helper has drifted, and it costs one integer.
+        /// </summary>
+        public int FlipCount { get; private set; }
+
+        /// <summary>
         /// One flat-shaded triangle. The winding is taken as given — unlike the terrain, a plant genuinely
         /// has downward-facing faces and they must keep their own normals.
+        ///
+        /// Prefer <see cref="AddTriangleFacing"/> for anything solid. This one is <c>Raw</c> because reading
+        /// it in a builder should prompt the question "and how do you know this winding is right?".
         /// </summary>
-        public void AddTriangle(int submesh, Vector3 a, Vector3 b, Vector3 c)
+        public void AddTriangleRaw(int submesh, Vector3 a, Vector3 b, Vector3 c)
         {
             Vector3 normal = Vector3.Cross(b - a, c - a);
             if (normal.sqrMagnitude < 0.0000001f)
@@ -154,11 +177,47 @@ namespace Horizon.World
             target.Add(baseIndex + 2);
         }
 
+        /// <summary>
+        /// One flat-shaded triangle whose winding is derived from where the face is meant to look, rather
+        /// than trusted to the order the caller happened to write its corners in.
+        ///
+        /// <paramref name="outward"/> need be neither normalised nor accurate; only its sign against the
+        /// face matters. Every solid face in this world has an obvious one — a box face has its own axis, a
+        /// tower segment has its radial direction, a window reveal points into its recess — and passing it
+        /// turns a silent, side-dependent bug class into a dot product evaluated once, at edit time.
+        ///
+        /// The pattern is not new: <c>TerrainTileBuilder</c> and <c>VillageRoadBuilder</c> both already flip
+        /// on <c>normal.y &lt; 0</c>, which is this method with <c>outward = Vector3.up</c> written in.
+        /// </summary>
+        public void AddTriangleFacing(int submesh, Vector3 a, Vector3 b, Vector3 c, Vector3 outward)
+        {
+            if (Vector3.Dot(Vector3.Cross(b - a, c - a), outward) < 0f)
+            {
+                FlipCount++;
+                AddTriangleRaw(submesh, a, c, b);
+                return;
+            }
+
+            AddTriangleRaw(submesh, a, b, c);
+        }
+
+        /// <summary>
+        /// A quad as two facing triangles.
+        ///
+        /// Each half is tested separately on purpose. Eaves, lean-to roofs and anything seated on terrain
+        /// come out non-planar, and one shared normal for both halves would be a guess dressed up as a fact.
+        /// </summary>
+        public void AddQuadFacing(int submesh, Vector3 a, Vector3 b, Vector3 c, Vector3 d, Vector3 outward)
+        {
+            AddTriangleFacing(submesh, a, b, c, outward);
+            AddTriangleFacing(submesh, a, c, d, outward);
+        }
+
         /// <summary>Both windings of the same triangle, for foliage that has to be visible from either side.</summary>
         public void AddDoubleSided(int submesh, Vector3 a, Vector3 b, Vector3 c)
         {
-            AddTriangle(submesh, a, b, c);
-            AddTriangle(submesh, a, c, b);
+            AddTriangleRaw(submesh, a, b, c);
+            AddTriangleRaw(submesh, a, c, b);
         }
 
         /// <summary>
@@ -208,6 +267,13 @@ namespace Horizon.World
     /// rounder canopy is a triangle spent several thousand times over. The variation that stops a forest
     /// looking stamped comes from per-instance height, width, tier count and vertex jitter rather than from
     /// more faces.
+    ///
+    /// <para>These helpers stay on <see cref="VegetationMeshBuffer.AddTriangleRaw"/> rather than moving to
+    /// the facing variant, and that is a decision rather than an oversight: every ring here is jittered by
+    /// up to 45 %, so "outward" is only ever the radial direction to within a wide margin, and a hint that
+    /// is occasionally wrong is worse than no hint at all. Each helper below was checked by hand against the
+    /// right-handed basis instead. Solid geometry — buildings, mills, landmarks — uses the hint, and the
+    /// flip counter guards it.</para>
     /// </summary>
     public static class PlantMeshes
     {
@@ -364,7 +430,10 @@ namespace Horizon.World
                     Vector3 p0 = place.ToWorld(Mathf.Cos(a0) * stubRadius, at, Mathf.Sin(a0) * stubRadius);
                     Vector3 p1 = place.ToWorld(Mathf.Cos(a1) * stubRadius, at, Mathf.Sin(a1) * stubRadius);
 
-                    buffer.AddTriangle(BarkSubmesh, p0, p1, tip);
+                    // (p0, tip, p1), matching AddCone. The reverse order was wound inside out, which on a
+                    // three-sided spike reads as a thinner spike rather than as a hole — which is why it
+                    // survived this long.
+                    buffer.AddTriangleRaw(BarkSubmesh, p0, tip, p1);
                 }
             }
         }
@@ -393,8 +462,8 @@ namespace Horizon.World
                 Vector3 t0 = place.ToWorld(Mathf.Cos(a0) * topRadius, topY, Mathf.Sin(a0) * topRadius);
                 Vector3 t1 = place.ToWorld(Mathf.Cos(a1) * topRadius, topY, Mathf.Sin(a1) * topRadius);
 
-                buffer.AddTriangle(submesh, b0, t0, t1);
-                buffer.AddTriangle(submesh, b0, t1, b1);
+                buffer.AddTriangleRaw(submesh, b0, t0, t1);
+                buffer.AddTriangleRaw(submesh, b0, t1, b1);
             }
         }
 
@@ -422,11 +491,11 @@ namespace Horizon.World
                 Vector3 p0 = place.ToWorld(Mathf.Cos(a0) * radius, baseY, Mathf.Sin(a0) * radius);
                 Vector3 p1 = place.ToWorld(Mathf.Cos(a1) * radius, baseY, Mathf.Sin(a1) * radius);
 
-                buffer.AddTriangle(submesh, p0, apex, p1);
+                buffer.AddTriangleRaw(submesh, p0, apex, p1);
 
                 if (capped)
                 {
-                    buffer.AddTriangle(submesh, p0, p1, centre);
+                    buffer.AddTriangleRaw(submesh, p0, p1, centre);
                 }
             }
         }
@@ -487,10 +556,10 @@ namespace Horizon.World
             {
                 int next = (i + 1) % sides;
 
-                buffer.AddTriangle(submesh, lower[i], lower[next], bottom);
-                buffer.AddTriangle(submesh, lower[i], upper[i], upper[next]);
-                buffer.AddTriangle(submesh, lower[i], upper[next], lower[next]);
-                buffer.AddTriangle(submesh, upper[i], top, upper[next]);
+                buffer.AddTriangleRaw(submesh, lower[i], lower[next], bottom);
+                buffer.AddTriangleRaw(submesh, lower[i], upper[i], upper[next]);
+                buffer.AddTriangleRaw(submesh, lower[i], upper[next], lower[next]);
+                buffer.AddTriangleRaw(submesh, upper[i], top, upper[next]);
             }
         }
 
@@ -533,8 +602,8 @@ namespace Horizon.World
                 Vector3 p0 = ring[i];
                 Vector3 p1 = ring[(i + 1) % sides];
 
-                buffer.AddTriangle(submesh, p0, top, p1);
-                buffer.AddTriangle(submesh, p0, p1, bottom);
+                buffer.AddTriangleRaw(submesh, p0, top, p1);
+                buffer.AddTriangleRaw(submesh, p0, p1, bottom);
             }
         }
     }

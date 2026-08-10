@@ -59,10 +59,13 @@ namespace Horizon.World
         {
             var builder = new RoadCourseBuilder(new Vector3(0f, 0f, -260f));
 
-            // --- Valley approach. Room to get up to speed before the first corner.
+            // --- Valley approach, and the village that sits on it. This and the run-out are the only two
+            // stretches of the whole course under 3 %, so it is here or nowhere. The car spawns 25 m in,
+            // which means the drive starts among the houses and climbs out of them.
             builder.Straight(160f, 1f);
             builder.Turn(220f, -28f, 1f);
             builder.Straight(120f, 1.5f);
+            builder.AddFeature(RoadFeatureKind.Village, 20f, 340f, "Talheim");
 
             // --- Climb.
             for (int i = 0; i < ClimbHairpins; i++)

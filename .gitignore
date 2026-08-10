@@ -68,3 +68,7 @@ crashlytics-build.properties
 
 # Claude Code local settings
 .claude/settings.local.json
+
+# Generated IDE solution (Visual Studio Code Editor package)
+*.slnx
+.vscode/
