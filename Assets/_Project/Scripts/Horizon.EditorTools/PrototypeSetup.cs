@@ -585,7 +585,11 @@ namespace Horizon.EditorTools
 
             // Planned after the field exists, because the plots are seated on the finished terrain.
             var streetIndex = new StreetIndex(network);
-            TownPlan townPlan = TownPlanner.Plan(network, streetIndex, field, terrainShape, townShape, path);
+            List<TownBlock> blocks = network.FindBlocks(out int[] blockOfHalfEdge);
+            ReportBlocks(blocks);
+
+            TownPlan townPlan = TownPlanner.Plan(
+                network, streetIndex, field, terrainShape, townShape, path, blocks, blockOfHalfEdge);
 
             BuildTerrainTiles(worldRoot.transform, path, roadShape, course, field, terrainShape,
                 townShape, townFootprint, townPlan, materials);
@@ -1784,6 +1788,42 @@ namespace Horizon.EditorTools
             var marker = new GameObject("TownWorstJunction");
             marker.transform.SetParent(parent, false);
             marker.transform.position = network.Nodes[nodeIndex].Position;
+        }
+
+        /// <summary>
+        /// What the face walk found: how many blocks, how big, and which quarter each belongs to.
+        ///
+        /// The block count is the first number to look at when the layout table changes. A grid of three
+        /// streets crossed by five should produce about eight blocks; anything far off that means a
+        /// street the table thinks joins something it does not, and no picture would say so.
+        /// </summary>
+        private static void ReportBlocks(IReadOnlyList<TownBlock> blocks)
+        {
+            if (blocks.Count == 0)
+            {
+                Debug.LogWarning("[Horizon] Town blocks: the face walk found none. Either the layout "
+                                 + "table is a tree with no closed rings in it, or the bearings the walk "
+                                 + "turns on are not sorted.");
+                return;
+            }
+
+            var byQuarter = new int[5];
+            float total = 0f;
+            float largest = 0f;
+
+            for (int i = 0; i < blocks.Count; i++)
+            {
+                byQuarter[(int)blocks[i].Quarter]++;
+                total += blocks[i].Area;
+                largest = Mathf.Max(largest, blocks[i].Area);
+            }
+
+            Debug.Log($"[Horizon] Town blocks: {blocks.Count} enclosing {total / 10000f:0.0} ha, largest "
+                      + $"{largest / 10000f:0.00} ha — {byQuarter[(int)TownQuarter.OldTown]} old town, "
+                      + $"{byQuarter[(int)TownQuarter.Housing]} housing, "
+                      + $"{byQuarter[(int)TownQuarter.Market]} market, "
+                      + $"{byQuarter[(int)TownQuarter.Industry]} industry, "
+                      + $"{byQuarter[(int)TownQuarter.Green]} green.");
         }
 
         /// <summary>Closest the two paths come to each other in plan, metres.</summary>

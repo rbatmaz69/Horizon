@@ -209,12 +209,69 @@ namespace Horizon.World
         }
 
         /// <summary>
+        /// What gets built along a street, decided by which quarter the block behind it belongs to.
+        ///
+        /// <para>This is where a quarter stops being a label and becomes something you can see from the
+        /// car. An old-town street has narrow plots almost on the pavement; a housing street has wide
+        /// ones set well back behind gardens; industry has a few very large ones further back still. The
+        /// numbers matter more than any amount of variation within a plot, because what reads at driving
+        /// speed is rhythm and setback, not detail.</para>
+        /// </summary>
+        private readonly struct QuarterStyle
+        {
+            /// <summary>How far the house stands back from the kerb, metres.</summary>
+            public readonly float Setback;
+
+            /// <summary>Spacing of plots along the frontage, metres.</summary>
+            public readonly float Spacing;
+
+            /// <summary>Depth of a plot away from the street, metres.</summary>
+            public readonly float Depth;
+
+            /// <summary>Chance a plot is left empty, so the row is not extruded.</summary>
+            public readonly float Vacancy;
+
+            public QuarterStyle(float setback, float spacing, float depth, float vacancy)
+            {
+                Setback = setback;
+                Spacing = spacing;
+                Depth = depth;
+                Vacancy = vacancy;
+            }
+
+            public static QuarterStyle For(TownQuarter quarter)
+            {
+                switch (quarter)
+                {
+                    case TownQuarter.OldTown:
+                        return new QuarterStyle(4.5f, 12f, 16f, 0.10f);
+
+                    case TownQuarter.Market:
+                        return new QuarterStyle(3.0f, 11f, 16f, 0.06f);
+
+                    case TownQuarter.Industry:
+                        return new QuarterStyle(12f, 30f, 26f, 0.30f);
+
+                    case TownQuarter.Green:
+                        return new QuarterStyle(11f, 26f, 20f, 0.55f);
+
+                    default:
+                        return new QuarterStyle(9f, 18f, 20f, 0.20f);
+                }
+            }
+        }
+
+        /// <summary>
         /// Works out where every plot, lamp and parked car goes.
         ///
         /// Run once, after the terrain exists — plots are seated with
         /// <see cref="TerrainTileBuilder.SampleSurface"/> rather than with the raw height field, because
         /// the mesh is a 12 m linear interpolation of the field and a house placed against the field
         /// itself sinks a corner into the ground on any slope. The same trap the plants were in.
+        ///
+        /// <para>Frontage is laid out per <i>side</i> of a street rather than per street, because the two
+        /// sides of a street belong to different blocks and can be in different quarters. That is what a
+        /// high street with shops on one side and the backs of housing on the other is.</para>
         /// </summary>
         public static TownPlan Plan(
             StreetNetwork network,
@@ -222,9 +279,11 @@ namespace Horizon.World
             MountainField field,
             in TerrainShape terrainShape,
             in TownShape shape,
-            IRoadPath trunk)
+            IRoadPath trunk,
+            IReadOnlyList<TownBlock> blocks,
+            int[] blockOfHalfEdge)
         {
-            var plots = new List<TownPlan.Plot>(256);
+            var plots = new List<TownPlan.Plot>(400);
             var lamps = new List<Vector3>(32);
             var lampYaws = new List<float>(32);
 
@@ -237,11 +296,27 @@ namespace Horizon.World
                 // From one junction pad to the other, with a corner keep-out at each end so nothing
                 // stands in a sight line — and so two streets' frontages cannot collide at a corner.
                 float keepOut = edge.HalfOuter + 4f;
+                float from = edge.TrimStart + keepOut;
+                float to = edge.Length - edge.TrimEnd - keepOut;
 
-                AddFrontage(
-                    plots, edge.Path, field, terrainShape, shape,
-                    edge.TrimStart + keepOut, edge.Length - edge.TrimEnd - keepOut,
-                    i, allowMill: edge.Quarter == TownQuarter.Industry, setback: SetbackFor(edge, shape));
+                for (int s = 0; s < 2; s++)
+                {
+                    // s = 0 is the path's own left. The block on that side decides the quarter; where
+                    // there is no block — the outer edge of the town, or a dead-end spur with nothing
+                    // behind it — the street's own quarter stands in.
+                    bool left = s == 0;
+                    int face = FaceOn(network, blockOfHalfEdge, i, left);
+
+                    TownQuarter quarter = face >= 0 && face < blocks.Count
+                        ? blocks[face].Quarter
+                        : edge.Quarter;
+
+                    QuarterStyle style = QuarterStyle.For(quarter);
+
+                    AddFrontage(
+                        plots, edge, field, terrainShape, shape, style, from, to,
+                        i * 2 + s, left, allowMill: edge.Quarter == TownQuarter.Industry);
+                }
             }
 
             // Lamps down the trunk road through the town, on the town side only. The streets get their
@@ -276,17 +351,13 @@ namespace Horizon.World
             return new TownPlan(plots, lamps, lampYaws, footprint);
         }
 
-        /// <summary>
-        /// How far back from a street's centreline its houses stand.
-        ///
-        /// Scaled off the street's own width, so a house on an alley is not marooned in the middle of a
-        /// field while one on the high street is in the gutter. The margin past the kerb is what has to
-        /// stay constant, not the distance from the centreline — that was the mistake the village made
-        /// with a single number for every lane.
-        /// </summary>
-        private static float SetbackFor(StreetEdge edge, in TownShape shape)
+        /// <summary>Which block lies on one side of a street, or -1 for the open edge of the town.</summary>
+        private static int FaceOn(
+            StreetNetwork network, int[] blockOfHalfEdge, int edgeIndex, bool left)
         {
-            return edge.HalfOuter + shape.PlotSetback;
+            bool forwardHalfIsLeft = network.BlocksLieLeftOfWalk;
+            int half = (edgeIndex << 1) | (left == forwardHalfIsLeft ? 0 : 1);
+            return blockOfHalfEdge[half];
         }
 
         /// <summary>
@@ -342,83 +413,81 @@ namespace Horizon.World
             return Mathf.Sqrt(best);
         }
 
-        /// <summary>Lines plots up along one street, on both sides.</summary>
+        /// <summary>Lines plots up along one side of one street.</summary>
         private static void AddFrontage(
             List<TownPlan.Plot> plots,
-            IRoadPath street,
+            StreetEdge edge,
             MountainField field,
             in TerrainShape terrainShape,
             in TownShape shape,
+            in QuarterStyle style,
             float from,
             float to,
-            int streetId,
-            bool allowMill,
-            float setback)
+            int frontageId,
+            bool left,
+            bool allowMill)
         {
-            if (street == null || to <= from)
+            if (edge.Path == null || to <= from)
             {
                 return;
             }
 
+            float sign = left ? -1f : 1f;
+            float setback = edge.HalfOuter + style.Setback + style.Depth * 0.5f;
             int index = 0;
 
-            for (float along = from; along <= to; along += shape.PlotSpacing, index++)
+            for (float along = from; along <= to; along += style.Spacing, index++)
             {
-                float clamped = Mathf.Clamp(along, 0f, street.Length);
-                Vector3 centre = street.GetPositionAtDistance(clamped);
-                Vector3 right = street.GetRightAtDistance(clamped);
+                float clamped = Mathf.Clamp(along, 0f, edge.Path.Length);
+                Vector3 centre = edge.Path.GetPositionAtDistance(clamped);
+                Vector3 right = edge.Path.GetRightAtDistance(clamped);
 
-                for (int s = 0; s < 2; s++)
+                // The mill is decided before the vacancy roll, not after. Testing for it further down
+                // meant a plot could be left empty before the test ever ran, and the town came out with
+                // no landmark at all and nothing saying so.
+                bool mill = allowMill && left
+                            && Mathf.Abs(along - (from + to) * 0.5f) < style.Spacing * 0.5f;
+
+                var random = new PlantRandom(Hash(frontageId, index, 0));
+                if (!mill && random.Chance(style.Vacancy))
                 {
-                    float sign = s == 0 ? -1f : 1f;
-
-                    // The mill is decided before the vacancy roll, not after. Testing for it further down
-                    // meant a plot could be left empty before the test ever ran, and the town came out
-                    // with no landmark at all and nothing saying so.
-                    bool mill = allowMill
-                                && Mathf.Abs(along - (from + to) * 0.5f) < shape.PlotSpacing * 0.5f
-                                && s == 0;
-
-                    var random = new PlantRandom(Hash(streetId, index, s));
-                    if (!mill && random.Chance(shape.PlotVacancy))
-                    {
-                        continue;
-                    }
-
-                    var kind = TownPlotKind.House;
-                    if (mill)
-                    {
-                        kind = TownPlotKind.Windmill;
-                    }
-                    else if (random.Chance(shape.WorkingBuildingChance))
-                    {
-                        // A working building rather than another house. Scattered through the town
-                        // instead of pushed to one edge, because a barn between two cottages is what a
-                        // town actually looks like.
-                        kind = random.Chance(0.6f) ? TownPlotKind.Barn : TownPlotKind.Sawmill;
-                    }
-
-                    bool landmark = kind != TownPlotKind.House;
-
-                    Vector3 at = centre + right * (setback * sign)
-                                 + street.GetDirectionAtDistance(clamped) * (landmark ? 0f : random.Range(-3f, 3f));
-
-                    TerrainTileBuilder.SampleSurface(field, terrainShape, at.x, at.z,
-                        out Vector3 point, out Vector3 _);
-
-                    float halfWidth = mill ? 10f : shape.PlotHalfWidth;
-                    float halfDepth = mill ? 10f : shape.PlotDepth * 0.5f;
-
-                    plots.Add(new TownPlan.Plot(
-                        point,
-                        HeadingOf(-right * sign),
-                        halfWidth,
-                        halfDepth,
-                        kind,
-                        kind == TownPlotKind.House && random.Chance(shape.ParkedCarChance),
-                        kind == TownPlotKind.House && random.Chance(0.55f),
-                        random.NextSeed()));
+                    continue;
                 }
+
+                var kind = TownPlotKind.House;
+                if (mill)
+                {
+                    kind = TownPlotKind.Windmill;
+                }
+                else if (random.Chance(shape.WorkingBuildingChance))
+                {
+                    // A working building rather than another house. Scattered through the town instead
+                    // of pushed to one edge, because a barn between two cottages is what a town actually
+                    // looks like.
+                    kind = random.Chance(0.6f) ? TownPlotKind.Barn : TownPlotKind.Sawmill;
+                }
+
+                bool landmark = kind != TownPlotKind.House;
+                float jitter = landmark ? 0f : random.Range(-1.5f, 1.5f);
+
+                Vector3 at = centre + right * (setback * sign)
+                             + edge.Path.GetDirectionAtDistance(clamped) * jitter;
+
+                TerrainTileBuilder.SampleSurface(field, terrainShape, at.x, at.z,
+                    out Vector3 point, out Vector3 _);
+
+                float halfWidth = mill ? 10f : style.Spacing * 0.44f;
+                float halfDepth = mill ? 10f : style.Depth * 0.5f;
+
+                plots.Add(new TownPlan.Plot(
+                    point,
+                    HeadingOf(-right * sign),
+                    halfWidth,
+                    halfDepth,
+                    kind,
+                    kind == TownPlotKind.House && random.Chance(shape.ParkedCarChance),
+                    kind == TownPlotKind.House && random.Chance(0.55f),
+                    random.NextSeed()));
             }
         }
 

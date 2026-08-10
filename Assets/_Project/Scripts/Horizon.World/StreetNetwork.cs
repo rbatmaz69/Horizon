@@ -225,6 +225,250 @@ namespace Horizon.World
         }
 
         /// <summary>
+        /// The blocks: the bounded faces of the graph, found by walking half-edges.
+        ///
+        /// <para>The network is planar — <c>ValidateStreetNetwork</c> checks that, and this depends on it
+        /// — so its blocks are exactly its faces, and a face walk finds them exactly rather than
+        /// approximately. No flood fill, no rasterisation, no tolerance to tune: two directed half-edges
+        /// per street, and from each one the next is the one that leaves its far node next round in
+        /// bearing order. Every closed walk is a face; the one whose signed area comes out the other way
+        /// up is the outside of the town.</para>
+        ///
+        /// <para>A street with nothing on the far side of it — a dead-end spur — is a bridge, and the
+        /// outer walk passes down both its sides. That is correct rather than a special case: it has
+        /// frontage on both sides and no block behind either.</para>
+        /// </summary>
+        public List<TownBlock> FindBlocks(out int[] blockOfHalfEdge)
+        {
+            int halfEdges = edges.Count * 2;
+            blockOfHalfEdge = new int[halfEdges];
+            for (int i = 0; i < halfEdges; i++)
+            {
+                blockOfHalfEdge[i] = -1;
+            }
+
+            var walks = new List<List<int>>();
+            var seen = new bool[halfEdges];
+
+            for (int start = 0; start < halfEdges; start++)
+            {
+                if (seen[start])
+                {
+                    continue;
+                }
+
+                var walk = new List<int>(8);
+                int half = start;
+
+                // The guard is not paranoia: a bearing list that is not sorted, or a node whose incident
+                // list disagrees with its edges, turns this into an infinite loop rather than a wrong
+                // answer, and it would do so inside a menu command with no way out.
+                for (int step = 0; step < halfEdges + 1; step++)
+                {
+                    if (seen[half])
+                    {
+                        break;
+                    }
+
+                    seen[half] = true;
+                    walk.Add(half);
+                    half = NextHalfEdge(half);
+                }
+
+                walks.Add(walk);
+            }
+
+            var blocks = new List<TownBlock>(walks.Count);
+
+            for (int i = 0; i < walks.Count; i++)
+            {
+                List<int> walk = walks[i];
+                if (walk.Count < 3)
+                {
+                    continue;
+                }
+
+                Vector3[] outline = OutlineOf(walk);
+                float signed = SignedArea(outline);
+
+                // The outer face is the one wound the other way. Every bounded face of a planar graph
+                // shares a winding; the unbounded one cannot.
+                if (signed >= 0f)
+                {
+                    continue;
+                }
+
+                var block = new TownBlock
+                {
+                    Index = blocks.Count,
+                    BoundaryEdges = new int[walk.Count],
+                    BoundaryForward = new bool[walk.Count],
+                    Outline = outline,
+                    Area = Mathf.Abs(signed),
+                    Centroid = CentroidOf(outline),
+                };
+
+                for (int j = 0; j < walk.Count; j++)
+                {
+                    block.BoundaryEdges[j] = walk[j] >> 1;
+                    block.BoundaryForward[j] = (walk[j] & 1) == 0;
+                    blockOfHalfEdge[walk[j]] = block.Index;
+                }
+
+                block.Quarter = QuarterOf(block);
+                blocks.Add(block);
+            }
+
+            BlocksLieLeftOfWalk = blocks.Count > 0 && LiesLeftOfWalk(blocks[0]);
+            return blocks;
+        }
+
+        /// <summary>
+        /// Which side of a boundary street its own block is on.
+        ///
+        /// Every bounded face of a planar graph is walked the same way round, so this is one property of
+        /// the whole network rather than one per edge — but it depends on a winding convention nobody
+        /// should have to hold in their head, so it is measured once instead: offset a metre from the
+        /// middle of one boundary street and ask whether that point is inside the block.
+        /// </summary>
+        public bool BlocksLieLeftOfWalk { get; private set; }
+
+        private bool LiesLeftOfWalk(TownBlock block)
+        {
+            StreetEdge edge = edges[block.BoundaryEdges[0]];
+            bool forward = block.BoundaryForward[0];
+
+            float middle = edge.Length * 0.5f;
+            Vector3 at = edge.Path.GetPositionAtDistance(middle);
+            Vector3 right = edge.Path.GetRightAtDistance(middle) * (forward ? 1f : -1f);
+
+            return Contains(block.Outline, at - right * 3f);
+        }
+
+        /// <summary>Ray-cast point-in-polygon test in plan.</summary>
+        public static bool Contains(Vector3[] outline, Vector3 point)
+        {
+            bool inside = false;
+
+            for (int i = 0, j = outline.Length - 1; i < outline.Length; j = i++)
+            {
+                if (outline[i].z > point.z != outline[j].z > point.z
+                    && point.x < (outline[j].x - outline[i].x) * (point.z - outline[i].z)
+                        / (outline[j].z - outline[i].z) + outline[i].x)
+                {
+                    inside = !inside;
+                }
+            }
+
+            return inside;
+        }
+
+        /// <summary>
+        /// The next half-edge round a face: from the far node of this one, the street that leaves next in
+        /// bearing order after the one we arrived on.
+        /// </summary>
+        private int NextHalfEdge(int half)
+        {
+            StreetEdge edge = edges[half >> 1];
+            int arrivedAt = (half & 1) == 0 ? edge.ToNode : edge.FromNode;
+
+            StreetNode node = nodes[arrivedAt];
+            int slot = System.Array.IndexOf(node.Edges, edge.Index);
+            if (slot < 0)
+            {
+                return half ^ 1;
+            }
+
+            // One round *back* in bearing order, not forward. Forward walks the faces the other way and
+            // hands back the outside of the town as a single ring with everything inside it.
+            int nextSlot = (slot - 1 + node.Degree) % node.Degree;
+            StreetEdge nextEdge = edges[node.Edges[nextSlot]];
+
+            // Directed away from the node we are standing on.
+            return (nextEdge.Index << 1) | (nextEdge.FromNode == arrivedAt ? 0 : 1);
+        }
+
+        /// <summary>
+        /// A walk's boundary as a polygon, sampling each street along its length rather than joining the
+        /// nodes with straight lines. A bowed street is most of what gives a block its shape, and a
+        /// centroid taken from the corners alone lands outside a crescent.
+        /// </summary>
+        private Vector3[] OutlineOf(List<int> walk)
+        {
+            var points = new List<Vector3>(walk.Count * 5);
+
+            for (int i = 0; i < walk.Count; i++)
+            {
+                StreetEdge edge = edges[walk[i] >> 1];
+                bool forward = (walk[i] & 1) == 0;
+
+                int steps = Mathf.Max(2, Mathf.CeilToInt(edge.Length / 20f));
+                for (int step = 0; step < steps; step++)
+                {
+                    float t = step / (float)steps;
+                    points.Add(edge.Path.GetPositionAtDistance(edge.Length * (forward ? t : 1f - t)));
+                }
+            }
+
+            return points.ToArray();
+        }
+
+        private static float SignedArea(Vector3[] outline)
+        {
+            float sum = 0f;
+
+            for (int i = 0; i < outline.Length; i++)
+            {
+                Vector3 a = outline[i];
+                Vector3 b = outline[(i + 1) % outline.Length];
+                sum += a.x * b.z - b.x * a.z;
+            }
+
+            return sum * 0.5f;
+        }
+
+        private static Vector3 CentroidOf(Vector3[] outline)
+        {
+            var sum = Vector3.zero;
+            for (int i = 0; i < outline.Length; i++)
+            {
+                sum += outline[i];
+            }
+
+            return sum / outline.Length;
+        }
+
+        /// <summary>
+        /// A block's quarter: whichever its boundary streets mostly belong to, weighted by how much of
+        /// the boundary each is.
+        ///
+        /// From the table rather than from a roll, so what a quarter is stays readable in a diff. Length
+        /// weighting rather than a straight count, because a block bounded by three short alleys and one
+        /// long high street frontage is on the high street.
+        /// </summary>
+        private TownQuarter QuarterOf(TownBlock block)
+        {
+            var weight = new float[5];
+
+            for (int i = 0; i < block.BoundaryEdges.Length; i++)
+            {
+                StreetEdge edge = edges[block.BoundaryEdges[i]];
+                weight[(int)edge.Quarter] += edge.Length;
+            }
+
+            int best = 0;
+            for (int i = 1; i < weight.Length; i++)
+            {
+                if (weight[i] > weight[best])
+                {
+                    best = i;
+                }
+            }
+
+            return (TownQuarter)best;
+        }
+
+        /// <summary>
         /// One street's centreline, sampled in town-local coordinates and mapped into the world.
         ///
         /// Working in town-local space all the way to the last step is what makes the height come out
@@ -337,6 +581,34 @@ namespace Horizon.World
                 node.Edges[i] = incident[order[i]];
             }
         }
+    }
+
+    /// <summary>
+    /// One bounded face of the street graph: the land a ring of streets encloses.
+    ///
+    /// A block is what a parcel belongs to, and it is what makes the difference between houses ranged
+    /// along a street and a town: it is the thing that has a depth, a quarter, and two sides that have to
+    /// share it.
+    /// </summary>
+    public sealed class TownBlock
+    {
+        public int Index;
+
+        /// <summary>Edges round the boundary, in walk order.</summary>
+        public int[] BoundaryEdges;
+
+        /// <summary>True where the walk ran from the edge's <c>FromNode</c> to its <c>ToNode</c>.</summary>
+        public bool[] BoundaryForward;
+
+        public Vector3 Centroid;
+
+        /// <summary>Plan area, square metres. Always positive.</summary>
+        public float Area;
+
+        /// <summary>The boundary as a polygon, following the streets' curves rather than cutting corners.</summary>
+        public Vector3[] Outline;
+
+        public TownQuarter Quarter;
     }
 
     /// <summary>
