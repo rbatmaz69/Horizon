@@ -491,6 +491,13 @@ namespace Horizon.EditorTools
 
         private static void BuildWorldScene(GameObject vehiclePrefab)
         {
+            // Four lines, and they are how you find out which loop bit. Three things here scale badly
+            // with the town — clearing parcels off streets, the plant scatter's occupancy query, and
+            // MountainField's un-bucketed coarse grid — and an opinion about which of them is the
+            // expensive one is worth nothing next to a number per phase.
+            var clock = new System.Diagnostics.Stopwatch();
+            clock.Start();
+
             Scene scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
 
             // Everything asset-related is resolved after the scene switch above, never before it.
@@ -549,6 +556,7 @@ namespace Horizon.EditorTools
 
             StreetJunctionBuilder.ResolveTrims(network, roadShape.OuterHalfWidth);
             BuildStreetMeshes(streetsRoot.transform, network, path, roadShape, townShape, materials);
+            Phase(clock, "road and streets");
 
             // One field, shared: the terrain is built from it, the guard rails ask it where the ground falls
             // away, and the tunnel bodies use it to bury their feet. Building a second would be slow and
@@ -579,6 +587,7 @@ namespace Horizon.EditorTools
             Bounds townFootprint = TownShape.Footprint(levelSamples, townShape.CorridorMargin);
 
             var field = new MountainField(path, terrainShape, 4f, levelSamples);
+            Phase(clock, $"height field ({levelSamples.Count} level samples)");
 
             ValidateRoadClearance(path, roadShape, field, course);
             ReportTownGround(field, path, terrainShape, townShape);
@@ -590,15 +599,19 @@ namespace Horizon.EditorTools
 
             TownPlan townPlan = TownPlanner.Plan(
                 network, streetIndex, field, terrainShape, townShape, path, blocks, blockOfHalfEdge);
+            Phase(clock, $"blocks and parcels ({townPlan.Plots.Count} plots)");
 
             BuildTerrainTiles(worldRoot.transform, path, roadShape, course, field, terrainShape,
                 townShape, townFootprint, townPlan, materials);
             ValidateLandmarkVisibility(field, course, path, townPlan);
+            Phase(clock, "terrain, vegetation and buildings");
+
             BuildCoveredSections(worldRoot.transform, path, roadShape, course, field, materials);
             BuildGuardRails(worldRoot.transform, path, roadShape, field, course, materials);
 
             // After every builder and before the car exists — otherwise the car is the obstruction.
             ValidateDriveableCorridor(path, "the pass", 1.3f, 4f);
+            Phase(clock, "validation");
             int worstJunction = ValidateStreetNetwork(network, path, roadShape);
             MarkWorstJunction(worldRoot.transform, network, worstJunction);
 
@@ -1771,6 +1784,13 @@ namespace Horizon.EditorTools
             }
 
             return tightestNode;
+        }
+
+        /// <summary>Logs how long a phase of the build took, and restarts the clock for the next one.</summary>
+        private static void Phase(System.Diagnostics.Stopwatch clock, string what)
+        {
+            Debug.Log($"[Horizon] Build phase: {what} took {clock.ElapsedMilliseconds} ms.");
+            clock.Restart();
         }
 
         /// <summary>

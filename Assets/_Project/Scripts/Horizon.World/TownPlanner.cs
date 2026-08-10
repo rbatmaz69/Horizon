@@ -73,12 +73,74 @@ namespace Horizon.World
         private readonly List<Vector3> lamps;
         private readonly List<float> lampYaws;
 
+        /// <summary>
+        /// A uniform grid over the plots, so asking "is anything built here" is a handful of cells
+        /// rather than a walk down the whole list.
+        ///
+        /// <para>This is the one query in the build that is genuinely hot, and it was found by measuring
+        /// rather than by suspicion. The vegetation scatter asks it for <i>every plant candidate on every
+        /// tile</i> — a few hundred thousand of them — and the list is a hundred and forty plots long, so
+        /// the plain version is tens of millions of distance checks and it is most of the forty-five
+        /// seconds the terrain phase takes. Counts, prefix offsets, items: the same shape as
+        /// <c>MountainField.BuildBuckets</c> and <c>StreetIndex</c>.</para>
+        /// </summary>
+        private readonly int[] cellStart;
+
+        private readonly int[] cellItems;
+        private readonly Vector2 gridOrigin;
+        private readonly float cellSize;
+        private readonly int columns;
+        private readonly int rows;
+        private readonly float largestRadius;
+
         internal TownPlan(List<Plot> plots, List<Vector3> lamps, List<float> lampYaws, Bounds footprint)
         {
             this.plots = plots;
             this.lamps = lamps;
             this.lampYaws = lampYaws;
             Footprint = footprint;
+
+            cellSize = 32f;
+
+            for (int i = 0; i < plots.Count; i++)
+            {
+                largestRadius = Mathf.Max(largestRadius, plots[i].Radius);
+            }
+
+            gridOrigin = new Vector2(footprint.min.x - cellSize, footprint.min.z - cellSize);
+            columns = Mathf.Max(1, Mathf.CeilToInt((footprint.size.x + cellSize * 2f) / cellSize));
+            rows = Mathf.Max(1, Mathf.CeilToInt((footprint.size.z + cellSize * 2f) / cellSize));
+
+            int cellCount = columns * rows;
+            var counts = new int[cellCount + 1];
+
+            for (int i = 0; i < plots.Count; i++)
+            {
+                counts[CellOf(plots[i].Position.x, plots[i].Position.z) + 1]++;
+            }
+
+            for (int cell = 0; cell < cellCount; cell++)
+            {
+                counts[cell + 1] += counts[cell];
+            }
+
+            cellStart = counts;
+            cellItems = new int[plots.Count];
+            var cursor = new int[cellCount];
+
+            for (int i = 0; i < plots.Count; i++)
+            {
+                int cell = CellOf(plots[i].Position.x, plots[i].Position.z);
+                cellItems[cellStart[cell] + cursor[cell]] = i;
+                cursor[cell]++;
+            }
+        }
+
+        private int CellOf(float x, float z)
+        {
+            int column = Mathf.Clamp(Mathf.FloorToInt((x - gridOrigin.x) / cellSize), 0, columns - 1);
+            int row = Mathf.Clamp(Mathf.FloorToInt((z - gridOrigin.y) / cellSize), 0, rows - 1);
+            return row * columns + column;
         }
 
         public IReadOnlyList<Plot> Plots => plots;
@@ -121,16 +183,40 @@ namespace Horizon.World
 
         private bool Within(float x, float z, float margin, bool buildingOnly)
         {
-            for (int i = 0; i < plots.Count; i++)
+            if (plots.Count == 0)
             {
-                Plot plot = plots[i];
-                float dx = plot.Position.x - x;
-                float dz = plot.Position.z - z;
-                float reach = (buildingOnly ? plot.BuildingRadius : plot.Radius) + margin;
+                return false;
+            }
 
-                if (dx * dx + dz * dz <= reach * reach)
+            // The reach has to cover the largest plot as well as the margin: a plot is indexed by where
+            // it stands, so one whose centre is two cells away can still reach this point.
+            int span = Mathf.Max(1, Mathf.CeilToInt((margin + largestRadius) / cellSize));
+
+            int centreColumn = Mathf.Clamp(Mathf.FloorToInt((x - gridOrigin.x) / cellSize), 0, columns - 1);
+            int centreRow = Mathf.Clamp(Mathf.FloorToInt((z - gridOrigin.y) / cellSize), 0, rows - 1);
+
+            int minColumn = Mathf.Max(0, centreColumn - span);
+            int maxColumn = Mathf.Min(columns - 1, centreColumn + span);
+            int minRow = Mathf.Max(0, centreRow - span);
+            int maxRow = Mathf.Min(rows - 1, centreRow + span);
+
+            for (int row = minRow; row <= maxRow; row++)
+            {
+                for (int column = minColumn; column <= maxColumn; column++)
                 {
-                    return true;
+                    int cell = row * columns + column;
+                    for (int slot = cellStart[cell]; slot < cellStart[cell + 1]; slot++)
+                    {
+                        Plot plot = plots[cellItems[slot]];
+                        float dx = plot.Position.x - x;
+                        float dz = plot.Position.z - z;
+                        float reach = (buildingOnly ? plot.BuildingRadius : plot.Radius) + margin;
+
+                        if (dx * dx + dz * dz <= reach * reach)
+                        {
+                            return true;
+                        }
+                    }
                 }
             }
 
