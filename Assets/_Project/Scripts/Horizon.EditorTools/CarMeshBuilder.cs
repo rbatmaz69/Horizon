@@ -481,12 +481,24 @@ namespace Horizon.EditorTools
         /// <summary>
         /// Glass is decided by position along the car rather than by station index, so reshaping the
         /// silhouette cannot silently move the windows onto the wrong panel.
+        ///
+        /// <para><b>Where the side glass stops is the single number that decides whether this reads as a
+        /// coupé or as a slab.</b> It used to run back to z −1.60, past the rear axle at −1.35 and into
+        /// the wheel arch flare — an unbroken dark band the whole length of the car, which is a letterbox
+        /// however tall the roof above it is. Raising the greenhouse did not fix it because the fault was
+        /// never the height of the band, it was the length. It now ends at −1.05, just ahead of the rear
+        /// axle, and everything behind that is bodywork: the C-pillar and the sail panels that run down
+        /// either side of the rear screen into the deck. That solid shoulder over the back wheel is what
+        /// a fastback actually is.</para>
+        ///
+        /// <para>The rear screen keeps its own extent, further back than the side glass, because it lies
+        /// down along the roofline between those sail panels — a top surface, not a flank.</para>
         /// </summary>
         private static int ResolveSubmesh(float z, int keySegment)
         {
             bool windscreen = z > 0.25f && z < 0.85f;
-            bool rearWindow = z > -1.60f && z < -0.45f;
-            bool cabin = z > -1.60f && z < 0.27f;
+            bool rearWindow = z > -1.55f && z < -0.45f;
+            bool cabin = z > -1.05f && z < 0.27f;
 
             if (TopKeySegments.Contains(keySegment) && (windscreen || rearWindow))
             {
