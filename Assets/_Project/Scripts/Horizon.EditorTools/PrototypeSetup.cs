@@ -122,6 +122,7 @@ namespace Horizon.EditorTools
             public readonly Material Grass;
             public readonly Material Rock;
             public readonly Material Lane;
+            public readonly Material Footway;
             public readonly Material[] Walls;
             public readonly Material[] Roofs;
             public readonly Material Trim;
@@ -171,6 +172,12 @@ namespace Horizon.EditorTools
                 // town lane with a dashed centre line reads as a main road.
                 Lane = HorizonAssetUtility.LoadOrCreateMaterial(
                     MaterialsFolder + "/M_Lane.mat", "M_Lane", new Color(0.27f, 0.27f, 0.29f), 0.30f);
+
+                // Paler and rougher than the carriageway. The step in value between road and pavement is
+                // what makes a kerb read at all from a car — the 14 cm of geometry is far too small to
+                // see, and it is the colour boundary that draws the line down the street.
+                Footway = HorizonAssetUtility.LoadOrCreateMaterial(
+                    MaterialsFolder + "/M_Footway.mat", "M_Footway", new Color(0.60f, 0.58f, 0.55f), 0.10f);
 
                 // A palette, because URP/Lit reads no vertex colours and the building meshes carry no UVs
                 // — a per-house tint has to be a per-house material. Warm plaster tones, the kind an
@@ -523,16 +530,25 @@ namespace Horizon.EditorTools
             roadChunk.SetBounds(roadChunk.Center, 100000f);
             EditorUtility.SetDirty(roadChunk);
 
-            // --- Town streets. Laid out before the terrain, because they are what flattens the ground
-            // they will stand on. Each gets its own RoadPath — the component carries no singleton, so
-            // several in a scene are fine — and its own narrower ribbon.
+            // --- The town's street network.
+            //
+            // The order below is the whole of the town's build and it is not free to change. The network
+            // has to exist before MountainField, because its centrelines are what the ground is levelled
+            // to; the plots have to come after, because they are seated on the finished terrain mesh.
+            // The street *meshes* sit in between quite happily, and that is the point of
+            // TownShape.FloorHeight — a street takes its height from the same function the level samples
+            // do, so neither has to wait for the other.
             TownShape townShape = TownShape.Default;
-            List<RoadCourse> laneCourses = TownPlanner.LayOutLanes(path, townShape);
-            RoadPath[] lanePaths = BuildTownStreets(
-                worldRoot.transform, laneCourses, townShape, materials, out RoadShape[] laneShapes);
+            ValidateTownMapping(path, townShape);
 
-            BuildTrunkMouths(worldRoot.transform, path, lanePaths, laneShapes, roadShape,
-                townShape, materials);
+            var streetsRoot = new GameObject("TownStreets");
+            streetsRoot.transform.SetParent(worldRoot.transform, false);
+
+            StreetNetwork network = StreetNetwork.Build(
+                path, townShape, TalheimLayout.Build(), streetsRoot.transform);
+
+            StreetJunctionBuilder.ResolveTrims(network, roadShape.OuterHalfWidth);
+            BuildStreetMeshes(streetsRoot.transform, network, path, roadShape, townShape, materials);
 
             // One field, shared: the terrain is built from it, the guard rails ask it where the ground falls
             // away, and the tunnel bodies use it to bury their feet. Building a second would be slow and
@@ -540,14 +556,21 @@ namespace Horizon.EditorTools
             //
             // The town's floor is levelled by handing the field a grid of level samples over the whole
             // basin. The streets alone will not do it — a road levels a 24 m ribbon either side and leaves
-            // the ground between them untouched, which measured 22 m of relief on the town that was
+            // the ground between them untouched, which measured 22 m of relief on the village that was
             // here before. See TownShape.BuildLevelSamples.
             List<Vector3> levelSamples = TownShape.BuildLevelSamples(path, townShape);
-            for (int i = 0; i < lanePaths.Length; i++)
+            for (int i = 0; i < network.Edges.Count; i++)
             {
-                // The lanes as well as the basin. The basin's heights come from TownShape.FloorHeight, so
-                // without this a lane running its own grade ends up standing on a plinth.
-                TownPlanner.AddPathSamples(lanePaths[i], 6f, levelSamples);
+                // Every street centreline, on top of the basin grid. The basin's heights come from
+                // FloorHeight and so do the streets', so this is belt and braces rather than a
+                // correction — but it is what makes the shelf follow a street exactly rather than to
+                // within half a sample pitch.
+                TownPlanner.AddPathSamples(network.Edges[i].Path, 8f, levelSamples);
+            }
+
+            for (int i = 0; i < network.Nodes.Count; i++)
+            {
+                levelSamples.Add(network.Nodes[i].Position);
             }
 
             // Known before the field exists, and deliberately so: it depends on the basin's extent alone,
@@ -561,8 +584,8 @@ namespace Horizon.EditorTools
             ReportTownGround(field, path, terrainShape, townShape);
 
             // Planned after the field exists, because the plots are seated on the finished terrain.
-            TownPlan townPlan = TownPlanner.Plan(
-                path, lanePaths, field, terrainShape, townShape);
+            var streetIndex = new StreetIndex(network);
+            TownPlan townPlan = TownPlanner.Plan(network, streetIndex, field, terrainShape, townShape, path);
 
             BuildTerrainTiles(worldRoot.transform, path, roadShape, course, field, terrainShape,
                 townShape, townFootprint, townPlan, materials);
@@ -570,15 +593,9 @@ namespace Horizon.EditorTools
             BuildGuardRails(worldRoot.transform, path, roadShape, field, course, materials);
 
             // After every builder and before the car exists — otherwise the car is the obstruction.
-            ValidateDriveableCorridor(path, "the pass");
-            for (int i = 0; i < lanePaths.Length; i++)
-            {
-                // The lanes too. Checking only the main road is why a fence could have stood in a lane
-                // and the build would have called the world clear.
-                ValidateDriveableCorridor(lanePaths[i], $"lane {i}");
-            }
-
-            ValidateTownStreets(path, lanePaths, roadShape);
+            ValidateDriveableCorridor(path, "the pass", 1.3f, 4f);
+            int worstJunction = ValidateStreetNetwork(network, path, roadShape);
+            MarkWorstJunction(worldRoot.transform, network, worstJunction);
 
             // --- Streaming.
             var streamingObject = new GameObject("Streaming");
@@ -912,119 +929,231 @@ namespace Horizon.EditorTools
         /// standard way to end up with cracks between them.
         /// </summary>
         /// <summary>
-        /// Builds a RoadPath and a ribbon for every town lane, and hands back the paths so the height
-        /// field can be given them.
-        /// </summary>
-        private static RoadPath[] BuildTownStreets(
-            Transform parent,
-            List<RoadCourse> courses,
-            in TownShape townShape,
-            PrototypeMaterials materials,
-            out RoadShape[] laneShapes)
-        {
-            if (courses == null || courses.Count == 0)
-            {
-                laneShapes = new RoadShape[0];
-                return new RoadPath[0];
-            }
-
-            var root = new GameObject("TownStreets");
-            root.transform.SetParent(parent, false);
-
-            // A lane is the pass's cross-section, narrowed and stripped of its markings. The centre line
-            // lives in a baked texture, so a plain untextured surface is also the cheapest way to not have
-            // one — a town lane with a dashed centre line would read as a main road.
-            laneShapes = new RoadShape[courses.Count];
-
-            RoadShape laneShape = RoadShape.Default;
-            laneShape.HalfWidth = townShape.LaneHalfWidth;
-            laneShape.ShoulderWidth = 0.6f;
-            laneShape.Crown = 0.05f;
-            laneShape.MaxBankDegrees = 0f;
-
-            var paths = new RoadPath[courses.Count];
-
-            for (int i = 0; i < courses.Count; i++)
-            {
-                string name = $"Lane_{i}";
-                laneShapes[i] = laneShape;
-
-                var laneObject = new GameObject(name);
-                laneObject.transform.SetParent(root.transform, false);
-
-                RoadPath lane = laneObject.AddComponent<RoadPath>();
-                lane.SetControlPoints(courses[i].ControlPoints);
-                paths[i] = lane;
-
-                Mesh mesh = RoadMeshBuilder.BuildRoad(lane, laneShape, name + "Mesh");
-                mesh = HorizonAssetUtility.ReplaceAsset(mesh, $"{GeneratedFolder}/{name}Mesh.asset");
-
-                CreateMeshObject(laneObject.transform, name + "_Surface", mesh,
-                    new[] { materials.Lane, materials.RoadShoulder });
-            }
-
-            Debug.Log($"[Horizon] Town streets: {courses.Count}, {LaneLength(courses):0} m of street.");
-            return paths;
-        }
-
-        /// <summary>
-        /// A throat where each lane leaves a road, so the two surfaces run into one another instead of
-        /// stopping near each other. RoadMeshBuilder leaves every ribbon end open, so there is nothing to
-        /// attach to and this has to be its own geometry.
+        /// Builds every street ribbon and every junction into one mesh, and hangs it on one object.
         ///
-        /// Only the lanes that actually leave the main road get one — the back lane and the connector meet
-        /// other lanes, whose narrow ribbons already overlap enough not to show a step.
+        /// <para>One mesh for the whole network rather than one per street or one per terrain tile. Three
+        /// kilometres of street is around thirteen thousand triangles and three draw calls, which is
+        /// cheap enough that splitting it could only cost — and it takes the entire class of
+        /// seam-at-a-tile-boundary questions off the table, along with giving the network a single
+        /// MeshCollider for the wheels to find. The chunk radius is the trunk road's: a town you can see
+        /// from the pass above should not be streamed out from under itself.</para>
         /// </summary>
-        private static void BuildTrunkMouths(
+        private static void BuildStreetMeshes(
             Transform parent,
-            RoadPath main,
-            RoadPath[] lanes,
-            RoadShape[] laneShapes,
-            in RoadShape roadShape,
+            StreetNetwork network,
+            RoadPath trunk,
+            in RoadShape trunkShape,
             in TownShape townShape,
             PrototypeMaterials materials)
         {
-            if (lanes.Length == 0)
+            if (network.Edges.Count == 0)
             {
+                Debug.LogWarning("[Horizon] Town streets: the layout table produced no streets at all.");
                 return;
             }
 
-            var root = new GameObject("TownJunctions");
-            root.transform.SetParent(parent, false);
+            var buffer = new VegetationMeshBuffer(TownStreetBuilder.StreetSubmeshCount);
 
-            float side = townShape.Side;
-            float[] branchAt = { townShape.FirstLaneAt, townShape.SecondLaneAt };
-
-            int built = 0;
-            for (int i = 0; i < branchAt.Length && i < lanes.Length; i++)
+            for (int i = 0; i < network.Edges.Count; i++)
             {
-                Mesh mesh = StreetJunctionBuilder.Build(
-                    main, branchAt[i], lanes[i], roadShape, laneShapes[i], side,
-                    townShape.JunctionThroat, $"Junction_{i}");
+                StreetEdge edge = network.Edges[i];
 
-                if (mesh == null)
+                // Started a little before the trim point and ended a little after, so ribbon and pad
+                // overlap rather than abut — two coplanar colliders that merely touch can drop a raycast
+                // wheel for a frame on the seam.
+                TownStreetBuilder.AppendStreet(
+                    edge.Path, edge.Shape,
+                    edge.TrimStart - StreetJunctionBuilder.RibbonOverlap,
+                    edge.Length - edge.TrimEnd + StreetJunctionBuilder.RibbonOverlap,
+                    buffer);
+            }
+
+            // Counted in three, because "five thousand faces are backwards" says nothing about which
+            // builder to go and read. One number per builder is the difference between a tripwire and a
+            // hunt.
+            int ribbonFlips = buffer.FlipCount;
+
+            int pads = 0;
+            int mouths = 0;
+
+            for (int i = 0; i < network.Nodes.Count; i++)
+            {
+                if (network.Nodes[i].OnTrunkRoad)
                 {
                     continue;
                 }
 
-                mesh = HorizonAssetUtility.ReplaceAsset(mesh, $"{GeneratedFolder}/Junction_{i}.asset");
-                CreateMeshObject(root.transform, $"Junction_{i}", mesh, new[] { materials.Lane });
-                built++;
+                StreetJunctionBuilder.AppendPad(network, i, buffer);
+                pads++;
             }
 
-            Debug.Log($"[Horizon] Trunk mouths: {built} built.");
-        }
+            int padFlips = buffer.FlipCount - ribbonFlips;
 
-        private static float LaneLength(List<RoadCourse> courses)
-        {
-            float total = 0f;
-            for (int i = 0; i < courses.Count; i++)
+            for (int i = 0; i < network.Nodes.Count; i++)
             {
-                total += courses[i].PlannedLength;
+                if (!network.Nodes[i].OnTrunkRoad)
+                {
+                    continue;
+                }
+
+                float alongTrunk = NearestDistanceAlong(trunk, network.Nodes[i].Position);
+                StreetJunctionBuilder.AppendTrunkMouth(
+                    network, i, trunk, trunkShape, alongTrunk, buffer);
+                mouths++;
             }
 
-            return total;
+            int mouthFlips = buffer.FlipCount - ribbonFlips - padFlips;
+
+            var used = new List<int>(TownStreetBuilder.StreetSubmeshCount);
+            Mesh mesh = buffer.ToMesh("TownStreetsMesh", used);
+            if (mesh == null)
+            {
+                return;
+            }
+
+            mesh = HorizonAssetUtility.ReplaceAsset(mesh, GeneratedFolder + "/TownStreetsMesh.asset");
+
+            GameObject streetObject = CreateMeshObject(
+                parent, "Streets", mesh, StreetMaterials(materials, used));
+
+            WorldChunk chunk = streetObject.AddComponent<WorldChunk>();
+            chunk.RecalculateBounds();
+            chunk.SetBounds(chunk.Center, 100000f);
+            EditorUtility.SetDirty(chunk);
+
+            Debug.Log($"[Horizon] Town streets: {network.Nodes.Count} nodes, {network.Edges.Count} "
+                      + $"streets, {network.TotalLength:0} m, {pads} junction pads and {mouths} trunk "
+                      + $"mouths — {mesh.triangles.Length / 3} triangles in {used.Count} draw calls.");
+
+            ReportWindingFlips("Town street ribbons", ribbonFlips);
+            ReportWindingFlips("Town junction pads", padFlips);
+            ReportWindingFlips("Town trunk mouths", mouthFlips);
         }
+
+        /// <summary>The materials for the street mesh, in the order its submeshes survived compaction.</summary>
+        private static Material[] StreetMaterials(PrototypeMaterials materials, List<int> used)
+        {
+            var result = new Material[used.Count];
+
+            for (int i = 0; i < used.Count; i++)
+            {
+                switch (used[i])
+                {
+                    case TownStreetBuilder.SurfaceSubmesh:
+                        result[i] = materials.Lane;
+                        break;
+                    case TownStreetBuilder.KerbSubmesh:
+                        result[i] = materials.Concrete;
+                        break;
+                    default:
+                        result[i] = materials.Footway;
+                        break;
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Where along a path a world point lies, by walking it.
+        ///
+        /// There is no inverse projection anywhere in this codebase and adding one for five trunk mouths
+        /// would be a poor trade. Two passes — coarse then fine — so a five-kilometre course costs a few
+        /// hundred samples rather than a few thousand.
+        /// </summary>
+        private static float NearestDistanceAlong(IRoadPath path, Vector3 point)
+        {
+            float best = 0f;
+            float bestSqr = float.MaxValue;
+
+            for (float along = 0f; along <= path.Length; along += 10f)
+            {
+                Vector3 at = path.GetPositionAtDistance(along);
+                float dx = at.x - point.x;
+                float dz = at.z - point.z;
+                float distanceSqr = dx * dx + dz * dz;
+
+                if (distanceSqr < bestSqr)
+                {
+                    bestSqr = distanceSqr;
+                    best = along;
+                }
+            }
+
+            for (float along = best - 10f; along <= best + 10f; along += 0.5f)
+            {
+                float clamped = Mathf.Clamp(along, 0f, path.Length);
+                Vector3 at = path.GetPositionAtDistance(clamped);
+                float dx = at.x - point.x;
+                float dz = at.z - point.z;
+                float distanceSqr = dx * dx + dz * dz;
+
+                if (distanceSqr < bestSqr)
+                {
+                    bestSqr = distanceSqr;
+                    best = clamped;
+                }
+            }
+
+            return best;
+        }
+
+        /// <summary>
+        /// Checks that town-local coordinates are not folding anywhere inside the basin.
+        ///
+        /// <para>The layout table is written in metres along and across the trunk road, and that mapping
+        /// stretches or squeezes wherever the road bends: a point <c>d</c> metres out on the inside of a
+        /// bend of radius <c>r</c> has its along-axis compressed by <c>1 - d/r</c>, which reaches zero
+        /// when the town is as wide as the bend is tight. At that point streets authored a hundred metres
+        /// apart arrive on top of each other, and past it the coordinate system turns inside out.</para>
+        ///
+        /// <para>This is a property of the *course*, not of the layout, which is why it is checked here
+        /// and why MountainPassCourse stops the town where the pass's first bend begins. It costs one
+        /// curvature lookup per sample and it is the difference between that being a rule someone
+        /// remembers and a rule that holds.</para>
+        /// </summary>
+        private static void ValidateTownMapping(RoadPath path, in TownShape shape)
+        {
+            float minimumScale = TownShape.MinimumMappingScale;
+
+            float worst = float.MaxValue;
+            float worstAlong = 0f;
+
+            // The town's own extent, not the basin's margins. ToWorld caps the margins rather than
+            // letting them fold, and the streets are the only thing whose coordinates have to mean
+            // exactly what the table says.
+            for (float along = shape.AlongStart; along <= shape.AlongEnd; along += 10f)
+            {
+                float clamped = Mathf.Clamp(along, 0f, path.Length);
+                float curvature = path.GetSignedCurvatureAtDistance(clamped, 20f);
+
+                // The far edge of the basin is the worst case in both directions across the road.
+                float inner = 1f - shape.AcrossInner * shape.Side * curvature;
+                float outer = 1f - shape.AcrossOuter * shape.Side * curvature;
+                float scale = Mathf.Min(inner, outer);
+
+                if (scale < worst)
+                {
+                    worst = scale;
+                    worstAlong = clamped;
+                }
+            }
+
+            if (worst >= minimumScale)
+            {
+                Debug.Log($"[Horizon] Town mapping: town-local coordinates hold, tightest scale "
+                          + $"{worst:0.00} at {worstAlong:0} m along.");
+                return;
+            }
+
+            Debug.LogWarning(
+                $"[Horizon] Town mapping folds: the along-axis is squeezed to {worst:0.00} of its length "
+                + $"at {worstAlong:0} m along, against a floor of {minimumScale:0.00}. The trunk road "
+                + "bends towards the town more tightly than the town is wide, so streets authored a "
+                + "hundred metres apart will arrive on top of one another. Either move the town's extent "
+                + "off that bend or open the bend out.");
+        }
+
 
         /// <summary>
         /// Measures how closely the delivered ground follows the floor the town was designed against, as
@@ -1443,137 +1572,411 @@ namespace Horizon.EditorTools
         }
 
         /// <summary>
-        /// Checks the town streets against the two things that have actually gone wrong with them.
+        /// Six checks over the finished street graph, replacing the pair that watched two village lanes.
         ///
-        /// Both bugs this catches shipped and survived two rounds of looking at screenshots, because a
-        /// lane running the wrong way and a lane standing on a plinth both look plausible in a foggy
-        /// render. Neither survives a number.
+        /// <para>Every one of them is here because the thing it tests is invisible in a render. A street
+        /// crossing another in plan, a pad polygon folded through itself, a quarter with no route into
+        /// it, an edge end half a metre off its junction — all of them produce a picture that looks like
+        /// a town. The two bugs the old version caught both shipped and survived two rounds of looking at
+        /// screenshots.</para>
         ///
-        /// 1. **No lane may cross the main carriageway.** A sign error in the turn-off heading sent both
-        ///    lanes straight across it, coplanar to within five millimetres — z-fighting over the full
-        ///    width of the road the player drives on.
-        /// 2. **Junctions between lanes must be flush.** The back lane took its endpoint heights from a
-        ///    helper that returns y = 0, so it met the side lanes with steps of 0.42 m and 0.98 m.
+        /// <list type="bullet">
+        /// <item>(a) No two non-incident streets cross in plan. This is the planarity the block finder in
+        /// the next stage depends on, so it is not only a rendering question.</item>
+        /// <item>(b) No two streets meet at under 20°, which is where pad triangulation starts to
+        /// struggle however carefully the trims are corrected.</item>
+        /// <item>(c) Every pad polygon is star-shaped about its node — the mechanical form of "the pad
+        /// did not fold through itself".</item>
+        /// <item>(d) The network is connected. A quarter reachable only on foot is a quarter no
+        /// screenshot will ever show.</item>
+        /// <item>(e) Every street end is flush with its junction in Y.</item>
+        /// <item>(f) There is actually something solid under every node and every trim point. A missing
+        /// pad is a hole that the corridor sweep only finds if it happens to sample there.</item>
+        /// </list>
         /// </summary>
-        private static void ValidateTownStreets(RoadPath main, RoadPath[] lanes, in RoadShape roadShape)
+        private static int ValidateStreetNetwork(
+            StreetNetwork network, RoadPath trunk, in RoadShape trunkShape)
         {
-            if (lanes == null || lanes.Length == 0)
+            if (network.Edges.Count == 0)
             {
-                return;
+                return -1;
             }
 
-            const float step = 4f;
-            const float flushTolerance = 0.05f;
-
             int crossings = 0;
-            float worstCrossing = float.MaxValue;
+            string worstCrossing = null;
+
+            for (int i = 0; i < network.Edges.Count; i++)
+            {
+                for (int j = i + 1; j < network.Edges.Count; j++)
+                {
+                    StreetEdge a = network.Edges[i];
+                    StreetEdge b = network.Edges[j];
+
+                    if (a.FromNode == b.FromNode || a.FromNode == b.ToNode
+                        || a.ToNode == b.FromNode || a.ToNode == b.ToNode)
+                    {
+                        continue;
+                    }
+
+                    float clearance = a.HalfOuter + b.HalfOuter;
+                    if (NearestApproach(a.Path, b.Path) < clearance)
+                    {
+                        crossings++;
+                        worstCrossing ??= $"{i} and {j}";
+                    }
+                }
+            }
+
+            int shallow = 0;
+            float tightestAngle = 180f;
+            int tightestNode = -1;
+
+            for (int n = 0; n < network.Nodes.Count; n++)
+            {
+                StreetNode node = network.Nodes[n];
+
+                for (int i = 0; i < node.Degree; i++)
+                {
+                    for (int j = i + 1; j < node.Degree; j++)
+                    {
+                        float between = Mathf.Abs(Mathf.DeltaAngle(node.Bearings[i], node.Bearings[j]));
+                        if (between < tightestAngle)
+                        {
+                            tightestAngle = between;
+                            tightestNode = n;
+                        }
+
+                        if (between < 20f)
+                        {
+                            shallow++;
+                        }
+                    }
+                }
+            }
+
+            int folded = 0;
+            for (int n = 0; n < network.Nodes.Count; n++)
+            {
+                if (!IsStarShaped(network.Nodes[n]))
+                {
+                    folded++;
+                }
+            }
+
+            int unreachable = CountUnreachable(network);
+
             int steps = 0;
             float worstStep = 0f;
 
-            for (int i = 0; i < lanes.Length; i++)
+            for (int i = 0; i < network.Edges.Count; i++)
             {
-                RoadPath lane = lanes[i];
+                StreetEdge edge = network.Edges[i];
 
-                for (float along = 0f; along <= lane.Length; along += step)
+                float startDrop = Mathf.Abs(
+                    edge.Path.GetPositionAtDistance(0f).y - network.Nodes[edge.FromNode].Position.y);
+                float endDrop = Mathf.Abs(
+                    edge.Path.GetPositionAtDistance(edge.Length).y - network.Nodes[edge.ToNode].Position.y);
+
+                if (startDrop > 0.05f || endDrop > 0.05f)
                 {
-                    Vector3 point = lane.GetPositionAtDistance(Mathf.Min(along, lane.Length));
-
-                    // Skip the first few metres: a lane is *meant* to touch the main road where it joins.
-                    if (along < roadShape.OuterHalfWidth * 3f)
-                    {
-                        continue;
-                    }
-
-                    float toMain = PlanDistanceToPath(main, point, 8f);
-                    if (toMain < roadShape.OuterHalfWidth)
-                    {
-                        crossings++;
-                        worstCrossing = Mathf.Min(worstCrossing, toMain);
-                    }
-                }
-
-                // Every other lane end that lands on this one has to meet it at the same height.
-                for (int j = 0; j < lanes.Length; j++)
-                {
-                    if (i == j)
-                    {
-                        continue;
-                    }
-
-                    foreach (float end in new[] { 0f, lanes[j].Length })
-                    {
-                        Vector3 at = lanes[j].GetPositionAtDistance(end);
-                        float plan = PlanDistanceToPath(lane, at, 4f, out float height);
-
-                        if (plan > 2f)
-                        {
-                            continue;
-                        }
-
-                        float drop = Mathf.Abs(height - at.y);
-                        if (drop > flushTolerance)
-                        {
-                            steps++;
-                            worstStep = Mathf.Max(worstStep, drop);
-                        }
-                    }
+                    steps++;
+                    worstStep = Mathf.Max(worstStep, Mathf.Max(startDrop, endDrop));
                 }
             }
 
+            int holes = CountJunctionHoles(network);
+
             if (crossings > 0)
             {
-                Debug.LogWarning($"[Horizon] Town streets: a lane runs across the main carriageway at "
-                                 + $"{crossings} sampled points, closest {worstCrossing:0.0} m from the "
-                                 + $"centreline against a {roadShape.OuterHalfWidth:0.0} m half-width. "
-                                 + "Check the sign of the turn-off heading in TownPlanner.LayOutLanes.");
+                Debug.LogWarning($"[Horizon] Street network: {crossings} pair(s) of streets that share no "
+                                 + $"junction run within a carriageway of each other, first {worstCrossing}. "
+                                 + "The graph is not planar and the block finder will not find blocks.");
+            }
+
+            if (shallow > 0)
+            {
+                Debug.LogWarning($"[Horizon] Street network: {shallow} pair(s) of streets meet at under "
+                                 + $"20°, tightest {tightestAngle:0} ° at node {tightestNode}. Pad "
+                                 + "triangulation gets unreliable there whatever the trims do.");
+            }
+
+            if (folded > 0)
+            {
+                Debug.LogWarning($"[Horizon] Street network: {folded} junction pad(s) are not star-shaped "
+                                 + "about their node, so the fan triangulation has folded through itself. "
+                                 + "The trims at those nodes are too short for the angle between the "
+                                 + "streets.");
+            }
+
+            if (unreachable > 0)
+            {
+                Debug.LogWarning($"[Horizon] Street network: {unreachable} node(s) cannot be driven to "
+                                 + "from the trunk road. A disconnected quarter is one no player will "
+                                 + "ever see.");
             }
 
             if (steps > 0)
             {
-                Debug.LogWarning($"[Horizon] Town streets: {steps} lane junction(s) are not flush, worst "
-                                 + $"{worstStep:0.00} m. Lane endpoints must take their height from the "
-                                 + "course they join, not from a plan-space heading vector.");
+                Debug.LogWarning($"[Horizon] Street network: {steps} street end(s) are not flush with "
+                                 + $"their junction, worst {worstStep:0.00} m. Heights must come from "
+                                 + "TownShape.FloorHeight at both ends, not from anywhere else.");
             }
 
-            if (crossings == 0 && steps == 0)
+            if (holes > 0)
             {
-                Debug.Log($"[Horizon] Town streets: {lanes.Length} lanes clear of the carriageway and "
-                          + "flush at every junction.");
+                Debug.LogWarning($"[Horizon] Street network: nothing solid stands under {holes} junction "
+                                 + "sample(s). A pad is missing, or a trim ran past the end of its "
+                                 + "street.");
             }
-        }
 
-        private static float PlanDistanceToPath(IRoadPath path, Vector3 point, float step)
-        {
-            return PlanDistanceToPath(path, point, step, out float _);
-        }
-
-        /// <summary>
-        /// Plan distance from a point to a path, and the path's height at the nearest point.
-        ///
-        /// A walk rather than a lookup because there is no inverse projection anywhere in the codebase
-        /// and this runs a few thousand times at edit time, not per frame.
-        /// </summary>
-        private static float PlanDistanceToPath(IRoadPath path, Vector3 point, float step, out float height)
-        {
-            float best = float.MaxValue;
-            height = point.y;
-
-            for (float along = 0f; along <= path.Length; along += step)
+            if (crossings + shallow + folded + unreachable + steps + holes == 0)
             {
-                Vector3 at = path.GetPositionAtDistance(Mathf.Min(along, path.Length));
+                Debug.Log($"[Horizon] Street network: {network.Nodes.Count} nodes and "
+                          + $"{network.Edges.Count} streets — planar, connected, every pad convex about "
+                          + $"its node and flush with its streets. Tightest junction {tightestAngle:0} ° "
+                          + $"at node {tightestNode}.");
+            }
 
-                float dx = at.x - point.x;
-                float dz = at.z - point.z;
-                float plan = Mathf.Sqrt(dx * dx + dz * dz);
+            // The corridor sweep, once per street. Half-widths are per-street rather than the trunk
+            // road's 1.3 m: that box is over half the width of a 5.2 m alley, and a check that fires on
+            // every kerb is a check nobody reads.
+            int blockedStreets = 0;
+            for (int i = 0; i < network.Edges.Count; i++)
+            {
+                StreetEdge edge = network.Edges[i];
+                float halfWidth = Mathf.Min(1.3f, edge.HalfWidth - 0.6f);
 
-                if (plan < best)
+                if (!CorridorIsClear(edge.Path, halfWidth, 3f,
+                        edge.TrimStart, edge.Length - edge.TrimEnd, out float at, out string by))
                 {
-                    best = plan;
-                    height = at.y;
+                    blockedStreets++;
+                    Debug.LogWarning($"[Horizon] Street {i} ({edge.Kind}): something solid stands in the "
+                                     + $"carriageway at {at:0} m along it, against '{by}'.");
                 }
             }
 
-            return best;
+            if (blockedStreets == 0)
+            {
+                Debug.Log($"[Horizon] Street corridors: all {network.Edges.Count} streets driveable end "
+                          + "to end.");
+            }
+
+            return tightestNode;
+        }
+
+        /// <summary>
+        /// Leaves an empty marker in the scene at the junction with the tightest angle between its
+        /// streets, so the preview renderer can point a camera at it without knowing anything about the
+        /// graph.
+        ///
+        /// The alternative was for the preview to rebuild the network and re-derive the worst node, which
+        /// means a second copy of that reasoning that can drift from this one. A named transform in the
+        /// scene is the cheapest possible channel between the two tools, and it shows up in the hierarchy
+        /// where someone looking for the awkward junction would want it.
+        /// </summary>
+        private static void MarkWorstJunction(Transform parent, StreetNetwork network, int nodeIndex)
+        {
+            if (nodeIndex < 0 || nodeIndex >= network.Nodes.Count)
+            {
+                return;
+            }
+
+            var marker = new GameObject("TownWorstJunction");
+            marker.transform.SetParent(parent, false);
+            marker.transform.position = network.Nodes[nodeIndex].Position;
+        }
+
+        /// <summary>Closest the two paths come to each other in plan, metres.</summary>
+        private static float NearestApproach(IRoadPath a, IRoadPath b)
+        {
+            const float step = 6f;
+            float best = float.MaxValue;
+
+            for (float alongA = 0f; alongA <= a.Length; alongA += step)
+            {
+                Vector3 pointA = a.GetPositionAtDistance(Mathf.Min(alongA, a.Length));
+
+                for (float alongB = 0f; alongB <= b.Length; alongB += step)
+                {
+                    Vector3 pointB = b.GetPositionAtDistance(Mathf.Min(alongB, b.Length));
+
+                    float dx = pointA.x - pointB.x;
+                    float dz = pointA.z - pointB.z;
+                    best = Mathf.Min(best, dx * dx + dz * dz);
+                }
+            }
+
+            return Mathf.Sqrt(best);
+        }
+
+        /// <summary>
+        /// Whether a pad outline winds consistently about its node — consecutive cross products all of
+        /// one sign. A fan triangulation from the centre is valid exactly when this holds.
+        /// </summary>
+        private static bool IsStarShaped(StreetNode node)
+        {
+            if (node.PadOutline == null || node.PadOutline.Length < 3)
+            {
+                return true;
+            }
+
+            int sign = 0;
+
+            for (int i = 0; i < node.PadOutline.Length; i++)
+            {
+                Vector3 a = node.PadOutline[i] - node.Position;
+                Vector3 b = node.PadOutline[(i + 1) % node.PadOutline.Length] - node.Position;
+
+                float cross = a.x * b.z - a.z * b.x;
+                if (Mathf.Abs(cross) < 0.0001f)
+                {
+                    continue;
+                }
+
+                int here = cross > 0f ? 1 : -1;
+                if (sign == 0)
+                {
+                    sign = here;
+                }
+                else if (here != sign)
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        /// <summary>Nodes a breadth-first walk from the trunk-road entrances never reaches.</summary>
+        private static int CountUnreachable(StreetNetwork network)
+        {
+            var seen = new bool[network.Nodes.Count];
+            var queue = new Queue<int>();
+
+            for (int i = 0; i < network.Nodes.Count; i++)
+            {
+                if (network.Nodes[i].OnTrunkRoad)
+                {
+                    seen[i] = true;
+                    queue.Enqueue(i);
+                }
+            }
+
+            while (queue.Count > 0)
+            {
+                StreetNode node = network.Nodes[queue.Dequeue()];
+
+                for (int i = 0; i < node.Degree; i++)
+                {
+                    int other = network.Edges[node.Edges[i]].Other(node.Index);
+                    if (!seen[other])
+                    {
+                        seen[other] = true;
+                        queue.Enqueue(other);
+                    }
+                }
+            }
+
+            int unreachable = 0;
+            for (int i = 0; i < seen.Length; i++)
+            {
+                if (!seen[i])
+                {
+                    unreachable++;
+                }
+            }
+
+            return unreachable;
+        }
+
+        /// <summary>
+        /// Drops a ray on every node centre and every trim point and counts the ones that find nothing.
+        ///
+        /// The corridor sweep would eventually notice a missing pad, but only if it happened to sample
+        /// inside the hole. This asks directly, at the places a hole can actually be.
+        /// </summary>
+        private static int CountJunctionHoles(StreetNetwork network)
+        {
+            Physics.SyncTransforms();
+            int holes = 0;
+
+            for (int n = 0; n < network.Nodes.Count; n++)
+            {
+                StreetNode node = network.Nodes[n];
+                if (node.OnTrunkRoad)
+                {
+                    continue;
+                }
+
+                if (!HasGroundAt(node.Position))
+                {
+                    holes++;
+                }
+
+                for (int i = 0; i < node.Degree; i++)
+                {
+                    StreetEdge edge = network.Edges[node.Edges[i]];
+                    bool atStart = edge.FromNode == node.Index;
+                    float at = atStart ? edge.TrimStart : edge.Length - edge.TrimEnd;
+
+                    if (!HasGroundAt(edge.Path.GetPositionAtDistance(at)))
+                    {
+                        holes++;
+                    }
+                }
+            }
+
+            return holes;
+        }
+
+        private static bool HasGroundAt(Vector3 expected)
+        {
+            return Physics.Raycast(expected + Vector3.up * 3f, Vector3.down,
+                       out RaycastHit hit, 6f, ~0, QueryTriggerInteraction.Ignore)
+                   && Mathf.Abs(hit.point.y - expected.y) < 0.5f;
+        }
+
+        /// <summary>
+        /// The corridor sweep over one span of one path, reporting rather than logging so a caller can
+        /// summarise forty of them.
+        /// </summary>
+        private static bool CorridorIsClear(
+            IRoadPath path, float halfWidth, float clearance, float from, float to,
+            out float firstAt, out string firstBy)
+        {
+            const float step = 2f;
+            const float floorLift = 0.35f;
+
+            firstAt = 0f;
+            firstBy = null;
+
+            var halfExtents = new Vector3(Mathf.Max(0.3f, halfWidth), clearance * 0.5f, step * 0.5f);
+            var hits = new Collider[8];
+
+            for (float distance = from; distance <= to; distance += step)
+            {
+                Vector3 centre = path.GetPositionAtDistance(distance);
+                Vector3 forward = path.GetDirectionAtDistance(distance);
+                if (forward.sqrMagnitude < 0.0001f)
+                {
+                    continue;
+                }
+
+                int count = Physics.OverlapBoxNonAlloc(
+                    centre + Vector3.up * (floorLift + clearance * 0.5f), halfExtents, hits,
+                    Quaternion.LookRotation(forward, Vector3.up), ~0, QueryTriggerInteraction.Ignore);
+
+                if (count == 0)
+                {
+                    continue;
+                }
+
+                firstAt = distance;
+                firstBy = hits[0] != null ? hits[0].gameObject.name : "unknown";
+                return false;
+            }
+
+            return true;
         }
 
         /// <summary>
@@ -1723,15 +2126,16 @@ namespace Horizon.EditorTools
         /// driving into it. Asking physics is the only check that covers geometry nobody thought of.
         ///
         /// Must run after every geometry builder and before the car is placed, or the car is the obstruction.
+        ///
+        /// <para><paramref name="halfWidth"/> and <paramref name="clearance"/> are arguments rather than
+        /// constants because the same check now runs over forty town streets as well as the pass. The
+        /// 1.3 m box that is right for a 9 m trunk carriageway is over half the width of a 5.2 m alley,
+        /// and a check that fires on every kerb is a check that gets ignored.</para>
         /// </summary>
-        private static void ValidateDriveableCorridor(RoadPath path, string what)
+        private static void ValidateDriveableCorridor(
+            IRoadPath path, string what, float halfWidth, float clearance)
         {
             const float step = 2f;
-
-            // Wider and far taller than the car (2.00 x 1.39 m). The point is to fail early on anything that
-            // would even feel close, not to certify the exact hull.
-            const float halfWidth = 1.3f;
-            const float clearance = 4f;
 
             // Above the asphalt, so the road surface and the shoulder are not themselves hits.
             const float floorLift = 0.35f;

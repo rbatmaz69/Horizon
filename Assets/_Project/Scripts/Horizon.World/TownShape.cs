@@ -179,11 +179,11 @@ namespace Horizon.World
 
             PlotSpacing = 26f,
 
-            // 24 m, not 17. The setback is measured to the *house*, but the garden boundary sits
-            // PlotDepth/2 in front of it — at 17 m that put fences and hedges 7 m from the centreline,
-            // a metre off the asphalt edge. The corridor check would never have caught it either: its
-            // box is only 1.3 m wide.
-            PlotSetback = 24f,
+            // Measured from the *kerb* now rather than from the centreline: TownPlanner adds the
+            // street's own outer half-width, so a house on an alley and a house on the high street stand
+            // the same distance back from the pavement. The garden boundary sits PlotDepth/2 in front of
+            // the house, which puts it 4 m clear of the footway.
+            PlotSetback = 14f,
             PlotHalfWidth = 11f,
             PlotDepth = 20f,
             PlotVacancy = 0.18f,
@@ -275,6 +275,19 @@ namespace Horizon.World
             return Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(from, to, Mathf.Abs(across)));
         }
 
+        /// <summary>
+        /// The least the along-axis may be squeezed before town-local coordinates stop meaning anything.
+        ///
+        /// A point <c>d</c> metres out on the inside of a bend of radius <c>r</c> has its along-axis
+        /// compressed by <c>1 - d/r</c>. At zero the coordinate system has collapsed to a point; past it
+        /// it is inside out. The course is shaped to keep the town well clear of that — see
+        /// <see cref="MountainPassCourse"/> — and <c>ValidateTownMapping</c> says so in numbers, but
+        /// <see cref="ToWorld"/> refuses to fold whatever it is handed, because the basin's own margins
+        /// and skirt rings reach past the town's extent and would otherwise turn themselves inside out
+        /// beyond the last street.
+        /// </summary>
+        public const float MinimumMappingScale = 0.35f;
+
         /// <summary>World position of a point in town-local coordinates, floor height included.</summary>
         public static Vector3 ToWorld(IRoadPath main, in TownShape shape, float along, float across)
         {
@@ -288,9 +301,56 @@ namespace Horizon.World
             Vector3 right = main.GetRightAtDistance(clamped);
 
             float side = Mathf.Sign(shape.TownSide == 0f ? -1f : shape.TownSide);
-            Vector3 point = centre + right * (across * side);
+            Vector3 point = centre + right * (LimitAcross(main, clamped, across, side) * side);
 
             return new Vector3(point.x, FloorHeight(main, shape, along, across), point.z);
+        }
+
+        /// <summary>
+        /// Caps how far out a point may be placed, so the mapping never turns inside out.
+        ///
+        /// Where the trunk road bends away from the town the limit is infinite and this does nothing;
+        /// where it bends towards it, points beyond the limit pile up on it rather than crossing through
+        /// the centre of the arc. Piled-up level samples are harmless — they are a height field, and
+        /// several samples in one place say the same thing once. A folded one is a spike of terrain.
+        /// </summary>
+        private static float LimitAcross(IRoadPath main, float along, float across, float side)
+        {
+            float curvature = main.GetSignedCurvatureAtDistance(along, 20f);
+            float bendsTowardsTown = across * side * curvature;
+
+            if (bendsTowardsTown <= 1f - MinimumMappingScale)
+            {
+                return across;
+            }
+
+            float limit = (1f - MinimumMappingScale) / (side * curvature);
+            return across > 0f ? Mathf.Min(across, limit) : Mathf.Max(across, limit);
+        }
+
+        /// <summary>
+        /// Whether a point is out past where town-local coordinates still mean what they say.
+        ///
+        /// <para>The basin's margins and its two skirt rings reach well past the last street, and past the
+        /// end of the town the trunk road bends into the pass. <see cref="ToWorld"/> caps those points
+        /// rather than folding them, but a capped point is a lie about where it is: several of them land
+        /// on the same spot carrying different floor heights, the shelf averages the lot, and the result
+        /// is a couple of metres of error that bleeds eighty metres back into ground that was fine.</para>
+        ///
+        /// <para>So the basin simply stops there. A valley that narrows into a pass is not somewhere a
+        /// town extends to anyway.</para>
+        /// </summary>
+        public static bool IsBeyondFold(IRoadPath main, in TownShape shape, float along, float across)
+        {
+            if (main == null)
+            {
+                return false;
+            }
+
+            float clamped = Mathf.Clamp(along, 0f, main.Length);
+            float side = Mathf.Sign(shape.TownSide == 0f ? -1f : shape.TownSide);
+
+            return !Mathf.Approximately(LimitAcross(main, clamped, across, side), across);
         }
 
         /// <summary>
@@ -316,12 +376,12 @@ namespace Horizon.World
             {
                 for (float across = shape.AcrossInner; across <= shape.AcrossOuter; across += pitch)
                 {
-                    samples.Add(ToWorld(main, shape, along, across));
+                    AddSample(main, shape, along, across, 0f, samples);
                 }
 
                 // The outer edge exactly, whatever the pitch left over. The basin's own boundary is where
                 // the skirt has to meet it, and a gap of up to a pitch there is a step.
-                samples.Add(ToWorld(main, shape, along, shape.AcrossOuter));
+                AddSample(main, shape, along, shape.AcrossOuter, 0f, samples);
             }
 
             AddSkirtRing(main, shape, pitch, shape.SkirtFirstRise, samples);
@@ -347,15 +407,33 @@ namespace Horizon.World
 
             for (float along = alongMin; along <= alongMax; along += pitch)
             {
-                samples.Add(Raised(main, shape, along, acrossMin, rise));
-                samples.Add(Raised(main, shape, along, acrossMax, rise));
+                AddSample(main, shape, along, acrossMin, rise, samples);
+                AddSample(main, shape, along, acrossMax, rise, samples);
             }
 
             for (float across = acrossMin; across <= acrossMax; across += pitch)
             {
-                samples.Add(Raised(main, shape, alongMin, across, rise));
-                samples.Add(Raised(main, shape, alongMax, across, rise));
+                AddSample(main, shape, alongMin, across, rise, samples);
+                AddSample(main, shape, alongMax, across, rise, samples);
             }
+        }
+
+        /// <summary>
+        /// One level sample, unless it falls out past where town-local coordinates hold — see
+        /// <see cref="IsBeyondFold"/>.
+        /// </summary>
+        private static void AddSample(
+            IRoadPath main, in TownShape shape, float along, float across, float rise,
+            List<Vector3> samples)
+        {
+            if (IsBeyondFold(main, shape, along, across))
+            {
+                return;
+            }
+
+            samples.Add(rise > 0f
+                ? Raised(main, shape, along, across, rise)
+                : ToWorld(main, shape, along, across));
         }
 
         /// <summary>

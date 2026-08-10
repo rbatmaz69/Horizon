@@ -190,6 +190,41 @@ namespace Horizon.EditorTools
                     (arrivalForward + Vector3.down * 0.05f).normalized, Vector3.up);
                 Capture(camera, Path.Combine(directory, "WorldPreview_Town_Arrival.png"));
 
+                // Straight down over the town, fog off. This is the shot that answers whether the layout
+                // table is a town or spaghetti, and the one to iterate the table against — nothing at eye
+                // level tells you whether the blocks hang together.
+                Vector3 gridAt = path.GetPositionAtDistance(townMiddle);
+                Vector3 gridRight = path.GetRightAtDistance(townMiddle);
+
+                bool gridFog = RenderSettings.fog;
+                RenderSettings.fog = false;
+
+                try
+                {
+                    camera.fieldOfView = 60f;
+                    camera.transform.position = gridAt - gridRight * 120f + Vector3.up * 420f;
+                    camera.transform.rotation = Quaternion.LookRotation(Vector3.down, Vector3.forward);
+                    Capture(camera, Path.Combine(directory, "WorldPreview_Town_Grid.png"));
+                }
+                finally
+                {
+                    RenderSettings.fog = gridFog;
+                }
+
+                // The worst junction in the network — the one with the tightest angle between its
+                // streets, marked in the scene by PrototypeSetup so this does not have to re-derive it.
+                // Aiming a camera at the junction most likely to be wrong beats aiming it at a
+                // representative one.
+                GameObject worst = GameObject.Find("TownWorstJunction");
+                if (worst != null)
+                {
+                    camera.fieldOfView = 55f;
+                    camera.transform.position = worst.transform.position + new Vector3(0f, 26f, -18f);
+                    camera.transform.rotation = Quaternion.LookRotation(
+                        worst.transform.position - camera.transform.position, Vector3.up);
+                    Capture(camera, Path.Combine(directory, "WorldPreview_Town_Junction.png"));
+                }
+
                 CaptureFromViewpoint(camera, path, directory);
 
                 // A close look across the verge at the roadside, which is the one angle that exposes plants

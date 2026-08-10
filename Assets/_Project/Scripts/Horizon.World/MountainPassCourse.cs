@@ -79,29 +79,46 @@ namespace Horizon.World
         /// </summary>
         public static float ApproachLength => ArrivalSpan;
 
-        /// <summary>Where the town begins along the course, metres.</summary>
-        public static float TownStartDistance => ApproachLength - 315f;
-
         /// <summary>
-        /// Where it ends. Beyond this the old valley approach runs on for another 140 m before the
-        /// climb starts in earnest, so the town finishes on level ground rather than trailing up the hill.
+        /// Length of the pass's own first straight, and therefore how far past the arrival road the town
+        /// may reach.
+        ///
+        /// <para>Not an aesthetic choice. The town is laid out in coordinates measured along and across
+        /// the trunk road, and that mapping folds where the road curves <i>towards</i> the town more
+        /// tightly than the town is wide: at 260 m out, the pass's 220 m left-hander squeezes the far
+        /// edge of the basin through the centre of its own arc. The town therefore stops exactly where
+        /// that turn begins. <c>ValidateTownMapping</c> measures it rather than trusting this comment.</para>
         /// </summary>
-        public static float TownEndDistance => ApproachLength + 245f;
+        private const float PassFirstStraight = 160f;
+
+        /// <summary>Where the town begins along the course, metres.</summary>
+        public static float TownStartDistance => ApproachLength - 340f;
+
+        /// <summary>Where it ends — at the foot of the pass's first bend. See <see cref="PassFirstStraight"/>.</summary>
+        public static float TownEndDistance => ApproachLength + PassFirstStraight;
 
         /// <summary>
-        /// The arrival road: three quarters of a kilometre of sub-1 % valley floor before the town.
+        /// The arrival road: eight hundred metres of sub-1 % valley floor before the town.
         ///
         /// Shaped rather than straight, so the town does not sit on a ruler and so you see it from a
         /// distance before you are in it — which is most of what makes a place read as somewhere you
         /// arrive at rather than somewhere that begins at the edge of the screen.
+        ///
+        /// <para>The two real bends are both finished before the town starts, and the one that runs
+        /// through it sweeps the other way at a 650 m radius. That is the town-local mapping again: a
+        /// bend away from the town spreads its coordinates apart, which is harmless, while a bend towards
+        /// it crushes them together. The rule is one line long and the validator enforces it, but the
+        /// shape of this road is where it is obeyed.</para>
         /// </summary>
         private static void AppendArrival(RoadCourseBuilder builder)
         {
-            builder.Straight(220f, 0.6f);
-            builder.Turn(320f, 18f, 0.6f);
-            builder.Straight(180f, 0.8f);
-            builder.Turn(300f, -22f, 0.8f);
-            builder.Straight(120f, 1.0f);
+            builder.Straight(150f, 0.6f);
+            builder.Turn(300f, 20f, 0.6f);
+            builder.Straight(80f, 0.8f);
+            builder.Turn(260f, -24f, 0.8f);
+            builder.Straight(80f, 0.9f);
+            builder.Turn(650f, 14f, 1.0f);
+            builder.Straight(137f, 1.0f);
         }
 
         /// <summary>
@@ -126,7 +143,7 @@ namespace Horizon.World
             // --- Valley approach, and the town that sits on it. This and the run-out are the only two
             // stretches of the whole course under 3 %, so it is here or nowhere. The car spawns among the
             // houses and climbs out of them.
-            builder.Straight(160f, 1f);
+            builder.Straight(PassFirstStraight, 1f);
             builder.Turn(220f, -28f, 1f);
             builder.Straight(120f, 1.5f);
             builder.AddFeature(RoadFeatureKind.Village, TownStartDistance, TownEndDistance, "Talheim");

@@ -173,116 +173,19 @@ namespace Horizon.World
     }
 
     /// <summary>
-    /// Lays out the town: where its lanes run and where its plots sit.
+    /// Works out what stands where in the town: a plot for every frontage along every street.
     ///
-    /// Built in two stages on purpose. The lanes have to exist before <see cref="MountainField"/> is
-    /// constructed, because they are what flattens the ground the town stands on; the plots can only
-    /// be placed afterwards, because they need the finished terrain to sit on. So this class hands out a
-    /// list of lane courses first and a <see cref="TownPlan"/> second, and nothing in between has to
-    /// know why.
+    /// <para>Runs after <see cref="MountainField"/> and after the street network, because a plot needs
+    /// both — the streets to face and the finished terrain to stand on. The streets themselves come from
+    /// <see cref="StreetNetwork"/> now; this used to lay out two lanes of its own, and the difference
+    /// between two lanes and a graph is most of the difference between a village and a town.</para>
+    ///
+    /// <para><b>Transitional.</b> Plots are still ranged along each street independently at a fixed
+    /// spacing, which is why the corner keep-outs are crude and why nothing here knows what a block is.
+    /// Block-based parcelling replaces the lot.</para>
     /// </summary>
     public static class TownPlanner
     {
-        /// <summary>
-        /// The town street layout: two lanes running off the main road into the valley floor, joined
-        /// at their far ends by a back lane.
-        ///
-        /// A loop rather than two dead ends, because a dead end reads as unfinished the moment a player
-        /// drives down it, and because the back lane gives a second row of plots something to face.
-        /// </summary>
-        public static List<RoadCourse> LayOutLanes(
-            IRoadPath main, in TownShape shape)
-        {
-            var lanes = new List<RoadCourse>(3);
-            if (main == null)
-            {
-                return lanes;
-            }
-
-            float side = shape.Side;
-
-            Vector3 firstStart = LaneStart(main, shape, shape.FirstLaneAt, side,
-                out float firstHeading, out float firstGrade);
-            Vector3 secondStart = LaneStart(main, shape, shape.SecondLaneAt, side,
-                out float secondHeading, out float secondGrade);
-
-            // +90 times the side, not minus. With side = -1 the old sign turned the lanes to +90°, which
-            // is straight back across the main carriageway and out over the mountain — the opposite of the
-            // levelled valley floor they were meant to serve, and coplanar with the road the whole way.
-            // ValidateTownStreets exists because nothing caught that.
-            float turnOff = 90f * side;
-
-            RoadCourse first = StraightLane(firstStart, firstHeading + turnOff, shape.LaneLength, firstGrade);
-            RoadCourse second = StraightLane(secondStart, secondHeading + turnOff, shape.LaneLength, secondGrade);
-            lanes.Add(first);
-            lanes.Add(second);
-
-            // Endpoints read back out of the finished courses. Recomputing them from a heading vector is
-            // what put 0.42 m and 0.98 m steps at the back lane's junctions: HeadingVector returns y = 0,
-            // so the back lane inherited the *start* height of each branch and then ran dead flat.
-            Vector3 firstEnd = LastPoint(first);
-            Vector3 secondEnd = LastPoint(second);
-
-            RoadCourse back = ConnectingLane(firstEnd, secondEnd);
-            if (back != null)
-            {
-                lanes.Add(back);
-            }
-
-            // A middle rung, so the town is a block you can drive round rather than two dead ends with
-            // a bar across the back. It leaves the first lane a third of the way along and meets the
-            // second at the same fraction, so the two halves of the block are roughly equal.
-            Vector3 midFirst = PointAlong(firstStart, firstEnd, 0.45f);
-            Vector3 midSecond = PointAlong(secondStart, secondEnd, 0.45f);
-
-            RoadCourse middle = ConnectingLane(midFirst, midSecond);
-            if (middle != null)
-            {
-                lanes.Add(middle);
-            }
-
-            return lanes;
-        }
-
-        private static RoadCourse StraightLane(Vector3 start, float heading, float length, float grade)
-        {
-            var builder = new RoadCourseBuilder(start, heading);
-            builder.Straight(length, grade);
-            return builder.Build();
-        }
-
-        /// <summary>
-        /// A lane between two known points, taking its grade from the actual height difference so both
-        /// ends land flush on whatever they join.
-        /// </summary>
-        private static RoadCourse ConnectingLane(Vector3 from, Vector3 to)
-        {
-            Vector3 span = to - from;
-            span.y = 0f;
-
-            float length = span.magnitude;
-            if (length < 1f)
-            {
-                return null;
-            }
-
-            float gradePercent = (to.y - from.y) / length * 100f;
-
-            var builder = new RoadCourseBuilder(from, HeadingOf(span));
-            builder.Straight(length, gradePercent);
-            return builder.Build();
-        }
-
-        private static Vector3 LastPoint(RoadCourse course)
-        {
-            return course.ControlPoints[course.ControlPoints.Count - 1];
-        }
-
-        private static Vector3 PointAlong(Vector3 from, Vector3 to, float t)
-        {
-            return Vector3.Lerp(from, to, t);
-        }
-
         /// <summary>
         /// Adds a path's own centreline to a level-sample list.
         ///
@@ -306,49 +209,6 @@ namespace Horizon.World
         }
 
         /// <summary>
-        /// Where a lane's ribbon begins: out past the main road's shoulder, so the two carriageways do
-        /// not overlap — and at what grade it has to run to stay on the town's floor.
-        ///
-        /// Nothing in the project builds a junction — two ribbons simply interpenetrate — so the seam is
-        /// pushed onto the flat shelf beside the road where it reads as a join in the surface rather than
-        /// as a fold through the middle of the carriageway.
-        ///
-        /// <para>The grade comes from <see cref="TownShape.FloorHeight"/> at both ends rather than from a
-        /// number in the tuning table, and that is the whole point of there being one floor function. With
-        /// a hand-picked 0.4 % the lanes ran a metre below the basin by the time they reached the far end
-        /// of it — the ground stood above the carriageway, and the corridor check said so.</para>
-        /// </summary>
-        private static Vector3 LaneStart(
-            IRoadPath main,
-            in TownShape shape,
-            float distance,
-            float side,
-            out float headingDegrees,
-            out float gradePercent)
-        {
-            float clamped = Mathf.Clamp(distance, 0f, main.Length);
-
-            Vector3 centre = main.GetPositionAtDistance(clamped);
-            Vector3 forward = main.GetDirectionAtDistance(clamped);
-            Vector3 right = main.GetRightAtDistance(clamped);
-
-            headingDegrees = HeadingOf(forward);
-
-            // In town-local terms a lane leaves at this many metres across and runs straight out, so its
-            // two ends are two evaluations of the floor.
-            float acrossStart = RoadShape.Default.OuterHalfWidth + shape.JunctionGap;
-            float acrossEnd = acrossStart + shape.LaneLength;
-
-            float startHeight = TownShape.FloorHeight(main, shape, clamped, acrossStart);
-            float endHeight = TownShape.FloorHeight(main, shape, clamped, acrossEnd);
-
-            gradePercent = (endHeight - startHeight) / Mathf.Max(1f, shape.LaneLength) * 100f;
-
-            Vector3 start = centre + right * (acrossStart * side);
-            return new Vector3(start.x, startHeight, start.z);
-        }
-
-        /// <summary>
         /// Works out where every plot, lamp and parked car goes.
         ///
         /// Run once, after the terrain exists — plots are seated with
@@ -357,37 +217,40 @@ namespace Horizon.World
         /// itself sinks a corner into the ground on any slope. The same trap the plants were in.
         /// </summary>
         public static TownPlan Plan(
-            IRoadPath main,
-            IReadOnlyList<IRoadPath> lanes,
+            StreetNetwork network,
+            StreetIndex index,
             MountainField field,
             in TerrainShape terrainShape,
-            in TownShape shape)
+            in TownShape shape,
+            IRoadPath trunk)
         {
-            var plots = new List<TownPlan.Plot>(64);
-            var lamps = new List<Vector3>(16);
-            var lampYaws = new List<float>(16);
+            var plots = new List<TownPlan.Plot>(256);
+            var lamps = new List<Vector3>(32);
+            var lampYaws = new List<float>(32);
 
             float side = shape.Side;
 
-            // Frontage on the main road. Both sides: the level samples reach 35 m to the uphill side, so
-            // there is flat ground for one row there too, and a town with houses on only one side of
-            // its high street reads as a film set.
-            AddFrontage(plots, main, field, terrainShape, shape, shape.AlongStart, shape.AlongEnd,
-                1, true, true);
-
-            for (int i = 0; lanes != null && i < lanes.Count; i++)
+            for (int i = 0; i < network.Edges.Count; i++)
             {
-                // Lanes start at the junction, so the first plot is pushed clear of the main road.
-                AddFrontage(plots, lanes[i], field, terrainShape, shape,
-                    shape.PlotSetback, lanes[i].Length - 6f, 2 + i, false, false);
+                StreetEdge edge = network.Edges[i];
+
+                // From one junction pad to the other, with a corner keep-out at each end so nothing
+                // stands in a sight line — and so two streets' frontages cannot collide at a corner.
+                float keepOut = edge.HalfOuter + 4f;
+
+                AddFrontage(
+                    plots, edge.Path, field, terrainShape, shape,
+                    edge.TrimStart + keepOut, edge.Length - edge.TrimEnd - keepOut,
+                    i, allowMill: edge.Quarter == TownQuarter.Industry, setback: SetbackFor(edge, shape));
             }
 
-            // Lamps down the high street, on the town side only.
+            // Lamps down the trunk road through the town, on the town side only. The streets get their
+            // own when there is a night to see them in.
             for (float along = shape.AlongStart; along <= shape.AlongEnd; along += shape.LampSpacing)
             {
-                float clamped = Mathf.Clamp(along, 0f, main.Length);
-                Vector3 centre = main.GetPositionAtDistance(clamped);
-                Vector3 right = main.GetRightAtDistance(clamped);
+                float clamped = Mathf.Clamp(along, 0f, trunk.Length);
+                Vector3 centre = trunk.GetPositionAtDistance(clamped);
+                Vector3 right = trunk.GetRightAtDistance(clamped);
 
                 Vector3 at = centre + right * (RoadShape.Default.OuterHalfWidth + 1.6f) * side;
                 TerrainTileBuilder.SampleSurface(field, terrainShape, at.x, at.z,
@@ -398,9 +261,10 @@ namespace Horizon.World
             }
 
             // Each frontage was laid out against its own street and knows nothing about the others, so a
-            // plot fronting the high street can sit squarely in a lane that crosses behind it. Cheaper to
-            // drop those here than to make every frontage aware of every street.
-            ClearStreets(plots, main, lanes, shape.PlotSetback * 0.6f);
+            // plot fronting one street can sit squarely in another that crosses behind it. Cheaper to
+            // drop those here than to make every frontage aware of every street — and with the spatial
+            // index it is one cell lookup per plot rather than a walk down every centreline.
+            ClearStreets(plots, index, trunk, shape);
 
             var footprint = new Bounds(
                 plots.Count > 0 ? plots[0].Position : Vector3.zero, Vector3.one);
@@ -413,25 +277,45 @@ namespace Horizon.World
         }
 
         /// <summary>
-        /// Drops any plot standing too close to a street. A plot is always about
-        /// <see cref="TownShape.PlotSetback"/> from the street it faces, so a threshold well under that
-        /// only catches the ones sitting on a *different* street.
+        /// How far back from a street's centreline its houses stand.
+        ///
+        /// Scaled off the street's own width, so a house on an alley is not marooned in the middle of a
+        /// field while one on the high street is in the gutter. The margin past the kerb is what has to
+        /// stay constant, not the distance from the centreline — that was the mistake the village made
+        /// with a single number for every lane.
+        /// </summary>
+        private static float SetbackFor(StreetEdge edge, in TownShape shape)
+        {
+            return edge.HalfOuter + shape.PlotSetback;
+        }
+
+        /// <summary>
+        /// Drops any plot standing in a street it does not face.
+        ///
+        /// <para>A plot is always at least its street's setback from the street it fronts, so a threshold
+        /// well under that only catches the ones sitting on a <i>different</i> street — which happens all
+        /// the time when frontages are laid out one street at a time and forty of them cross.</para>
+        ///
+        /// <para>Through <see cref="StreetIndex"/> rather than by walking every centreline. The old
+        /// version was plots times streets times samples-per-street: at four hundred plots and forty
+        /// streets that is a million arc-length lookups, and it was comfortably the most expensive thing
+        /// in the build.</para>
         /// </summary>
         private static void ClearStreets(
-            List<TownPlan.Plot> plots,
-            IRoadPath main,
-            IReadOnlyList<IRoadPath> lanes,
-            float minDistance)
+            List<TownPlan.Plot> plots, StreetIndex index, IRoadPath trunk, in TownShape shape)
         {
+            float trunkClearance = RoadShape.Default.OuterHalfWidth + 6f;
+
             for (int i = plots.Count - 1; i >= 0; i--)
             {
                 Vector3 at = plots[i].Position;
 
-                bool blocked = PlanDistance(main, at) < minDistance;
-                for (int j = 0; !blocked && lanes != null && j < lanes.Count; j++)
-                {
-                    blocked = PlanDistance(lanes[j], at) < minDistance;
-                }
+                // Its own street is further away than this, so anything inside it is a street the plot
+                // does not face.
+                float minimum = shape.PlotSetback * 0.7f;
+
+                bool blocked = index.IsWithin(at.x, at.z, minimum)
+                               || PlanDistance(trunk, at) < trunkClearance;
 
                 if (blocked)
                 {
@@ -458,7 +342,7 @@ namespace Horizon.World
             return Mathf.Sqrt(best);
         }
 
-        /// <summary>Lines plots up along one street, on one or both sides.</summary>
+        /// <summary>Lines plots up along one street, on both sides.</summary>
         private static void AddFrontage(
             List<TownPlan.Plot> plots,
             IRoadPath street,
@@ -469,14 +353,13 @@ namespace Horizon.World
             float to,
             int streetId,
             bool allowMill,
-            bool isMainStreet)
+            float setback)
         {
             if (street == null || to <= from)
             {
                 return;
             }
 
-            float townSide = shape.Side;
             int index = 0;
 
             for (float along = from; along <= to; along += shape.PlotSpacing, index++)
@@ -489,23 +372,15 @@ namespace Horizon.World
                 {
                     float sign = s == 0 ? -1f : 1f;
 
-                    // The uphill side of the high street gets a shallower row, because the level samples
-                    // only reach 35 m that way before the mountain takes over.
-                    bool uphill = isMainStreet && Mathf.Approximately(sign, -townSide);
-                    float setback = uphill ? shape.PlotSetback * 0.85f : shape.PlotSetback;
-
-                    // Decided before the vacancy roll, not after. The first version tested for the church
-                    // further down and a plot could be left empty before it ever got there — the town
-                    // came out with no church at all, and nothing said so.
                     // The mill is decided before the vacancy roll, not after. Testing for it further down
                     // meant a plot could be left empty before the test ever ran, and the town came out
                     // with no landmark at all and nothing saying so.
                     bool mill = allowMill
-                                && Mathf.Abs(along - shape.MillAt) < shape.PlotSpacing * 0.5f
-                                && Mathf.Approximately(sign, townSide);
+                                && Mathf.Abs(along - (from + to) * 0.5f) < shape.PlotSpacing * 0.5f
+                                && s == 0;
 
                     var random = new PlantRandom(Hash(streetId, index, s));
-                    if (!mill && (random.Chance(shape.PlotVacancy) || (uphill && random.Chance(0.35f))))
+                    if (!mill && random.Chance(shape.PlotVacancy))
                     {
                         continue;
                     }
@@ -706,12 +581,6 @@ namespace Horizon.World
         private static float HeadingOf(Vector3 direction)
         {
             return Mathf.Atan2(direction.x, direction.z) * Mathf.Rad2Deg;
-        }
-
-        private static Vector3 HeadingVector(float headingDegrees)
-        {
-            float radians = headingDegrees * Mathf.Deg2Rad;
-            return new Vector3(Mathf.Sin(radians), 0f, Mathf.Cos(radians));
         }
     }
 }
