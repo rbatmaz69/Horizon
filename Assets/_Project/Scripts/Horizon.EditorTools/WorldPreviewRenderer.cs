@@ -350,7 +350,7 @@ namespace Horizon.EditorTools
                 // driver's eye at the kerb the near carriageway fills the lower half of the frame and the
                 // town is forty pixels of it. This is a shot about the shape of the ground, so it is taken
                 // from where the ground can be seen; the version at eye level belongs with the landmarks,
-                // once there is a spire in the frame to look at.
+                // once there is a minaret in the frame to look at.
                 camera.fieldOfView = 38f;
                 camera.farClipPlane = Mathf.Max(farWas, Vector3.Distance(from, to) * 2.5f);
                 camera.transform.position = from + Vector3.up * 30f;

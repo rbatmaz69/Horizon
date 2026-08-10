@@ -552,11 +552,11 @@ namespace Horizon.EditorTools
             streetsRoot.transform.SetParent(worldRoot.transform, false);
 
             StreetNetwork network = StreetNetwork.Build(
-                path, townShape, TalheimLayout.Build(), streetsRoot.transform);
+                path, townShape, TalheimLayout.Build(), streetsRoot.transform,
+                terrainShape.RoadShelfDrop);
 
             StreetJunctionBuilder.ResolveTrims(network, roadShape.OuterHalfWidth);
-            BuildStreetMeshes(streetsRoot.transform, network, path, roadShape, townShape, materials);
-            Phase(clock, "road and streets");
+            Phase(clock, "road and street network");
 
             // One field, shared: the terrain is built from it, the guard rails ask it where the ground falls
             // away, and the tunnel bodies use it to bury their feet. Building a second would be slow and
@@ -588,6 +588,13 @@ namespace Horizon.EditorTools
 
             var field = new MountainField(path, terrainShape, 4f, levelSamples);
             Phase(clock, $"height field ({levelSamples.Count} level samples)");
+
+            // The street meshes come *after* the field, unlike the network itself. Their verges run down
+            // onto the terrain mesh and have to ask it where it is; only the centrelines are needed
+            // beforehand, and those are what the field was given.
+            BuildStreetMeshes(streetsRoot.transform, network, path, roadShape, townShape,
+                field, terrainShape, materials);
+            Phase(clock, "street meshes");
 
             ValidateRoadClearance(path, roadShape, field, course);
             ReportTownGround(field, path, terrainShape, townShape);
@@ -962,6 +969,8 @@ namespace Horizon.EditorTools
             RoadPath trunk,
             in RoadShape trunkShape,
             in TownShape townShape,
+            MountainField field,
+            in TerrainShape terrainShape,
             PrototypeMaterials materials)
         {
             if (network.Edges.Count == 0)
@@ -983,7 +992,7 @@ namespace Horizon.EditorTools
                     edge.Path, edge.Shape,
                     edge.TrimStart - StreetJunctionBuilder.RibbonOverlap,
                     edge.Length - edge.TrimEnd + StreetJunctionBuilder.RibbonOverlap,
-                    buffer);
+                    field, terrainShape, buffer);
             }
 
             // Counted in three, because "five thousand faces are backwards" says nothing about which
@@ -1001,7 +1010,7 @@ namespace Horizon.EditorTools
                     continue;
                 }
 
-                StreetJunctionBuilder.AppendPad(network, i, buffer);
+                StreetJunctionBuilder.AppendPad(network, i, field, terrainShape, buffer);
                 pads++;
             }
 
@@ -1062,6 +1071,9 @@ namespace Horizon.EditorTools
                         break;
                     case TownStreetBuilder.KerbSubmesh:
                         result[i] = materials.Concrete;
+                        break;
+                    case TownStreetBuilder.VergeSubmesh:
+                        result[i] = materials.Grass;
                         break;
                     default:
                         result[i] = materials.Footway;
@@ -1454,7 +1466,7 @@ namespace Horizon.EditorTools
                 return;
             }
 
-            Debug.Log($"[Horizon] Town: {stats.Houses} houses, {stats.Churches} church, "
+            Debug.Log($"[Horizon] Town: {stats.Houses} houses, {stats.Mosques} mosque, "
                       + $"{stats.Windmills} windmill, "
                       + $"{stats.Barns} barns, {stats.Sawmills} sawmills, {stats.Fences} fences, "
                       + $"{stats.Lamps} lamps, {stats.Cars} parked cars — {stats.Triangles} triangles "
@@ -1571,15 +1583,15 @@ namespace Horizon.EditorTools
                     continue;
                 }
 
-                bool church = plot.Kind == TownPlotKind.Church;
+                bool mosque = plot.Kind == TownPlotKind.Mosque;
                 bool tall = plot.Kind == TownPlotKind.Windmill;
                 bool wide = plot.Kind == TownPlotKind.Barn;
 
-                // The church gets the nave and leaves the tower out. One box round both would wall off
-                // the churchyard, and the tower is 3.6 m of it against 11 m of nave.
-                float halfWidth = church ? 7f : tall ? 4.5f : wide ? 7.5f : 5.6f;
-                float halfDepth = church ? 12f : tall ? 4.5f : wide ? 5.5f : 4.8f;
-                float height = church ? 15f : tall ? 16f : wide ? 8f : 6f;
+                // The prayer hall only. One box round the minaret as well would wall off the courtyard,
+                // and the minaret is 2 m of it against 18 m of hall.
+                float halfWidth = mosque ? 9.5f : tall ? 4.5f : wide ? 7.5f : 5.6f;
+                float halfDepth = mosque ? 9.5f : tall ? 4.5f : wide ? 5.5f : 4.8f;
+                float height = mosque ? 15f : tall ? 16f : wide ? 8f : 6f;
 
                 var box = new GameObject($"Plot_{i}");
                 box.transform.SetParent(parent, false);
@@ -1708,6 +1720,7 @@ namespace Horizon.EditorTools
             }
 
             int holes = CountJunctionHoles(network);
+            float worstGradient = VergeGradient(network, out int steepStreets);
 
             if (crossings > 0)
             {
@@ -1752,12 +1765,20 @@ namespace Horizon.EditorTools
                                  + "street.");
             }
 
-            if (crossings + shallow + folded + unreachable + steps + holes == 0)
+            if (steepStreets > 0)
+            {
+                Debug.LogWarning($"[Horizon] Street network: the ground falls away from {steepStreets} "
+                                 + $"street(s) too steeply to drive back up, worst {worstGradient:0.00}. "
+                                 + "A street is not a plateau: widen the verge, or find out why the "
+                                 + "terrain beside it is not where the shelf should have put it.");
+            }
+
+            if (crossings + shallow + folded + unreachable + steps + holes + steepStreets == 0)
             {
                 Debug.Log($"[Horizon] Street network: {network.Nodes.Count} nodes and "
                           + $"{network.Edges.Count} streets — planar, connected, every pad convex about "
                           + $"its node and flush with its streets. Tightest junction {tightestAngle:0} ° "
-                          + $"at node {tightestNode}.");
+                          + $"at node {tightestNode}, steepest verge {worstGradient:0.00}.");
             }
 
             // The corridor sweep, once per street. Half-widths are per-street rather than the trunk
@@ -1817,10 +1838,10 @@ namespace Horizon.EditorTools
         }
 
         /// <summary>
-        /// Whether the church can actually be seen from the pass, in metres of hillside in the way.
+        /// Whether the mosque can actually be seen from the pass, in metres of hillside in the way.
         ///
         /// <para>The whole claim this milestone rests on is that the town reads from the road above, and
-        /// that claim is testable: walk the sight line from each viewpoint to the tip of the spire,
+        /// that claim is testable: walk the sight line from each viewpoint to the tip of the minaret,
         /// sample the height field every ten metres, and report the worst amount by which the ground
         /// stands above the line. Placing a landmark by eye and checking it in a render means checking it
         /// from wherever the render happened to stand.</para>
@@ -1828,14 +1849,14 @@ namespace Horizon.EditorTools
         private static void ValidateLandmarkVisibility(
             MountainField field, RoadCourse course, RoadPath path, TownPlan plan)
         {
-            Vector3 spire = Vector3.zero;
+            Vector3 finial = Vector3.zero;
             bool found = false;
 
             for (int i = 0; i < plan.Plots.Count; i++)
             {
-                if (plan.Plots[i].Kind == TownPlotKind.Church)
+                if (plan.Plots[i].Kind == TownPlotKind.Mosque)
                 {
-                    spire = plan.Plots[i].Position + Vector3.up * LandmarkMeshes.ChurchHeight;
+                    finial = plan.Plots[i].Position + Vector3.up * LandmarkMeshes.MinaretHeight;
                     found = true;
                     break;
                 }
@@ -1857,13 +1878,13 @@ namespace Horizon.EditorTools
                 Vector3 from = path.GetPositionAtDistance(
                     Mathf.Clamp(feature.StartDistance, 0f, path.Length)) + Vector3.up * 1.5f;
 
-                float span = Vector3.Distance(from, spire);
+                float span = Vector3.Distance(from, finial);
                 float worst = 0f;
                 float worstAt = 0f;
 
                 for (float t = 0.05f; t <= 0.95f; t += 10f / Mathf.Max(1f, span))
                 {
-                    Vector3 on = Vector3.Lerp(from, spire, t);
+                    Vector3 on = Vector3.Lerp(from, finial, t);
                     float ground = field.HeightAt(on.x, on.z);
 
                     if (ground - on.y > worst)
@@ -1875,13 +1896,13 @@ namespace Horizon.EditorTools
 
                 if (worst <= 0f)
                 {
-                    Debug.Log($"[Horizon] Landmark: the spire is clear from '{feature.Name}', "
+                    Debug.Log($"[Horizon] Landmark: the minaret is clear from '{feature.Name}', "
                               + $"{span:0} m away.");
                     continue;
                 }
 
                 Debug.Log($"[Horizon] Landmark: from '{feature.Name}' at {span:0} m, the ground stands "
-                          + $"{worst:0.0} m into the sight line to the spire, worst at {worstAt:0} m "
+                          + $"{worst:0.0} m into the sight line to the minaret, worst at {worstAt:0} m "
                           + "along it.");
             }
         }
@@ -1920,6 +1941,81 @@ namespace Horizon.EditorTools
                       + $"{byQuarter[(int)TownQuarter.Market]} market, "
                       + $"{byQuarter[(int)TownQuarter.Industry]} industry, "
                       + $"{byQuarter[(int)TownQuarter.Green]} green.");
+        }
+
+        /// <summary>
+        /// How steeply the ground falls away from the edge of a street's paving, worst case.
+        ///
+        /// <para>A step down off a street is not the same problem as a step up onto one. Driving off is
+        /// always possible; driving back on means a raycast wheel has to climb whatever is there, and a
+        /// vertical half-metre is a wall. So what matters is not the height difference — the town sits in
+        /// a basin and some of it is genuinely on a slope — but the <b>gradient</b>: half a metre over a
+        /// verge is a ramp, and half a metre over nothing is a kerb you cannot mount.</para>
+        ///
+        /// <para>Nothing else was measuring this. The corridor sweep looks for solid things <i>in</i> the
+        /// carriageway, and a street standing on a plinth has a perfectly clear one.</para>
+        /// </summary>
+        private static float VergeGradient(StreetNetwork network, out int steepStreets)
+        {
+            const float allowed = 0.6f;
+
+            float worst = 0f;
+            float worstDetail = 0f;
+            string detail = null;
+            steepStreets = 0;
+
+            for (int i = 0; i < network.Edges.Count; i++)
+            {
+                StreetEdge edge = network.Edges[i];
+                float run = edge.Shape.VergeWidth + 0.5f;
+                float edgeWorst = 0f;
+
+                for (float along = edge.TrimStart; along <= edge.Length - edge.TrimEnd; along += 12f)
+                {
+                    for (int s = 0; s < 2; s++)
+                    {
+                        float sign = s == 0 ? -1f : 1f;
+
+                        Vector3 paved = TownStreetBuilder.PointAcross(
+                            edge.Path, edge.Shape, along, edge.HalfOuter * sign,
+                            edge.Shape.SurfaceLift + edge.Shape.KerbHeight);
+
+                        Vector3 beside = TownStreetBuilder.PointAcross(
+                            edge.Path, edge.Shape, along, (edge.HalfOuter + run) * sign, 0f);
+
+                        if (!Physics.Raycast(beside + Vector3.up * 8f, Vector3.down,
+                                out RaycastHit hit, 16f, ~0, QueryTriggerInteraction.Ignore))
+                        {
+                            continue;
+                        }
+
+                        float gradient = (paved.y - hit.point.y) / run;
+                        edgeWorst = Mathf.Max(edgeWorst, gradient);
+
+                        if (gradient > worstDetail)
+                        {
+                            worstDetail = gradient;
+                            detail = $"street {i} at {along:0} m: paving {paved.y:0.00}, ground "
+                                     + $"{hit.point.y:0.00} at {run:0.0} m out, on "
+                                     + $"'{hit.collider.gameObject.name}'";
+                        }
+                    }
+                }
+
+                if (edgeWorst > allowed)
+                {
+                    steepStreets++;
+                }
+
+                worst = Mathf.Max(worst, edgeWorst);
+            }
+
+            if (detail != null && worst > allowed)
+            {
+                Debug.Log($"[Horizon] Steepest verge — {detail}.");
+            }
+
+            return worst;
         }
 
         /// <summary>Closest the two paths come to each other in plan, metres.</summary>

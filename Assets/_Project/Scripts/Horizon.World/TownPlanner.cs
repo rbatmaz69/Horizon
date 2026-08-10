@@ -12,7 +12,7 @@ namespace Horizon.World
         Windmill = 1,
 
         /// <summary>The town's landmark, and the thing it is recognised by from the pass above.</summary>
-        Church = 5,
+        Mosque = 5,
 
         Barn = 2,
         Sawmill = 3,
@@ -63,7 +63,7 @@ namespace Horizon.World
             /// overlapped into one continuous bare strip down every street. A wall needs 8 m of clearance;
             /// a lawn needs none.
             /// </summary>
-            public float BuildingRadius => Kind == TownPlotKind.Church ? 16f
+            public float BuildingRadius => Kind == TownPlotKind.Mosque ? 16f
                 : Kind == TownPlotKind.Windmill ? 11f
                 : Kind == TownPlotKind.Barn ? 9f
                 : 7.5f;
@@ -228,7 +228,7 @@ namespace Horizon.World
     public sealed class TownStats
     {
         public int Houses;
-        public int Churches;
+        public int Mosques;
         public int Windmills;
         public int Barns;
         public int Sawmills;
@@ -252,7 +252,7 @@ namespace Horizon.World
         public void Add(TownStats other)
         {
             Houses += other.Houses;
-            Churches += other.Churches;
+            Mosques += other.Mosques;
             Windmills += other.Windmills;
             Barns += other.Barns;
             Sawmills += other.Sawmills;
@@ -423,7 +423,7 @@ namespace Horizon.World
                 }
             }
 
-            AddChurch(plots, trunk, index, field, terrainShape, shape);
+            AddMosque(plots, trunk, index, field, terrainShape, shape);
 
             // Lamps down the trunk road through the town, on the town side only. The streets get their
             // own when there is a night to see them in.
@@ -458,18 +458,18 @@ namespace Horizon.World
         }
 
         /// <summary>
-        /// Puts the church on the highest ground the town has.
+        /// Puts the mosque on the highest ground the town has.
         ///
         /// <para>Not by eye and not at a hand-picked coordinate: the basin's cross-fall lifts the floor
         /// four and a half metres from the trunk road out to the far edge, so the highest ground is
         /// wherever <see cref="TownShape.FloorHeight"/> says it is, and the search asks it. Height is
-        /// what a landmark trades on — every metre of ground under the spire is a metre of spire seen
+        /// what a landmark trades on — every metre of ground under the minaret is a metre of minaret seen
         /// from the pass — so the one decision that matters here is made by measurement.</para>
         ///
-        /// <para>It faces the trunk road rather than the street it stands on, because a spire is read
+        /// <para>It faces the trunk road rather than the street it stands on, because a minaret is read
         /// from the road that passes the town, not from the lane behind it.</para>
         /// </summary>
-        private static void AddChurch(
+        private static void AddMosque(
             List<TownPlan.Plot> plots,
             IRoadPath trunk,
             StreetIndex index,
@@ -489,7 +489,7 @@ namespace Horizon.World
                 {
                     Vector3 at = TownShape.ToWorld(trunk, shape, along, across);
 
-                    // Not in a street, and not so far from one that the church has no way in.
+                    // Not in a street, and not so far from one that the mosque has no way in.
                     float toStreet = index.DistanceTo(at.x, at.z, out int _);
                     if (toStreet < 22f || toStreet > 55f)
                     {
@@ -507,7 +507,7 @@ namespace Horizon.World
 
             if (bestHeight <= float.MinValue)
             {
-                Debug.LogWarning("[Horizon] Town: nowhere to put the church. Every candidate was either "
+                Debug.LogWarning("[Horizon] Town: nowhere to put the mosque. Every candidate was either "
                                  + "in a street or too far from one to reach.");
                 return;
             }
@@ -521,7 +521,7 @@ namespace Horizon.World
             towards.y = 0f;
 
             plots.Add(new TownPlan.Plot(
-                point, HeadingOf(towards), 16f, 20f, TownPlotKind.Church, false, false,
+                point, HeadingOf(towards), 16f, 20f, TownPlotKind.Mosque, false, false,
                 Hash(7717, Mathf.RoundToInt(bestAlong), 0)));
         }
 
@@ -703,9 +703,9 @@ namespace Horizon.World
 
                 switch (plot.Kind)
                 {
-                    case TownPlotKind.Church:
-                        LandmarkMeshes.AddChurch(buffer, place, ref random);
-                        stats.Churches++;
+                    case TownPlotKind.Mosque:
+                        LandmarkMeshes.AddMosque(buffer, place, ref random);
+                        stats.Mosques++;
                         continue;
 
                     case TownPlotKind.Windmill:

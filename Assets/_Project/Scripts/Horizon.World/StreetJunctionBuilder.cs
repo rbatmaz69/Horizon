@@ -367,7 +367,12 @@ namespace Horizon.World
         /// Emits one node's pad: the carriageway as a fan from the centre, then a kerb face and footway
         /// strip around every span that is not a street mouth.
         /// </summary>
-        public static void AppendPad(StreetNetwork network, int nodeIndex, VegetationMeshBuffer into)
+        public static void AppendPad(
+            StreetNetwork network,
+            int nodeIndex,
+            MountainField field,
+            in TerrainShape terrainShape,
+            VegetationMeshBuffer into)
         {
             StreetNode node = network.Nodes[nodeIndex];
             if (node.PadGutter == null || node.PadGutter.Length < 3)
@@ -424,6 +429,57 @@ namespace Horizon.World
                 into.AddQuadFacing(
                     TownStreetBuilder.FootwaySubmesh,
                     node.PadKerbTop[next], node.PadKerbTop[i], node.PadOutline[i], node.PadOutline[next],
+                    Vector3.up);
+            }
+
+            AppendPadVerge(node, hub, field, terrainShape, into);
+        }
+
+        /// <summary>
+        /// A grass skirt from the outer edge of the pad down onto the terrain, for the same reason the
+        /// ribbons have one: a junction that stands proud of the ground beside it is a plateau, and a
+        /// plateau is something you can drive off but not back onto.
+        /// </summary>
+        private static void AppendPadVerge(
+            StreetNode node,
+            Vector3 hub,
+            MountainField field,
+            in TerrainShape terrainShape,
+            VegetationMeshBuffer into)
+        {
+            if (field == null)
+            {
+                return;
+            }
+
+            const float width = 1.6f;
+            int count = node.PadOutline.Length;
+            var skirt = new Vector3[count];
+
+            for (int i = 0; i < count; i++)
+            {
+                Vector3 radial = node.PadOutline[i] - hub;
+                radial.y = 0f;
+
+                Vector3 at = node.PadOutline[i] + radial.normalized * width;
+                TerrainTileBuilder.SampleSurface(field, terrainShape, at.x, at.z,
+                    out Vector3 ground, out Vector3 _);
+
+                skirt[i] = new Vector3(at.x, ground.y + 0.02f, at.z);
+            }
+
+            for (int i = 0; i < count; i++)
+            {
+                int next = (i + 1) % count;
+
+                if ((node.PadOutline[next] - node.PadOutline[i]).sqrMagnitude < 0.0004f)
+                {
+                    continue;
+                }
+
+                into.AddQuadFacing(
+                    TownStreetBuilder.VergeSubmesh,
+                    node.PadOutline[next], node.PadOutline[i], skirt[i], skirt[next],
                     Vector3.up);
             }
         }

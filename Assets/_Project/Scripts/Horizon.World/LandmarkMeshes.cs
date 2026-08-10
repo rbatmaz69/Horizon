@@ -8,96 +8,253 @@ namespace Horizon.World
     /// <para>Its own file rather than an addition to <see cref="MillMeshes"/>, which is the working
     /// buildings and has a clear remit, or to <see cref="BuildingMeshes"/>, which is the ordinary stock.
     /// A landmark is a different kind of thing: it is built to be seen from two kilometres away, it costs
-    /// several times what a house costs, and there are three of them rather than three hundred.</para>
+    /// several times what a house costs, and there is one of it rather than three hundred.</para>
     ///
     /// <para>Submesh constants come from <see cref="BuildingMeshes"/> so a landmark lands in the same
     /// mesh as the houses around it and adds no draw call of its own.</para>
     /// </summary>
     public static class LandmarkMeshes
     {
-        /// <summary>Total height of the church, ground to the tip of the cross, metres.</summary>
-        public const float ChurchHeight = 34f;
+        /// <summary>Height of the minaret's finial above the ground, metres.</summary>
+        public const float MinaretHeight = 33f;
 
         /// <summary>
-        /// A church: nave, lower chancel, west tower, belfry and a two-stage spire. About 400 triangles.
+        /// A mosque: prayer hall, dome and minaret. About 450 triangles.
         ///
-        /// <para>Two things here are worth the triangles they cost and nothing else is. The <b>tower</b>
-        /// at 34 m against the windmill's 16: a town's landmark has to out-scale a village's, or the
-        /// place still reads as a village with more houses in it. And the <b>two-stage taper</b> on the
-        /// spire — a plain cone silhouettes as a party hat, while a spire that narrows sharply and then
-        /// runs on thin reads as a spire at four pixels, which is the size it will usually be seen at.</para>
+        /// <para>Two shapes carry the whole thing at the distance it is seen from, and the rest is there
+        /// to keep them company. The <b>dome</b> is the only curved mass in a town built entirely out of
+        /// boxes and pitched roofs, so it reads as different long before it reads as a dome. And the
+        /// <b>minaret</b> at 33 m against the windmill's 16 is what makes the town a town rather than a
+        /// village with more houses in it — a slender vertical stays visible at distances where a wide
+        /// building of the same height has already merged into the roofline.</para>
+        ///
+        /// <para>The balcony a third of the way up is not decoration either: an evenly tapering shaft
+        /// reads as a chimney, and one horizontal line across it is the whole difference.</para>
         /// </summary>
-        public static void AddChurch(VegetationMeshBuffer buffer, in PlantPlacement place, ref PlantRandom random)
+        public static void AddMosque(VegetationMeshBuffer buffer, in PlantPlacement place, ref PlantRandom random)
         {
             const int wall = BuildingMeshes.FirstWallSubmesh;
             const int roof = BuildingMeshes.FirstRoofSubmesh + 1;
+            const int trim = BuildingMeshes.TrimSubmesh;
 
-            const float naveHalfWidth = 6.5f;
-            const float naveHalfDepth = 11f;
-            const float naveEave = 9f;
-            const float naveRidge = 14.5f;
+            const float hallHalf = 9f;
+            const float hallHeight = 8.5f;
 
-            // Nave. Its ridge runs across the placement's Z, so the long axis faces the street the plot
-            // was laid against.
-            BuildingMeshes.AddBox(buffer, place, wall, 0f, 0f, 0f, naveHalfWidth, naveEave, naveHalfDepth);
-            BuildingMeshes.AddGableRoof(buffer, place, wall, roof,
-                naveHalfWidth, naveHalfDepth, naveEave, naveRidge, 0.6f);
+            // The prayer hall: square in plan, which is unlike anything else in the town and is most of
+            // why it does not read as a large house.
+            BuildingMeshes.AddBox(buffer, place, wall, 0f, 0f, 0f, hallHalf, hallHeight, hallHalf);
 
-            // Chancel: lower, shorter, off the far end. The step down in ridge height is most of what
-            // stops the body of the church reading as a shed.
-            const float chancelHalfWidth = 4.6f;
-            const float chancelHalfDepth = 4.5f;
-            float chancelZ = -(naveHalfDepth + chancelHalfDepth - 0.5f);
+            // A parapet standing proud of the wall, so the flat roof has an edge rather than stopping.
+            BuildingMeshes.AddBox(buffer, place, trim, 0f, hallHeight, 0f,
+                hallHalf + 0.3f, 0.7f, hallHalf + 0.3f);
 
-            BuildingMeshes.AddBox(buffer, place, wall, 0f, 0f, chancelZ,
-                chancelHalfWidth, 6.6f, chancelHalfDepth);
-            AddChancelRoof(buffer, place, roof, chancelHalfWidth, chancelHalfDepth, chancelZ, 6.6f, 10f);
+            AddPorch(buffer, place, wall, trim, hallHalf, 3.6f);
+            AddWindowBand(buffer, place, hallHalf, 3.2f);
 
-            // Tower at the near end, standing proud of the nave so it has four faces of its own.
-            const float towerHalf = 3.6f;
-            const float towerHeight = 22f;
-            float towerZ = naveHalfDepth + towerHalf - 1.2f;
+            // The dome, on a low drum. The drum is what stops it looking like a bowl set on a table: a
+            // hemisphere meeting a flat roof directly has no shadow line at its foot.
+            const float drumTop = hallHeight + 1.6f;
+            AddPrism(buffer, place, wall, 12, 6.4f, 6.4f, hallHeight + 0.7f, drumTop, 0f, 0f);
+            AddDome(buffer, place, roof, 12, 6.4f, drumTop, drumTop + 5.6f);
+            AddFinial(buffer, place, trim, 0f, drumTop + 5.6f, 0f, 1.4f);
 
-            BuildingMeshes.AddBox(buffer, place, wall, 0f, 0f, towerZ, towerHalf, towerHeight, towerHalf);
+            // The minaret, off one back corner of the hall so it is clear of the porch and reads as its
+            // own mass rather than as a turret on the building.
+            AddMinaret(buffer, place, wall, trim, hallHalf - 1.6f, -(hallHalf - 1.6f));
+        }
 
-            // A corbel band: one course standing 0.35 m proud, just under the belfry. Two dozen triangles
-            // that stop 22 m of blank wall reading as a chimney.
-            BuildingMeshes.AddBox(buffer, place, BuildingMeshes.TrimSubmesh, 0f, towerHeight - 3.4f, towerZ,
-                towerHalf + 0.35f, 0.5f, towerHalf + 0.35f);
+        /// <summary>The shaft, balcony, cap and finial of a minaret, as one call.</summary>
+        private static void AddMinaret(
+            VegetationMeshBuffer buffer,
+            in PlantPlacement place,
+            int wall,
+            int trim,
+            float centreX,
+            float centreZ)
+        {
+            const int sides = 8;
+            const float balconyAt = 18f;
+            const float capFrom = 26.5f;
 
-            AddBelfry(buffer, place, towerHalf, towerZ, towerHeight - 2.2f);
+            AddPrism(buffer, place, wall, sides, 1.35f, 1.15f, 0f, balconyAt, centreX, centreZ);
 
-            // The spire, and the cross on top of it.
-            AddSpire(buffer, place, roof, 8, towerHalf * 0.95f, towerHeight, ChurchHeight - 1.6f, towerZ);
+            // The balcony: a disc standing well proud of the shaft, with a parapet on it.
+            AddPrism(buffer, place, trim, sides, 2.05f, 2.05f, balconyAt, balconyAt + 0.35f, centreX, centreZ);
+            AddPrism(buffer, place, trim, sides, 1.95f, 1.95f, balconyAt + 0.35f, balconyAt + 1.2f,
+                centreX, centreZ);
 
-            AddCross(buffer, place, towerZ, ChurchHeight - 1.6f);
+            // Openings under the balcony, in the window submesh, so the minaret lights at dusk with
+            // everything else.
+            AddMinaretLights(buffer, place, sides, 1.36f, balconyAt - 2.6f, 1.8f, centreX, centreZ);
 
-            // A door, so the front reads as a way in rather than as a wall.
-            BuildingMeshes.AddBox(buffer, place, BuildingMeshes.TrimSubmesh,
-                0f, 0f, towerZ + towerHalf - 0.05f, 1.1f, 3.2f, 0.25f);
+            AddPrism(buffer, place, wall, sides, 1.1f, 0.95f, balconyAt + 1.2f, capFrom, centreX, centreZ);
+            AddCone(buffer, place, BuildingMeshes.FirstRoofSubmesh + 1, sides, 1.15f, capFrom, 31.4f,
+                centreX, centreZ);
+            AddFinial(buffer, place, trim, centreX, 31.4f, centreZ, 1.6f);
+        }
+
+        /// <summary>A porch across the street face: a flat slab on four square piers.</summary>
+        private static void AddPorch(
+            VegetationMeshBuffer buffer,
+            in PlantPlacement place,
+            int wall,
+            int trim,
+            float hallHalf,
+            float depth)
+        {
+            const float height = 5.2f;
+            float front = hallHalf + depth;
+
+            for (int i = 0; i < 4; i++)
+            {
+                float x = Mathf.Lerp(-hallHalf + 1.2f, hallHalf - 1.2f, i / 3f);
+                BuildingMeshes.AddBox(buffer, place, wall, x, 0f, front - 0.7f, 0.5f, height, 0.5f);
+            }
+
+            BuildingMeshes.AddBox(buffer, place, trim, 0f, height, (hallHalf + front) * 0.5f,
+                hallHalf, 0.6f, depth * 0.5f + 0.2f);
+        }
+
+        /// <summary>A band of tall openings all round the hall, in the window submesh.</summary>
+        private static void AddWindowBand(
+            VegetationMeshBuffer buffer, in PlantPlacement place, float hallHalf, float sillY)
+        {
+            const float half = 0.7f;
+            const float height = 2.8f;
+            float out0 = hallHalf + 0.02f;
+
+            for (int i = 0; i < 4; i++)
+            {
+                float x = Mathf.Lerp(-hallHalf * 0.62f, hallHalf * 0.62f, i / 3f);
+
+                Add(place.Forward,
+                    place.ToWorld(x - half, sillY, out0), place.ToWorld(x + half, sillY, out0),
+                    place.ToWorld(x + half, sillY + height, out0), place.ToWorld(x - half, sillY + height, out0));
+
+                Add(-place.Forward,
+                    place.ToWorld(x + half, sillY, -out0), place.ToWorld(x - half, sillY, -out0),
+                    place.ToWorld(x - half, sillY + height, -out0), place.ToWorld(x + half, sillY + height, -out0));
+
+                Add(place.Right,
+                    place.ToWorld(out0, sillY, x + half), place.ToWorld(out0, sillY, x - half),
+                    place.ToWorld(out0, sillY + height, x - half), place.ToWorld(out0, sillY + height, x + half));
+
+                Add(-place.Right,
+                    place.ToWorld(-out0, sillY, x - half), place.ToWorld(-out0, sillY, x + half),
+                    place.ToWorld(-out0, sillY + height, x + half), place.ToWorld(-out0, sillY + height, x - half));
+            }
+
+            void Add(Vector3 outward, Vector3 a, Vector3 b, Vector3 c, Vector3 d)
+            {
+                buffer.AddQuadFacing(BuildingMeshes.WindowSubmesh, a, b, c, d, outward);
+            }
+        }
+
+        /// <summary>Small lit openings round a minaret shaft, on every other facet.</summary>
+        private static void AddMinaretLights(
+            VegetationMeshBuffer buffer,
+            in PlantPlacement place,
+            int sides,
+            float radius,
+            float sillY,
+            float height,
+            float centreX,
+            float centreZ)
+        {
+            float step = Mathf.PI * 2f / sides;
+
+            for (int i = 0; i < sides; i += 2)
+            {
+                float a0 = i * step;
+                float a1 = (i + 1) * step;
+
+                Vector3 outward = place.Right * Mathf.Cos((a0 + a1) * 0.5f)
+                                  + place.Forward * Mathf.Sin((a0 + a1) * 0.5f);
+
+                buffer.AddQuadFacing(
+                    BuildingMeshes.WindowSubmesh,
+                    Ring(place, a0, radius, sillY, centreX, centreZ),
+                    Ring(place, a0, radius, sillY + height, centreX, centreZ),
+                    Ring(place, a1, radius, sillY + height, centreX, centreZ),
+                    Ring(place, a1, radius, sillY, centreX, centreZ),
+                    outward);
+            }
         }
 
         /// <summary>
-        /// A two-stage tapered spire on an n-gon plan, centred on <paramref name="centreZ"/>.
+        /// A dome, as stacked rings following a quarter-circle profile.
         ///
-        /// The break is at a third of the height, where the taper goes from fast to slow. That is the
-        /// whole trick: the silhouette gets a shoulder, and a shoulder is what the eye reads as a spire
-        /// rather than as a cone.
+        /// Four rings rather than one cone, because the whole reason the dome is here is that it is the
+        /// one curved mass in a town of boxes — and a cone would simply be another pitched roof. Four is
+        /// where the silhouette stops being obviously faceted at the distance this is seen from, and the
+        /// rings crowd towards the top because that is where the curvature is.
         /// </summary>
-        public static void AddSpire(
+        public static void AddDome(
             VegetationMeshBuffer buffer,
             in PlantPlacement place,
             int submesh,
             int sides,
             float radius,
             float baseY,
-            float apexY,
+            float apexY)
+        {
+            const int rings = 4;
+            float step = Mathf.PI * 2f / sides;
+            float rise = apexY - baseY;
+
+            for (int ring = 0; ring < rings; ring++)
+            {
+                float t0 = ring / (float)rings;
+                float t1 = (ring + 1) / (float)rings;
+
+                float lowRadius = radius * Mathf.Cos(t0 * Mathf.PI * 0.5f);
+                float highRadius = radius * Mathf.Cos(t1 * Mathf.PI * 0.5f);
+                float lowY = baseY + rise * Mathf.Sin(t0 * Mathf.PI * 0.5f);
+                float highY = baseY + rise * Mathf.Sin(t1 * Mathf.PI * 0.5f);
+
+                for (int i = 0; i < sides; i++)
+                {
+                    float a0 = i * step;
+                    float a1 = (i + 1) * step;
+
+                    Vector3 outward = place.Right * Mathf.Cos((a0 + a1) * 0.5f)
+                                      + place.Forward * Mathf.Sin((a0 + a1) * 0.5f)
+                                      + place.Up * t0;
+
+                    Vector3 b0 = Ring(place, a0, lowRadius, lowY, 0f, 0f);
+                    Vector3 b1 = Ring(place, a1, lowRadius, lowY, 0f, 0f);
+
+                    if (ring == rings - 1)
+                    {
+                        buffer.AddTriangleFacing(submesh, b0, place.ToWorld(0f, apexY, 0f), b1, outward);
+                        continue;
+                    }
+
+                    buffer.AddQuadFacing(
+                        submesh,
+                        b0,
+                        Ring(place, a0, highRadius, highY, 0f, 0f),
+                        Ring(place, a1, highRadius, highY, 0f, 0f),
+                        b1,
+                        outward);
+                }
+            }
+        }
+
+        /// <summary>An n-gon prism, open at both ends — they are always covered by what stands on them.</summary>
+        private static void AddPrism(
+            VegetationMeshBuffer buffer,
+            in PlantPlacement place,
+            int submesh,
+            int sides,
+            float bottomRadius,
+            float topRadius,
+            float bottomY,
+            float topY,
+            float centreX,
             float centreZ)
         {
             float step = Mathf.PI * 2f / sides;
-            float span = apexY - baseY;
-            float breakY = baseY + span * 0.32f;
-            float breakRadius = radius * 0.42f;
 
             for (int i = 0; i < sides; i++)
             {
@@ -107,128 +264,79 @@ namespace Horizon.World
                 Vector3 outward = place.Right * Mathf.Cos((a0 + a1) * 0.5f)
                                   + place.Forward * Mathf.Sin((a0 + a1) * 0.5f);
 
-                Vector3 b0 = Ring(place, a0, radius, baseY, centreZ);
-                Vector3 b1 = Ring(place, a1, radius, baseY, centreZ);
-                Vector3 m0 = Ring(place, a0, breakRadius, breakY, centreZ);
-                Vector3 m1 = Ring(place, a1, breakRadius, breakY, centreZ);
-
-                // Up the face first, then round the ring: the other order winds every panel of the
-                // spire inwards, which the flip counter reported as twenty-four faces on a building
-                // that has four hundred.
-                buffer.AddQuadFacing(submesh, b0, m0, m1, b1, outward);
-                buffer.AddTriangleFacing(submesh, m0, place.ToWorld(0f, apexY, centreZ), m1, outward);
+                buffer.AddQuadFacing(
+                    submesh,
+                    Ring(place, a0, bottomRadius, bottomY, centreX, centreZ),
+                    Ring(place, a0, topRadius, topY, centreX, centreZ),
+                    Ring(place, a1, topRadius, topY, centreX, centreZ),
+                    Ring(place, a1, bottomRadius, bottomY, centreX, centreZ),
+                    outward);
             }
         }
 
-        private static Vector3 Ring(in PlantPlacement place, float angle, float radius, float y, float centreZ)
-        {
-            return place.ToWorld(Mathf.Cos(angle) * radius, y, centreZ + Mathf.Sin(angle) * radius);
-        }
-
-        /// <summary>
-        /// Four belfry openings, one to each face, in the window submesh.
-        ///
-        /// They are the reason the church works at night as well as by day: a lit belfry at 18 m is the
-        /// one thing in the town visible from the pass road above once the sun has gone.
-        /// </summary>
-        private static void AddBelfry(
-            VegetationMeshBuffer buffer, in PlantPlacement place, float towerHalf, float towerZ, float sillY)
-        {
-            const float half = 0.9f;
-            const float height = 2.6f;
-            float out0 = towerHalf + 0.02f;
-
-            for (int face = 0; face < 4; face++)
-            {
-                float x0 = face == 0 ? -half : face == 1 ? half : -half;
-                float x1 = face == 0 ? half : face == 1 ? -half : half;
-
-                Vector3 a, b, c, d;
-                Vector3 outward;
-
-                switch (face)
-                {
-                    case 0:
-                        outward = place.Forward;
-                        a = place.ToWorld(x0, sillY, towerZ + out0);
-                        b = place.ToWorld(x1, sillY, towerZ + out0);
-                        c = place.ToWorld(x1, sillY + height, towerZ + out0);
-                        d = place.ToWorld(x0, sillY + height, towerZ + out0);
-                        break;
-
-                    case 1:
-                        outward = -place.Forward;
-                        a = place.ToWorld(x0, sillY, towerZ - out0);
-                        b = place.ToWorld(x1, sillY, towerZ - out0);
-                        c = place.ToWorld(x1, sillY + height, towerZ - out0);
-                        d = place.ToWorld(x0, sillY + height, towerZ - out0);
-                        break;
-
-                    case 2:
-                        outward = place.Right;
-                        a = place.ToWorld(out0, sillY, towerZ + x0);
-                        b = place.ToWorld(out0, sillY, towerZ + x1);
-                        c = place.ToWorld(out0, sillY + height, towerZ + x1);
-                        d = place.ToWorld(out0, sillY + height, towerZ + x0);
-                        break;
-
-                    default:
-                        outward = -place.Right;
-                        a = place.ToWorld(-out0, sillY, towerZ + x0);
-                        b = place.ToWorld(-out0, sillY, towerZ + x1);
-                        c = place.ToWorld(-out0, sillY + height, towerZ + x1);
-                        d = place.ToWorld(-out0, sillY + height, towerZ + x0);
-                        break;
-                }
-
-                buffer.AddQuadFacing(BuildingMeshes.WindowSubmesh, a, b, c, d, outward);
-            }
-        }
-
-        /// <summary>Two thin crossed boards on the apex. Twelve triangles, and unmistakable in silhouette.</summary>
-        private static void AddCross(
-            VegetationMeshBuffer buffer, in PlantPlacement place, float centreZ, float apexY)
-        {
-            const int trim = BuildingMeshes.TrimSubmesh;
-
-            BuildingMeshes.AddBox(buffer, place, trim, 0f, apexY, centreZ, 0.09f, 2.2f, 0.09f);
-            BuildingMeshes.AddBox(buffer, place, trim, 0f, apexY + 1.25f, centreZ, 0.75f, 0.16f, 0.09f);
-        }
-
-        /// <summary>A gable roof over the chancel, offset down the placement's Z axis.</summary>
-        private static void AddChancelRoof(
+        /// <summary>An n-gon cone, for the minaret's cap.</summary>
+        private static void AddCone(
             VegetationMeshBuffer buffer,
             in PlantPlacement place,
-            int roofSubmesh,
-            float halfWidth,
-            float halfDepth,
-            float centreZ,
-            float eaveHeight,
-            float ridgeHeight)
+            int submesh,
+            int sides,
+            float radius,
+            float baseY,
+            float apexY,
+            float centreX,
+            float centreZ)
         {
-            float ex = halfWidth + 0.4f;
-            float z0 = centreZ - halfDepth - 0.4f;
-            float z1 = centreZ + halfDepth + 0.4f;
+            float step = Mathf.PI * 2f / sides;
+            Vector3 apex = place.ToWorld(centreX, apexY, centreZ);
 
-            Vector3 eaveFrontLeft = place.ToWorld(-ex, eaveHeight, z1);
-            Vector3 eaveFrontRight = place.ToWorld(ex, eaveHeight, z1);
-            Vector3 eaveBackLeft = place.ToWorld(-ex, eaveHeight, z0);
-            Vector3 eaveBackRight = place.ToWorld(ex, eaveHeight, z0);
-            Vector3 ridgeLeft = place.ToWorld(-ex, ridgeHeight, centreZ);
-            Vector3 ridgeRight = place.ToWorld(ex, ridgeHeight, centreZ);
+            for (int i = 0; i < sides; i++)
+            {
+                float a0 = i * step;
+                float a1 = (i + 1) * step;
 
-            buffer.AddQuadFacing(roofSubmesh, eaveFrontLeft, eaveFrontRight, ridgeRight, ridgeLeft, place.Up);
-            buffer.AddQuadFacing(roofSubmesh, ridgeLeft, ridgeRight, eaveBackRight, eaveBackLeft, place.Up);
+                Vector3 outward = place.Right * Mathf.Cos((a0 + a1) * 0.5f)
+                                  + place.Forward * Mathf.Sin((a0 + a1) * 0.5f);
 
-            Vector3 gableRight = place.ToWorld(halfWidth, ridgeHeight, centreZ);
-            buffer.AddTriangleFacing(BuildingMeshes.FirstWallSubmesh,
-                place.ToWorld(halfWidth, eaveHeight, z0 + 0.4f), gableRight,
-                place.ToWorld(halfWidth, eaveHeight, z1 - 0.4f), place.Right);
+                buffer.AddTriangleFacing(
+                    submesh,
+                    Ring(place, a0, radius, baseY, centreX, centreZ),
+                    apex,
+                    Ring(place, a1, radius, baseY, centreX, centreZ),
+                    outward);
+            }
+        }
 
-            Vector3 gableLeft = place.ToWorld(-halfWidth, ridgeHeight, centreZ);
-            buffer.AddTriangleFacing(BuildingMeshes.FirstWallSubmesh,
-                place.ToWorld(-halfWidth, eaveHeight, z1 - 0.4f), gableLeft,
-                place.ToWorld(-halfWidth, eaveHeight, z0 + 0.4f), -place.Right);
+        /// <summary>A slender finial: a short stem with a crescent above it.</summary>
+        private static void AddFinial(
+            VegetationMeshBuffer buffer,
+            in PlantPlacement place,
+            int submesh,
+            float centreX,
+            float baseY,
+            float centreZ,
+            float height)
+        {
+            BuildingMeshes.AddBox(buffer, place, submesh, centreX, baseY, centreZ, 0.09f, height, 0.09f);
+
+            // The crescent as three thin boxes in a shallow arc. At the size this is ever seen it is a
+            // notched ring, and a notched ring is unmistakable in silhouette; a real curve would cost
+            // thirty triangles to say the same thing.
+            float top = baseY + height;
+            for (int i = 0; i < 3; i++)
+            {
+                float angle = Mathf.Lerp(-0.9f, 0.9f, i / 2f);
+                float x = centreX + Mathf.Sin(angle) * 0.55f;
+                float y = top + 0.55f - Mathf.Cos(angle) * 0.2f;
+
+                BuildingMeshes.AddBox(buffer, place, submesh, x, y, centreZ, 0.12f, 0.34f, 0.08f);
+            }
+        }
+
+        private static Vector3 Ring(
+            in PlantPlacement place, float angle, float radius, float y, float centreX, float centreZ)
+        {
+            return place.ToWorld(
+                centreX + Mathf.Cos(angle) * radius, y, centreZ + Mathf.Sin(angle) * radius);
         }
     }
 }

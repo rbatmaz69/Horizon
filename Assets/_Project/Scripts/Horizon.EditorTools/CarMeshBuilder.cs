@@ -112,9 +112,17 @@ namespace Horizon.EditorTools
             // near-vertical rather than drooping, which is the difference between a muscle car and a
             // seventies boat nose.
             //
-            // The roof sits at 0.68 against a beltline of 0.22, so the glasshouse is about four tenths of
-            // the body's height. At 0.57 it was a third, and the car read as pressed flat: a deep slab of
-            // door with a letterbox on top, and a roofline whose fall to the tail was too shallow to see.
+            // The roof sits at 0.86 against a beltline of 0.22, so the glasshouse is 0.64 m of a 1.38 m
+            // body — a little under half. It has been raised twice, from 0.57 and then from 0.68, and
+            // both earlier numbers had the same fault: seen from the chase camera, which looks down at
+            // the car from behind, a shallow greenhouse reads as a body pressed flat from above. That
+            // view foreshortens height and not width, so the ratio that matters is not the one you see
+            // in a side elevation. At 2.04 m across and 1.20 m tall the car was 1.7 wide for every unit
+            // of height, against about 1.4 on a real one; it is now 1.48.
+            //
+            // The roof is also narrower than it was — 0.57 against a 0.90 body half-width, so the
+            // glasshouse tucks in by a third rather than a quarter. A wide flat roof reads as flat
+            // however high it is, and tapering it is worth as much as the height.
             // The fall is now 0.47 over the last 1.9 m and follows a straight line from the roof to the
             // tail panel, bowed out by a couple of centimetres — that line *is* the fastback. Flatten it
             // and the same car reads as an estate.
@@ -132,21 +140,21 @@ namespace Horizon.EditorTools
             // is the ducktail — a real one is an upturn pressed into the deck lid, not a part bolted on,
             // so it is built the same way here and the shell stays closed.
             //           z       halfW  belt   top    topHalf sill
-            new Station(-2.36f, 0.80f, 0.15f, 0.24f, 0.58f, -0.38f),
-            new Station(-2.30f, 0.88f, 0.17f, 0.33f, 0.66f, -0.45f),
-            new Station(-2.20f, 0.93f, 0.19f, 0.36f, 0.72f, -0.50f),
-            new Station(-2.05f, 0.96f, 0.21f, 0.29f, 0.74f, -0.52f),
-            new Station(-1.80f, 0.98f, 0.24f, 0.36f, 0.74f, -0.52f),
-            new Station(-1.55f, 1.00f, 0.28f, 0.44f, 0.72f, -0.52f),
-            new Station(-1.35f, 1.02f, 0.30f, 0.48f, 0.71f, -0.52f),
-            new Station(-1.15f, 1.00f, 0.28f, 0.53f, 0.70f, -0.52f),
-            new Station(-0.90f, 0.96f, 0.24f, 0.59f, 0.68f, -0.52f),
-            new Station(-0.45f, 0.93f, 0.22f, 0.68f, 0.66f, -0.52f),
-            new Station(0.25f, 0.92f, 0.22f, 0.67f, 0.65f, -0.52f),
-            new Station(0.85f, 0.93f, 0.24f, 0.31f, 0.78f, -0.52f),
-            new Station(1.15f, 0.97f, 0.27f, 0.33f, 0.79f, -0.52f),
-            new Station(1.40f, 1.00f, 0.29f, 0.34f, 0.80f, -0.52f),
-            new Station(1.70f, 0.99f, 0.27f, 0.33f, 0.80f, -0.52f),
+            new Station(-2.36f, 0.78f, 0.15f, 0.27f, 0.54f, -0.38f),
+            new Station(-2.30f, 0.85f, 0.17f, 0.37f, 0.62f, -0.45f),
+            new Station(-2.20f, 0.90f, 0.19f, 0.41f, 0.67f, -0.50f),
+            new Station(-2.05f, 0.94f, 0.21f, 0.34f, 0.69f, -0.52f),
+            new Station(-1.80f, 0.96f, 0.24f, 0.42f, 0.68f, -0.52f),
+            new Station(-1.55f, 0.99f, 0.28f, 0.52f, 0.65f, -0.52f),
+            new Station(-1.35f, 1.02f, 0.30f, 0.58f, 0.63f, -0.52f),
+            new Station(-1.15f, 0.99f, 0.28f, 0.66f, 0.61f, -0.52f),
+            new Station(-0.90f, 0.93f, 0.24f, 0.76f, 0.59f, -0.52f),
+            new Station(-0.45f, 0.90f, 0.22f, 0.86f, 0.57f, -0.52f),
+            new Station(0.25f, 0.89f, 0.22f, 0.85f, 0.57f, -0.52f),
+            new Station(0.85f, 0.90f, 0.24f, 0.38f, 0.75f, -0.52f),
+            new Station(1.15f, 0.95f, 0.27f, 0.40f, 0.77f, -0.52f),
+            new Station(1.40f, 1.00f, 0.29f, 0.41f, 0.78f, -0.52f),
+            new Station(1.70f, 0.98f, 0.27f, 0.40f, 0.78f, -0.52f),
 
             // The nose. It used to end in a 1.64 m wide, 0.73 m tall flat disc — AddCap forces every
             // vertex of the last ring to one Z, so the whole front shaded as a single plate, and that
@@ -156,12 +164,12 @@ namespace Horizon.EditorTools
             // Six rings now taper over 0.57 m and the cap is down to about a third of its old area, with
             // the sill rising 0.31 m to dome the underside. Not tapered to a point: a Mustang has a full
             // rounded snout, and a wedge would be the wrong car.
-            new Station(1.95f, 0.94f, 0.24f, 0.31f, 0.78f, -0.51f),
-            new Station(2.16f, 0.93f, 0.21f, 0.30f, 0.77f, -0.49f),
-            new Station(2.30f, 0.90f, 0.18f, 0.29f, 0.74f, -0.45f),
-            new Station(2.40f, 0.84f, 0.14f, 0.26f, 0.68f, -0.39f),
-            new Station(2.47f, 0.72f, 0.09f, 0.21f, 0.56f, -0.31f),
-            new Station(2.52f, 0.54f, 0.03f, 0.14f, 0.40f, -0.20f),
+            new Station(1.95f, 0.93f, 0.24f, 0.38f, 0.76f, -0.51f),
+            new Station(2.16f, 0.91f, 0.21f, 0.36f, 0.74f, -0.49f),
+            new Station(2.30f, 0.88f, 0.18f, 0.34f, 0.71f, -0.45f),
+            new Station(2.40f, 0.82f, 0.14f, 0.30f, 0.65f, -0.39f),
+            new Station(2.47f, 0.70f, 0.09f, 0.24f, 0.54f, -0.31f),
+            new Station(2.52f, 0.53f, 0.03f, 0.16f, 0.38f, -0.20f),
         };
 
         /// <summary>

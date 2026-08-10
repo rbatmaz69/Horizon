@@ -162,7 +162,7 @@ namespace Horizon.World
         /// clearance checks treat a town street exactly like the pass.
         /// </summary>
         public static StreetNetwork Build(
-            IRoadPath main, in TownShape shape, TownNetworkSpec spec, Transform parent)
+            IRoadPath main, in TownShape shape, TownNetworkSpec spec, Transform parent, float shelfDrop)
         {
             var nodes = new List<StreetNode>(spec.Nodes.Count);
             var edges = new List<StreetEdge>(spec.Streets.Count);
@@ -201,7 +201,7 @@ namespace Horizon.World
                     ToNode = street.To,
                     Kind = street.Kind,
                     Quarter = street.Quarter,
-                    Shape = TownStreetShape.For(street.Kind),
+                    Shape = TownStreetShape.For(street.Kind, shelfDrop),
                 };
 
                 edge.Path = BuildPath(main, shape, spec, street, parent, edge.Index, footprintInto: ref footprint);

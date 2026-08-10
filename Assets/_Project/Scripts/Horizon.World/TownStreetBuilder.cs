@@ -31,11 +31,23 @@ namespace Horizon.World
                + "no banking and no markings has nothing to facet.")]
         public float StepLength;
 
-        [Tooltip("Lifts the surface clear of the terrain below it.")]
+        [Tooltip("Where the carriageway sits relative to the street's own centreline height, metres.\n\n"
+               + "Normally negative, and that is the whole point. A street path runs at "
+               + "TownShape.FloorHeight, but MountainField puts the ground TerrainShape.RoadShelfDrop "
+               + "*below* every road and level sample it is given — so a surface built at the path's own "
+               + "height stands half a metre proud of the grass beside it, with a vertical face. The "
+               + "trunk road hides that behind a 1.5 m shoulder; a town street has no shoulder, and the "
+               + "result was a network of plateaux you could drive off but not back onto.")]
         public float SurfaceLift;
 
         [Tooltip("Camber: how much higher the centre of the carriageway sits than its gutters.")]
         public float Crown;
+
+        [Tooltip("Width of the grass verge outside the footway, metres. It runs from the back of the "
+               + "pavement down to wherever the terrain mesh actually is, which is the only way to be "
+               + "flush with it — the shelf the height field lays under a street is not exactly where "
+               + "arithmetic says it should be, and the difference is a lip you cannot drive back over.")]
+        public float VergeWidth;
 
         /// <summary>Half the width of everything paved, kerbs and footways included.</summary>
         public float HalfOuter => HalfWidth + KerbFace + FootwayWidth;
@@ -46,7 +58,12 @@ namespace Horizon.World
         /// The steps between the kinds are what make a street network legible from inside a car: you can
         /// tell you have turned off the high street without being told.
         /// </summary>
-        public static TownStreetShape For(TownStreetKind kind)
+        /// <param name="shelfDrop">
+        /// How far <see cref="MountainField"/> sets the ground below the roads it is given —
+        /// <see cref="TerrainShape.RoadShelfDrop"/>. The carriageway is built that far down and 8 cm
+        /// back up, which puts it the same fraction of a hand above the ground as the trunk road is.
+        /// </param>
+        public static TownStreetShape For(TownStreetKind kind, float shelfDrop = 0f)
         {
             var shape = new TownStreetShape
             {
@@ -55,8 +72,9 @@ namespace Horizon.World
                 KerbFace = 0.25f,
                 FootwayWidth = 1.8f,
                 StepLength = 5f,
-                SurfaceLift = 0.08f,
+                SurfaceLift = 0.08f - shelfDrop,
                 Crown = 0.06f,
+                VergeWidth = 1.6f,
             };
 
             switch (kind)
@@ -112,16 +130,25 @@ namespace Horizon.World
         /// <summary>The footways.</summary>
         public const int FootwaySubmesh = 2;
 
-        public const int StreetSubmeshCount = 3;
+        /// <summary>
+        /// The grass verge that runs from the back of the pavement down onto the terrain.
+        ///
+        /// Its own submesh so it can take the grass material and disappear into the field, rather than
+        /// reading as a paved shoulder a metre and a half wide.
+        /// </summary>
+        public const int VergeSubmesh = 3;
 
-        /// <summary>Which submesh each of the six strips across a section belongs to.</summary>
+        public const int StreetSubmeshCount = 4;
+
+        /// <summary>Which submesh each of the eight strips across a section belongs to.</summary>
         private static readonly int[] StripSubmesh =
         {
-            FootwaySubmesh, KerbSubmesh, SurfaceSubmesh, SurfaceSubmesh, KerbSubmesh, FootwaySubmesh,
+            VergeSubmesh, FootwaySubmesh, KerbSubmesh, SurfaceSubmesh,
+            SurfaceSubmesh, KerbSubmesh, FootwaySubmesh, VergeSubmesh,
         };
 
-        /// <summary>Points across one section: two footways, two kerb faces, two halves of carriageway.</summary>
-        private const int SectionPoints = 7;
+        /// <summary>Points across one section: two verges, two footways, two kerbs, two half carriageways.</summary>
+        private const int SectionPoints = 9;
 
         /// <summary>
         /// Adds one street's ribbon between two distances along its path.
@@ -134,6 +161,8 @@ namespace Horizon.World
             in TownStreetShape shape,
             float fromDistance,
             float toDistance,
+            MountainField field,
+            in TerrainShape terrainShape,
             VegetationMeshBuffer into)
         {
             if (path == null || into == null)
@@ -153,12 +182,12 @@ namespace Horizon.World
             var previous = new Vector3[SectionPoints];
             var current = new Vector3[SectionPoints];
 
-            CrossSection(path, shape, from, previous);
+            CrossSection(path, shape, from, field, terrainShape, previous);
 
             for (int step = 1; step <= steps; step++)
             {
                 float at = Mathf.Lerp(from, to, step / (float)steps);
-                CrossSection(path, shape, at, current);
+                CrossSection(path, shape, at, field, terrainShape, current);
 
                 for (int strip = 0; strip < StripSubmesh.Length; strip++)
                 {
@@ -170,7 +199,7 @@ namespace Horizon.World
                     Vector3 outward = Vector3.up;
                     if (StripSubmesh[strip] == KerbSubmesh)
                     {
-                        outward = current[3] - current[strip];
+                        outward = current[4] - current[strip];
                         outward.y = 0f;
                     }
 
@@ -196,7 +225,12 @@ namespace Horizon.World
         /// section, which means the middle has to be a vertex.
         /// </summary>
         private static void CrossSection(
-            IRoadPath path, in TownStreetShape shape, float distance, Vector3[] into)
+            IRoadPath path,
+            in TownStreetShape shape,
+            float distance,
+            MountainField field,
+            in TerrainShape terrainShape,
+            Vector3[] into)
         {
             Vector3 centre = path.GetPositionAtDistance(distance);
             Vector3 right = path.GetRightAtDistance(distance);
@@ -207,13 +241,50 @@ namespace Horizon.World
             float lift = shape.SurfaceLift;
             float top = lift + shape.KerbHeight;
 
-            into[0] = Offset(centre, right, -outer, top);
-            into[1] = Offset(centre, right, -kerbTop, top);
-            into[2] = Offset(centre, right, -half, lift);
-            into[3] = Offset(centre, right, 0f, lift + shape.Crown);
-            into[4] = Offset(centre, right, half, lift);
-            into[5] = Offset(centre, right, kerbTop, top);
-            into[6] = Offset(centre, right, outer, top);
+            into[1] = Offset(centre, right, -outer, top);
+            into[2] = Offset(centre, right, -kerbTop, top);
+            into[3] = Offset(centre, right, -half, lift);
+            into[4] = Offset(centre, right, 0f, lift + shape.Crown);
+            into[5] = Offset(centre, right, half, lift);
+            into[6] = Offset(centre, right, kerbTop, top);
+            into[7] = Offset(centre, right, outer, top);
+
+            into[0] = Verge(centre, right, -(outer + shape.VergeWidth), top, field, terrainShape);
+            into[8] = Verge(centre, right, outer + shape.VergeWidth, top, field, terrainShape);
+        }
+
+        /// <summary>
+        /// The outer end of a verge, sitting on the terrain mesh rather than at a computed height.
+        ///
+        /// <para>Sampled, not derived, and that is the point. The shelf the height field lays under a
+        /// street can be a fifth of a metre off what the arithmetic says — the field averages nearby
+        /// samples and the terrain mesh then interpolates that across twelve-metre cells. Two tenths of a
+        /// metre is invisible in a screenshot and is a wall to a raycast wheel, so the verge asks the
+        /// mesh where it is instead of assuming.</para>
+        ///
+        /// <para>Falls back to the paved height when there is no field yet, which keeps the builder
+        /// usable before the terrain exists even though nothing does that now.</para>
+        /// </summary>
+        private static Vector3 Verge(
+            Vector3 centre,
+            Vector3 right,
+            float across,
+            float pavedRise,
+            MountainField field,
+            in TerrainShape terrainShape)
+        {
+            Vector3 at = centre + right * across;
+
+            if (field == null)
+            {
+                return at + Vector3.up * pavedRise;
+            }
+
+            TerrainTileBuilder.SampleSurface(field, terrainShape, at.x, at.z,
+                out Vector3 ground, out Vector3 _);
+
+            // A whisker above the mesh, so the verge is never the thing that z-fights with the ground.
+            return new Vector3(at.x, ground.y + 0.02f, at.z);
         }
 
         private static Vector3 Offset(Vector3 centre, Vector3 right, float across, float rise)
