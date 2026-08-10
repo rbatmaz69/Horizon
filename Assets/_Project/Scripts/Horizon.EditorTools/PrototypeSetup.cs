@@ -602,7 +602,7 @@ namespace Horizon.EditorTools
             Phase(clock, $"blocks and parcels ({townPlan.Plots.Count} plots)");
 
             BuildTerrainTiles(worldRoot.transform, path, roadShape, course, field, terrainShape,
-                townShape, townFootprint, townPlan, materials);
+                townShape, townFootprint, network, townPlan, materials);
             ValidateLandmarkVisibility(field, course, path, townPlan);
             Phase(clock, "terrain, vegetation and buildings");
 
@@ -1287,6 +1287,7 @@ namespace Horizon.EditorTools
             in TerrainShape terrainShape,
             in TownShape townShape,
             Bounds townFootprint,
+            StreetNetwork network,
             TownPlan townPlan,
             PrototypeMaterials materials)
         {
@@ -1303,7 +1304,7 @@ namespace Horizon.EditorTools
             VegetationShape vegetationShape = VegetationShape.Default;
             var vegetationContext = new VegetationContext(
                 path, course, vegetationShape, townPlan,
-                townShape.PlotClearance, townShape.TreeKeepOut);
+                townShape.PlotClearance, townShape.TreeKeepOut, network);
             var vegetationTotal = new VegetationStats();
             int heaviestTile = 0;
             string heaviestTileName = "none";
@@ -2182,6 +2183,20 @@ namespace Horizon.EditorTools
                 Debug.LogWarning($"[Horizon] Vegetation: something stands {stats.ClosestToRoad:0.0} m from the "
                                  + $"centreline, inside the {minimum:0.0} m the carriageway and its shoulders "
                                  + "occupy.");
+            }
+
+            if (stats.ClosestToStreet < 0f)
+            {
+                Debug.LogWarning($"[Horizon] Vegetation: something is growing {-stats.ClosestToStreet:0.0} m "
+                                 + "inside the paved edge of a town street. MountainField.DistanceToRoad "
+                                 + "answers for the trunk road only, so the town's streets have to reach "
+                                 + "the scatter through VegetationContext or nothing keeps plants off "
+                                 + "them.");
+            }
+            else if (stats.ClosestToStreet < float.MaxValue)
+            {
+                Debug.Log($"[Horizon] Vegetation: nearest plant to a town street stands "
+                          + $"{stats.ClosestToStreet:0.0} m clear of the paving.");
             }
 
             if (heaviestTile > vegetationShape.MaxTrianglesPerTile)

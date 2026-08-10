@@ -26,6 +26,18 @@ namespace Horizon.World
         /// <summary>Closest any plant came to the centreline. Nothing should ever be on the asphalt.</summary>
         public float ClosestToRoad = float.MaxValue;
 
+        /// <summary>
+        /// How far the nearest plant came to the *paved* edge of a town street, metres. Negative means
+        /// something is standing on one.
+        ///
+        /// A separate number from <see cref="ClosestToRoad"/>, which measures the trunk road, because
+        /// that is exactly the gap trees grew through: the height field's road distance answers for the
+        /// pass and knows nothing about the town's thirty-four streets, and nothing else was watching.
+        /// The corridor sweep would not have caught it either — it asks physics, and a plant has no
+        /// collider.
+        /// </summary>
+        public float ClosestToStreet = float.MaxValue;
+
         /// <summary>Which of the <see cref="PlantMeshes"/> submeshes the finished mesh actually contains.</summary>
         public readonly List<int> Submeshes = new List<int>(PlantMeshes.SubmeshCount);
 
@@ -42,6 +54,7 @@ namespace Horizon.World
             Triangles += other.Triangles;
             Flips += other.Flips;
             ClosestToRoad = Mathf.Min(ClosestToRoad, other.ClosestToRoad);
+            ClosestToStreet = Mathf.Min(ClosestToStreet, other.ClosestToStreet);
         }
     }
 
@@ -73,6 +86,26 @@ namespace Horizon.World
         private readonly float plotClearance;
         private readonly float townTreeKeepOut;
 
+        /// <summary>
+        /// The town's streets, so nothing grows on one.
+        ///
+        /// <para>Needed because <see cref="MountainField.DistanceToRoad"/> answers for the <i>trunk
+        /// road</i> and nothing else — which is right, and which leaves every street in the town with no
+        /// keep-out at all. Trees and bushes came up through the carriageway, and none of the checks
+        /// noticed: the corridor sweep asks physics, and a plant has no collider.</para>
+        /// </summary>
+        private readonly StreetIndex streets;
+
+        private readonly IReadOnlyList<StreetEdge> streetEdges;
+
+        /// <summary>Junction centres and how far their pads reach, since a pad is wider than its streets.</summary>
+        private readonly Vector3[] junctions;
+
+        private readonly float[] junctionRadius;
+
+        private Bounds townBounds;
+        private readonly bool hasStreets;
+
         // Not readonly: Encapsulate widens them, and a readonly field cannot be assigned from a helper.
         private float minX;
         private float maxX;
@@ -87,7 +120,8 @@ namespace Horizon.World
             in VegetationShape shape,
             TownPlan town = null,
             float plotClearance = 0f,
-            float townTreeKeepOut = 0f)
+            float townTreeKeepOut = 0f,
+            StreetNetwork network = null)
         {
             blockerRadius = shape.TunnelExclusion;
             viewpointRadius = shape.ViewpointClearing;
@@ -95,6 +129,46 @@ namespace Horizon.World
             this.town = town;
             this.plotClearance = plotClearance;
             this.townTreeKeepOut = townTreeKeepOut;
+
+            if (network != null && network.Edges.Count > 0)
+            {
+                streets = new StreetIndex(network, 4f, 16f);
+                streetEdges = network.Edges;
+
+                var centres = new List<Vector3>(network.Nodes.Count);
+                var radii = new List<float>(network.Nodes.Count);
+
+                for (int i = 0; i < network.Nodes.Count; i++)
+                {
+                    StreetNode node = network.Nodes[i];
+                    if (node.PadOutline == null || node.PadOutline.Length == 0)
+                    {
+                        continue;
+                    }
+
+                    // The pad's own reach, taken from the outline rather than guessed from the widest
+                    // street: a junction of two wide streets at a shallow angle is trimmed a long way
+                    // back, and a fixed radius would either leave shrubs on the tarmac or clear a hole
+                    // in the grass twenty metres across.
+                    float reach = 0f;
+                    for (int p = 0; p < node.PadOutline.Length; p++)
+                    {
+                        Vector3 offset = node.PadOutline[p] - node.Position;
+                        offset.y = 0f;
+                        reach = Mathf.Max(reach, offset.magnitude);
+                    }
+
+                    centres.Add(node.Position);
+                    radii.Add(reach);
+                }
+
+                junctions = centres.ToArray();
+                junctionRadius = radii.ToArray();
+
+                townBounds = network.Footprint;
+                townBounds.Expand(new Vector3(60f, 0f, 60f));
+                hasStreets = true;
+            }
 
             var covered = new List<Vector3>(128);
             var views = new List<Vector3>(8);
@@ -157,6 +231,31 @@ namespace Horizon.World
 
         public float SummitElevation { get; }
 
+        /// <summary>
+        /// How far a point is clear of the nearest town street's paved edge, metres. Negative means it is
+        /// standing on the street; <see cref="float.MaxValue"/> means there is no town near it.
+        /// </summary>
+        public float PavedMargin(float x, float z)
+        {
+            if (!hasStreets || x < townBounds.min.x || x > townBounds.max.x
+                || z < townBounds.min.z || z > townBounds.max.z)
+            {
+                return float.MaxValue;
+            }
+
+            float toStreet = streets.DistanceTo(x, z, out int edgeIndex);
+            float margin = edgeIndex >= 0 ? toStreet - streetEdges[edgeIndex].HalfOuter : float.MaxValue;
+
+            for (int i = 0; i < junctions.Length; i++)
+            {
+                float dx = junctions[i].x - x;
+                float dz = junctions[i].z - z;
+                margin = Mathf.Min(margin, Mathf.Sqrt(dx * dx + dz * dz) - junctionRadius[i]);
+            }
+
+            return margin;
+        }
+
         /// <summary>Normalised position up the climb: 0 at the foot of the pass, 1 at the summit.</summary>
         public float ClimbFraction(float elevation)
         {
@@ -171,6 +270,33 @@ namespace Horizon.World
         /// </param>
         public bool IsBlocked(float x, float z, bool tallOnly)
         {
+            if (hasStreets && x >= townBounds.min.x && x <= townBounds.max.x
+                && z >= townBounds.min.z && z <= townBounds.max.z)
+            {
+                // Clear of the paved surface for everything, and a little further for anything with a
+                // canopy — a spruce whose trunk is beside the kerb still has its branches over the
+                // carriageway.
+                float margin = tallOnly ? 2.5f : 0.5f;
+
+                float toStreet = streets.DistanceTo(x, z, out int edgeIndex);
+                if (edgeIndex >= 0 && toStreet < streetEdges[edgeIndex].HalfOuter + margin)
+                {
+                    return true;
+                }
+
+                for (int i = 0; i < junctions.Length; i++)
+                {
+                    float dx = junctions[i].x - x;
+                    float dz = junctions[i].z - z;
+                    float reach = junctionRadius[i] + margin;
+
+                    if (dx * dx + dz * dz < reach * reach)
+                    {
+                        return true;
+                    }
+                }
+            }
+
             if (town != null)
             {
                 // Nothing wild grows through a wall — but only the wall. Testing the whole plot radius
@@ -354,7 +480,7 @@ namespace Horizon.World
                         {
                             PlantMeshes.AddSnag(buffer, Place(point, normal, ref random, 1f));
                             stats.Snags++;
-                            Record(stats, toRoad);
+                            Record(stats, toRoad, context, x, z);
                         }
 
                         continue;
@@ -385,7 +511,7 @@ namespace Horizon.World
                         stats.Broadleaves++;
                     }
 
-                    Record(stats, toRoad);
+                    Record(stats, toRoad, context, x, z);
                 }
             }
         }
@@ -466,7 +592,7 @@ namespace Horizon.World
 
                     PlantMeshes.AddShrub(buffer, Place(point, normal, ref random, scale));
                     stats.Shrubs++;
-                    Record(stats, toRoad);
+                    Record(stats, toRoad, context, x, z);
                 }
             }
         }
@@ -533,7 +659,7 @@ namespace Horizon.World
                     // and at six triangles a tuft it is the cheapest thing in the whole system.
                     PlantMeshes.AddGrassTuft(buffer, Place(point, normal, ref random, random.Range(0.8f, 1.3f)));
                     stats.Tufts++;
-                    Record(stats, toRoad);
+                    Record(stats, toRoad, context, x, z);
                 }
             }
         }
@@ -599,7 +725,7 @@ namespace Horizon.World
 
                     PlantMeshes.AddBoulder(buffer, Place(point, normal, ref random, 1f));
                     stats.Boulders++;
-                    Record(stats, toRoad);
+                    Record(stats, toRoad, context, x, z);
                 }
             }
         }
@@ -663,11 +789,18 @@ namespace Horizon.World
             return new PlantPlacement(point, up, random.Range(0f, Mathf.PI * 2f), scale, random.NextSeed());
         }
 
-        private static void Record(VegetationStats stats, float distanceToRoad)
+        private static void Record(
+            VegetationStats stats, float distanceToRoad, VegetationContext context, float x, float z)
         {
             if (distanceToRoad < stats.ClosestToRoad)
             {
                 stats.ClosestToRoad = distanceToRoad;
+            }
+
+            float margin = context.PavedMargin(x, z);
+            if (margin < stats.ClosestToStreet)
+            {
+                stats.ClosestToStreet = margin;
             }
         }
 
