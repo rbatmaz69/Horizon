@@ -47,6 +47,7 @@ namespace Horizon.EditorTools
             }
 
             EnsureFolders();
+            HorizonAssetUtility.BeginGeneratedRun();
 
             // Make sure the configs exist on disk, but deliberately do not keep the references:
             // see the note on LoadVehicleConfig for why they must be re-loaded after a scene switch.
@@ -69,6 +70,8 @@ namespace Horizon.EditorTools
 
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
+
+            HorizonAssetUtility.ReportOrphanedAssets(GeneratedFolder);
 
             // Render the preview here, as part of the rebuild. Running it as a separate command invites
             // rendering the previous car by mistake, which is exactly what happened once. The temporary
@@ -165,13 +168,13 @@ namespace Horizon.EditorTools
                     MaterialsFolder + "/M_Rock.mat", "M_Rock", new Color(0.44f, 0.39f, 0.34f), 0.12f);
 
                 // Untextured, so it carries no centre line — the markings live in a baked texture, and a
-                // village lane with a dashed centre line reads as a main road.
+                // town lane with a dashed centre line reads as a main road.
                 Lane = HorizonAssetUtility.LoadOrCreateMaterial(
                     MaterialsFolder + "/M_Lane.mat", "M_Lane", new Color(0.27f, 0.27f, 0.29f), 0.30f);
 
                 // A palette, because URP/Lit reads no vertex colours and the building meshes carry no UVs
                 // — a per-house tint has to be a per-house material. Warm plaster tones, the kind an
-                // alpine village is actually rendered and limewashed in.
+                // alpine town is actually rendered and limewashed in.
                 Walls = new[]
                 {
                     HorizonAssetUtility.LoadOrCreateMaterial(
@@ -198,7 +201,7 @@ namespace Horizon.EditorTools
                 Trim = HorizonAssetUtility.LoadOrCreateMaterial(
                     MaterialsFolder + "/M_Trim.mat", "M_Trim", new Color(0.38f, 0.31f, 0.25f), 0.18f);
 
-                // Unlit, both of them. VillageLights swaps between the two on the window submesh at dusk
+                // Unlit, both of them. TownLights swaps between the two on the window submesh at dusk
                 // and dawn — no keyword, no property block, and nothing written to a material at runtime.
                 WindowDay = HorizonAssetUtility.LoadOrCreateUnlitMaterial(
                     MaterialsFolder + "/M_WindowDay.mat", "M_WindowDay", new Color(0.20f, 0.23f, 0.27f));
@@ -520,17 +523,16 @@ namespace Horizon.EditorTools
             roadChunk.SetBounds(roadChunk.Center, 100000f);
             EditorUtility.SetDirty(roadChunk);
 
-            // --- Village lanes. Laid out before the terrain, because they are what flattens the ground it
-            // will stand on. Each gets its own RoadPath — the component carries no singleton, so several
-            // in a scene are fine — and its own narrower ribbon.
+            // --- Town streets. Laid out before the terrain, because they are what flattens the ground
+            // they will stand on. Each gets its own RoadPath — the component carries no singleton, so
+            // several in a scene are fine — and its own narrower ribbon.
             TownShape townShape = TownShape.Default;
-            VillageShape villageShape = VillageShape.Default;
-            List<RoadCourse> laneCourses = VillageBuilder.LayOutLanes(path, villageShape, townShape);
-            RoadPath[] lanePaths = BuildVillageLanes(
-                worldRoot.transform, laneCourses, villageShape, materials, out RoadShape[] laneShapes);
+            List<RoadCourse> laneCourses = TownPlanner.LayOutLanes(path, townShape);
+            RoadPath[] lanePaths = BuildTownStreets(
+                worldRoot.transform, laneCourses, townShape, materials, out RoadShape[] laneShapes);
 
-            BuildVillageJunctions(worldRoot.transform, path, lanePaths, laneShapes, roadShape,
-                villageShape, materials);
+            BuildTrunkMouths(worldRoot.transform, path, lanePaths, laneShapes, roadShape,
+                townShape, materials);
 
             // One field, shared: the terrain is built from it, the guard rails ask it where the ground falls
             // away, and the tunnel bodies use it to bury their feet. Building a second would be slow and
@@ -538,14 +540,14 @@ namespace Horizon.EditorTools
             //
             // The town's floor is levelled by handing the field a grid of level samples over the whole
             // basin. The streets alone will not do it — a road levels a 24 m ribbon either side and leaves
-            // the ground between them untouched, which measured 22 m of relief on the village that was
+            // the ground between them untouched, which measured 22 m of relief on the town that was
             // here before. See TownShape.BuildLevelSamples.
             List<Vector3> levelSamples = TownShape.BuildLevelSamples(path, townShape);
             for (int i = 0; i < lanePaths.Length; i++)
             {
                 // The lanes as well as the basin. The basin's heights come from TownShape.FloorHeight, so
                 // without this a lane running its own grade ends up standing on a plinth.
-                VillageBuilder.AddPathSamples(lanePaths[i], 6f, levelSamples);
+                TownPlanner.AddPathSamples(lanePaths[i], 6f, levelSamples);
             }
 
             // Known before the field exists, and deliberately so: it depends on the basin's extent alone,
@@ -559,11 +561,11 @@ namespace Horizon.EditorTools
             ReportTownGround(field, path, terrainShape, townShape);
 
             // Planned after the field exists, because the plots are seated on the finished terrain.
-            VillagePlan villagePlan = VillageBuilder.Plan(
-                path, lanePaths, field, terrainShape, villageShape);
+            TownPlan townPlan = TownPlanner.Plan(
+                path, lanePaths, field, terrainShape, townShape);
 
             BuildTerrainTiles(worldRoot.transform, path, roadShape, course, field, terrainShape,
-                villageShape, townFootprint, villagePlan, materials);
+                townShape, townFootprint, townPlan, materials);
             BuildCoveredSections(worldRoot.transform, path, roadShape, course, field, materials);
             BuildGuardRails(worldRoot.transform, path, roadShape, field, course, materials);
 
@@ -576,7 +578,7 @@ namespace Horizon.EditorTools
                 ValidateDriveableCorridor(lanePaths[i], $"lane {i}");
             }
 
-            ValidateVillageStreets(path, lanePaths, roadShape);
+            ValidateTownStreets(path, lanePaths, roadShape);
 
             // --- Streaming.
             var streamingObject = new GameObject("Streaming");
@@ -910,13 +912,13 @@ namespace Horizon.EditorTools
         /// standard way to end up with cracks between them.
         /// </summary>
         /// <summary>
-        /// Builds a RoadPath and a ribbon for every village lane, and hands back the paths so the height
+        /// Builds a RoadPath and a ribbon for every town lane, and hands back the paths so the height
         /// field can be given them.
         /// </summary>
-        private static RoadPath[] BuildVillageLanes(
+        private static RoadPath[] BuildTownStreets(
             Transform parent,
             List<RoadCourse> courses,
-            in VillageShape villageShape,
+            in TownShape townShape,
             PrototypeMaterials materials,
             out RoadShape[] laneShapes)
         {
@@ -926,16 +928,16 @@ namespace Horizon.EditorTools
                 return new RoadPath[0];
             }
 
-            var root = new GameObject("VillageLanes");
+            var root = new GameObject("TownStreets");
             root.transform.SetParent(parent, false);
 
             // A lane is the pass's cross-section, narrowed and stripped of its markings. The centre line
             // lives in a baked texture, so a plain untextured surface is also the cheapest way to not have
-            // one — a village lane with a dashed centre line would read as a main road.
+            // one — a town lane with a dashed centre line would read as a main road.
             laneShapes = new RoadShape[courses.Count];
 
             RoadShape laneShape = RoadShape.Default;
-            laneShape.HalfWidth = villageShape.LaneHalfWidth;
+            laneShape.HalfWidth = townShape.LaneHalfWidth;
             laneShape.ShoulderWidth = 0.6f;
             laneShape.Crown = 0.05f;
             laneShape.MaxBankDegrees = 0f;
@@ -961,7 +963,7 @@ namespace Horizon.EditorTools
                     new[] { materials.Lane, materials.RoadShoulder });
             }
 
-            Debug.Log($"[Horizon] Village lanes: {courses.Count}, {LaneLength(courses):0} m of street.");
+            Debug.Log($"[Horizon] Town streets: {courses.Count}, {LaneLength(courses):0} m of street.");
             return paths;
         }
 
@@ -973,13 +975,13 @@ namespace Horizon.EditorTools
         /// Only the lanes that actually leave the main road get one — the back lane and the connector meet
         /// other lanes, whose narrow ribbons already overlap enough not to show a step.
         /// </summary>
-        private static void BuildVillageJunctions(
+        private static void BuildTrunkMouths(
             Transform parent,
             RoadPath main,
             RoadPath[] lanes,
             RoadShape[] laneShapes,
             in RoadShape roadShape,
-            in VillageShape villageShape,
+            in TownShape townShape,
             PrototypeMaterials materials)
         {
             if (lanes.Length == 0)
@@ -987,18 +989,18 @@ namespace Horizon.EditorTools
                 return;
             }
 
-            var root = new GameObject("VillageJunctions");
+            var root = new GameObject("TownJunctions");
             root.transform.SetParent(parent, false);
 
-            float side = Mathf.Sign(villageShape.LaneSide == 0f ? -1f : villageShape.LaneSide);
-            float[] branchAt = { villageShape.FirstLaneAt, villageShape.SecondLaneAt };
+            float side = townShape.Side;
+            float[] branchAt = { townShape.FirstLaneAt, townShape.SecondLaneAt };
 
             int built = 0;
             for (int i = 0; i < branchAt.Length && i < lanes.Length; i++)
             {
-                Mesh mesh = VillageRoadBuilder.Build(
+                Mesh mesh = StreetJunctionBuilder.Build(
                     main, branchAt[i], lanes[i], roadShape, laneShapes[i], side,
-                    villageShape.JunctionThroat, $"Junction_{i}");
+                    townShape.JunctionThroat, $"Junction_{i}");
 
                 if (mesh == null)
                 {
@@ -1010,7 +1012,7 @@ namespace Horizon.EditorTools
                 built++;
             }
 
-            Debug.Log($"[Horizon] Village junctions: {built} built.");
+            Debug.Log($"[Horizon] Trunk mouths: {built} built.");
         }
 
         private static float LaneLength(List<RoadCourse> courses)
@@ -1028,7 +1030,7 @@ namespace Horizon.EditorTools
         /// Measures how closely the delivered ground follows the floor the town was designed against, as
         /// numbers rather than as an impression.
         ///
-        /// <para>Three deliberate changes from the version that measured the village. It sweeps the whole
+        /// <para>Three deliberate changes from the version that measured the town. It sweeps the whole
         /// basin rather than a 105 m strip beside the lanes. It compares each point against
         /// <see cref="TownShape.FloorHeight"/> at that point rather than against the trunk road's height,
         /// because the floor is *meant* to rise 4.5 m across the basin and a check that called that a
@@ -1136,9 +1138,9 @@ namespace Horizon.EditorTools
             RoadCourse course,
             MountainField field,
             in TerrainShape terrainShape,
-            in VillageShape villageShape,
+            in TownShape townShape,
             Bounds townFootprint,
-            VillagePlan villagePlan,
+            TownPlan townPlan,
             PrototypeMaterials materials)
         {
             var extraRegions = new[] { townFootprint };
@@ -1153,15 +1155,15 @@ namespace Horizon.EditorTools
 
             VegetationShape vegetationShape = VegetationShape.Default;
             var vegetationContext = new VegetationContext(
-                path, course, vegetationShape, villagePlan,
-                villageShape.PlotClearance, villageShape.TreeKeepOut);
+                path, course, vegetationShape, townPlan,
+                townShape.PlotClearance, townShape.TreeKeepOut);
             var vegetationTotal = new VegetationStats();
             int heaviestTile = 0;
             string heaviestTileName = "none";
 
-            var villageTotal = new VillageStats();
-            var villageRenderers = new List<MeshRenderer>();
-            var villageWindowSlots = new List<int>();
+            var townTotal = new TownStats();
+            var townRenderers = new List<MeshRenderer>();
+            var townWindowSlots = new List<int>();
 
             for (int i = 0; i < tiles.Count; i++)
             {
@@ -1201,38 +1203,38 @@ namespace Horizon.EditorTools
                     }
                 }
 
-                Mesh buildings = VillageBuilder.BuildTile(
-                    key, terrainShape, villageShape, villagePlan, name + "_Village",
-                    out VillageStats villageStats);
+                Mesh buildings = TownPlanner.BuildTile(
+                    key, terrainShape, townShape, townPlan, name + "_Town",
+                    out TownStats townStats);
 
                 if (buildings != null)
                 {
                     buildings = HorizonAssetUtility.ReplaceAsset(
-                        buildings, $"{GeneratedFolder}/{name}_Village.asset");
+                        buildings, $"{GeneratedFolder}/{name}_Town.asset");
 
-                    // Houses keep OccluderStatic, unlike the trees. A village street is the one place in
+                    // Houses keep OccluderStatic, unlike the trees. A town street is the one place in
                     // this world where occlusion culling has something solid to work with.
                     //
                     // No MeshCollider on the merged mesh: it would be a large concave collider full of
                     // window ledges and fence rails for the car to snag on, the same reason the tunnel
                     // skin was taken out of collision. Each plot gets a box below instead.
-                    GameObject villageObject = CreateMeshObject(
-                        tileObject.transform, name + "_Village", buildings,
-                        VillageMaterials(materials, villageStats),
+                    GameObject townObject = CreateMeshObject(
+                        tileObject.transform, name + "_Town", buildings,
+                        TownMaterials(materials, townStats),
                         addCollider: false, markStatic: true,
                         staticFlags: StaticEditorFlags.BatchingStatic
                                      | StaticEditorFlags.OccluderStatic
                                      | StaticEditorFlags.OccludeeStatic);
 
-                    int windowSlot = villageStats.Submeshes.IndexOf(BuildingMeshes.WindowSubmesh);
+                    int windowSlot = townStats.Submeshes.IndexOf(BuildingMeshes.WindowSubmesh);
                     if (windowSlot >= 0)
                     {
-                        villageRenderers.Add(villageObject.GetComponent<MeshRenderer>());
-                        villageWindowSlots.Add(windowSlot);
+                        townRenderers.Add(townObject.GetComponent<MeshRenderer>());
+                        townWindowSlots.Add(windowSlot);
                     }
 
-                    AddPlotColliders(villageObject.transform, key, terrainShape, villagePlan);
-                    villageTotal.Add(villageStats);
+                    AddPlotColliders(townObject.transform, key, terrainShape, townPlan);
+                    townTotal.Add(townStats);
                 }
 
                 // After the plants and the houses, never before: the chunk takes its radius from the
@@ -1254,17 +1256,17 @@ namespace Horizon.EditorTools
             ReportVegetation(vegetationTotal, vegetationShape, roadShape, vegetationContext,
                 heaviestTile, heaviestTileName);
 
-            ReportVillage(villageTotal, villageShape, villagePlan);
-            WireVillageLights(parent, villageRenderers, villageWindowSlots, materials);
+            ReportTown(townTotal, townShape, townPlan);
+            WireTownLights(parent, townRenderers, townWindowSlots, materials);
         }
 
         /// <summary>
-        /// Hangs one VillageLights on the world root, holding every renderer that owns a window submesh.
+        /// Hangs one TownLights on the world root, holding every renderer that owns a window submesh.
         ///
-        /// One component for the whole village rather than one per tile: every window in the place lights
+        /// One component for the whole town rather than one per tile: every window in the place lights
         /// at the same instant, so there is nothing to be gained by deciding it thirty times over.
         /// </summary>
-        private static void WireVillageLights(
+        private static void WireTownLights(
             Transform parent,
             List<MeshRenderer> renderers,
             List<int> windowSlots,
@@ -1275,10 +1277,10 @@ namespace Horizon.EditorTools
                 return;
             }
 
-            var lightsObject = new GameObject("VillageLights");
+            var lightsObject = new GameObject("TownLights");
             lightsObject.transform.SetParent(parent, false);
 
-            VillageLights lights = lightsObject.AddComponent<VillageLights>();
+            TownLights lights = lightsObject.AddComponent<TownLights>();
             HorizonAssetUtility.Configure(lights, serialized =>
             {
                 HorizonAssetUtility.SetObjectArray(serialized, "renderers", renderers.ToArray());
@@ -1295,27 +1297,27 @@ namespace Horizon.EditorTools
             });
         }
 
-        private static void ReportVillage(VillageStats stats, in VillageShape shape, VillagePlan plan)
+        private static void ReportTown(TownStats stats, in TownShape shape, TownPlan plan)
         {
             if (plan == null || stats.Houses + stats.Windmills == 0)
             {
-                Debug.LogWarning("[Horizon] Village: nothing was built. Check VillageShape's extent against "
+                Debug.LogWarning("[Horizon] Town: nothing was built. Check TownShape's extent against "
                                  + "the course, and that the plots landed inside terrain tiles.");
                 return;
             }
 
-            Debug.Log($"[Horizon] Village: {stats.Houses} houses, {stats.Windmills} windmill, "
+            Debug.Log($"[Horizon] Town: {stats.Houses} houses, {stats.Windmills} windmill, "
                       + $"{stats.Barns} barns, {stats.Sawmills} sawmills, {stats.Fences} fences, "
                       + $"{stats.Lamps} lamps, {stats.Cars} parked cars — {stats.Triangles} triangles "
                       + $"over {plan.Footprint.size.x:0} x {plan.Footprint.size.z:0} m.");
 
             if (stats.Triangles > shape.MaxTrianglesPerTile * 4)
             {
-                Debug.LogWarning($"[Horizon] Village: {stats.Triangles} triangles is heavier than expected. "
-                                 + "Raise PlotSpacing or lower the plot count in VillageShape.");
+                Debug.LogWarning($"[Horizon] Town: {stats.Triangles} triangles is heavier than expected. "
+                                 + "Raise PlotSpacing or lower the plot count in TownShape.");
             }
 
-            ReportWindingFlips("Village", stats.Flips);
+            ReportWindingFlips("Town", stats.Flips);
         }
 
         /// <summary>
@@ -1325,13 +1327,13 @@ namespace Horizon.EditorTools
         /// way, so a non-zero count is never a broken build — it is a builder whose vertex order has drifted
         /// from the direction it claims the face looks in, and it is worth knowing on the run that
         /// introduces it rather than three stages later. Silent self-correction is how the mirrored
-        /// placement basis went unnoticed until every wall in the village was inside out.
+        /// placement basis went unnoticed until every wall in the town was inside out.
         ///
         /// <para>This is the only automated winding check there is, and that is a deliberate stopping point
         /// rather than a gap waiting to be filled. Four attempts were made at a second one that inspects the
         /// finished meshes — crossing parity on a <c>MeshCollider</c>, the same in exact Möller–Trumbore,
         /// per-face front visibility, and two-culling-mode ray sampling from outside the mesh bounds. Every
-        /// one of them reported nine of ten wall submeshes riddled with holes on a village that renders
+        /// one of them reported nine of ten wall submeshes riddled with holes on a town that renders
         /// solid, because none of this geometry is a manifold solid: windows are recesses drawn inside solid
         /// wall boxes with panes buried behind them, roofs emit their undersides at the same coordinates as
         /// their slopes, and boxes interpenetrate freely. A check nobody can trust gets switched off, and is
@@ -1357,7 +1359,7 @@ namespace Horizon.EditorTools
         /// The wall and roof palettes are contiguous ranges rather than named cases, so adding a fourth
         /// colour is one entry in the array and nothing else.
         /// </summary>
-        private static Material[] VillageMaterials(PrototypeMaterials materials, VillageStats stats)
+        private static Material[] TownMaterials(PrototypeMaterials materials, TownStats stats)
         {
             var result = new Material[stats.Submeshes.Count];
 
@@ -1377,7 +1379,7 @@ namespace Horizon.EditorTools
                 }
                 else if (submesh == BuildingMeshes.WindowSubmesh)
                 {
-                    // Starts dark. VillageLights swaps in the lit one after sunset.
+                    // Starts dark. TownLights swaps in the lit one after sunset.
                     result[i] = materials.WindowDay;
                 }
                 else if (submesh == BuildingMeshes.GardenSubmesh)
@@ -1404,7 +1406,7 @@ namespace Horizon.EditorTools
             Transform parent,
             TerrainTileKey key,
             in TerrainShape terrainShape,
-            VillagePlan plan)
+            TownPlan plan)
         {
             float tileSize = TerrainTileBuilder.TileSize(terrainShape);
             float originX = key.Column * tileSize;
@@ -1412,7 +1414,7 @@ namespace Horizon.EditorTools
 
             for (int i = 0; i < plan.Plots.Count; i++)
             {
-                VillagePlan.Plot plot = plan.Plots[i];
+                TownPlan.Plot plot = plan.Plots[i];
 
                 if (plot.Position.x < originX || plot.Position.x >= originX + tileSize
                     || plot.Position.z < originZ || plot.Position.z >= originZ + tileSize)
@@ -1420,8 +1422,8 @@ namespace Horizon.EditorTools
                     continue;
                 }
 
-                bool tall = plot.Kind == VillagePlotKind.Windmill;
-                bool wide = plot.Kind == VillagePlotKind.Barn;
+                bool tall = plot.Kind == TownPlotKind.Windmill;
+                bool wide = plot.Kind == TownPlotKind.Barn;
 
                 float halfWidth = tall ? 4.5f : wide ? 7.5f : 5.6f;
                 float halfDepth = tall ? 4.5f : wide ? 5.5f : 4.8f;
@@ -1441,7 +1443,7 @@ namespace Horizon.EditorTools
         }
 
         /// <summary>
-        /// Checks the village streets against the two things that have actually gone wrong with them.
+        /// Checks the town streets against the two things that have actually gone wrong with them.
         ///
         /// Both bugs this catches shipped and survived two rounds of looking at screenshots, because a
         /// lane running the wrong way and a lane standing on a plinth both look plausible in a foggy
@@ -1453,7 +1455,7 @@ namespace Horizon.EditorTools
         /// 2. **Junctions between lanes must be flush.** The back lane took its endpoint heights from a
         ///    helper that returns y = 0, so it met the side lanes with steps of 0.42 m and 0.98 m.
         /// </summary>
-        private static void ValidateVillageStreets(RoadPath main, RoadPath[] lanes, in RoadShape roadShape)
+        private static void ValidateTownStreets(RoadPath main, RoadPath[] lanes, in RoadShape roadShape)
         {
             if (lanes == null || lanes.Length == 0)
             {
@@ -1520,22 +1522,22 @@ namespace Horizon.EditorTools
 
             if (crossings > 0)
             {
-                Debug.LogWarning($"[Horizon] Village streets: a lane runs across the main carriageway at "
+                Debug.LogWarning($"[Horizon] Town streets: a lane runs across the main carriageway at "
                                  + $"{crossings} sampled points, closest {worstCrossing:0.0} m from the "
                                  + $"centreline against a {roadShape.OuterHalfWidth:0.0} m half-width. "
-                                 + "Check the sign of the turn-off heading in VillageBuilder.LayOutLanes.");
+                                 + "Check the sign of the turn-off heading in TownPlanner.LayOutLanes.");
             }
 
             if (steps > 0)
             {
-                Debug.LogWarning($"[Horizon] Village streets: {steps} lane junction(s) are not flush, worst "
+                Debug.LogWarning($"[Horizon] Town streets: {steps} lane junction(s) are not flush, worst "
                                  + $"{worstStep:0.00} m. Lane endpoints must take their height from the "
                                  + "course they join, not from a plan-space heading vector.");
             }
 
             if (crossings == 0 && steps == 0)
             {
-                Debug.Log($"[Horizon] Village streets: {lanes.Length} lanes clear of the carriageway and "
+                Debug.Log($"[Horizon] Town streets: {lanes.Length} lanes clear of the carriageway and "
                           + "flush at every junction.");
             }
         }

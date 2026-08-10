@@ -152,13 +152,13 @@ namespace Horizon.EditorTools
                 float townEnd = MountainPassCourse.TownEndDistance;
                 float townMiddle = (townStart + townEnd) * 0.5f;
 
-                Vector3 villageAt = path.GetPositionAtDistance(townMiddle);
-                Vector3 villageForward = path.GetDirectionAtDistance(townMiddle);
+                Vector3 townAt = path.GetPositionAtDistance(townMiddle);
+                Vector3 townForward = path.GetDirectionAtDistance(townMiddle);
                 camera.fieldOfView = 60f;
-                camera.transform.position = villageAt - villageForward * 12f + Vector3.up * 3.5f;
+                camera.transform.position = townAt - townForward * 12f + Vector3.up * 3.5f;
                 camera.transform.rotation = Quaternion.LookRotation(
-                    (villageForward + Vector3.down * 0.08f).normalized, Vector3.up);
-                Capture(camera, Path.Combine(directory, "WorldPreview_Village_Street.png"));
+                    (townForward + Vector3.down * 0.08f).normalized, Vector3.up);
+                Capture(camera, Path.Combine(directory, "WorldPreview_Town_Street.png"));
 
                 Vector3 overAt = path.GetPositionAtDistance(townMiddle);
                 Vector3 overRight = path.GetRightAtDistance(townMiddle);
@@ -166,7 +166,7 @@ namespace Horizon.EditorTools
                 camera.transform.position = overAt - overRight * 130f + Vector3.up * 85f;
                 camera.transform.rotation = Quaternion.LookRotation(
                     (overAt - camera.transform.position), Vector3.up);
-                Capture(camera, Path.Combine(directory, "WorldPreview_Village_Above.png"));
+                Capture(camera, Path.Combine(directory, "WorldPreview_Town_Above.png"));
 
                 // Down onto one frontage from the far verge. This is the shot that shows how close the
                 // garden boundaries actually come to the asphalt, which no view along the road reveals.
@@ -176,7 +176,7 @@ namespace Horizon.EditorTools
                 camera.transform.position = plotAt + plotRight * 34f + Vector3.up * 17f;
                 camera.transform.rotation = Quaternion.LookRotation(
                     (plotAt - plotRight * 24f) - camera.transform.position, Vector3.up);
-                Capture(camera, Path.Combine(directory, "WorldPreview_Village_Plot.png"));
+                Capture(camera, Path.Combine(directory, "WorldPreview_Town_Plot.png"));
 
                 // The arrival: standing on the road half a kilometre out, looking at the town you are
                 // about to drive into. The whole reason the approach was lengthened is that a place should

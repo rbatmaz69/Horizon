@@ -15,7 +15,7 @@ namespace Horizon.World
         public int Triangles;
 
         /// <summary>
-        /// Faces the buffer had to turn round. Must be zero — see <c>VillageStats.Flips</c>.
+        /// Faces the buffer had to turn round. Must be zero — see <c>TownStats.Flips</c>.
         ///
         /// The plant builders wind by hand rather than by hint (their rings are jittered too far for an
         /// outward direction to be trustworthy), so this only ever counts geometry that came in through a
@@ -69,9 +69,9 @@ namespace Horizon.World
         private readonly float blockerRadius;
         private readonly float viewpointRadius;
 
-        private readonly VillagePlan village;
+        private readonly TownPlan town;
         private readonly float plotClearance;
-        private readonly float villageTreeKeepOut;
+        private readonly float townTreeKeepOut;
 
         // Not readonly: Encapsulate widens them, and a readonly field cannot be assigned from a helper.
         private float minX;
@@ -85,16 +85,16 @@ namespace Horizon.World
             IRoadPath path,
             RoadCourse course,
             in VegetationShape shape,
-            VillagePlan village = null,
+            TownPlan town = null,
             float plotClearance = 0f,
-            float villageTreeKeepOut = 0f)
+            float townTreeKeepOut = 0f)
         {
             blockerRadius = shape.TunnelExclusion;
             viewpointRadius = shape.ViewpointClearing;
 
-            this.village = village;
+            this.town = town;
             this.plotClearance = plotClearance;
-            this.villageTreeKeepOut = villageTreeKeepOut;
+            this.townTreeKeepOut = townTreeKeepOut;
 
             var covered = new List<Vector3>(128);
             var views = new List<Vector3>(8);
@@ -111,10 +111,10 @@ namespace Horizon.World
                         continue;
                     }
 
-                    // A village is not a tunnel. Left to the branch below it would become a 58 m capsule
+                    // A town is not a tunnel. Left to the branch below it would become a 58 m capsule
                     // that blocks every species including grass, and a settlement standing on bare earth
                     // looks abandoned rather than lived-in. It gets its own two rules instead: nothing at
-                    // all on a plot, no trees over the village as a whole, grass and bushes everywhere.
+                    // all on a plot, no trees over the town as a whole, grass and bushes everywhere.
                     if (feature.Kind == RoadFeatureKind.Village)
                     {
                         continue;
@@ -171,20 +171,20 @@ namespace Horizon.World
         /// </param>
         public bool IsBlocked(float x, float z, bool tallOnly)
         {
-            if (village != null)
+            if (town != null)
             {
                 // Nothing wild grows through a wall — but only the wall. Testing the whole plot radius
-                // here was what left the village on bare earth: 14.9 m per plot at 26 m spacing merges
+                // here was what left the town on bare earth: 14.9 m per plot at 26 m spacing merges
                 // into one continuous dead strip down every street, grass included.
-                if (village.IsBuiltOn(x, z, plotClearance))
+                if (town.IsBuiltOn(x, z, plotClearance))
                 {
                     return true;
                 }
 
                 // Tall things keep off the gardens and off the streets, so a spruce cannot come up through
                 // someone's washing line. Grass and shrubs carry on right up to the houses, which is most
-                // of what makes a village look lived in rather than abandoned.
-                if (tallOnly && village.IsOccupied(x, z, villageTreeKeepOut))
+                // of what makes a town look lived in rather than abandoned.
+                if (tallOnly && town.IsOccupied(x, z, townTreeKeepOut))
                 {
                     return true;
                 }

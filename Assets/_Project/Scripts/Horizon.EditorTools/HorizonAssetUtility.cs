@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using UnityEditor;
 using UnityEngine;
@@ -73,6 +74,50 @@ namespace Horizon.EditorTools
         }
 
         /// <summary>
+        /// Every derived asset path written since <see cref="BeginGeneratedRun"/>.
+        ///
+        /// Generated meshes are named after what produced them, so renaming a builder orphans its old
+        /// output: the files stay on disk, keep their GUIDs, and are referenced by nothing. Nothing about
+        /// a stale mesh asset announces itself — the world builds correctly and the folder quietly grows.
+        /// </summary>
+        private static readonly HashSet<string> WrittenAssets = new HashSet<string>();
+
+        /// <summary>Starts recording which derived assets a build writes.</summary>
+        public static void BeginGeneratedRun()
+        {
+            WrittenAssets.Clear();
+        }
+
+        /// <summary>
+        /// Lists everything in a generated folder that this run did not write, so a rename leaves a line
+        /// in the log rather than a file nobody will look at again.
+        /// </summary>
+        public static void ReportOrphanedAssets(string folder)
+        {
+            string[] guids = AssetDatabase.FindAssets(string.Empty, new[] { folder });
+            var orphans = new List<string>();
+
+            for (int i = 0; i < guids.Length; i++)
+            {
+                string path = AssetDatabase.GUIDToAssetPath(guids[i]);
+                if (!WrittenAssets.Contains(path) && !AssetDatabase.IsValidFolder(path))
+                {
+                    orphans.Add(Path.GetFileName(path));
+                }
+            }
+
+            if (orphans.Count == 0)
+            {
+                return;
+            }
+
+            orphans.Sort();
+            Debug.LogWarning($"[Horizon] {orphans.Count} asset(s) in {folder} were not written by this "
+                             + "build and are referenced by nothing: " + string.Join(", ", orphans)
+                             + ". Derived output, so deleting them is safe.");
+        }
+
+        /// <summary>
         /// Replaces a derived asset outright and returns the imported instance. For meshes and other
         /// generated output. Use the return value, not the object you passed in — see <c>Reload</c>.
         /// </summary>
@@ -84,6 +129,7 @@ namespace Horizon.EditorTools
             }
 
             AssetDatabase.CreateAsset(asset, assetPath);
+            WrittenAssets.Add(assetPath);
             return Reload(asset, assetPath);
         }
 

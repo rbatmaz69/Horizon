@@ -3,7 +3,7 @@ using UnityEngine;
 namespace Horizon.World
 {
     /// <summary>
-    /// Lights the village windows and lamp heads once the sun goes down.
+    /// Lights the town windows and lamp heads once the sun goes down.
     ///
     /// Reads the time of day from <see cref="RenderSettings.sun"/> rather than from
     /// <c>Horizon.Atmosphere</c>, for the same reason <c>VehicleLights</c> does: the sun's intensity is
@@ -12,19 +12,19 @@ namespace Horizon.World
     ///
     /// **Not a MaterialPropertyBlock, and not a write to the shared material.** The car uses a property
     /// block, which is right for one object and wrong for thirty: a block makes a renderer
-    /// SRP-Batcher-incompatible, so a village of house meshes would be a village of broken batches.
+    /// SRP-Batcher-incompatible, so a town of house meshes would be a town of broken batches.
     /// Writing colours onto the shared material instead would work at runtime and permanently edit the
     /// .mat asset while playing in the editor. So the window submesh simply gets one of two ready-made
     /// materials swapped into its slot, and only on the frames the state actually changes — which is
     /// twice a day.
     /// </summary>
-    public sealed class VillageLights : MonoBehaviour
+    public sealed class TownLights : MonoBehaviour
     {
         [Tooltip("Renderers holding a window submesh. Filled in by the setup tool.")]
         [SerializeField] private MeshRenderer[] renderers;
 
         [Tooltip("Which material slot is the windows, one entry per renderer.\n\n"
-               + "Parallel to the array above rather than a single index, because village meshes drop "
+               + "Parallel to the array above rather than a single index, because town meshes drop "
                + "their empty submeshes — a tile with only lamps on it has the windows in a different "
                + "slot from a tile with houses.")]
         [SerializeField] private int[] windowSlots;
@@ -36,7 +36,7 @@ namespace Horizon.World
         [SerializeField] private float nightSunIntensity = 0.38f;
 
         [Tooltip("Sun intensity they stay lit until. The gap is hysteresis — a single threshold sits in "
-               + "the middle of dusk, where the sun barely moves, and the whole village flickers.")]
+               + "the middle of dusk, where the sun barely moves, and the whole town flickers.")]
         [SerializeField] private float dawnSunIntensity = 0.5f;
 
         private bool lit;
@@ -47,7 +47,7 @@ namespace Horizon.World
 
         private void OnEnable()
         {
-            // Force the first Apply even if the starting state happens to match, so the village is never
+            // Force the first Apply even if the starting state happens to match, so the town is never
             // left showing whichever material the mesh was built with.
             applied = false;
         }

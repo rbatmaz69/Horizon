@@ -4,7 +4,7 @@ using UnityEngine;
 namespace Horizon.World
 {
     /// <summary>
-    /// Fills the gap where a village lane meets a road.
+    /// Fills the gap where a town lane meets a road.
     ///
     /// Nothing else in the project builds junctions. <see cref="RoadMeshBuilder"/> emits a ribbon and
     /// leaves both ends as open edges — there is no cap, no skirt and nothing to attach to — so where a
@@ -18,7 +18,7 @@ namespace Horizon.World
     /// there is no unpainted column in the texture to fall back on. Painting a junction is a texture
     /// problem, not a geometry one, and it is not this method's business.
     /// </summary>
-    public static class VillageRoadBuilder
+    public static class StreetJunctionBuilder
     {
         /// <summary>Matches RoadMeshBuilder's own submeshes, so the same material array works.</summary>
         public const int SurfaceSubmesh = 0;

@@ -4,11 +4,11 @@ using UnityEngine;
 namespace Horizon.World
 {
     /// <summary>What stands on a plot.</summary>
-    public enum VillagePlotKind
+    public enum TownPlotKind
     {
         House = 0,
 
-        /// <summary>The village's landmark, and the only building visible from the pass road above.</summary>
+        /// <summary>The town's landmark, and the only building visible from the pass road above.</summary>
         Windmill = 1,
 
         Barn = 2,
@@ -16,14 +16,14 @@ namespace Horizon.World
     }
 
     /// <summary>
-    /// Where everything in the village goes, worked out once and then read by several passes: the mesh
+    /// Where everything in the town goes, worked out once and then read by several passes: the mesh
     /// builder puts geometry on it, the vegetation scatter keeps out of it, and the setup tool hangs a
     /// collider on each plot.
     ///
     /// One plan rather than each pass deciding for itself, because the three would drift apart and the
     /// result would be a hedge growing through a wall.
     /// </summary>
-    public sealed class VillagePlan
+    public sealed class TownPlan
     {
         public readonly struct Plot
         {
@@ -31,13 +31,13 @@ namespace Horizon.World
             public readonly float Yaw;
             public readonly float HalfWidth;
             public readonly float HalfDepth;
-            public readonly VillagePlotKind Kind;
+            public readonly TownPlotKind Kind;
             public readonly bool HasCar;
             public readonly bool Fenced;
             public readonly uint Seed;
 
             public Plot(Vector3 position, float yaw, float halfWidth, float halfDepth,
-                VillagePlotKind kind, bool hasCar, bool fenced, uint seed)
+                TownPlotKind kind, bool hasCar, bool fenced, uint seed)
             {
                 Position = position;
                 Yaw = yaw;
@@ -55,13 +55,13 @@ namespace Horizon.World
             /// <summary>
             /// Radius of the building alone, not of its garden.
             ///
-            /// The distinction is what lets anything grow in the village. Blocking planting over the whole
+            /// The distinction is what lets anything grow in the town. Blocking planting over the whole
             /// plot radius meant a 14.9 m circle per plot, and with plots 26 m apart those circles
             /// overlapped into one continuous bare strip down every street. A wall needs 8 m of clearance;
             /// a lawn needs none.
             /// </summary>
-            public float BuildingRadius => Kind == VillagePlotKind.Windmill ? 11f
-                : Kind == VillagePlotKind.Barn ? 9f
+            public float BuildingRadius => Kind == TownPlotKind.Windmill ? 11f
+                : Kind == TownPlotKind.Barn ? 9f
                 : 7.5f;
         }
 
@@ -69,7 +69,7 @@ namespace Horizon.World
         private readonly List<Vector3> lamps;
         private readonly List<float> lampYaws;
 
-        internal VillagePlan(List<Plot> plots, List<Vector3> lamps, List<float> lampYaws, Bounds footprint)
+        internal TownPlan(List<Plot> plots, List<Vector3> lamps, List<float> lampYaws, Bounds footprint)
         {
             this.plots = plots;
             this.lamps = lamps;
@@ -83,7 +83,7 @@ namespace Horizon.World
 
         public IReadOnlyList<float> LampYaws => lampYaws;
 
-        /// <summary>Plan bounds of everything in the village, for a cheap early-out.</summary>
+        /// <summary>Plan bounds of everything in the town, for a cheap early-out.</summary>
         public Bounds Footprint { get; }
 
         public int HouseCount
@@ -93,7 +93,7 @@ namespace Horizon.World
                 int count = 0;
                 for (int i = 0; i < plots.Count; i++)
                 {
-                    if (plots[i].Kind == VillagePlotKind.House)
+                    if (plots[i].Kind == TownPlotKind.House)
                     {
                         count++;
                     }
@@ -134,8 +134,8 @@ namespace Horizon.World
         }
     }
 
-    /// <summary>Counts from a village pass, for the build log.</summary>
-    public sealed class VillageStats
+    /// <summary>Counts from a town pass, for the build log.</summary>
+    public sealed class TownStats
     {
         public int Houses;
         public int Windmills;
@@ -152,13 +152,13 @@ namespace Horizon.World
         /// Anything else means a helper in <see cref="BuildingMeshes"/> or <see cref="MillMeshes"/> is
         /// authoring its corners in an order that disagrees with the direction it says the face looks in.
         /// The mesh comes out right either way — this is the cheap tripwire that says which helper to go
-        /// and read, and it is here because the village once shipped with every wall inside out.
+        /// and read, and it is here because the town once shipped with every wall inside out.
         /// </summary>
         public int Flips;
 
         public readonly List<int> Submeshes = new List<int>(BuildingMeshes.SubmeshCount);
 
-        public void Add(VillageStats other)
+        public void Add(TownStats other)
         {
             Houses += other.Houses;
             Windmills += other.Windmills;
@@ -173,25 +173,25 @@ namespace Horizon.World
     }
 
     /// <summary>
-    /// Lays out the village: where its lanes run and where its plots sit.
+    /// Lays out the town: where its lanes run and where its plots sit.
     ///
     /// Built in two stages on purpose. The lanes have to exist before <see cref="MountainField"/> is
-    /// constructed, because they are what flattens the ground the village stands on; the plots can only
+    /// constructed, because they are what flattens the ground the town stands on; the plots can only
     /// be placed afterwards, because they need the finished terrain to sit on. So this class hands out a
-    /// list of lane courses first and a <see cref="VillagePlan"/> second, and nothing in between has to
+    /// list of lane courses first and a <see cref="TownPlan"/> second, and nothing in between has to
     /// know why.
     /// </summary>
-    public static class VillageBuilder
+    public static class TownPlanner
     {
         /// <summary>
-        /// The village street layout: two lanes running off the main road into the valley floor, joined
+        /// The town street layout: two lanes running off the main road into the valley floor, joined
         /// at their far ends by a back lane.
         ///
         /// A loop rather than two dead ends, because a dead end reads as unfinished the moment a player
         /// drives down it, and because the back lane gives a second row of plots something to face.
         /// </summary>
         public static List<RoadCourse> LayOutLanes(
-            IRoadPath main, in VillageShape shape, in TownShape townShape)
+            IRoadPath main, in TownShape shape)
         {
             var lanes = new List<RoadCourse>(3);
             if (main == null)
@@ -199,17 +199,17 @@ namespace Horizon.World
                 return lanes;
             }
 
-            float side = Mathf.Sign(shape.LaneSide == 0f ? -1f : shape.LaneSide);
+            float side = shape.Side;
 
-            Vector3 firstStart = LaneStart(main, shape, townShape, shape.FirstLaneAt, side,
+            Vector3 firstStart = LaneStart(main, shape, shape.FirstLaneAt, side,
                 out float firstHeading, out float firstGrade);
-            Vector3 secondStart = LaneStart(main, shape, townShape, shape.SecondLaneAt, side,
+            Vector3 secondStart = LaneStart(main, shape, shape.SecondLaneAt, side,
                 out float secondHeading, out float secondGrade);
 
             // +90 times the side, not minus. With side = -1 the old sign turned the lanes to +90°, which
             // is straight back across the main carriageway and out over the mountain — the opposite of the
             // levelled valley floor they were meant to serve, and coplanar with the road the whole way.
-            // ValidateVillageStreets exists because nothing caught that.
+            // ValidateTownStreets exists because nothing caught that.
             float turnOff = 90f * side;
 
             RoadCourse first = StraightLane(firstStart, firstHeading + turnOff, shape.LaneLength, firstGrade);
@@ -229,7 +229,7 @@ namespace Horizon.World
                 lanes.Add(back);
             }
 
-            // A middle rung, so the village is a block you can drive round rather than two dead ends with
+            // A middle rung, so the town is a block you can drive round rather than two dead ends with
             // a bar across the back. It leaves the first lane a third of the way along and meets the
             // second at the same fraction, so the two halves of the block are roughly equal.
             Vector3 midFirst = PointAlong(firstStart, firstEnd, 0.45f);
@@ -320,8 +320,7 @@ namespace Horizon.World
         /// </summary>
         private static Vector3 LaneStart(
             IRoadPath main,
-            in VillageShape shape,
-            in TownShape townShape,
+            in TownShape shape,
             float distance,
             float side,
             out float headingDegrees,
@@ -340,8 +339,8 @@ namespace Horizon.World
             float acrossStart = RoadShape.Default.OuterHalfWidth + shape.JunctionGap;
             float acrossEnd = acrossStart + shape.LaneLength;
 
-            float startHeight = TownShape.FloorHeight(main, townShape, clamped, acrossStart);
-            float endHeight = TownShape.FloorHeight(main, townShape, clamped, acrossEnd);
+            float startHeight = TownShape.FloorHeight(main, shape, clamped, acrossStart);
+            float endHeight = TownShape.FloorHeight(main, shape, clamped, acrossEnd);
 
             gradePercent = (endHeight - startHeight) / Mathf.Max(1f, shape.LaneLength) * 100f;
 
@@ -357,21 +356,21 @@ namespace Horizon.World
         /// the mesh is a 12 m linear interpolation of the field and a house placed against the field
         /// itself sinks a corner into the ground on any slope. The same trap the plants were in.
         /// </summary>
-        public static VillagePlan Plan(
+        public static TownPlan Plan(
             IRoadPath main,
             IReadOnlyList<IRoadPath> lanes,
             MountainField field,
             in TerrainShape terrainShape,
-            in VillageShape shape)
+            in TownShape shape)
         {
-            var plots = new List<VillagePlan.Plot>(64);
+            var plots = new List<TownPlan.Plot>(64);
             var lamps = new List<Vector3>(16);
             var lampYaws = new List<float>(16);
 
-            float side = Mathf.Sign(shape.LaneSide == 0f ? -1f : shape.LaneSide);
+            float side = shape.Side;
 
             // Frontage on the main road. Both sides: the level samples reach 35 m to the uphill side, so
-            // there is flat ground for one row there too, and a village with houses on only one side of
+            // there is flat ground for one row there too, and a town with houses on only one side of
             // its high street reads as a film set.
             AddFrontage(plots, main, field, terrainShape, shape, shape.AlongStart, shape.AlongEnd,
                 1, true, true);
@@ -383,7 +382,7 @@ namespace Horizon.World
                     shape.PlotSetback, lanes[i].Length - 6f, 2 + i, false, false);
             }
 
-            // Lamps down the high street, on the village side only.
+            // Lamps down the high street, on the town side only.
             for (float along = shape.AlongStart; along <= shape.AlongEnd; along += shape.LampSpacing)
             {
                 float clamped = Mathf.Clamp(along, 0f, main.Length);
@@ -410,16 +409,16 @@ namespace Horizon.World
                 footprint.Encapsulate(new Bounds(plots[i].Position, Vector3.one * (plots[i].Radius * 2f)));
             }
 
-            return new VillagePlan(plots, lamps, lampYaws, footprint);
+            return new TownPlan(plots, lamps, lampYaws, footprint);
         }
 
         /// <summary>
         /// Drops any plot standing too close to a street. A plot is always about
-        /// <see cref="VillageShape.PlotSetback"/> from the street it faces, so a threshold well under that
+        /// <see cref="TownShape.PlotSetback"/> from the street it faces, so a threshold well under that
         /// only catches the ones sitting on a *different* street.
         /// </summary>
         private static void ClearStreets(
-            List<VillagePlan.Plot> plots,
+            List<TownPlan.Plot> plots,
             IRoadPath main,
             IReadOnlyList<IRoadPath> lanes,
             float minDistance)
@@ -461,11 +460,11 @@ namespace Horizon.World
 
         /// <summary>Lines plots up along one street, on one or both sides.</summary>
         private static void AddFrontage(
-            List<VillagePlan.Plot> plots,
+            List<TownPlan.Plot> plots,
             IRoadPath street,
             MountainField field,
             in TerrainShape terrainShape,
-            in VillageShape shape,
+            in TownShape shape,
             float from,
             float to,
             int streetId,
@@ -477,7 +476,7 @@ namespace Horizon.World
                 return;
             }
 
-            float villageSide = Mathf.Sign(shape.LaneSide == 0f ? -1f : shape.LaneSide);
+            float townSide = shape.Side;
             int index = 0;
 
             for (float along = from; along <= to; along += shape.PlotSpacing, index++)
@@ -492,18 +491,18 @@ namespace Horizon.World
 
                     // The uphill side of the high street gets a shallower row, because the level samples
                     // only reach 35 m that way before the mountain takes over.
-                    bool uphill = isMainStreet && Mathf.Approximately(sign, -villageSide);
+                    bool uphill = isMainStreet && Mathf.Approximately(sign, -townSide);
                     float setback = uphill ? shape.PlotSetback * 0.85f : shape.PlotSetback;
 
                     // Decided before the vacancy roll, not after. The first version tested for the church
-                    // further down and a plot could be left empty before it ever got there — the village
+                    // further down and a plot could be left empty before it ever got there — the town
                     // came out with no church at all, and nothing said so.
                     // The mill is decided before the vacancy roll, not after. Testing for it further down
-                    // meant a plot could be left empty before the test ever ran, and the village came out
+                    // meant a plot could be left empty before the test ever ran, and the town came out
                     // with no landmark at all and nothing saying so.
                     bool mill = allowMill
                                 && Mathf.Abs(along - shape.MillAt) < shape.PlotSpacing * 0.5f
-                                && Mathf.Approximately(sign, villageSide);
+                                && Mathf.Approximately(sign, townSide);
 
                     var random = new PlantRandom(Hash(streetId, index, s));
                     if (!mill && (random.Chance(shape.PlotVacancy) || (uphill && random.Chance(0.35f))))
@@ -511,20 +510,20 @@ namespace Horizon.World
                         continue;
                     }
 
-                    var kind = VillagePlotKind.House;
+                    var kind = TownPlotKind.House;
                     if (mill)
                     {
-                        kind = VillagePlotKind.Windmill;
+                        kind = TownPlotKind.Windmill;
                     }
                     else if (random.Chance(shape.WorkingBuildingChance))
                     {
-                        // A working building rather than another house. Scattered through the village
+                        // A working building rather than another house. Scattered through the town
                         // instead of pushed to one edge, because a barn between two cottages is what a
-                        // village actually looks like.
-                        kind = random.Chance(0.6f) ? VillagePlotKind.Barn : VillagePlotKind.Sawmill;
+                        // town actually looks like.
+                        kind = random.Chance(0.6f) ? TownPlotKind.Barn : TownPlotKind.Sawmill;
                     }
 
-                    bool landmark = kind != VillagePlotKind.House;
+                    bool landmark = kind != TownPlotKind.House;
 
                     Vector3 at = centre + right * (setback * sign)
                                  + street.GetDirectionAtDistance(clamped) * (landmark ? 0f : random.Range(-3f, 3f));
@@ -535,14 +534,14 @@ namespace Horizon.World
                     float halfWidth = mill ? 10f : shape.PlotHalfWidth;
                     float halfDepth = mill ? 10f : shape.PlotDepth * 0.5f;
 
-                    plots.Add(new VillagePlan.Plot(
+                    plots.Add(new TownPlan.Plot(
                         point,
                         HeadingOf(-right * sign),
                         halfWidth,
                         halfDepth,
                         kind,
-                        kind == VillagePlotKind.House && random.Chance(shape.ParkedCarChance),
-                        kind == VillagePlotKind.House && random.Chance(0.55f),
+                        kind == TownPlotKind.House && random.Chance(shape.ParkedCarChance),
+                        kind == TownPlotKind.House && random.Chance(0.55f),
                         random.NextSeed()));
                 }
             }
@@ -555,12 +554,12 @@ namespace Horizon.World
         public static Mesh BuildTile(
             TerrainTileKey key,
             in TerrainShape terrainShape,
-            in VillageShape shape,
-            VillagePlan plan,
+            in TownShape shape,
+            TownPlan plan,
             string meshName,
-            out VillageStats stats)
+            out TownStats stats)
         {
-            stats = new VillageStats();
+            stats = new TownStats();
             if (plan == null)
             {
                 return null;
@@ -574,7 +573,7 @@ namespace Horizon.World
 
             for (int i = 0; i < plan.Plots.Count; i++)
             {
-                VillagePlan.Plot plot = plan.Plots[i];
+                TownPlan.Plot plot = plan.Plots[i];
                 if (!Owns(plot.Position, originX, originZ, tileSize))
                 {
                     continue;
@@ -586,17 +585,17 @@ namespace Horizon.World
 
                 switch (plot.Kind)
                 {
-                    case VillagePlotKind.Windmill:
+                    case TownPlotKind.Windmill:
                         MillMeshes.AddWindmill(buffer, place);
                         stats.Windmills++;
                         continue;
 
-                    case VillagePlotKind.Barn:
+                    case TownPlotKind.Barn:
                         MillMeshes.AddBarn(buffer, place);
                         stats.Barns++;
                         continue;
 
-                    case VillagePlotKind.Sawmill:
+                    case TownPlotKind.Sawmill:
                         MillMeshes.AddSawmill(buffer, place);
                         stats.Sawmills++;
                         continue;
@@ -645,10 +644,10 @@ namespace Horizon.World
         private static void AddGarden(
             VegetationMeshBuffer buffer,
             in PlantPlacement place,
-            in VillagePlan.Plot plot,
-            in VillageShape shape,
+            in TownPlan.Plot plot,
+            in TownShape shape,
             ref PlantRandom random,
-            VillageStats stats)
+            TownStats stats)
         {
             float frontZ = plot.HalfDepth;
             float halfWidth = plot.HalfWidth * 0.92f;

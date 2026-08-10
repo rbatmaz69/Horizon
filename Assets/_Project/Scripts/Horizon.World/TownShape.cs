@@ -78,6 +78,69 @@ namespace Horizon.World
                + "tile is genuinely heavier than open hillside and is meant to be.")]
         public int MaxTrianglesPerTile;
 
+        // --- The lanes. Transitional: two stubs off the trunk road, replaced by the street network.
+
+        [Tooltip("Distance along the main course where the first lane branches off.")]
+        public float FirstLaneAt;
+
+        [Tooltip("Distance along the main course where the second lane branches off.")]
+        public float SecondLaneAt;
+
+        [Tooltip("How far the lanes reach away from the main road, metres.")]
+        public float LaneLength;
+
+        [Tooltip("Half-width of a lane's carriageway. Narrower than the pass — a town lane is not a trunk "
+               + "road, and it carries no centre line.")]
+        public float LaneHalfWidth;
+
+        [Tooltip("Gap between the main carriageway edge and where a lane's ribbon starts, metres. The "
+               + "throat fills it.")]
+        public float JunctionGap;
+
+        [Tooltip("How far the junction mouth opens along the main road, and how far the blend runs along "
+               + "the lane. The same number for both, which is what makes it a bell mouth rather than a "
+               + "wedge.")]
+        public float JunctionThroat;
+
+        // --- The plots. Replaced by block-based parcels in the stage after the street network.
+
+        [Tooltip("Spacing of house plots along a street, metres.")]
+        public float PlotSpacing;
+
+        [Tooltip("How far a house stands back from the centreline of its street, metres.")]
+        public float PlotSetback;
+
+        [Tooltip("Half-width of a plot across the street, metres. Also the fence line.")]
+        public float PlotHalfWidth;
+
+        [Tooltip("Depth of a plot away from the street, metres.")]
+        public float PlotDepth;
+
+        [Tooltip("Chance a plot is left empty, so the place has gaps and does not read as a terrace.")]
+        public float PlotVacancy;
+
+        [Tooltip("Chance a plot has a car parked on it.")]
+        public float ParkedCarChance;
+
+        [Tooltip("Spacing of street lamps along the main road through the town, metres.")]
+        public float LampSpacing;
+
+        [Tooltip("Distance along the main course where the windmill stands. It is the one silhouette "
+               + "visible from the pass road above, so it wants an open plot near the edge of the town.")]
+        public float MillAt;
+
+        [Tooltip("Chance a plot carries a barn or a sawmill rather than a house.")]
+        public float WorkingBuildingChance;
+
+        [Tooltip("Margin around a *building* within which nothing wild grows at all, metres. Deliberately "
+               + "small: it guards the walls, not the garden.")]
+        public float PlotClearance;
+
+        [Tooltip("Margin around a whole *plot* within which no tree or boulder is scattered, metres. Grass "
+               + "and bushes carry on right up to the houses — a town with bare ground between its houses "
+               + "looks abandoned.")]
+        public float TreeKeepOut;
+
         public static TownShape Default => new TownShape
         {
             AlongStart = MountainPassCourse.TownStartDistance,
@@ -104,7 +167,39 @@ namespace Horizon.World
 
             CorridorMargin = 60f,
             MaxTrianglesPerTile = 30000,
+
+            FirstLaneAt = MountainPassCourse.TownStartDistance + 130f,
+            SecondLaneAt = MountainPassCourse.TownStartDistance + 330f,
+            LaneLength = 105f,
+
+            // 3.2 m of half-width is 6.4 m of lane: two cars can pass, just.
+            LaneHalfWidth = 3.2f,
+            JunctionGap = 0.5f,
+            JunctionThroat = 11f,
+
+            PlotSpacing = 26f,
+
+            // 24 m, not 17. The setback is measured to the *house*, but the garden boundary sits
+            // PlotDepth/2 in front of it — at 17 m that put fences and hedges 7 m from the centreline,
+            // a metre off the asphalt edge. The corridor check would never have caught it either: its
+            // box is only 1.3 m wide.
+            PlotSetback = 24f,
+            PlotHalfWidth = 11f,
+            PlotDepth = 20f,
+            PlotVacancy = 0.18f,
+            ParkedCarChance = 0.35f,
+
+            LampSpacing = 42f,
+            MillAt = MountainPassCourse.TownStartDistance + 470f,
+            WorkingBuildingChance = 0.16f,
+
+            // 2.5 m around a wall, not 15 m around a whole plot. The old pair sterilised the place.
+            PlotClearance = 2.5f,
+            TreeKeepOut = 4f,
         };
+
+        /// <summary>Which way the town lies from the trunk road, as a clean ±1.</summary>
+        public float Side => Mathf.Sign(TownSide == 0f ? -1f : TownSide);
 
         /// <summary>Half the basin's span across, for anything that needs a radius rather than an extent.</summary>
         public float AcrossSpan => AcrossOuter - AcrossInner;

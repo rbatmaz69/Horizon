@@ -22,7 +22,7 @@ namespace Horizon.World
         /// <see cref="IsCoveredOrNear"/> test for Tunnel and Gallery by name, so a village does not
         /// suppress guard rails and is not skipped by the road-clearance check — both of which still
         /// matter with houses beside the road. It marks the stretch and nothing more; what actually
-        /// stands there comes from <c>VillagePlan</c>.
+        /// stands there comes from <c>TownPlan</c>.
         /// </summary>
         Village = 3,
     }

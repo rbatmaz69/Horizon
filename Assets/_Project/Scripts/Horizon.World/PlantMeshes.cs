@@ -63,7 +63,7 @@ namespace Horizon.World
     /// (<see cref="VegetationMeshBuffer.AddTriangleRaw"/>), so a mirrored basis silently reverses every face
     /// authored through <see cref="ToWorld"/>: the geometry is then back-face culled *and* lit from behind.
     /// This basis was mirrored once — <c>Cross(reference, Up)</c> rather than <c>Cross(Up, reference)</c> —
-    /// and the whole village rendered as open dollhouses, roofs floating over visible interiors, for want of
+    /// and the whole town rendered as open dollhouses, roofs floating over visible interiors, for want of
     /// one swapped argument. Do not reorder these cross products.</para>
     /// </summary>
     public readonly struct PlantPlacement
@@ -186,7 +186,7 @@ namespace Horizon.World
         /// tower segment has its radial direction, a window reveal points into its recess — and passing it
         /// turns a silent, side-dependent bug class into a dot product evaluated once, at edit time.
         ///
-        /// The pattern is not new: <c>TerrainTileBuilder</c> and <c>VillageRoadBuilder</c> both already flip
+        /// The pattern is not new: <c>TerrainTileBuilder</c> and <c>StreetJunctionBuilder</c> both already flip
         /// on <c>normal.y &lt; 0</c>, which is this method with <c>outward = Vector3.up</c> written in.
         /// </summary>
         public void AddTriangleFacing(int submesh, Vector3 a, Vector3 b, Vector3 c, Vector3 outward)
