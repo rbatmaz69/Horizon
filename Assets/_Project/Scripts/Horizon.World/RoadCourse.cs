@@ -191,6 +191,16 @@ namespace Horizon.World
         /// <summary>Current elevation.</summary>
         public float Elevation => position.y;
 
+        /// <summary>
+        /// Current heading, in the same convention as the constructor: 0 faces +Z, increasing turns
+        /// towards +X.
+        ///
+        /// Exposed so a stretch of course can be walked once as a measurement and then grafted onto
+        /// another — see <c>MountainPassCourse</c>, which uses it to work out what start heading puts the
+        /// end of its valley approach exactly on the pass it feeds.
+        /// </summary>
+        public float HeadingDegrees => headingDegrees;
+
         private Vector3 Forward()
         {
             float radians = headingDegrees * Mathf.Deg2Rad;

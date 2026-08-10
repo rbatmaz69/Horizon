@@ -39,7 +39,7 @@ namespace Horizon.EditorTools
                 scene = EditorSceneManager.OpenScene(WorldScenePath, OpenSceneMode.Additive);
             }
 
-            var path = Object.FindFirstObjectByType<RoadPath>();
+            RoadPath path = FindTrunkRoad();
             if (path == null)
             {
                 Debug.LogError("[Horizon] No RoadPath in the world scene. Run Rebuild Prototype Scene first.");
@@ -141,19 +141,27 @@ namespace Horizon.EditorTools
                     }
                 }
 
-                // Through the village, from the driver's eye and then from above it. The first says whether
+                // Through the town, from the driver's eye and then from above it. The first says whether
                 // it reads as somewhere people live; the second whether the plots hang together as a place
                 // rather than as houses dropped on a field.
-                Vector3 villageAt = path.GetPositionAtDistance(length * 0.035f);
-                Vector3 villageForward = path.GetDirectionAtDistance(length * 0.035f);
+                //
+                // Absolute distances taken from the course, not fractions of its length: the town's
+                // position is a published number and the course grew by three quarters of a kilometre in
+                // front of it, which silently moved every fraction-based station somewhere else.
+                float townStart = MountainPassCourse.TownStartDistance;
+                float townEnd = MountainPassCourse.TownEndDistance;
+                float townMiddle = (townStart + townEnd) * 0.5f;
+
+                Vector3 villageAt = path.GetPositionAtDistance(townMiddle);
+                Vector3 villageForward = path.GetDirectionAtDistance(townMiddle);
                 camera.fieldOfView = 60f;
                 camera.transform.position = villageAt - villageForward * 12f + Vector3.up * 3.5f;
                 camera.transform.rotation = Quaternion.LookRotation(
                     (villageForward + Vector3.down * 0.08f).normalized, Vector3.up);
                 Capture(camera, Path.Combine(directory, "WorldPreview_Village_Street.png"));
 
-                Vector3 overAt = path.GetPositionAtDistance(length * 0.033f);
-                Vector3 overRight = path.GetRightAtDistance(length * 0.033f);
+                Vector3 overAt = path.GetPositionAtDistance(townMiddle);
+                Vector3 overRight = path.GetRightAtDistance(townMiddle);
                 camera.fieldOfView = 55f;
                 camera.transform.position = overAt - overRight * 130f + Vector3.up * 85f;
                 camera.transform.rotation = Quaternion.LookRotation(
@@ -162,13 +170,27 @@ namespace Horizon.EditorTools
 
                 // Down onto one frontage from the far verge. This is the shot that shows how close the
                 // garden boundaries actually come to the asphalt, which no view along the road reveals.
-                Vector3 plotAt = path.GetPositionAtDistance(length * 0.03f);
-                Vector3 plotRight = path.GetRightAtDistance(length * 0.03f);
+                Vector3 plotAt = path.GetPositionAtDistance(townStart + 90f);
+                Vector3 plotRight = path.GetRightAtDistance(townStart + 90f);
                 camera.fieldOfView = 50f;
                 camera.transform.position = plotAt + plotRight * 34f + Vector3.up * 17f;
                 camera.transform.rotation = Quaternion.LookRotation(
                     (plotAt - plotRight * 24f) - camera.transform.position, Vector3.up);
                 Capture(camera, Path.Combine(directory, "WorldPreview_Village_Plot.png"));
+
+                // The arrival: standing on the road half a kilometre out, looking at the town you are
+                // about to drive into. The whole reason the approach was lengthened is that a place should
+                // be seen before it is entered, and this is the only shot that shows whether it is.
+                float arrivalAt = Mathf.Max(0f, townStart - 330f);
+                Vector3 arrival = path.GetPositionAtDistance(arrivalAt);
+                Vector3 arrivalForward = path.GetDirectionAtDistance(arrivalAt);
+                camera.fieldOfView = 55f;
+                camera.transform.position = arrival - arrivalForward * 10f + Vector3.up * 4.5f;
+                camera.transform.rotation = Quaternion.LookRotation(
+                    (arrivalForward + Vector3.down * 0.05f).normalized, Vector3.up);
+                Capture(camera, Path.Combine(directory, "WorldPreview_Town_Arrival.png"));
+
+                CaptureFromViewpoint(camera, path, directory);
 
                 // A close look across the verge at the roadside, which is the one angle that exposes plants
                 // hovering off the ground or buried in it. Straight down the road hides it completely.
@@ -220,6 +242,90 @@ namespace Horizon.EditorTools
                 {
                     EditorSceneManager.CloseScene(scene, true);
                 }
+            }
+        }
+
+        /// <summary>
+        /// The pass itself, out of however many <see cref="RoadPath"/> components the world scene holds.
+        ///
+        /// It is the longest by an order of magnitude — five kilometres against a couple of hundred metres
+        /// of town street — and that is a far safer test than the first one the scene happens to return.
+        /// Taking the first put every station on a village lane 176 m long: the "climb" previews were five
+        /// shots of the same field, and nothing said so, because a foggy render of a field looks exactly
+        /// like a foggy render of a field.
+        /// </summary>
+        private static RoadPath FindTrunkRoad()
+        {
+            RoadPath[] paths = Object.FindObjectsByType<RoadPath>(FindObjectsSortMode.None);
+
+            RoadPath longest = null;
+            for (int i = 0; i < paths.Length; i++)
+            {
+                if (longest == null || paths[i].Length > longest.Length)
+                {
+                    longest = paths[i];
+                }
+            }
+
+            return longest;
+        }
+
+        /// <summary>
+        /// The town seen from the pass above — from the <c>Talblick</c> viewpoint, which is the one place
+        /// on the course the layout was designed to be read from.
+        ///
+        /// This is the acceptance shot for the basin: whether it reads as a bowl with the ground rising
+        /// around it, or as a flat table cut into a hillside. Fog comes off, because the viewpoint is
+        /// well over a kilometre from the town and the fog is tuned to hide the draw distance from a car —
+        /// with it on, the answer is a wall of orange either way.
+        /// </summary>
+        private static void CaptureFromViewpoint(Camera camera, RoadPath path, string directory)
+        {
+            RoadCourse course = MountainPassCourse.Build();
+
+            float viewpointAt = -1f;
+            for (int i = 0; i < course.Features.Count; i++)
+            {
+                if (course.Features[i].Kind == RoadFeatureKind.Viewpoint
+                    && course.Features[i].Name == "Talblick")
+                {
+                    viewpointAt = course.Features[i].StartDistance;
+                    break;
+                }
+            }
+
+            if (viewpointAt < 0f)
+            {
+                return;
+            }
+
+            float townMiddle = (MountainPassCourse.TownStartDistance
+                                + MountainPassCourse.TownEndDistance) * 0.5f;
+
+            Vector3 from = path.GetPositionAtDistance(Mathf.Min(viewpointAt, path.Length));
+            Vector3 to = path.GetPositionAtDistance(townMiddle);
+
+            bool fogWasOn = RenderSettings.fog;
+            float farWas = camera.farClipPlane;
+            RenderSettings.fog = false;
+
+            try
+            {
+                // Lifted well above the viewpoint and narrowed, which is a compromise worth naming: from a
+                // driver's eye at the kerb the near carriageway fills the lower half of the frame and the
+                // town is forty pixels of it. This is a shot about the shape of the ground, so it is taken
+                // from where the ground can be seen; the version at eye level belongs with the landmarks,
+                // once there is a spire in the frame to look at.
+                camera.fieldOfView = 38f;
+                camera.farClipPlane = Mathf.Max(farWas, Vector3.Distance(from, to) * 2.5f);
+                camera.transform.position = from + Vector3.up * 30f;
+                camera.transform.rotation = Quaternion.LookRotation(to - camera.transform.position, Vector3.up);
+                Capture(camera, Path.Combine(directory, "WorldPreview_Town_FromThePass.png"));
+            }
+            finally
+            {
+                RenderSettings.fog = fogWasOn;
+                camera.farClipPlane = farWas;
             }
         }
 

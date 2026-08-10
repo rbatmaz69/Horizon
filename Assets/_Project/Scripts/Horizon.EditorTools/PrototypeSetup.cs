@@ -523,8 +523,9 @@ namespace Horizon.EditorTools
             // --- Village lanes. Laid out before the terrain, because they are what flattens the ground it
             // will stand on. Each gets its own RoadPath — the component carries no singleton, so several
             // in a scene are fine — and its own narrower ribbon.
+            TownShape townShape = TownShape.Default;
             VillageShape villageShape = VillageShape.Default;
-            List<RoadCourse> laneCourses = VillageBuilder.LayOutLanes(path, villageShape);
+            List<RoadCourse> laneCourses = VillageBuilder.LayOutLanes(path, villageShape, townShape);
             RoadPath[] lanePaths = BuildVillageLanes(
                 worldRoot.transform, laneCourses, villageShape, materials, out RoadShape[] laneShapes);
 
@@ -535,29 +536,34 @@ namespace Horizon.EditorTools
             // away, and the tunnel bodies use it to bury their feet. Building a second would be slow and
             // could disagree with the first.
             //
-            // The village's floor is levelled by handing the field a grid of level samples over the
-            // village footprint. The lanes alone will not do it — they level a 24 m ribbon each and leave
-            // the ground between them untouched, which measured 22 m of relief. See
-            // VillageBuilder.BuildLevelSamples.
-            List<Vector3> levelSamples = VillageBuilder.BuildLevelSamples(path, villageShape);
+            // The town's floor is levelled by handing the field a grid of level samples over the whole
+            // basin. The streets alone will not do it — a road levels a 24 m ribbon either side and leaves
+            // the ground between them untouched, which measured 22 m of relief on the village that was
+            // here before. See TownShape.BuildLevelSamples.
+            List<Vector3> levelSamples = TownShape.BuildLevelSamples(path, townShape);
             for (int i = 0; i < lanePaths.Length; i++)
             {
-                // The lanes as well as the apron. The apron's heights come from the main road, so without
-                // this a lane running its own grade ends up standing on a plinth.
+                // The lanes as well as the basin. The basin's heights come from TownShape.FloorHeight, so
+                // without this a lane running its own grade ends up standing on a plinth.
                 VillageBuilder.AddPathSamples(lanePaths[i], 6f, levelSamples);
             }
+
+            // Known before the field exists, and deliberately so: it depends on the basin's extent alone,
+            // never on where plots ended up, so the terrain corridor can be widened locally without
+            // anything having to be built first.
+            Bounds townFootprint = TownShape.Footprint(levelSamples, townShape.CorridorMargin);
 
             var field = new MountainField(path, terrainShape, 4f, levelSamples);
 
             ValidateRoadClearance(path, roadShape, field, course);
-            ReportVillageGround(field, path, villageShape);
+            ReportTownGround(field, path, terrainShape, townShape);
 
             // Planned after the field exists, because the plots are seated on the finished terrain.
             VillagePlan villagePlan = VillageBuilder.Plan(
                 path, lanePaths, field, terrainShape, villageShape);
 
             BuildTerrainTiles(worldRoot.transform, path, roadShape, course, field, terrainShape,
-                villageShape, villagePlan, materials);
+                villageShape, townFootprint, villagePlan, materials);
             BuildCoveredSections(worldRoot.transform, path, roadShape, course, field, materials);
             BuildGuardRails(worldRoot.transform, path, roadShape, field, course, materials);
 
@@ -596,8 +602,10 @@ namespace Horizon.EditorTools
             HorizonAssetUtility.AssertReferenceAssigned(timeOfDay, "profile");
             HorizonAssetUtility.AssertReferenceAssigned(timeOfDay, "sun");
 
-            // --- Vehicle, dropped onto the road a little way in from the start.
-            const float spawnDistance = 25f;
+            // --- Vehicle, dropped onto the road among the houses rather than at the start of the course.
+            // The arrival road in front of the town is 700 m of scenery to drive *back* along, not
+            // something to make the player sit through before anything happens.
+            float spawnDistance = MountainPassCourse.TownStartDistance + 45f;
             Vector3 spawnDirection = path.GetDirectionAtDistance(spawnDistance);
             float rideHeight = config != null
                 ? config.SuspensionRestLength + config.WheelRadius + 0.05f
@@ -1017,45 +1025,74 @@ namespace Horizon.EditorTools
         }
 
         /// <summary>
-        /// Measures how flat the village floor actually came out, as a number rather than an impression.
+        /// Measures how closely the delivered ground follows the floor the town was designed against, as
+        /// numbers rather than as an impression.
         ///
-        /// The whole village rests on the claim that running the lanes through the height field levels the
-        /// ground between them. If that claim is wrong the houses stand on a 22 % slope, and it is far
-        /// cheaper to read that here than to build forty of them and look at a picture.
+        /// <para>Three deliberate changes from the version that measured the village. It sweeps the whole
+        /// basin rather than a 105 m strip beside the lanes. It compares each point against
+        /// <see cref="TownShape.FloorHeight"/> at that point rather than against the trunk road's height,
+        /// because the floor is *meant* to rise 4.5 m across the basin and a check that called that a
+        /// defect would be measuring the design instead of the build. And it warns on <b>local</b>
+        /// steepness only: total relief across half a kilometre of valley says nothing about whether a
+        /// house can stand on it, while a 12 % step between two adjacent cells says everything.</para>
+        ///
+        /// <para>The last number is the one that answers the question this stage exists to ask: what
+        /// fraction of the basin is too steep to build on. Anything but a very small percentage means the
+        /// town has no room, whatever the previews look like.</para>
         /// </summary>
-        private static void ReportVillageGround(MountainField field, RoadPath path, in VillageShape shape)
+        private static void ReportTownGround(
+            MountainField field,
+            RoadPath path,
+            in TerrainShape terrainShape,
+            in TownShape shape)
         {
-            const float step = 8f;
-
-            float side = Mathf.Sign(shape.LaneSide == 0f ? -1f : shape.LaneSide);
-            float depth = shape.LaneLength;
+            // The cell size, so the steepness measured is the steepness the mesh actually has. Sampling
+            // finer than the terrain grid measures the interpolation, not the ground.
+            float step = terrainShape.CellSize;
 
             float lowest = float.MaxValue;
             float highest = float.MinValue;
             float steepest = 0f;
+            float steepestAlong = 0f;
+            float steepestAcross = 0f;
             int samples = 0;
+            int steep = 0;
 
             for (float along = shape.AlongStart; along <= shape.AlongEnd; along += step)
             {
-                Vector3 centre = path.GetPositionAtDistance(Mathf.Clamp(along, 0f, path.Length));
-                Vector3 right = path.GetRightAtDistance(Mathf.Clamp(along, 0f, path.Length));
-
-                for (float across = 10f; across <= depth; across += step)
+                for (float across = shape.AcrossInner; across <= shape.AcrossOuter; across += step)
                 {
-                    Vector3 point = centre + right * (across * side);
+                    Vector3 point = TownShape.ToWorld(path, shape, along, across);
 
                     float here = field.HeightAt(point.x, point.z);
                     float ahead = field.HeightAt(point.x + step, point.z);
                     float beside = field.HeightAt(point.x, point.z + step);
 
-                    // Relative to the road beside it, not to sea level — the valley approach climbs 1.5 %,
-                    // so absolute height says nothing about whether the ground is buildable.
-                    float relative = here - centre.y;
-                    lowest = Mathf.Min(lowest, relative);
-                    highest = Mathf.Max(highest, relative);
+                    // Against the floor the town was planned on, less the shelf drop the field applies to
+                    // every road and level sample it is given. A constant offset here is correct and
+                    // expected; a varying one is the ground disagreeing with the plan.
+                    float expected = TownShape.FloorHeight(path, shape, along, across)
+                                     - terrainShape.RoadShelfDrop;
+                    float error = here - expected;
 
-                    steepest = Mathf.Max(steepest, Mathf.Abs(ahead - here) / step);
-                    steepest = Mathf.Max(steepest, Mathf.Abs(beside - here) / step);
+                    lowest = Mathf.Min(lowest, error);
+                    highest = Mathf.Max(highest, error);
+
+                    float grade = Mathf.Max(
+                        Mathf.Abs(ahead - here) / step, Mathf.Abs(beside - here) / step);
+
+                    if (grade > steepest)
+                    {
+                        steepest = grade;
+                        steepestAlong = along;
+                        steepestAcross = across;
+                    }
+
+                    if (grade > 0.08f)
+                    {
+                        steep++;
+                    }
+
                     samples++;
                 }
             }
@@ -1065,17 +1102,30 @@ namespace Horizon.EditorTools
                 return;
             }
 
-            Debug.Log($"[Horizon] Village ground: {samples} samples over {depth:0} m of depth, "
-                      + $"{lowest:0.0} m to {highest:0.0} m relative to the road, "
-                      + $"steepest {steepest * 100f:0} %.");
+            float steepFraction = steep / (float)samples;
 
-            if (highest - lowest > 6f || steepest > 0.25f)
+            Debug.Log($"[Horizon] Town ground: {samples} samples over "
+                      + $"{shape.AlongEnd - shape.AlongStart:0} x {shape.AcrossSpan:0} m, "
+                      + $"{lowest:0.0} m to {highest:0.0} m off the planned floor, steepest "
+                      + $"{steepest * 100f:0} % at {steepestAlong:0} m along / {steepestAcross:0} m across, "
+                      + $"{steepFraction * 100f:0.0} % of the basin over 8 %.");
+
+            if (steepFraction > 0.06f || steepest > 0.30f)
             {
                 Debug.LogWarning(
-                    "[Horizon] Village ground is not buildable. The level samples from "
-                    + "VillageBuilder.BuildLevelSamples are either not reaching MountainField, or their "
-                    + "grid pitch is too coarse for the shelves to merge — it has to stay under twice "
-                    + $"TerrainShape.VergeWidth, which is {TerrainShape.Default.VergeWidth:0} m.");
+                    "[Horizon] Town ground has too little buildable area. The level samples from "
+                    + "TownShape.BuildLevelSamples are either not reaching MountainField, or their grid "
+                    + "pitch is too coarse for the shelves to merge — it has to stay under twice "
+                    + $"MountainField.Verge, which is {Mathf.Max(terrainShape.VergeWidth, terrainShape.CellSize * 2f):0} m.");
+            }
+
+            if (highest - lowest > 3f)
+            {
+                Debug.LogWarning(
+                    $"[Horizon] Town ground wanders {highest - lowest:0.0} m either side of the floor "
+                    + "TownShape.FloorHeight describes. Streets take their height from that function and "
+                    + "the ground evidently does not, which is the plinth-and-daylight failure the shared "
+                    + "floor function exists to prevent.");
             }
         }
 
@@ -1087,10 +1137,13 @@ namespace Horizon.EditorTools
             MountainField field,
             in TerrainShape terrainShape,
             in VillageShape villageShape,
+            Bounds townFootprint,
             VillagePlan villagePlan,
             PrototypeMaterials materials)
         {
-            List<TerrainTileKey> tiles = TerrainTileBuilder.ListTiles(field, terrainShape, terrainShape.CorridorWidth);
+            var extraRegions = new[] { townFootprint };
+            List<TerrainTileKey> tiles = TerrainTileBuilder.ListTiles(
+                field, terrainShape, terrainShape.CorridorWidth, extraRegions);
 
             var terrainRoot = new GameObject("Terrain");
             terrainRoot.transform.SetParent(parent, false);
@@ -1190,8 +1243,13 @@ namespace Horizon.EditorTools
                 EditorUtility.SetDirty(chunk);
             }
 
+            // The baseline is worth the second pass: the whole argument for a local corridor is that it
+            // costs a dozen tiles rather than doubling the pass, and that is a number, not an opinion.
+            int baseline = TerrainTileBuilder.ListTiles(field, terrainShape, terrainShape.CorridorWidth).Count;
+
             Debug.Log($"[Horizon] Terrain: {tiles.Count} tiles of {tileSize:0} m, "
-                      + $"{totalTriangles} triangles total, corridor {terrainShape.CorridorWidth:0} m.");
+                      + $"{totalTriangles} triangles total, corridor {terrainShape.CorridorWidth:0} m "
+                      + $"plus {tiles.Count - baseline} for the town basin.");
 
             ReportVegetation(vegetationTotal, vegetationShape, roadShape, vegetationContext,
                 heaviestTile, heaviestTileName);

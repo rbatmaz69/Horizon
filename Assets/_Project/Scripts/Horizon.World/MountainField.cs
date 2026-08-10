@@ -55,8 +55,26 @@ namespace Horizon.World
         private readonly Vector3[] samples;
         private readonly TerrainShape shape;
 
+        /// <summary>
+        /// How many of <see cref="samples"/> are the road's own, stored first.
+        ///
+        /// The split matters. The shelf has to treat a level sample exactly like a piece of road — that is
+        /// what levels the ground under a town at all — but <see cref="DistanceToRoad"/> must not, and the
+        /// two were the same method once. With a basin of level samples in the field, every point in the
+        /// town was zero metres from "road": the terrain corridor swelled by 300 m in every direction, and
+        /// the vegetation density falloff, which thins the forest with distance from the carriageway, ran
+        /// the whole basin at maximum density. Roughly a quarter of a million triangles of forest, growing
+        /// where the town was supposed to go.
+        /// </summary>
+        private readonly int roadSampleCount;
+
         private readonly int[] cellStart;
         private readonly int[] cellItems;
+
+        /// <summary>The same lattice, holding the road samples alone.</summary>
+        private readonly int[] roadCellStart;
+        private readonly int[] roadCellItems;
+
         private readonly Vector2 gridOrigin;
         private readonly int columns;
         private readonly int rows;
@@ -90,6 +108,8 @@ namespace Horizon.World
             int extra = levelSamples != null ? levelSamples.Count : 0;
 
             samples = new Vector3[count + extra];
+            roadSampleCount = count;
+
             for (int i = 0; i < count; i++)
             {
                 samples[i] = path.GetPositionAtDistance(length * i / (count - 1));
@@ -107,7 +127,8 @@ namespace Horizon.World
             columns = Mathf.Max(1, Mathf.CeilToInt((bounds.size.x + InfluenceRadius * 2f) / BucketSize));
             rows = Mathf.Max(1, Mathf.CeilToInt((bounds.size.z + InfluenceRadius * 2f) / BucketSize));
 
-            BuildBuckets(out cellStart, out cellItems);
+            BuildBuckets(samples.Length, out cellStart, out cellItems);
+            BuildBuckets(roadSampleCount, out roadCellStart, out roadCellItems);
 
             coarseOrigin = new Vector2(bounds.min.x - CoarseMargin, bounds.min.z - CoarseMargin);
             coarseColumns = Mathf.Max(2, Mathf.CeilToInt((bounds.size.x + CoarseMargin * 2f) / CoarseCellSize) + 1);
@@ -148,11 +169,88 @@ namespace Horizon.World
             return Mathf.Lerp(shelf, MountainAt(x, z), carve);
         }
 
-        /// <summary>Plan distance from the nearest point of road, metres.</summary>
+        /// <summary>
+        /// Plan distance to the nearest piece of <b>carriageway</b>, metres — level samples excluded.
+        ///
+        /// This is what every caller outside the field actually wants: how far a tile, a tree or a boulder
+        /// is from a road someone drives on. See <see cref="roadSampleCount"/> for what happens when it
+        /// answers with the levelled ground instead.
+        ///
+        /// A widening ring search over the road grid rather than a fixed neighbourhood, because unlike the
+        /// shelf this has no influence radius to stop at: a point out on the open mountain is legitimately
+        /// three hundred metres from the nearest road and still has to get a real answer.
+        /// </summary>
         public float DistanceToRoad(float x, float z)
         {
-            RoadFieldAt(x, z, out float nearest);
-            return nearest;
+            if (roadSampleCount == 0)
+            {
+                return float.MaxValue;
+            }
+
+            int centreColumn = Mathf.Clamp(ColumnOf(x), 0, columns - 1);
+            int centreRow = Mathf.Clamp(RowOf(z), 0, rows - 1);
+
+            float bestSqr = float.MaxValue;
+            int maxRing = Mathf.Max(columns, rows);
+
+            for (int ring = 0; ring <= maxRing; ring++)
+            {
+                ScanRoadRing(centreColumn, centreRow, ring, x, z, ref bestSqr);
+
+                // One found is not one nearest: a sample two rings out can still beat one in the corner of
+                // this one. Stop only once the nearest cell of the *next* ring is further than what is in
+                // hand.
+                float reach = ring * BucketSize;
+                if (bestSqr < float.MaxValue && reach * reach >= bestSqr)
+                {
+                    break;
+                }
+            }
+
+            return Mathf.Sqrt(bestSqr);
+        }
+
+        /// <summary>Tests every road sample in the cells at Chebyshev distance <paramref name="ring"/>.</summary>
+        private void ScanRoadRing(
+            int centreColumn, int centreRow, int ring, float x, float z, ref float bestSqr)
+        {
+            int minColumn = centreColumn - ring;
+            int maxColumn = centreColumn + ring;
+            int minRow = centreRow - ring;
+            int maxRow = centreRow + ring;
+
+            for (int row = minRow; row <= maxRow; row++)
+            {
+                if (row < 0 || row >= rows)
+                {
+                    continue;
+                }
+
+                bool edgeRow = row == minRow || row == maxRow;
+                int step = edgeRow ? 1 : Mathf.Max(1, maxColumn - minColumn);
+
+                for (int column = minColumn; column <= maxColumn; column += step)
+                {
+                    if (column < 0 || column >= columns)
+                    {
+                        continue;
+                    }
+
+                    int cell = row * columns + column;
+                    for (int slot = roadCellStart[cell]; slot < roadCellStart[cell + 1]; slot++)
+                    {
+                        int index = roadCellItems[slot];
+                        float dx = samples[index].x - x;
+                        float dz = samples[index].z - z;
+                        float distanceSqr = dx * dx + dz * dz;
+
+                        if (distanceSqr < bestSqr)
+                        {
+                            bestSqr = distanceSqr;
+                        }
+                    }
+                }
+            }
         }
 
         /// <summary>
@@ -181,6 +279,13 @@ namespace Horizon.World
         ///
         /// Deriving the shape from the road rather than inventing a cone means the two cannot disagree: the
         /// road climbs this mountain, so the mountain is whatever shape the road climbed.
+        ///
+        /// <para><b>This is the one un-bucketed loop left in the field</b> — every coarse cell against every
+        /// sample, about 6 million checks today. It survives because the sample count is dominated by the
+        /// road itself and grows slowly. The town's basin adds a few hundred; a second town, or a street
+        /// network sampled at 8 m, would not. Past roughly 5000 samples this needs the same treatment
+        /// <see cref="BuildBuckets"/> gives the shelf: counts, prefix offsets, items, and a cell walk
+        /// bounded by <see cref="CoarseReach"/> instead of the whole array.</para>
         /// </summary>
         private float[] BuildCoarseField()
         {
@@ -360,12 +465,12 @@ namespace Horizon.World
         /// height lookup is every grid point against every road sample — about 24 million distance checks for
         /// a pass this size, and it gets worse as the world grows.
         /// </summary>
-        private void BuildBuckets(out int[] starts, out int[] items)
+        private void BuildBuckets(int sampleCount, out int[] starts, out int[] items)
         {
             int cellCount = columns * rows;
             var counts = new int[cellCount + 1];
 
-            for (int i = 0; i < samples.Length; i++)
+            for (int i = 0; i < sampleCount; i++)
             {
                 counts[CellOf(samples[i].x, samples[i].z) + 1]++;
             }
@@ -376,10 +481,10 @@ namespace Horizon.World
             }
 
             starts = counts;
-            items = new int[samples.Length];
+            items = new int[sampleCount];
             var cursor = new int[cellCount];
 
-            for (int i = 0; i < samples.Length; i++)
+            for (int i = 0; i < sampleCount; i++)
             {
                 int cell = CellOf(samples[i].x, samples[i].z);
                 items[starts[cell] + cursor[cell]] = i;

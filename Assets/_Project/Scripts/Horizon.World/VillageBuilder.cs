@@ -190,7 +190,8 @@ namespace Horizon.World
         /// A loop rather than two dead ends, because a dead end reads as unfinished the moment a player
         /// drives down it, and because the back lane gives a second row of plots something to face.
         /// </summary>
-        public static List<RoadCourse> LayOutLanes(IRoadPath main, in VillageShape shape)
+        public static List<RoadCourse> LayOutLanes(
+            IRoadPath main, in VillageShape shape, in TownShape townShape)
         {
             var lanes = new List<RoadCourse>(3);
             if (main == null)
@@ -200,8 +201,10 @@ namespace Horizon.World
 
             float side = Mathf.Sign(shape.LaneSide == 0f ? -1f : shape.LaneSide);
 
-            Vector3 firstStart = LaneStart(main, shape, shape.FirstLaneAt, side, out float firstHeading);
-            Vector3 secondStart = LaneStart(main, shape, shape.SecondLaneAt, side, out float secondHeading);
+            Vector3 firstStart = LaneStart(main, shape, townShape, shape.FirstLaneAt, side,
+                out float firstHeading, out float firstGrade);
+            Vector3 secondStart = LaneStart(main, shape, townShape, shape.SecondLaneAt, side,
+                out float secondHeading, out float secondGrade);
 
             // +90 times the side, not minus. With side = -1 the old sign turned the lanes to +90°, which
             // is straight back across the main carriageway and out over the mountain — the opposite of the
@@ -209,8 +212,8 @@ namespace Horizon.World
             // ValidateVillageStreets exists because nothing caught that.
             float turnOff = 90f * side;
 
-            RoadCourse first = StraightLane(firstStart, firstHeading + turnOff, shape.LaneLength, 0.4f);
-            RoadCourse second = StraightLane(secondStart, secondHeading + turnOff, shape.LaneLength, -0.4f);
+            RoadCourse first = StraightLane(firstStart, firstHeading + turnOff, shape.LaneLength, firstGrade);
+            RoadCourse second = StraightLane(secondStart, secondHeading + turnOff, shape.LaneLength, secondGrade);
             lanes.Add(first);
             lanes.Add(second);
 
@@ -281,57 +284,6 @@ namespace Horizon.World
         }
 
         /// <summary>
-        /// The points the ground under the village has to be levelled to — a coarse grid over the whole
-        /// footprint, handed to <see cref="MountainField"/> as level samples.
-        ///
-        /// The lanes alone are not enough, and it is worth being exact about why, because it looked like
-        /// they would be. A road levels a ribbon <see cref="MountainField.Verge"/> = 24 m wide either
-        /// side. Two lanes 140 m apart therefore level two 48 m strips and leave 92 m of untouched Perlin
-        /// noise between them — measured, that came out at 22 m of relief and a 44 % maximum grade, which
-        /// is a hillside, not a village. The fix is not more lanes nobody would drive down: it is to say
-        /// plainly which area is meant to be flat.
-        ///
-        /// Pitch has to stay under twice the verge or the shelves do not merge and the floor comes out
-        /// corrugated. Heights are taken from the main road at the matching distance, so the floor follows
-        /// the road's 1.5 % climb instead of sitting level in a valley that is not.
-        /// </summary>
-        public static List<Vector3> BuildLevelSamples(IRoadPath main, in VillageShape shape)
-        {
-            var samples = new List<Vector3>(256);
-            if (main == null)
-            {
-                return samples;
-            }
-
-            float side = Mathf.Sign(shape.LaneSide == 0f ? -1f : shape.LaneSide);
-
-            // 30 m across against a 24 m verge leaves the shelves overlapping by 18 m; 8 m along is close
-            // enough that the inverse-distance weighting never notices the gaps.
-            const float acrossPitch = 30f;
-            const float alongPitch = 8f;
-
-            // Out to the far side of the lanes plus a margin, and a little onto the other side of the main
-            // road so the frontage there is buildable too.
-            float outer = shape.LaneLength + 25f;
-            float inner = -35f;
-
-            for (float along = shape.AlongStart - 20f; along <= shape.AlongEnd + 20f; along += alongPitch)
-            {
-                float clamped = Mathf.Clamp(along, 0f, main.Length);
-                Vector3 centre = main.GetPositionAtDistance(clamped);
-                Vector3 right = main.GetRightAtDistance(clamped);
-
-                for (float across = inner; across <= outer; across += acrossPitch)
-                {
-                    Vector3 point = centre + right * (across * side);
-                    samples.Add(new Vector3(point.x, centre.y, point.z));
-                }
-            }
-
-            return samples;
-        }
-
-        /// <summary>
         /// Adds a path's own centreline to a level-sample list.
         ///
         /// The apron grid takes its heights from the *main* road at the matching distance, which is right
@@ -355,18 +307,25 @@ namespace Horizon.World
 
         /// <summary>
         /// Where a lane's ribbon begins: out past the main road's shoulder, so the two carriageways do
-        /// not overlap.
+        /// not overlap — and at what grade it has to run to stay on the town's floor.
         ///
         /// Nothing in the project builds a junction — two ribbons simply interpenetrate — so the seam is
         /// pushed onto the flat shelf beside the road where it reads as a join in the surface rather than
         /// as a fold through the middle of the carriageway.
+        ///
+        /// <para>The grade comes from <see cref="TownShape.FloorHeight"/> at both ends rather than from a
+        /// number in the tuning table, and that is the whole point of there being one floor function. With
+        /// a hand-picked 0.4 % the lanes ran a metre below the basin by the time they reached the far end
+        /// of it — the ground stood above the carriageway, and the corridor check said so.</para>
         /// </summary>
         private static Vector3 LaneStart(
             IRoadPath main,
             in VillageShape shape,
+            in TownShape townShape,
             float distance,
             float side,
-            out float headingDegrees)
+            out float headingDegrees,
+            out float gradePercent)
         {
             float clamped = Mathf.Clamp(distance, 0f, main.Length);
 
@@ -376,8 +335,18 @@ namespace Horizon.World
 
             headingDegrees = HeadingOf(forward);
 
-            float across = (RoadShape.Default.OuterHalfWidth + shape.JunctionGap) * side;
-            return centre + right * across;
+            // In town-local terms a lane leaves at this many metres across and runs straight out, so its
+            // two ends are two evaluations of the floor.
+            float acrossStart = RoadShape.Default.OuterHalfWidth + shape.JunctionGap;
+            float acrossEnd = acrossStart + shape.LaneLength;
+
+            float startHeight = TownShape.FloorHeight(main, townShape, clamped, acrossStart);
+            float endHeight = TownShape.FloorHeight(main, townShape, clamped, acrossEnd);
+
+            gradePercent = (endHeight - startHeight) / Mathf.Max(1f, shape.LaneLength) * 100f;
+
+            Vector3 start = centre + right * (acrossStart * side);
+            return new Vector3(start.x, startHeight, start.z);
         }
 
         /// <summary>

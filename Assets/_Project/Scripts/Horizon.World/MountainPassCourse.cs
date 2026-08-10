@@ -50,22 +50,86 @@ namespace Horizon.World
         /// </summary>
         private const float PortalApproach = 60f;
 
+        /// <summary>Where the pass proper begins — the course's start point before the town was given room.</summary>
+        private static readonly Vector3 PassStart = new Vector3(0f, 0f, -260f);
+
+        /// <summary>End point of the arrival road, walked from the origin facing +Z.</summary>
+        private static readonly Vector3 ArrivalOffset;
+
+        /// <summary>Net heading change over the arrival road, degrees.</summary>
+        private static readonly float ArrivalTurn;
+
+        private static readonly float ArrivalSpan;
+
+        static MountainPassCourse()
+        {
+            var probe = new RoadCourseBuilder(Vector3.zero);
+            AppendArrival(probe);
+
+            RoadCourse walked = probe.Build();
+            ArrivalOffset = walked.ControlPoints[walked.ControlPoints.Count - 1];
+            ArrivalTurn = probe.HeadingDegrees;
+            ArrivalSpan = walked.PlannedLength;
+        }
+
         /// <summary>
-        /// Builds the pass. Roughly 5.2 km with about 190 m of elevation, climbing anticlockwise around
+        /// Length of the arrival road prepended to the pass, metres. Everything downstream of it — the
+        /// town, the spawn point, every feature — is measured from here rather than from a literal, so
+        /// reshaping the arrival moves them all together.
+        /// </summary>
+        public static float ApproachLength => ArrivalSpan;
+
+        /// <summary>Where the town begins along the course, metres.</summary>
+        public static float TownStartDistance => ApproachLength - 315f;
+
+        /// <summary>
+        /// Where it ends. Beyond this the old valley approach runs on for another 140 m before the
+        /// climb starts in earnest, so the town finishes on level ground rather than trailing up the hill.
+        /// </summary>
+        public static float TownEndDistance => ApproachLength + 245f;
+
+        /// <summary>
+        /// The arrival road: three quarters of a kilometre of sub-1 % valley floor before the town.
+        ///
+        /// Shaped rather than straight, so the town does not sit on a ruler and so you see it from a
+        /// distance before you are in it — which is most of what makes a place read as somewhere you
+        /// arrive at rather than somewhere that begins at the edge of the screen.
+        /// </summary>
+        private static void AppendArrival(RoadCourseBuilder builder)
+        {
+            builder.Straight(220f, 0.6f);
+            builder.Turn(320f, 18f, 0.6f);
+            builder.Straight(180f, 0.8f);
+            builder.Turn(300f, -22f, 0.8f);
+            builder.Straight(120f, 1.0f);
+        }
+
+        /// <summary>
+        /// Builds the pass. Roughly 5.9 km with about 190 m of elevation, climbing anticlockwise around
         /// the mountain — the legs are swept in one consistent direction so the switchback stack rotates
         /// around the summit instead of piling up in a flat plane.
         /// </summary>
         public static RoadCourse Build()
         {
-            var builder = new RoadCourseBuilder(new Vector3(0f, 0f, -260f));
+            // The arrival road is grafted on in front of the pass rather than merged into it: it is
+            // started from whatever position and heading puts its *end* exactly on the old start point,
+            // facing the way that point used to face. The five kilometres below are therefore unchanged
+            // to the millimetre — same switchbacks, same tunnel, same summit, same absolute elevations —
+            // and the only thing that moves is where along the course each of them falls, by
+            // ApproachLength. Re-deriving a hand-tuned switchback stack to make room for a town would be
+            // a poor trade for a rigid transform.
+            Vector3 start = PassStart - Quaternion.Euler(0f, -ArrivalTurn, 0f) * ArrivalOffset;
 
-            // --- Valley approach, and the village that sits on it. This and the run-out are the only two
-            // stretches of the whole course under 3 %, so it is here or nowhere. The car spawns 25 m in,
-            // which means the drive starts among the houses and climbs out of them.
+            var builder = new RoadCourseBuilder(start, -ArrivalTurn);
+            AppendArrival(builder);
+
+            // --- Valley approach, and the town that sits on it. This and the run-out are the only two
+            // stretches of the whole course under 3 %, so it is here or nowhere. The car spawns among the
+            // houses and climbs out of them.
             builder.Straight(160f, 1f);
             builder.Turn(220f, -28f, 1f);
             builder.Straight(120f, 1.5f);
-            builder.AddFeature(RoadFeatureKind.Village, 20f, 340f, "Talheim");
+            builder.AddFeature(RoadFeatureKind.Village, TownStartDistance, TownEndDistance, "Talheim");
 
             // --- Climb.
             for (int i = 0; i < ClimbHairpins; i++)

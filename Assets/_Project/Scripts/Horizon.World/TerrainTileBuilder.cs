@@ -38,20 +38,42 @@ namespace Horizon.World
 
         /// <summary>
         /// Lists the tiles worth generating: those whose extent comes within
-        /// <paramref name="corridorWidth"/> of the road.
+        /// <paramref name="corridorWidth"/> of the road, plus any that touch an
+        /// <paramref name="extraRegions"/> footprint.
+        ///
+        /// <para>The extra regions exist so a *place* can have terrain wider than the corridor without the
+        /// corridor being widened everywhere. The town's basin reaches 260 m out, which would need a 320 m
+        /// corridor — and raising the constant would add that width along the whole five kilometres of
+        /// pass, roughly doubling the tile count and the vegetation on it, for open hillside nobody drives
+        /// within 200 m of. A dozen extra tiles where the town is costs almost nothing.</para>
         /// </summary>
         public static List<TerrainTileKey> ListTiles(
             MountainField field,
             in TerrainShape shape,
-            float corridorWidth)
+            float corridorWidth,
+            IReadOnlyList<Bounds> extraRegions = null)
         {
             Bounds bounds = field.RoadBounds;
             float tileSize = TileSize(shape);
 
-            int minColumn = Mathf.FloorToInt((bounds.min.x - corridorWidth) / tileSize);
-            int maxColumn = Mathf.FloorToInt((bounds.max.x + corridorWidth) / tileSize);
-            int minRow = Mathf.FloorToInt((bounds.min.z - corridorWidth) / tileSize);
-            int maxRow = Mathf.FloorToInt((bounds.max.z + corridorWidth) / tileSize);
+            float minX = bounds.min.x - corridorWidth;
+            float maxX = bounds.max.x + corridorWidth;
+            float minZ = bounds.min.z - corridorWidth;
+            float maxZ = bounds.max.z + corridorWidth;
+
+            for (int i = 0; extraRegions != null && i < extraRegions.Count; i++)
+            {
+                Bounds region = extraRegions[i];
+                minX = Mathf.Min(minX, region.min.x);
+                maxX = Mathf.Max(maxX, region.max.x);
+                minZ = Mathf.Min(minZ, region.min.z);
+                maxZ = Mathf.Max(maxZ, region.max.z);
+            }
+
+            int minColumn = Mathf.FloorToInt(minX / tileSize);
+            int maxColumn = Mathf.FloorToInt(maxX / tileSize);
+            int minRow = Mathf.FloorToInt(minZ / tileSize);
+            int maxRow = Mathf.FloorToInt(maxZ / tileSize);
 
             var tiles = new List<TerrainTileKey>();
 
@@ -65,7 +87,8 @@ namespace Horizon.World
                     float centreZ = (row + 0.5f) * tileSize;
                     float reach = corridorWidth + tileSize * 0.71f;
 
-                    if (field.DistanceToRoad(centreX, centreZ) <= reach)
+                    if (field.DistanceToRoad(centreX, centreZ) <= reach
+                        || TouchesRegion(extraRegions, column * tileSize, row * tileSize, tileSize))
                     {
                         tiles.Add(new TerrainTileKey(column, row));
                     }
@@ -73,6 +96,28 @@ namespace Horizon.World
             }
 
             return tiles;
+        }
+
+        /// <summary>
+        /// Whether a tile's plan extent overlaps any of the regions. Tested in plan only — the regions
+        /// describe where a place is, not how tall it is, and a Y comparison would just be a way to miss
+        /// tiles under a basin that sits below the bounds' centre.
+        /// </summary>
+        private static bool TouchesRegion(
+            IReadOnlyList<Bounds> regions, float originX, float originZ, float tileSize)
+        {
+            for (int i = 0; regions != null && i < regions.Count; i++)
+            {
+                Bounds region = regions[i];
+
+                if (originX + tileSize >= region.min.x && originX <= region.max.x
+                    && originZ + tileSize >= region.min.z && originZ <= region.max.z)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         /// <summary>Side length of a tile, snapped to a whole number of cells.</summary>

@@ -7,15 +7,11 @@ namespace Horizon.World
     /// The village at the foot of the pass: how far it spreads, where its lanes run, and how densely it
     /// is built.
     ///
-    /// It sits on the valley approach because that is one of only two stretches of the whole course under
-    /// 3 % — the rest is 9.5 % legs, 20 m hairpins and a summit that drops 45 m within a hundred metres.
-    /// The car spawns 25 m along, so the player starts in the village and drives out of it.
-    ///
-    /// The lanes are not decoration. <see cref="MountainField"/> lays a dead-flat shelf under every road
-    /// it is given, and beyond that shelf the ground is Perlin noise with a median 22 % grade per cell —
-    /// so without lanes there is a buildable band 26 m deep and nothing behind it. Running the lanes
-    /// through the field (see <see cref="VillageBuilder.BuildLevelSamples"/>) is what turns a row of
-    /// houses into a place with depth.
+    /// <para><b>Transitional.</b> The ground it stands on is now <see cref="TownShape"/>'s basin, which is
+    /// far larger than these two stub lanes can fill, and the street network that replaces them is the
+    /// next stage. What is left here is the plot layout, pointed at the town's extent so the houses stand
+    /// where the floor is, rather than 400 m back down the arrival road where the numbers used to put
+    /// them.</para>
     /// </summary>
     [Serializable]
     public struct VillageShape
@@ -94,14 +90,14 @@ namespace Horizon.World
 
         public static VillageShape Default => new VillageShape
         {
-            // The valley approach runs 0-390 m at 1.0-1.5 %. Stopping at 340 leaves the last 50 m clear so
-            // the village ends before the road starts to climb, rather than trailing up the hill.
-            AlongStart = 20f,
-            AlongEnd = 340f,
+            // Taken from the course, not written down twice. The town's extent is published by
+            // MountainPassCourse because everything about it shifts when the arrival road is reshaped.
+            AlongStart = MountainPassCourse.TownStartDistance,
+            AlongEnd = MountainPassCourse.TownEndDistance,
 
             LaneSide = -1f,
-            FirstLaneAt = 95f,
-            SecondLaneAt = 235f,
+            FirstLaneAt = MountainPassCourse.TownStartDistance + 130f,
+            SecondLaneAt = MountainPassCourse.TownStartDistance + 330f,
             LaneLength = 105f,
 
             // 3.2 m of half-width is 6.4 m of lane: two cars can pass, just.
@@ -122,7 +118,7 @@ namespace Horizon.World
             ParkedCarChance = 0.35f,
 
             LampSpacing = 42f,
-            MillAt = 300f,
+            MillAt = MountainPassCourse.TownStartDistance + 470f,
             WorkingBuildingChance = 0.16f,
 
             // 2.5 m around a wall, not 15 m around a whole plot. The old pair sterilised the village.
