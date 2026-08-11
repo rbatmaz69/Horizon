@@ -1,4 +1,5 @@
 using System.IO;
+using Horizon.Atmosphere;
 using Horizon.World;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -277,6 +278,197 @@ namespace Horizon.EditorTools
                 {
                     EditorSceneManager.CloseScene(scene, true);
                 }
+            }
+        }
+
+        /// <summary>
+        /// Hour to hold the clock at for the night shots.
+        ///
+        /// Not just "after sunset". <c>TimeOfDayProfile</c>'s sun intensity reaches zero at about 18.7 h,
+        /// but its ambient and fog gradients only arrive at night by midnight — so half past nine gives a
+        /// sunless sky over sunset-coloured fog, and the fogged shots come back washed pink with the town
+        /// barely in them. Eleven is late enough that the whole palette has turned over.
+        /// </summary>
+        private const float NightHours = 23f;
+
+        /// <summary>
+        /// The town after dark.
+        ///
+        /// <para>A deliverable of the lighting work rather than a nicety, because until this existed there
+        /// was <b>no way to render the world at night at all</b> — the lit glass, the two thresholds, the
+        /// lamp pools and the always-lit minaret were four pieces of machinery none of which could be
+        /// looked at. Anything that cannot be seen is not finished.</para>
+        ///
+        /// <para>Its own command rather than three more shots on the day pass: it moves the clock, and a
+        /// preview run that leaves the scene at half past nine at night would be a surprising thing for a
+        /// rebuild to do. The clock is put back in a finally block either way.</para>
+        ///
+        /// <para>There is deliberately no square shot yet. The market square is a node type the layout
+        /// table does not use, and a file called <c>Town_Night_Square</c> containing a street corner is
+        /// worse than no file; it arrives with the square.</para>
+        /// </summary>
+        [MenuItem("Tools/Horizon/Render World Preview (Night)", priority = 42)]
+        public static void RenderNight()
+        {
+            Scene scene = SceneManager.GetSceneByPath(WorldScenePath);
+            bool openedHere = !scene.isLoaded;
+
+            if (openedHere)
+            {
+                scene = EditorSceneManager.OpenScene(WorldScenePath, OpenSceneMode.Additive);
+            }
+
+            RoadPath path = FindTrunkRoad();
+            if (path == null)
+            {
+                Debug.LogError("[Horizon] No RoadPath in the world scene. Run Rebuild Prototype Scene first.");
+                return;
+            }
+
+            var clock = Object.FindFirstObjectByType<TimeOfDayController>();
+            var lights = Object.FindFirstObjectByType<TownLights>();
+
+            if (clock == null)
+            {
+                Debug.LogError("[Horizon] No TimeOfDayController in the world scene, so there is no night "
+                               + "to render. Run Rebuild Prototype Scene first.");
+                return;
+            }
+
+            if (lights == null)
+            {
+                Debug.LogWarning("[Horizon] No TownLights in the world scene. The night shots will come "
+                                 + "out with every window dark, which is the component not being wired "
+                                 + "rather than the town being asleep.");
+            }
+
+            float hoursWere = clock.TimeOfDayHours;
+            bool runningWas = clock.Running;
+
+            var cameraObject = new GameObject("WorldNightPreviewCamera");
+
+            try
+            {
+                clock.Running = false;
+                clock.TimeOfDayHours = NightHours;
+                clock.Apply();
+
+                // The clock and the capture happen in the same frame with no Update in between, which is
+                // exactly what Refresh is for — without it the town is photographed in its daylight
+                // materials under a night sky, and that reads as broken lighting rather than a missing
+                // call.
+                if (lights != null)
+                {
+                    lights.Refresh();
+                    Debug.Log($"[Horizon] Night: windows lit {lights.IsGroupLit(LitGroup.Windows)}, "
+                              + $"lamps lit {lights.IsGroupLit(LitGroup.Lamps)}, sun intensity "
+                              + $"{(RenderSettings.sun != null ? RenderSettings.sun.intensity : 0f):0.00}. "
+                              + "Both false means the thresholds on TownLights never fired.");
+                }
+
+                Camera camera = cameraObject.AddComponent<Camera>();
+                camera.clearFlags = CameraClearFlags.Skybox;
+                camera.nearClipPlane = 0.3f;
+                camera.farClipPlane = 900f;
+                camera.enabled = false;
+
+                string directory = Directory.GetParent(Application.dataPath).FullName;
+
+                float townStart = MountainPassCourse.TownStartDistance;
+                float townEnd = MountainPassCourse.TownEndDistance;
+                float townMiddle = (townStart + townEnd) * 0.5f;
+
+                // Down the street from the driver's eye. The one shot that says whether the pools of
+                // light on the carriageway read as light rather than as grey hexagons.
+                Vector3 at = path.GetPositionAtDistance(townMiddle);
+                Vector3 forward = path.GetDirectionAtDistance(townMiddle);
+                camera.fieldOfView = 60f;
+                camera.transform.position = at - forward * 12f + Vector3.up * 3.5f;
+                camera.transform.rotation = Quaternion.LookRotation(
+                    (forward + Vector3.down * 0.08f).normalized, Vector3.up);
+                Capture(camera, Path.Combine(directory, "WorldPreview_Town_Night_Street.png"));
+
+                // From above, which is where the lit-window fraction becomes visible as a pattern: a town
+                // rolled at a flat half looks like static, and one lit per quarter has structure.
+                Vector3 right = path.GetRightAtDistance(townMiddle);
+                camera.fieldOfView = 55f;
+                camera.transform.position = at - right * 130f + Vector3.up * 85f;
+                camera.transform.rotation = Quaternion.LookRotation(at - camera.transform.position, Vector3.up);
+                Capture(camera, Path.Combine(directory, "WorldPreview_Town_Night_Above.png"));
+
+                CaptureNightFromViewpoint(camera, path, directory, townMiddle);
+
+                Debug.Log($"[Horizon] Night preview written to {directory}/WorldPreview_Town_Night_*.png "
+                          + $"at {NightHours:0.0}h.");
+            }
+            finally
+            {
+                Object.DestroyImmediate(cameraObject);
+
+                clock.TimeOfDayHours = hoursWere;
+                clock.Running = runningWas;
+                clock.Apply();
+
+                if (lights != null)
+                {
+                    lights.Refresh();
+                }
+
+                if (openedHere)
+                {
+                    EditorSceneManager.CloseScene(scene, true);
+                }
+            }
+        }
+
+        /// <summary>
+        /// The town at night from the pass above — the shot the whole lighting stage exists for.
+        ///
+        /// A minaret whose openings are always lit is supposed to be what makes the place readable as a
+        /// town from a kilometre up the mountain. Either it is, in this frame, or the claim was wrong.
+        /// Fog off for the same reason the daylight version turns it off: it is tuned to hide a 600 m draw
+        /// distance from a car, and this camera is well past that.
+        /// </summary>
+        private static void CaptureNightFromViewpoint(
+            Camera camera, RoadPath path, string directory, float townMiddle)
+        {
+            RoadCourse course = MountainPassCourse.Build();
+
+            float viewpointAt = -1f;
+            for (int i = 0; i < course.Features.Count; i++)
+            {
+                if (course.Features[i].Kind == RoadFeatureKind.Viewpoint
+                    && course.Features[i].Name == "Talblick")
+                {
+                    viewpointAt = course.Features[i].StartDistance;
+                    break;
+                }
+            }
+
+            if (viewpointAt < 0f)
+            {
+                return;
+            }
+
+            Vector3 from = path.GetPositionAtDistance(Mathf.Min(viewpointAt, path.Length));
+            Vector3 to = path.GetPositionAtDistance(townMiddle);
+
+            bool fogWasOn = RenderSettings.fog;
+            float farWas = camera.farClipPlane;
+            RenderSettings.fog = false;
+
+            try
+            {
+                camera.fieldOfView = 38f;
+                camera.farClipPlane = Mathf.Max(farWas, Vector3.Distance(from, to) * 2.5f);
+                camera.transform.position = from + Vector3.up * 30f;
+                camera.transform.rotation = Quaternion.LookRotation(to - camera.transform.position, Vector3.up);
+                Capture(camera, Path.Combine(directory, "WorldPreview_Town_Night_FromThePass.png"));
+            }
+            finally
+            {
+                RenderSettings.fog = fogWasOn;
+                camera.farClipPlane = farWas;
             }
         }
 

@@ -42,11 +42,13 @@ namespace Horizon.World
             // Cap, and the windows under it.
             AddCone(buffer, place, roof, 8, topRadius + 0.3f, height, height + 2.6f);
 
+            // Lit, all three of them. A working mill is one of three silhouettes the town is read by
+            // from the pass, and a landmark that goes dark at night stops being one.
             for (int i = 0; i < 3; i++)
             {
                 float angle = i * (Mathf.PI * 2f / 3f) + 0.4f;
                 float r = Mathf.Lerp(baseRadius, topRadius, 0.55f);
-                AddBox(buffer, place, BuildingMeshes.WindowSubmesh,
+                AddBox(buffer, place, BuildingMeshes.WindowLitSubmesh,
                     Mathf.Cos(angle) * r, height * 0.55f, Mathf.Sin(angle) * r, 0.4f, 0.85f, 0.4f);
             }
 

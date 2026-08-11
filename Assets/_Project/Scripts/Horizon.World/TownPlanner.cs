@@ -19,6 +19,43 @@ namespace Horizon.World
     }
 
     /// <summary>
+    /// One street lamp: where it stands, which way its arm reaches, and the patch of carriageway it
+    /// lights.
+    ///
+    /// <para>The pool is stored as world points rather than as an offset, because its corners have to sit
+    /// on the street's own cross-section — a carriageway has a 6 cm crown, and a flat polygon lifted
+    /// bodily z-fights against it down the middle of the road. Only the planner has the street, so only
+    /// the planner can work them out; the mesh builder just closes the polygon.</para>
+    ///
+    /// <para><see cref="PoolCount"/> is zero for the lamps along the trunk road. Their pool would have to
+    /// lie on the textured asphalt of the pass, and a flat day colour cannot disappear into a texture the
+    /// way it disappears into the streets' single-colour surface.</para>
+    /// </summary>
+    public readonly struct TownLamp
+    {
+        /// <summary>Corners in a pool, when it has one. A hexagon: round enough at three metres across.</summary>
+        public const int PoolCorners = 6;
+
+        public readonly Vector3 Position;
+        public readonly float Yaw;
+        public readonly uint Seed;
+
+        /// <summary>Index of this lamp's first pool corner in <see cref="TownPlan.LampPools"/>.</summary>
+        public readonly int PoolStart;
+
+        public readonly int PoolCount;
+
+        public TownLamp(Vector3 position, float yaw, uint seed, int poolStart, int poolCount)
+        {
+            Position = position;
+            Yaw = yaw;
+            Seed = seed;
+            PoolStart = poolStart;
+            PoolCount = poolCount;
+        }
+    }
+
+    /// <summary>
     /// Where everything in the town goes, worked out once and then read by several passes: the mesh
     /// builder puts geometry on it, the vegetation scatter keeps out of it, and the setup tool hangs a
     /// collider on each plot.
@@ -39,8 +76,17 @@ namespace Horizon.World
             public readonly bool Fenced;
             public readonly uint Seed;
 
+            /// <summary>
+            /// Fraction of this building's panes that light after dark, from the quarter it stands in.
+            ///
+            /// Carried on the plot rather than re-derived in the mesh builder for the same reason
+            /// everything else here is: the builder runs per terrain tile and has no idea which street a
+            /// house faced or what quarter that street was in.
+            /// </summary>
+            public readonly float LitChance;
+
             public Plot(Vector3 position, float yaw, float halfWidth, float halfDepth,
-                TownPlotKind kind, bool hasCar, bool fenced, uint seed)
+                TownPlotKind kind, bool hasCar, bool fenced, float litChance, uint seed)
             {
                 Position = position;
                 Yaw = yaw;
@@ -49,6 +95,7 @@ namespace Horizon.World
                 Kind = kind;
                 HasCar = hasCar;
                 Fenced = fenced;
+                LitChance = litChance;
                 Seed = seed;
             }
 
@@ -70,8 +117,8 @@ namespace Horizon.World
         }
 
         private readonly List<Plot> plots;
-        private readonly List<Vector3> lamps;
-        private readonly List<float> lampYaws;
+        private readonly List<TownLamp> lamps;
+        private readonly List<Vector3> lampPools;
 
         /// <summary>
         /// A uniform grid over the plots, so asking "is anything built here" is a handful of cells
@@ -93,11 +140,11 @@ namespace Horizon.World
         private readonly int rows;
         private readonly float largestRadius;
 
-        internal TownPlan(List<Plot> plots, List<Vector3> lamps, List<float> lampYaws, Bounds footprint)
+        internal TownPlan(List<Plot> plots, List<TownLamp> lamps, List<Vector3> lampPools, Bounds footprint)
         {
             this.plots = plots;
             this.lamps = lamps;
-            this.lampYaws = lampYaws;
+            this.lampPools = lampPools;
             Footprint = footprint;
 
             cellSize = 32f;
@@ -145,9 +192,10 @@ namespace Horizon.World
 
         public IReadOnlyList<Plot> Plots => plots;
 
-        public IReadOnlyList<Vector3> Lamps => lamps;
+        public IReadOnlyList<TownLamp> Lamps => lamps;
 
-        public IReadOnlyList<float> LampYaws => lampYaws;
+        /// <summary>Every lamp's pool corners, flattened. See <see cref="TownLamp.PoolStart"/>.</summary>
+        public IReadOnlyList<Vector3> LampPools => lampPools;
 
         /// <summary>Plan bounds of everything in the town, for a cheap early-out.</summary>
         public Bounds Footprint { get; }
@@ -234,8 +282,27 @@ namespace Horizon.World
         public int Sawmills;
         public int Fences;
         public int Lamps;
+
+        /// <summary>Pools of light on the carriageway. One per street lamp; the trunk lamps have none.</summary>
+        public int Pools;
+
         public int Cars;
         public int Triangles;
+
+        /// <summary>
+        /// Triangles in each of the two glass submeshes.
+        ///
+        /// <para>The one thing about the night a night render cannot tell you. A town where the
+        /// <c>litChance</c> plumbing quietly failed and every pane is being rolled at a flat 50 % looks
+        /// entirely plausible in a screenshot; the giveaway is the number, and only the number.</para>
+        ///
+        /// <para>Counted in triangles rather than in panes because <see cref="BuildingMeshes.GlassSubmesh"/>
+        /// is a static helper with nothing to count into. Panes are two triangles each with the exception
+        /// of the windmill's, which are boxes, so the ratio is a good proxy and not an exact one.</para>
+        /// </summary>
+        public int LitGlass;
+
+        public int DarkGlass;
 
         /// <summary>
         /// Faces that had to be turned round on the way into the buffer. Must be zero.
@@ -258,8 +325,11 @@ namespace Horizon.World
             Sawmills += other.Sawmills;
             Fences += other.Fences;
             Lamps += other.Lamps;
+            Pools += other.Pools;
             Cars += other.Cars;
             Triangles += other.Triangles;
+            LitGlass += other.LitGlass;
+            DarkGlass += other.DarkGlass;
             Flips += other.Flips;
         }
     }
@@ -323,12 +393,23 @@ namespace Horizon.World
             /// <summary>Chance a plot is left empty, so the row is not extruded.</summary>
             public readonly float Vacancy;
 
-            public QuarterStyle(float setback, float spacing, float depth, float vacancy)
+            /// <summary>
+            /// Fraction of a building's panes that light after dark.
+            ///
+            /// The quarter is the right place for it because "how awake is this street at night" is a
+            /// property of the street rather than of the house on it. A market frontage of shops is lit
+            /// nearly twice as much as a housing street, and a yard full of warehouses is nearly dark —
+            /// which, on the night render, is most of what tells the two apart.
+            /// </summary>
+            public readonly float LitChance;
+
+            public QuarterStyle(float setback, float spacing, float depth, float vacancy, float litChance)
             {
                 Setback = setback;
                 Spacing = spacing;
                 Depth = depth;
                 Vacancy = vacancy;
+                LitChance = litChance;
             }
 
             public static QuarterStyle For(TownQuarter quarter)
@@ -336,20 +417,26 @@ namespace Horizon.World
                 switch (quarter)
                 {
                     case TownQuarter.OldTown:
-                        return new QuarterStyle(4.5f, 12f, 16f, 0.10f);
+                        return new QuarterStyle(4.5f, 12f, 16f, 0.10f, 0.45f);
 
                     case TownQuarter.Market:
-                        return new QuarterStyle(3.0f, 11f, 16f, 0.06f);
+                        return new QuarterStyle(3.0f, 11f, 16f, 0.06f, 0.60f);
 
                     case TownQuarter.Industry:
-                        return new QuarterStyle(12f, 30f, 26f, 0.30f);
+                        return new QuarterStyle(12f, 30f, 26f, 0.30f, 0.15f);
 
                     case TownQuarter.Green:
-                        return new QuarterStyle(11f, 26f, 20f, 0.55f);
+                        return new QuarterStyle(11f, 26f, 20f, 0.55f, 0.30f);
 
                     default:
-                        return new QuarterStyle(9f, 18f, 20f, 0.20f);
+                        return new QuarterStyle(9f, 18f, 20f, 0.20f, 0.35f);
                 }
+            }
+
+            /// <summary>True where the streets are lit at the closer of the two spacings.</summary>
+            public static bool IsCore(TownQuarter quarter)
+            {
+                return quarter == TownQuarter.OldTown || quarter == TownQuarter.Market;
             }
         }
 
@@ -376,8 +463,8 @@ namespace Horizon.World
             int[] blockOfHalfEdge)
         {
             var plots = new List<TownPlan.Plot>(400);
-            var lamps = new List<Vector3>(32);
-            var lampYaws = new List<float>(32);
+            var lamps = new List<TownLamp>(128);
+            var lampPools = new List<Vector3>(128 * TownLamp.PoolCorners);
 
             float side = shape.Side;
 
@@ -421,12 +508,14 @@ namespace Horizon.World
                         millPlaced = plots[p].Kind == TownPlotKind.Windmill;
                     }
                 }
+
+                AddStreetLamps(lamps, lampPools, edge, shape, i);
             }
 
             AddMosque(plots, trunk, index, field, terrainShape, shape);
 
-            // Lamps down the trunk road through the town, on the town side only. The streets get their
-            // own when there is a night to see them in.
+            // Lamps down the trunk road through the town, on the town side only. Poolless — see
+            // TownLamp — because the pass is textured asphalt and a flat day colour cannot vanish into it.
             for (float along = shape.AlongStart; along <= shape.AlongEnd; along += shape.LampSpacing)
             {
                 float clamped = Mathf.Clamp(along, 0f, trunk.Length);
@@ -437,8 +526,8 @@ namespace Horizon.World
                 TerrainTileBuilder.SampleSurface(field, terrainShape, at.x, at.z,
                     out Vector3 point, out Vector3 _);
 
-                lamps.Add(point);
-                lampYaws.Add(HeadingOf(-right * side));
+                lamps.Add(new TownLamp(
+                    point, HeadingOf(-right * side), Hash(4211, Mathf.RoundToInt(along), 0), 0, 0));
             }
 
             // Each frontage was laid out against its own street and knows nothing about the others, so a
@@ -454,7 +543,113 @@ namespace Horizon.World
                 footprint.Encapsulate(new Bounds(plots[i].Position, Vector3.one * (plots[i].Radius * 2f)));
             }
 
-            return new TownPlan(plots, lamps, lampYaws, footprint);
+            return new TownPlan(plots, lamps, lampPools, footprint);
+        }
+
+        /// <summary>How far the pool of light floats above the carriageway, metres.</summary>
+        private const float PoolLift = 0.03f;
+
+        /// <summary>Radius of a pool of light on the road, metres. Three metres across.</summary>
+        private const float PoolRadius = 1.5f;
+
+        /// <summary>
+        /// Lamps down one street: alternating sides, on the footway, clear of both junction pads.
+        ///
+        /// <para>Alternating rather than lining both kerbs. Two rows of lamps down a 7 m street is a
+        /// motorway interchange; one row that crosses over is what a street looks like, and it halves both
+        /// the triangles and the number of pools competing for the same patch of road.</para>
+        ///
+        /// <para>The keep-out at each end is the junction pad plus a little, the same reasoning as the
+        /// frontage above: a lamp standing in a pad is a lamp in the middle of a crossroads.</para>
+        /// </summary>
+        private static void AddStreetLamps(
+            List<TownLamp> lamps,
+            List<Vector3> pools,
+            StreetEdge edge,
+            in TownShape shape,
+            int edgeIndex)
+        {
+            if (edge.Path == null)
+            {
+                return;
+            }
+
+            float keepOut = edge.HalfOuter + 3f;
+            float from = edge.TrimStart + keepOut;
+            float to = edge.Length - edge.TrimEnd - keepOut;
+            if (to <= from)
+            {
+                return;
+            }
+
+            float spacing = Mathf.Max(8f,
+                QuarterStyle.IsCore(edge.Quarter) ? shape.LampSpacingCore : shape.LampSpacingOuter);
+
+            TownStreetShape section = edge.Shape;
+
+            // Where along the footway the post stands, and how high its foot is: both straight off the
+            // street's own cross-section, so a lamp cannot end up buried in the pavement or floating over
+            // it whatever the kerb height of that street kind happens to be.
+            float postAcross = section.HalfWidth + section.KerbFace + section.FootwayWidth * 0.5f;
+            float footwayRise = section.SurfaceLift + section.KerbHeight;
+
+            // Odd streets start on the other side, so two parallel streets do not line their lamps up.
+            bool left = (edgeIndex & 1) == 0;
+            int index = 0;
+
+            for (float along = from; along <= to; along += spacing, left = !left, index++)
+            {
+                float sign = left ? -1f : 1f;
+
+                Vector3 position = TownStreetBuilder.PointAcross(
+                    edge.Path, section, along, postAcross * sign, footwayRise);
+
+                Vector3 right = edge.Path.GetRightAtDistance(Mathf.Clamp(along, 0f, edge.Path.Length));
+
+                int poolStart = pools.Count;
+                AddPoolCorners(pools, edge, section, along, sign);
+
+                lamps.Add(new TownLamp(
+                    position,
+                    HeadingOf(-right * sign),
+                    Hash(5501, edgeIndex, index),
+                    poolStart,
+                    TownLamp.PoolCorners));
+            }
+        }
+
+        /// <summary>
+        /// The hexagon of light on the carriageway under one lamp, corner by corner.
+        ///
+        /// <para>Each corner is seated on the street's cross-section at its <i>own</i> distance from the
+        /// centreline, which is the whole reason this is not a flat disc: the carriageway is crowned 6 cm
+        /// and a flat polygon would cut through it near the middle of the road and float at the gutter.
+        /// The crown is linear from the crown line to the gutter, and so is this.</para>
+        ///
+        /// <para>Placed just inside the near kerb rather than under the post, because the lantern hangs
+        /// out over the road — and the pool is sized so its outer edge stops a few centimetres short of
+        /// the gutter, where the kerb face would otherwise cut through it.</para>
+        /// </summary>
+        private static void AddPoolCorners(
+            List<Vector3> pools,
+            StreetEdge edge,
+            in TownStreetShape section,
+            float along,
+            float sign)
+        {
+            float centreAcross = sign * (section.HalfWidth - PoolRadius - 0.05f);
+
+            for (int i = 0; i < TownLamp.PoolCorners; i++)
+            {
+                float angle = i * (Mathf.PI * 2f / TownLamp.PoolCorners);
+                float across = centreAcross + Mathf.Cos(angle) * PoolRadius;
+                float at = along + Mathf.Sin(angle) * PoolRadius;
+
+                float toGutter = Mathf.Clamp01(Mathf.Abs(across) / Mathf.Max(0.1f, section.HalfWidth));
+                float rise = section.SurfaceLift + section.Crown * (1f - toGutter) + PoolLift;
+
+                pools.Add(TownStreetBuilder.PointAcross(edge.Path, section, at, across, rise));
+            }
         }
 
         /// <summary>
@@ -520,8 +715,9 @@ namespace Horizon.World
                 Mathf.Clamp(bestAlong, 0f, trunk.Length)) - point;
             towards.y = 0f;
 
+            // 0.7, but the minaret's own openings ignore it and are always lit — see LandmarkMeshes.
             plots.Add(new TownPlan.Plot(
-                point, HeadingOf(towards), 16f, 20f, TownPlotKind.Mosque, false, false,
+                point, HeadingOf(towards), 16f, 20f, TownPlotKind.Mosque, false, false, 0.7f,
                 Hash(7717, Mathf.RoundToInt(bestAlong), 0)));
         }
 
@@ -661,6 +857,7 @@ namespace Horizon.World
                     kind,
                     kind == TownPlotKind.House && random.Chance(shape.ParkedCarChance),
                     kind == TownPlotKind.House && random.Chance(0.55f),
+                    style.LitChance,
                     random.NextSeed()));
             }
         }
@@ -724,7 +921,7 @@ namespace Horizon.World
                         continue;
                 }
 
-                BuildingMeshes.AddHouse(buffer, place);
+                BuildingMeshes.AddHouse(buffer, place, plot.LitChance);
                 stats.Houses++;
 
                 AddGarden(buffer, place, plot, shape, ref random, stats);
@@ -746,20 +943,32 @@ namespace Horizon.World
 
             for (int i = 0; i < plan.Lamps.Count; i++)
             {
-                Vector3 at = plan.Lamps[i];
-                if (!Owns(at, originX, originZ, tileSize))
+                TownLamp lamp = plan.Lamps[i];
+                if (!Owns(lamp.Position, originX, originZ, tileSize))
                 {
                     continue;
                 }
 
-                var place = new PlantPlacement(at, Vector3.up, plan.LampYaws[i] * Mathf.Deg2Rad, 1f,
-                    Hash(99, i, 0));
+                var place = new PlantPlacement(
+                    lamp.Position, Vector3.up, lamp.Yaw * Mathf.Deg2Rad, 1f, lamp.Seed);
                 BuildingMeshes.AddStreetLamp(buffer, place);
                 stats.Lamps++;
+
+                // The pool goes on the tile the *lamp* is on, even where a corner of it strays over a
+                // tile boundary. Three metres of polygon on the wrong side of a seam is nothing; a pool
+                // split between two tiles that stream independently is a half-lit road.
+                if (lamp.PoolCount > 0)
+                {
+                    BuildingMeshes.AddGroundPool(
+                        buffer, plan.LampPools, lamp.PoolStart, lamp.PoolCount);
+                    stats.Pools++;
+                }
             }
 
             stats.Triangles = buffer.TriangleCount;
             stats.Flips = buffer.FlipCount;
+            stats.LitGlass = buffer.TriangleCountIn(BuildingMeshes.WindowLitSubmesh);
+            stats.DarkGlass = buffer.TriangleCountIn(BuildingMeshes.WindowDarkSubmesh);
             return buffer.ToMesh(meshName, stats.Submeshes);
         }
 

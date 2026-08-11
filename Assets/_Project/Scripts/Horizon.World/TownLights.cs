@@ -2,6 +2,16 @@ using UnityEngine;
 
 namespace Horizon.World
 {
+    /// <summary>Kinds of thing that light up, each with its own pair of materials and its own dusk.</summary>
+    public enum LitGroup
+    {
+        /// <summary>House and landmark glass — only the panes that drew into the lit submesh.</summary>
+        Windows = 0,
+
+        /// <summary>Lantern heads and the pools of light under them.</summary>
+        Lamps = 1,
+    }
+
     /// <summary>
     /// Lights the town windows and lamp heads once the sun goes down.
     ///
@@ -14,36 +24,78 @@ namespace Horizon.World
     /// block, which is right for one object and wrong for thirty: a block makes a renderer
     /// SRP-Batcher-incompatible, so a town of house meshes would be a town of broken batches.
     /// Writing colours onto the shared material instead would work at runtime and permanently edit the
-    /// .mat asset while playing in the editor. So the window submesh simply gets one of two ready-made
+    /// .mat asset while playing in the editor. So a lit submesh simply gets one of two ready-made
     /// materials swapped into its slot, and only on the frames the state actually changes — which is
     /// twice a day.
+    ///
+    /// <para><b>Grouped, because lamps and windows are not the same dusk.</b> Street lighting comes on
+    /// while there is still light in the sky and it is brighter and whiter than a living room; house
+    /// windows follow later. Two flat arrays of renderers and slots would have carried the two-window
+    /// split perfectly well, so the generalisation is here rather than later for one reason only — doing
+    /// it twice would mean doing it twice.</para>
+    ///
+    /// <para>The slot arrays are the counts-to-offsets shape used by <c>MountainField.BuildBuckets</c> and
+    /// <c>StreetIndex</c>: <see cref="slotStart"/> has one entry per renderer plus a terminator, and
+    /// <see cref="slots"/> and <see cref="slotGroup"/> are the flattened runs. A renderer can therefore
+    /// own any number of lit slots — a town tile with houses and a lamp on it owns two — without a
+    /// jagged array or a class per entry.</para>
     /// </summary>
     public sealed class TownLights : MonoBehaviour
     {
-        [Tooltip("Renderers holding a window submesh. Filled in by the setup tool.")]
+        [Tooltip("Renderers holding at least one lit submesh. Filled in by the setup tool.")]
         [SerializeField] private MeshRenderer[] renderers;
 
-        [Tooltip("Which material slot is the windows, one entry per renderer.\n\n"
-               + "Parallel to the array above rather than a single index, because town meshes drop "
-               + "their empty submeshes — a tile with only lamps on it has the windows in a different "
-               + "slot from a tile with houses.")]
-        [SerializeField] private int[] windowSlots;
+        [Tooltip("Prefix offsets into the two arrays below: renderer i owns slots[slotStart[i]] up to "
+               + "slotStart[i + 1]. One entry longer than the renderer array.")]
+        [SerializeField] private int[] slotStart;
 
-        [SerializeField] private Material dayMaterial;
-        [SerializeField] private Material nightMaterial;
+        [Tooltip("Flattened material-slot indices.\n\n"
+               + "Indices rather than a single fixed slot per group, because town meshes drop their empty "
+               + "submeshes — a tile with only lamps on it has them in a different slot from a tile with "
+               + "houses.")]
+        [SerializeField] private int[] slots;
 
-        [Tooltip("Sun intensity below which the windows light up.")]
-        [SerializeField] private float nightSunIntensity = 0.38f;
+        [Tooltip("Which LitGroup each slot belongs to. Parallel to the array above.")]
+        [SerializeField] private int[] slotGroup;
 
-        [Tooltip("Sun intensity they stay lit until. The gap is hysteresis — a single threshold sits in "
-               + "the middle of dusk, where the sun barely moves, and the whole town flickers.")]
-        [SerializeField] private float dawnSunIntensity = 0.5f;
+        [Tooltip("Day material per group, indexed by LitGroup.")]
+        [SerializeField] private Material[] dayMaterials;
 
-        private bool lit;
+        [Tooltip("Night material per group, indexed by LitGroup.")]
+        [SerializeField] private Material[] nightMaterials;
+
+        [Tooltip("Sun intensity below which each group lights up. Lamps come on earlier than windows: "
+               + "street lighting is on while there is still light in the sky.")]
+        [SerializeField] private float[] nightSunIntensity = { 0.38f, 0.55f };
+
+        [Tooltip("Sun intensity each group stays lit until. The gap is hysteresis — a single threshold "
+               + "sits in the middle of dusk, where the sun barely moves, and the whole town flickers.")]
+        [SerializeField] private float[] dawnSunIntensity = { 0.50f, 0.68f };
+
+        private bool[] lit;
         private bool applied;
 
-        /// <summary>True while the windows are lit.</summary>
-        public bool IsLit => lit;
+        /// <summary>True while the house windows are lit.</summary>
+        public bool IsLit => IsGroupLit(LitGroup.Windows);
+
+        /// <summary>Whether one group is currently showing its night material.</summary>
+        public bool IsGroupLit(LitGroup group)
+        {
+            return lit != null && (int)group < lit.Length && lit[(int)group];
+        }
+
+        /// <summary>
+        /// Re-evaluates and re-applies immediately, whatever the cached state says.
+        ///
+        /// For the night render path: that tool moves the sun and captures in the same frame, with no
+        /// Update in between, so without this the town would be photographed in daylight materials under
+        /// a night sky — which looks like a bug in the lighting rather than a missing call.
+        /// </summary>
+        public void Refresh()
+        {
+            applied = false;
+            Tick();
+        }
 
         private void OnEnable()
         {
@@ -54,46 +106,99 @@ namespace Horizon.World
 
         private void Update()
         {
-            bool wantLit = IsDark();
-            if (applied && wantLit == lit)
+            Tick();
+        }
+
+        private void Tick()
+        {
+            int groups = GroupCount;
+            if (lit == null || lit.Length != groups)
+            {
+                lit = new bool[groups];
+                applied = false;
+            }
+
+            bool changed = !applied;
+
+            for (int group = 0; group < groups; group++)
+            {
+                bool want = IsDark(group);
+                if (want != lit[group])
+                {
+                    lit[group] = want;
+                    changed = true;
+                }
+            }
+
+            if (!changed)
             {
                 return;
             }
 
-            lit = wantLit;
             applied = true;
             Apply();
         }
 
         private void Apply()
         {
-            Material material = lit ? nightMaterial : dayMaterial;
-            if (material == null || renderers == null)
+            if (renderers == null || slots == null || slotStart == null || slotGroup == null)
             {
                 return;
             }
 
-            for (int i = 0; i < renderers.Length; i++)
+            for (int i = 0; i < renderers.Length && i + 1 < slotStart.Length; i++)
             {
                 MeshRenderer renderer = renderers[i];
-                if (renderer == null || windowSlots == null || i >= windowSlots.Length)
+                if (renderer == null)
                 {
                     continue;
                 }
 
-                int slot = windowSlots[i];
-                Material[] slots = renderer.sharedMaterials;
-                if (slot < 0 || slot >= slots.Length || slots[slot] == material)
+                Material[] materials = null;
+
+                for (int entry = slotStart[i]; entry < slotStart[i + 1] && entry < slots.Length; entry++)
                 {
-                    continue;
+                    int group = slotGroup[entry];
+                    Material material = lit[group] ? nightMaterials[group] : dayMaterials[group];
+                    if (material == null)
+                    {
+                        continue;
+                    }
+
+                    // Fetched once per renderer and only when something actually has to change:
+                    // sharedMaterials allocates a fresh array on every read, and assigning it back is
+                    // what makes the change stick.
+                    materials ??= renderer.sharedMaterials;
+
+                    int slot = slots[entry];
+                    if (slot >= 0 && slot < materials.Length)
+                    {
+                        materials[slot] = material;
+                    }
                 }
 
-                slots[slot] = material;
-                renderer.sharedMaterials = slots;
+                if (materials != null)
+                {
+                    renderer.sharedMaterials = materials;
+                }
             }
         }
 
-        private bool IsDark()
+        private int GroupCount
+        {
+            get
+            {
+                int count = dayMaterials != null ? dayMaterials.Length : 0;
+                if (nightMaterials != null)
+                {
+                    count = Mathf.Min(count, nightMaterials.Length);
+                }
+
+                return Mathf.Max(1, count);
+            }
+        }
+
+        private bool IsDark(int group)
         {
             Light sun = RenderSettings.sun;
             if (sun == null)
@@ -106,8 +211,14 @@ namespace Horizon.World
                 return true;
             }
 
-            float threshold = lit ? dawnSunIntensity : nightSunIntensity;
+            float threshold = lit[group] ? Threshold(dawnSunIntensity, group, 0.5f)
+                                         : Threshold(nightSunIntensity, group, 0.38f);
             return sun.intensity < threshold;
+        }
+
+        private static float Threshold(float[] values, int group, float fallback)
+        {
+            return values != null && group < values.Length ? values[group] : fallback;
         }
     }
 }

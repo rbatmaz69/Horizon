@@ -49,7 +49,10 @@ namespace Horizon.World
                 hallHalf + 0.3f, 0.7f, hallHalf + 0.3f);
 
             AddPorch(buffer, place, wall, trim, hallHalf, 3.6f);
-            AddWindowBand(buffer, place, hallHalf, 3.2f);
+
+            // Generous, at 0.7: the hall is the one interior in the town that is meant to look occupied
+            // after dark, and a band of openings with a third of them lit reads as a derelict.
+            AddWindowBand(buffer, place, hallHalf, 3.2f, 0.7f, ref random);
 
             // The dome, on a low drum. The drum is what stops it looking like a bowl set on a table: a
             // hemisphere meeting a flat roof directly has no shadow line at its foot.
@@ -83,8 +86,9 @@ namespace Horizon.World
             AddPrism(buffer, place, trim, sides, 1.95f, 1.95f, balconyAt + 0.35f, balconyAt + 1.2f,
                 centreX, centreZ);
 
-            // Openings under the balcony, in the window submesh, so the minaret lights at dusk with
-            // everything else.
+            // Openings under the balcony, always lit — never rolled. A minaret that lights is what makes
+            // the town read at night from the pass at all, and it is the one thing in the place whose
+            // whole job is to be a light in the distance.
             AddMinaretLights(buffer, place, sides, 1.36f, balconyAt - 2.6f, 1.8f, centreX, centreZ);
 
             AddPrism(buffer, place, wall, sides, 1.1f, 0.95f, balconyAt + 1.2f, capFrom, centreX, centreZ);
@@ -115,9 +119,14 @@ namespace Horizon.World
                 hallHalf, 0.6f, depth * 0.5f + 0.2f);
         }
 
-        /// <summary>A band of tall openings all round the hall, in the window submesh.</summary>
+        /// <summary>A band of tall openings all round the hall, in the window submeshes.</summary>
         private static void AddWindowBand(
-            VegetationMeshBuffer buffer, in PlantPlacement place, float hallHalf, float sillY)
+            VegetationMeshBuffer buffer,
+            in PlantPlacement place,
+            float hallHalf,
+            float sillY,
+            float litChance,
+            ref PlantRandom random)
         {
             const float half = 0.7f;
             const float height = 2.8f;
@@ -127,26 +136,27 @@ namespace Horizon.World
             {
                 float x = Mathf.Lerp(-hallHalf * 0.62f, hallHalf * 0.62f, i / 3f);
 
-                Add(place.Forward,
+                // Rolled per opening rather than per bay, so the four walls do not light in lockstep.
+                Add(BuildingMeshes.GlassSubmesh(ref random, litChance), place.Forward,
                     place.ToWorld(x - half, sillY, out0), place.ToWorld(x + half, sillY, out0),
                     place.ToWorld(x + half, sillY + height, out0), place.ToWorld(x - half, sillY + height, out0));
 
-                Add(-place.Forward,
+                Add(BuildingMeshes.GlassSubmesh(ref random, litChance), -place.Forward,
                     place.ToWorld(x + half, sillY, -out0), place.ToWorld(x - half, sillY, -out0),
                     place.ToWorld(x - half, sillY + height, -out0), place.ToWorld(x + half, sillY + height, -out0));
 
-                Add(place.Right,
+                Add(BuildingMeshes.GlassSubmesh(ref random, litChance), place.Right,
                     place.ToWorld(out0, sillY, x + half), place.ToWorld(out0, sillY, x - half),
                     place.ToWorld(out0, sillY + height, x - half), place.ToWorld(out0, sillY + height, x + half));
 
-                Add(-place.Right,
+                Add(BuildingMeshes.GlassSubmesh(ref random, litChance), -place.Right,
                     place.ToWorld(-out0, sillY, x - half), place.ToWorld(-out0, sillY, x + half),
                     place.ToWorld(-out0, sillY + height, x + half), place.ToWorld(-out0, sillY + height, x - half));
             }
 
-            void Add(Vector3 outward, Vector3 a, Vector3 b, Vector3 c, Vector3 d)
+            void Add(int submesh, Vector3 outward, Vector3 a, Vector3 b, Vector3 c, Vector3 d)
             {
-                buffer.AddQuadFacing(BuildingMeshes.WindowSubmesh, a, b, c, d, outward);
+                buffer.AddQuadFacing(submesh, a, b, c, d, outward);
             }
         }
 
@@ -172,7 +182,7 @@ namespace Horizon.World
                                   + place.Forward * Mathf.Sin((a0 + a1) * 0.5f);
 
                 buffer.AddQuadFacing(
-                    BuildingMeshes.WindowSubmesh,
+                    BuildingMeshes.WindowLitSubmesh,
                     Ring(place, a0, radius, sillY, centreX, centreZ),
                     Ring(place, a0, radius, sillY + height, centreX, centreZ),
                     Ring(place, a1, radius, sillY + height, centreX, centreZ),

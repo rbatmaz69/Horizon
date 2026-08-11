@@ -134,6 +134,18 @@ namespace Horizon.World
 
         public int TriangleCount => vertices.Count / 3;
 
+        /// <summary>
+        /// How many triangles have landed in one submesh.
+        ///
+        /// For build-time reporting rather than for the mesh: the split between the lit and the dark glass
+        /// is the one thing about the night that a night render cannot tell you, because a town with every
+        /// pane rolled at 50 % looks perfectly plausible.
+        /// </summary>
+        public int TriangleCountIn(int submesh)
+        {
+            return submesh >= 0 && submesh < submeshes.Length ? submeshes[submesh].Count / 3 : 0;
+        }
+
         public bool IsEmpty => vertices.Count == 0;
 
         /// <summary>

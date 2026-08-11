@@ -125,6 +125,14 @@ namespace Horizon.World
         [Tooltip("Spacing of street lamps along the main road through the town, metres.")]
         public float LampSpacing;
 
+        [Tooltip("Spacing of street lamps along a street in the old town or the market quarter, metres. "
+               + "Lamps alternate sides, so a lamp every 30 m is one per side every 60 m.")]
+        public float LampSpacingCore;
+
+        [Tooltip("And everywhere else. The step between the two is one of the few things that says "
+               + "'you have left the middle of town' without anything having to announce it.")]
+        public float LampSpacingOuter;
+
         [Tooltip("Distance along the main course where the windmill stands. It is the one silhouette "
                + "visible from the pass road above, so it wants an open plot near the edge of the town.")]
         public float MillAt;
@@ -190,6 +198,8 @@ namespace Horizon.World
             ParkedCarChance = 0.35f,
 
             LampSpacing = 42f,
+            LampSpacingCore = 30f,
+            LampSpacingOuter = 45f,
             MillAt = MountainPassCourse.TownStartDistance + 470f,
             WorkingBuildingChance = 0.16f,
 

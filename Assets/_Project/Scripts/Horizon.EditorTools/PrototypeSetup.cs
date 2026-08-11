@@ -126,8 +126,10 @@ namespace Horizon.EditorTools
             public readonly Material[] Walls;
             public readonly Material[] Roofs;
             public readonly Material Trim;
+            public readonly Material Accent;
             public readonly Material WindowDay;
             public readonly Material WindowNight;
+            public readonly Material LampNight;
             public readonly Material Bark;
             public readonly Material Conifer;
             public readonly Material Broadleaf;
@@ -208,13 +210,28 @@ namespace Horizon.EditorTools
                 Trim = HorizonAssetUtility.LoadOrCreateMaterial(
                     MaterialsFolder + "/M_Trim.mat", "M_Trim", new Color(0.38f, 0.31f, 0.25f), 0.18f);
 
-                // Unlit, both of them. TownLights swaps between the two on the window submesh at dusk
-                // and dawn — no keyword, no property block, and nothing written to a material at runtime.
+                // The one saturated colour in the façade palette, and the only one that is paint rather
+                // than a building material. Shutters, canopies and balcony rails — the pieces small enough
+                // that a strong colour reads as charm instead of as a repaint.
+                Accent = HorizonAssetUtility.LoadOrCreateMaterial(
+                    MaterialsFolder + "/M_Accent.mat", "M_Accent", new Color(0.26f, 0.36f, 0.33f), 0.24f);
+
+                // Unlit, all of them. TownLights swaps between day and night on the lit-glass and lamp
+                // submeshes at dusk and dawn — no keyword, no property block, and nothing written to a
+                // material at runtime.
                 WindowDay = HorizonAssetUtility.LoadOrCreateUnlitMaterial(
                     MaterialsFolder + "/M_WindowDay.mat", "M_WindowDay", new Color(0.20f, 0.23f, 0.27f));
                 WindowNight = HorizonAssetUtility.LoadOrCreateUnlitMaterial(
                     MaterialsFolder + "/M_WindowNight.mat", "M_WindowNight",
                     new Color(1.55f, 1.25f, 0.72f));
+
+                // Brighter and whiter than a window, because a sodium lamp is not a living room. There is
+                // deliberately no M_LampDay: the lamp submesh takes the *street's own* material by day,
+                // which is the only way a pool of light on the carriageway can vanish exactly rather than
+                // to within a shade — see TownMaterials.
+                LampNight = HorizonAssetUtility.LoadOrCreateUnlitMaterial(
+                    MaterialsFolder + "/M_LampNight.mat", "M_LampNight",
+                    new Color(1.90f, 1.72f, 1.28f));
                 Concrete = HorizonAssetUtility.LoadOrCreateMaterial(
                     MaterialsFolder + "/M_Concrete.mat", "M_Concrete", new Color(0.52f, 0.51f, 0.49f), 0.20f);
 
@@ -631,6 +648,13 @@ namespace Horizon.EditorTools
             WorldStreamingDriver driver = streamingObject.AddComponent<WorldStreamingDriver>();
             HorizonAssetUtility.Configure(driver, serialized =>
                 serialized.FindProperty("streamer").objectReferenceValue = streamer);
+
+            // Counted after every builder and before the car, at the streamer's own radius and again at
+            // the first pressure valve, so the question "would 450 m help, and by how much" is answered
+            // in the log rather than by trying it.
+            List<Vector3> stations = DrawCallStations(path);
+            ReportDrawCallBudget(worldRoot.transform, stations, streamer.LoadRadius);
+            ReportDrawCallBudget(worldRoot.transform, stations, 450f);
 
             // --- Sun and atmosphere.
             var sunObject = new GameObject("Sun");
@@ -1325,8 +1349,14 @@ namespace Horizon.EditorTools
             string heaviestTileName = "none";
 
             var townTotal = new TownStats();
+
+            // The counts-to-offsets shape TownLights reads: one start per renderer plus a terminator,
+            // and a flat run of (slot, group) pairs behind it. A tile with houses and a lamp on it owns
+            // two entries; a tile with only lamps owns one.
             var townRenderers = new List<MeshRenderer>();
-            var townWindowSlots = new List<int>();
+            var townSlotStart = new List<int> { 0 };
+            var townSlots = new List<int>();
+            var townSlotGroups = new List<int>();
 
             for (int i = 0; i < tiles.Count; i++)
             {
@@ -1389,11 +1419,28 @@ namespace Horizon.EditorTools
                                      | StaticEditorFlags.OccluderStatic
                                      | StaticEditorFlags.OccludeeStatic);
 
-                    int windowSlot = townStats.Submeshes.IndexOf(BuildingMeshes.WindowSubmesh);
-                    if (windowSlot >= 0)
+                    // Looked up rather than assumed, because empty submeshes are dropped when the tile
+                    // mesh is built: the lit glass is not in slot 7 on a tile that has no ochre walls.
+                    int litSlot = townStats.Submeshes.IndexOf(BuildingMeshes.WindowLitSubmesh);
+                    int lampSlot = townStats.Submeshes.IndexOf(BuildingMeshes.LampLitSubmesh);
+
+                    if (litSlot >= 0 || lampSlot >= 0)
                     {
                         townRenderers.Add(townObject.GetComponent<MeshRenderer>());
-                        townWindowSlots.Add(windowSlot);
+
+                        if (litSlot >= 0)
+                        {
+                            townSlots.Add(litSlot);
+                            townSlotGroups.Add((int)LitGroup.Windows);
+                        }
+
+                        if (lampSlot >= 0)
+                        {
+                            townSlots.Add(lampSlot);
+                            townSlotGroups.Add((int)LitGroup.Lamps);
+                        }
+
+                        townSlotStart.Add(townSlots.Count);
                     }
 
                     AddPlotColliders(townObject.transform, key, terrainShape, townPlan);
@@ -1420,19 +1467,25 @@ namespace Horizon.EditorTools
                 heaviestTile, heaviestTileName);
 
             ReportTown(townTotal, townShape, townPlan);
-            WireTownLights(parent, townRenderers, townWindowSlots, materials);
+            WireTownLights(parent, townRenderers, townSlotStart, townSlots, townSlotGroups, materials);
         }
 
         /// <summary>
-        /// Hangs one TownLights on the world root, holding every renderer that owns a window submesh.
+        /// Hangs one TownLights on the world root, holding every renderer that owns a lit submesh.
         ///
         /// One component for the whole town rather than one per tile: every window in the place lights
         /// at the same instant, so there is nothing to be gained by deciding it thirty times over.
+        ///
+        /// <para>The lamps' day material is <c>M_Lane</c> itself rather than a copy of its colour. A pool
+        /// of light on the carriageway has to be invisible by day, and "the same material" is the only
+        /// version of that which cannot drift when somebody retints the road.</para>
         /// </summary>
         private static void WireTownLights(
             Transform parent,
             List<MeshRenderer> renderers,
-            List<int> windowSlots,
+            List<int> slotStart,
+            List<int> slots,
+            List<int> slotGroups,
             PrototypeMaterials materials)
         {
             if (renderers.Count == 0)
@@ -1448,16 +1501,27 @@ namespace Horizon.EditorTools
             {
                 HorizonAssetUtility.SetObjectArray(serialized, "renderers", renderers.ToArray());
 
-                SerializedProperty slots = serialized.FindProperty("windowSlots");
-                slots.arraySize = windowSlots.Count;
-                for (int i = 0; i < windowSlots.Count; i++)
-                {
-                    slots.GetArrayElementAtIndex(i).intValue = windowSlots[i];
-                }
+                SetIntArray(serialized, "slotStart", slotStart);
+                SetIntArray(serialized, "slots", slots);
+                SetIntArray(serialized, "slotGroup", slotGroups);
 
-                serialized.FindProperty("dayMaterial").objectReferenceValue = materials.WindowDay;
-                serialized.FindProperty("nightMaterial").objectReferenceValue = materials.WindowNight;
+                // Indexed by LitGroup, so the order of these two arrays is the order of that enum.
+                HorizonAssetUtility.SetObjectArray(serialized, "dayMaterials",
+                    new[] { materials.WindowDay, materials.Lane });
+                HorizonAssetUtility.SetObjectArray(serialized, "nightMaterials",
+                    new[] { materials.WindowNight, materials.LampNight });
             });
+        }
+
+        private static void SetIntArray(SerializedObject serialized, string name, List<int> values)
+        {
+            SerializedProperty property = serialized.FindProperty(name);
+            property.arraySize = values.Count;
+
+            for (int i = 0; i < values.Count; i++)
+            {
+                property.GetArrayElementAtIndex(i).intValue = values[i];
+            }
         }
 
         private static void ReportTown(TownStats stats, in TownShape shape, TownPlan plan)
@@ -1472,7 +1536,8 @@ namespace Horizon.EditorTools
             Debug.Log($"[Horizon] Town: {stats.Houses} houses, {stats.Mosques} mosque, "
                       + $"{stats.Windmills} windmill, "
                       + $"{stats.Barns} barns, {stats.Sawmills} sawmills, {stats.Fences} fences, "
-                      + $"{stats.Lamps} lamps, {stats.Cars} parked cars — {stats.Triangles} triangles "
+                      + $"{stats.Lamps} lamps with {stats.Pools} ground pools, {stats.Cars} parked cars "
+                      + $"— {stats.Triangles} triangles "
                       + $"over {plan.Footprint.size.x:0} x {plan.Footprint.size.z:0} m.");
 
             if (stats.Triangles > shape.MaxTrianglesPerTile * 4)
@@ -1481,7 +1546,157 @@ namespace Horizon.EditorTools
                                  + "Raise PlotSpacing or lower the plot count in TownShape.");
             }
 
+            ReportGlassSplit(stats);
             ReportWindingFlips("Town", stats.Flips);
+        }
+
+        /// <summary>
+        /// What fraction of the town's glass will light after dark, as a number.
+        ///
+        /// <para>This is the check the night render cannot do for you. If the per-quarter
+        /// <c>litChance</c> never reached the panes — the plot's value dropped somewhere between the
+        /// planner and <see cref="BuildingMeshes.GlassSubmesh"/>, or a default of 0.5 stood in for it —
+        /// the town still lights up, still looks like a town at night, and is simply wrong in a way no
+        /// screenshot distinguishes from right. The expected figure is a weighted average of the
+        /// quarters, which lands well under a half.</para>
+        /// </summary>
+        private static void ReportGlassSplit(TownStats stats)
+        {
+            int total = stats.LitGlass + stats.DarkGlass;
+            if (total == 0)
+            {
+                Debug.LogWarning("[Horizon] Town glass: no window panes at all, lit or dark. Either "
+                                 + "nothing was built or the glass submeshes have been renumbered "
+                                 + "without BuildingMeshes.GlassSubmesh being told.");
+                return;
+            }
+
+            float lit = stats.LitGlass / (float)total;
+            Debug.Log($"[Horizon] Town glass: {lit * 100f:0.0} % of {total} pane triangles light after "
+                      + "dark. Expect roughly 30-45 %, weighted across the quarters.");
+
+            if (lit > 0.46f || lit < 0.12f)
+            {
+                Debug.LogWarning(
+                    $"[Horizon] Town glass is {lit * 100f:0.0} % lit, which is outside the range the "
+                    + "quarter table asks for (0.15 industry to 0.60 market). Around 50 % in particular "
+                    + "is the signature of litChance never arriving and every pane being rolled at a "
+                    + "flat half — check TownPlan.Plot.LitChance reaches BuildingMeshes.AddHouse.");
+            }
+        }
+
+        /// <summary>
+        /// How many draw calls stand resident around each of a set of viewpoints, worst case first.
+        ///
+        /// <para>This exists because the twelve-submesh budget is the one decision in the town most
+        /// likely to have to be undone, and an opinion about it is worth nothing. Every submesh a tile
+        /// keeps is a draw call; empty-submesh compaction stops helping in a core where every variant
+        /// appears on every tile; and at <c>loadRadius</c> 650 with 168 m tiles there are twenty-odd
+        /// tiles resident, each carrying terrain, vegetation and buildings. The arithmetic is easy to get
+        /// wrong in either direction, so it is counted instead.</para>
+        ///
+        /// <para><b>An upper bound, and deliberately so.</b> It counts every material slot of every
+        /// resident renderer, with no frustum culling, no occlusion culling and no SRP Batcher merging —
+        /// none of which can be evaluated at edit time. The real number comes from the Frame Debugger on a
+        /// real mid-range Android; this is the tripwire that says whether it is worth going and looking.
+        /// Buildings are marked <c>OccluderStatic</c>, so the delivered figure in a dense core should be
+        /// materially below this one, and at the open edges of the town it will not be.</para>
+        ///
+        /// <para>The levers, in order, if this says twelve is too many: drop
+        /// <c>WorldStreamer.loadRadius</c> to about 450 and lean on the fog, which is already tuned to
+        /// hide the 600 m far plane; merge the wall palette to two; then vertex colours and one custom
+        /// shader, which collapses a tile's buildings to about three calls. See
+        /// <see cref="BuildingMeshes.SubmeshCount"/>.</para>
+        /// </summary>
+        /// <summary>
+        /// Where to stand to count draw calls: the five preview stations up the climb, plus three
+        /// through the town.
+        ///
+        /// The same five as <see cref="WorldPreviewRenderer"/> deliberately — the shots and the numbers
+        /// should be about the same places — and three more in the town, because the town is the only
+        /// part of this world where the answer is in any doubt.
+        /// </summary>
+        private static List<Vector3> DrawCallStations(RoadPath path)
+        {
+            var stations = new List<Vector3>(8);
+
+            float[] fractions = { 0.06f, 0.30f, 0.55f, 0.78f, 0.95f };
+            for (int i = 0; i < fractions.Length; i++)
+            {
+                stations.Add(path.GetPositionAtDistance(path.Length * fractions[i]));
+            }
+
+            float start = MountainPassCourse.TownStartDistance;
+            float end = MountainPassCourse.TownEndDistance;
+            stations.Add(path.GetPositionAtDistance(Mathf.Min(start, path.Length)));
+            stations.Add(path.GetPositionAtDistance(Mathf.Min((start + end) * 0.5f, path.Length)));
+            stations.Add(path.GetPositionAtDistance(Mathf.Min(end, path.Length)));
+
+            return stations;
+        }
+
+        private static void ReportDrawCallBudget(
+            Transform worldRoot, IReadOnlyList<Vector3> stations, float loadRadius)
+        {
+            WorldChunk[] chunks = worldRoot.GetComponentsInChildren<WorldChunk>(true);
+            if (chunks.Length == 0 || stations == null || stations.Count == 0)
+            {
+                return;
+            }
+
+            // Counted once per chunk rather than once per chunk per station: the renderer walk is the
+            // expensive half, and a chunk's material count does not depend on where you stand.
+            var callsPerChunk = new int[chunks.Length];
+            for (int i = 0; i < chunks.Length; i++)
+            {
+                Renderer[] renderers = chunks[i].GetComponentsInChildren<Renderer>(true);
+                for (int r = 0; r < renderers.Length; r++)
+                {
+                    callsPerChunk[i] += renderers[r].sharedMaterials.Length;
+                }
+            }
+
+            int worst = 0;
+            int worstStation = 0;
+            int worstChunks = 0;
+
+            for (int s = 0; s < stations.Count; s++)
+            {
+                int calls = 0;
+                int resident = 0;
+
+                for (int i = 0; i < chunks.Length; i++)
+                {
+                    if (chunks[i].DistanceTo(stations[s]) >= loadRadius)
+                    {
+                        continue;
+                    }
+
+                    calls += callsPerChunk[i];
+                    resident++;
+                }
+
+                if (calls > worst)
+                {
+                    worst = calls;
+                    worstStation = s;
+                    worstChunks = resident;
+                }
+            }
+
+            Debug.Log($"[Horizon] Draw calls at loadRadius {loadRadius:0} m: worst of "
+                      + $"{stations.Count} stations is {worst} over {worstChunks} chunks, at station "
+                      + $"{worstStation + 1} ({stations[worstStation].x:0}, {stations[worstStation].z:0}). "
+                      + "Upper bound — no culling, no batcher merging. Confirm on device.");
+
+            if (worst > 400)
+            {
+                Debug.LogWarning(
+                    $"[Horizon] {worst} resident material slots is past what a mid-range Android will "
+                    + "hold at 60 fps even after culling. Pull WorldStreamer.loadRadius in first — it is "
+                    + "one field and the fog already hides the result — before touching the submesh "
+                    + "budget. See BuildingMeshes.SubmeshCount for the order of the levers.");
+            }
         }
 
         /// <summary>
@@ -1541,14 +1756,28 @@ namespace Horizon.EditorTools
                 {
                     result[i] = materials.Roofs[submesh - BuildingMeshes.FirstRoofSubmesh];
                 }
-                else if (submesh == BuildingMeshes.WindowSubmesh)
+                else if (submesh == BuildingMeshes.WindowDarkSubmesh
+                         || submesh == BuildingMeshes.WindowLitSubmesh)
                 {
-                    // Starts dark. TownLights swaps in the lit one after sunset.
+                    // Both start dark, and by day they are meant to be indistinguishable — a window you
+                    // can tell will light later is a window with a bulb painted on it. TownLights swaps
+                    // the lit one after sunset and never touches the dark one.
                     result[i] = materials.WindowDay;
+                }
+                else if (submesh == BuildingMeshes.LampLitSubmesh)
+                {
+                    // The street's own material, so the pool of light on the carriageway is not merely
+                    // close to the road colour by day but is the road colour, to the last digit. The
+                    // lantern head goes dark grey with it, which is what an unlit lantern is.
+                    result[i] = materials.Lane;
                 }
                 else if (submesh == BuildingMeshes.GardenSubmesh)
                 {
                     result[i] = materials.Undergrowth;
+                }
+                else if (submesh == BuildingMeshes.AccentSubmesh)
+                {
+                    result[i] = materials.Accent;
                 }
                 else
                 {

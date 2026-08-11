@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace Horizon.World
@@ -34,6 +35,12 @@ namespace Horizon.World
         /// is built and the SRP Batcher groups them by shader, so the cost is far smaller than the count
         /// suggests — and thirty-five identical houses is the thing that makes a generated village read
         /// as generated.
+        ///
+        /// <para><b>Three, not four, and that is the opinionated part of the budget below.</b> Three walls
+        /// against three roofs is nine combinations, and because a run of houses shares its colours the
+        /// street reads as varied at the scale of runs — which is the scale you actually see from a car. A
+        /// fourth wall colour buys less than the accent, the lit glass and the lamps do, and costs the
+        /// same.</para>
         /// </summary>
         public const int WallVariants = 3;
 
@@ -42,16 +49,53 @@ namespace Horizon.World
         public const int FirstWallSubmesh = 0;
         public const int FirstRoofSubmesh = FirstWallSubmesh + WallVariants;
 
-        /// <summary>Windows and lamp heads — everything that lights up after dark.</summary>
-        public const int WindowSubmesh = FirstRoofSubmesh + RoofVariants;
+        /// <summary>Glass that never lights. Most windows, and every parked car.</summary>
+        public const int WindowDarkSubmesh = FirstRoofSubmesh + RoofVariants;
 
-        /// <summary>Doors, shutters, sills, fence posts, beams, lamp posts, timber.</summary>
-        public const int TrimSubmesh = WindowSubmesh + 1;
+        /// <summary>Glass that swaps to the lit material at dusk. See <see cref="GlassSubmesh"/>.</summary>
+        public const int WindowLitSubmesh = WindowDarkSubmesh + 1;
+
+        /// <summary>
+        /// Lantern heads and the pools of light under them.
+        ///
+        /// Its own submesh rather than sharing <see cref="WindowLitSubmesh"/> because a lamp wants a
+        /// brighter, whiter night material than a house window, and by day it wants to be the street
+        /// rather than dark glass. Two different pairs of materials is two groups, which is one submesh.
+        /// </summary>
+        public const int LampLitSubmesh = WindowLitSubmesh + 1;
+
+        /// <summary>Doors, sills, fence posts, beams, lamp posts, timber.</summary>
+        public const int TrimSubmesh = LampLitSubmesh + 1;
 
         /// <summary>Hedges and garden planting.</summary>
         public const int GardenSubmesh = TrimSubmesh + 1;
 
-        public const int SubmeshCount = GardenSubmesh + 1;
+        /// <summary>
+        /// The painted colour: shutters, canopies, balcony rails — later awnings and sign boards.
+        ///
+        /// One recurring saturated colour across a façade of plaster and stone does more for a street than
+        /// another plaster tone would, because it is the only thing in the palette that is *not* a
+        /// building material.
+        /// </summary>
+        public const int AccentSubmesh = GardenSubmesh + 1;
+
+        /// <summary>
+        /// Twelve, and every one of them is a draw call on a tile that uses it.
+        ///
+        /// <para>Two costs bound this. Every submesh a tile mesh keeps is a draw call, and
+        /// <see cref="VegetationMeshBuffer.ToMesh"/>'s empty-submesh compaction — which is why the village
+        /// was cheap — stops helping in a town core, where every variant appears on every tile. That is
+        /// the real village-to-town change, and it is why <c>ReportDrawCallBudget</c> exists rather than
+        /// an assumption.</para>
+        ///
+        /// <para>The escape hatch, if the counter says twelve is too many, is <b>vertex colours plus one
+        /// small custom shader</b>: one material, unlimited tints, the best batching available, and about
+        /// sixty lines of shader against a <c>List&lt;Color32&gt;</c> on the buffer. It conflicts with
+        /// nothing here and is deferred only because it would be this project's first hand-written
+        /// shader. The cheaper levers come first — <c>WorldStreamer.loadRadius</c>, then merging the wall
+        /// palette to two.</para>
+        /// </summary>
+        public const int SubmeshCount = AccentSubmesh + 1;
 
         /// <summary>Wall submesh for one of the palette variants.</summary>
         public static int WallSubmesh(int variant)
@@ -65,6 +109,20 @@ namespace Horizon.World
             return FirstRoofSubmesh + Mathf.Abs(variant) % RoofVariants;
         }
 
+        /// <summary>
+        /// Which of the two glass submeshes a pane goes in: lit after dark, or never.
+        ///
+        /// <para>The draw comes from the <i>building's own</i> <see cref="PlantRandom"/> stream, so a house
+        /// lights the same windows on every rebuild. It also means adding this call shifted every
+        /// subsequent draw in <see cref="AddHouse"/> — every house in the town changed shape and colour on
+        /// the run that introduced it. Deterministic and intended; it is only worth stating so a wholesale
+        /// visual change is not mistaken for a bug.</para>
+        /// </summary>
+        public static int GlassSubmesh(ref PlantRandom random, float litChance)
+        {
+            return random.Chance(litChance) ? WindowLitSubmesh : WindowDarkSubmesh;
+        }
+
         /// <summary>How deep a window sits back into the wall. This is what gives a façade a shadow.</summary>
         private const float Reveal = 0.16f;
 
@@ -72,7 +130,12 @@ namespace Horizon.World
         /// A detached house: plinth, walls, a pitched roof with eaves, a door and a grid of windows.
         /// About 70 triangles.
         /// </summary>
-        public static void AddHouse(VegetationMeshBuffer buffer, in PlantPlacement place)
+        /// <param name="litChance">
+        /// Fraction of this building's panes that light after dark. Comes down from the quarter the plot
+        /// stands in — a housing street is sparser than a high street of shopfronts — rather than being a
+        /// constant here, because "how much of this street is awake at night" is a property of the street.
+        /// </param>
+        public static void AddHouse(VegetationMeshBuffer buffer, in PlantPlacement place, float litChance)
         {
             var random = new PlantRandom(place.Seed);
 
@@ -108,25 +171,28 @@ namespace Horizon.World
             float doorX = random.Range(-halfWidth * 0.45f, halfWidth * 0.45f);
             AddDoorway(buffer, place, doorX, halfDepth, ref random);
 
-            AddWindowRow(buffer, place, wall, halfWidth, halfDepth, 1.1f, doorX, ref random);
+            AddWindowRow(buffer, place, wall, halfWidth, halfDepth, 1.1f, doorX, litChance, ref random);
             if (twoStorey)
             {
                 AddWindowRow(buffer, place, wall, halfWidth, halfDepth, eaveHeight - 2.0f,
-                    float.MaxValue, ref random);
+                    float.MaxValue, litChance, ref random);
             }
 
-            // The gable used to be a blank triangle on every single house.
+            // The gable used to be a blank triangle on every single house. A loft is the least likely
+            // room in the house to be lit, so it takes a fraction of the building's chance rather than
+            // all of it.
             AddWindowOpening(buffer, place, wall, doorX * 0.2f, eaveHeight + 0.5f, halfDepth,
-                0.42f, 0.7f, false);
+                0.42f, 0.7f, false, litChance * 0.4f, ref random);
 
             if (random.Chance(0.55f))
             {
-                AddDormer(buffer, place, wall, roof, halfDepth, eaveHeight, ridgeHeight, ref random);
+                AddDormer(buffer, place, wall, roof, halfDepth, eaveHeight, ridgeHeight, litChance,
+                    ref random);
             }
 
             if (random.Chance(0.4f))
             {
-                AddWing(buffer, place, wall, roof, halfWidth, halfDepth, ref random);
+                AddWing(buffer, place, wall, roof, halfWidth, halfDepth, litChance, ref random);
             }
 
             if (twoStorey && random.Chance(0.35f))
@@ -159,7 +225,9 @@ namespace Horizon.World
             float wallZ,
             float halfWidth,
             float height,
-            bool shutters)
+            bool shutters,
+            float litChance,
+            ref PlantRandom random)
         {
             float x0 = centerX - halfWidth;
             float x1 = centerX + halfWidth;
@@ -183,7 +251,7 @@ namespace Horizon.World
                 place.ToWorld(x1, baseY, wallZ), place.ToWorld(x1, baseY, back), place.Up);
 
             // The glass itself, at the back of the recess.
-            buffer.AddQuadFacing(WindowSubmesh,
+            buffer.AddQuadFacing(GlassSubmesh(ref random, litChance),
                 place.ToWorld(x0, baseY, back), place.ToWorld(x1, baseY, back),
                 place.ToWorld(x1, y1, back), place.ToWorld(x0, y1, back), place.Forward);
 
@@ -199,7 +267,7 @@ namespace Horizon.World
             for (int side = 0; side < 2; side++)
             {
                 float sign = side == 0 ? -1f : 1f;
-                AddBox(buffer, place, TrimSubmesh, centerX + sign * (halfWidth + halfWidth * 0.5f),
+                AddBox(buffer, place, AccentSubmesh, centerX + sign * (halfWidth + halfWidth * 0.5f),
                     baseY, wallZ + 0.05f, halfWidth * 0.5f, height, 0.05f);
             }
         }
@@ -234,9 +302,11 @@ namespace Horizon.World
             // Step and canopy.
             AddBox(buffer, place, TrimSubmesh, centerX, -0.16f, wallZ + 0.3f, halfWidth + 0.2f, 0.2f, 0.32f);
 
+            // The canopy is the awning of the accent palette: painted, and the one piece of colour that
+            // sits at eye level right where a driver passes the front of the house.
             if (random.Chance(0.6f))
             {
-                AddBox(buffer, place, TrimSubmesh, centerX, height + 0.28f, wallZ + 0.28f,
+                AddBox(buffer, place, AccentSubmesh, centerX, height + 0.28f, wallZ + 0.28f,
                     halfWidth + 0.3f, 0.1f, 0.36f);
             }
         }
@@ -250,6 +320,7 @@ namespace Horizon.World
             float halfDepth,
             float eaveHeight,
             float ridgeHeight,
+            float litChance,
             ref PlantRandom random)
         {
             const float halfWidth = 0.85f;
@@ -263,7 +334,7 @@ namespace Horizon.World
 
             AddBox(buffer, place, wallSubmesh, centerX, baseY, z, halfWidth, height, 0.9f);
             AddWindowOpening(buffer, place, wallSubmesh, centerX, baseY + 0.35f, z + 0.9f,
-                halfWidth * 0.6f, 0.75f, false);
+                halfWidth * 0.6f, 0.75f, false, litChance, ref random);
 
             // Its own little pitched roof.
             Vector3 left = place.ToWorld(centerX - halfWidth - 0.15f, baseY + height, z + 1.0f);
@@ -282,6 +353,7 @@ namespace Horizon.World
             int roofSubmesh,
             float halfWidth,
             float halfDepth,
+            float litChance,
             ref PlantRandom random)
         {
             float sign = random.Chance(0.5f) ? 1f : -1f;
@@ -313,7 +385,7 @@ namespace Horizon.World
             buffer.AddQuadFacing(roofSubmesh, highFront, lowFront, lowBack, highBack, place.Up);
 
             AddWindowOpening(buffer, place, wallSubmesh, centerX, 0.9f, centerZ + wingHalfDepth,
-                0.42f, 0.85f, false);
+                0.42f, 0.85f, false, litChance, ref random);
         }
 
         /// <summary>A small balcony on the street face, with a rail.</summary>
@@ -326,13 +398,15 @@ namespace Horizon.World
         {
             float half = Mathf.Min(1.6f, halfWidth * 0.55f);
 
+            // Slab in trim, rail in the accent colour: the slab is the building, the rail is joinery
+            // somebody painted.
             AddBox(buffer, place, TrimSubmesh, 0f, atY, halfDepth + 0.5f, half, 0.12f, 0.55f);
-            AddBox(buffer, place, TrimSubmesh, 0f, atY + 0.12f, halfDepth + 1.0f, half, 0.85f, 0.06f);
+            AddBox(buffer, place, AccentSubmesh, 0f, atY + 0.12f, halfDepth + 1.0f, half, 0.85f, 0.06f);
 
             for (int side = 0; side < 2; side++)
             {
                 float sign = side == 0 ? -1f : 1f;
-                AddBox(buffer, place, TrimSubmesh, sign * half, atY + 0.12f, halfDepth + 0.5f,
+                AddBox(buffer, place, AccentSubmesh, sign * half, atY + 0.12f, halfDepth + 0.5f,
                     0.06f, 0.85f, 0.55f);
             }
         }
@@ -393,7 +467,8 @@ namespace Horizon.World
             }
         }
 
-        /// <summary>A street lamp. The head goes in the window submesh so it lights with the houses.</summary>
+        /// <summary>A street lamp. The head goes in the lamp submesh, so it lights earlier and whiter
+        /// than the windows around it.</summary>
         public static void AddStreetLamp(VegetationMeshBuffer buffer, in PlantPlacement place)
         {
             var random = new PlantRandom(place.Seed);
@@ -403,7 +478,63 @@ namespace Horizon.World
 
             // Arm reaching towards the street, with the lantern on its end.
             AddBox(buffer, place, TrimSubmesh, 0f, height - 0.25f, 0.5f, 0.07f, 0.14f, 0.55f);
-            AddBox(buffer, place, WindowSubmesh, 0f, height - 0.75f, 1.0f, 0.26f, 0.5f, 0.26f);
+
+            // A dark lid standing proud of the glass on every side, and a small foot under it.
+            //
+            // Not decoration. The lamp material is unlit and clips to white, so the lantern has no
+            // shading of any kind — every face is the same flat maximum, and its whole read is its
+            // silhouette. Without the lid it is a white rectangle beside a dark post, which at twenty
+            // metres looks like a billboard rather than a lamp; the two dark caps are what make the
+            // bright part a lantern.
+            AddBox(buffer, place, TrimSubmesh, 0f, height - 0.30f, 1.0f, 0.30f, 0.11f, 0.30f);
+            AddBox(buffer, place, LampLitSubmesh, 0f, height - 0.72f, 1.0f, 0.22f, 0.42f, 0.22f);
+            AddBox(buffer, place, TrimSubmesh, 0f, height - 0.80f, 1.0f, 0.26f, 0.08f, 0.26f);
+        }
+
+        /// <summary>
+        /// The pool of light a lamp throws on the carriageway: a flat polygon in the lamp submesh, which
+        /// by day carries the road's own material and disappears.
+        ///
+        /// <para><b>This is the entire night-lighting read, and it is what makes zero runtime lights
+        /// affordable.</b> The mobile renderer allows four additional lights per object with no shadows;
+        /// a hundred point lights would dominate the frame on a tile GPU for a warm patch on the tarmac,
+        /// which is what this is. Sharing <see cref="LampLitSubmesh"/> with the lantern head makes the
+        /// pool exactly as bright as the lantern — in flat-shaded stylised rendering that reads fine, and
+        /// it saves a submesh.</para>
+        ///
+        /// <para>The corners arrive in world space already sitting on the street's cross-section, because
+        /// a carriageway has a 6 cm crown and a polygon lifted bodily off one height z-fights against it
+        /// down the middle of the road. Working out where the surface is belongs to whoever has the
+        /// street; all this does is close the polygon.</para>
+        /// </summary>
+        public static void AddGroundPool(
+            VegetationMeshBuffer buffer, IReadOnlyList<Vector3> corners, int start, int count)
+        {
+            if (corners == null || count < 3 || start + count > corners.Count)
+            {
+                return;
+            }
+
+            var centre = Vector3.zero;
+            for (int i = 0; i < count; i++)
+            {
+                centre += corners[start + i];
+            }
+
+            centre /= count;
+
+            // Walked backwards round the ring. The corners are laid out with across on the cosine and
+            // along on the sine, and up is Cross(forward, right) — so a fan taken in increasing angle
+            // comes out facing the ground, and the flip counter said so, 6 triangles per pool exactly.
+            for (int i = 0; i < count; i++)
+            {
+                buffer.AddTriangleFacing(
+                    LampLitSubmesh,
+                    centre,
+                    corners[start + (i + 1) % count],
+                    corners[start + i],
+                    Vector3.up);
+            }
         }
 
         /// <summary>A parked car — a plain two-box silhouette. Read at ten metres, not at one.</summary>
@@ -414,8 +545,11 @@ namespace Horizon.World
             float halfLength = random.Range(2.0f, 2.4f);
             const float halfWidth = 0.85f;
 
+            // Dark glass, never lit: a parked car with its cabin glowing is a car with someone sitting
+            // in it, which is a different and much odder thing to put on a street.
             AddBox(buffer, place, TrimSubmesh, 0f, 0.35f, 0f, halfWidth, 0.75f, halfLength);
-            AddBox(buffer, place, WindowSubmesh, 0f, 1.1f, -0.15f, halfWidth * 0.86f, 0.6f, halfLength * 0.52f);
+            AddBox(buffer, place, WindowDarkSubmesh, 0f, 1.1f, -0.15f,
+                halfWidth * 0.86f, 0.6f, halfLength * 0.52f);
         }
 
         /// <summary>
@@ -518,6 +652,7 @@ namespace Horizon.World
             float halfDepth,
             float sillY,
             float doorX,
+            float litChance,
             ref PlantRandom random)
         {
             const float windowHalfWidth = 0.55f;
@@ -535,19 +670,22 @@ namespace Horizon.World
                 }
 
                 AddWindowOpening(buffer, place, wallSubmesh, x, sillY, halfDepth,
-                    windowHalfWidth, windowHeight, random.Chance(0.5f));
+                    windowHalfWidth, windowHeight, random.Chance(0.5f), litChance, ref random);
             }
 
+            // A flank faces a neighbour's garden rather than the street, and rather less of the house
+            // lives on that side. Half the chance, which is enough to keep a row from lighting like a
+            // grid seen end-on.
             if (random.Chance(0.85f))
             {
                 AddSideWindow(buffer, place, wallSubmesh, halfWidth, sillY, 0f,
-                    windowHalfWidth, windowHeight, true);
+                    windowHalfWidth, windowHeight, true, litChance * 0.5f, ref random);
             }
 
             if (random.Chance(0.85f))
             {
                 AddSideWindow(buffer, place, wallSubmesh, -halfWidth, sillY, 0f,
-                    windowHalfWidth, windowHeight, false);
+                    windowHalfWidth, windowHeight, false, litChance * 0.5f, ref random);
             }
         }
 
@@ -568,7 +706,9 @@ namespace Horizon.World
             float centerZ,
             float halfWidth,
             float height,
-            bool facingRight)
+            bool facingRight,
+            float litChance,
+            ref PlantRandom random)
         {
             float sign = facingRight ? 1f : -1f;
             float y1 = baseY + height;
@@ -595,7 +735,7 @@ namespace Horizon.World
                 place.ToWorld(back, baseY, zNear), place.ToWorld(wallX, baseY, zNear),
                 place.ToWorld(wallX, baseY, zFar), place.ToWorld(back, baseY, zFar), place.Up);
 
-            buffer.AddQuadFacing(WindowSubmesh,
+            buffer.AddQuadFacing(GlassSubmesh(ref random, litChance),
                 place.ToWorld(back, baseY, zNear), place.ToWorld(back, baseY, zFar),
                 place.ToWorld(back, y1, zFar), place.ToWorld(back, y1, zNear), place.Right * sign);
 
