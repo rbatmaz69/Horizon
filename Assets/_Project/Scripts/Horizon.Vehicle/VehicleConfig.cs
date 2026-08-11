@@ -50,7 +50,15 @@ namespace Horizon.Vehicle
         public float AntiRollStiffness = 14000f;
 
         [Header("Drivetrain")]
-        public DrivenAxle DrivenAxle = DrivenAxle.All;
+        [Tooltip("Which wheels get drive.\n\n"
+               + "Rear, and it is the single largest number in this file for how the car feels. Under "
+               + "the friction circle a tyre shares one grip budget between driving and cornering, so "
+               + "on all-wheel drive the throttle takes a quarter of the budget at each of four tyres "
+               + "and the back never steps out; on rear drive it takes half at two, and the car will "
+               + "oversteer on power the way the body it is wearing should. Set it back to All and the "
+               + "handling goes quiet and safe again — useful for telling the model apart from the "
+               + "layout.")]
+        public DrivenAxle DrivenAxle = DrivenAxle.Rear;
 
         [Header("Engine")]
         [Tooltip("Peak crankshaft torque in newton-metres. A big lazy V8 makes its torque low down.")]
@@ -162,28 +170,67 @@ namespace Horizon.Vehicle
 
         [Header("Steering")]
         [Tooltip("Steering angle at full lock, degrees.")]
-        public float MaxSteerAngle = 32f;
+        public float MaxSteerAngle = 34f;
 
         [Tooltip("Fraction of full lock available over normalized speed. Falling off with speed is "
-               + "what makes fast driving calm instead of nervous.")]
+               + "what makes fast driving calm instead of nervous.\n\n"
+               + "Opened up from 0.62/0.32 after the game was driven on a phone: at town speeds there "
+               + "were only 25° of lock and by 80 km/h barely 20, which is fine with a keyboard that can "
+               + "hold half a turn and not fine with a thumb, where the corner is over before the lock "
+               + "arrives. This is the half of that problem belonging to the car; the other half was the "
+               + "arrow buttons having no proportion at all, and lives in TouchSteer.")]
         public AnimationCurve SteeringBySpeed = new AnimationCurve(
             new Keyframe(0f, 1f),
-            new Keyframe(0.35f, 0.62f),
-            new Keyframe(1f, 0.32f));
+            new Keyframe(0.35f, 0.72f),
+            new Keyframe(1f, 0.42f));
 
         [Tooltip("Degrees per second the steering angle can change.")]
         public float SteerRate = 160f;
 
         [Header("Grip")]
-        [Tooltip("How completely a tyre kills sideways slide, over normalized speed. 1 is no slide, "
-               + "lower lets the car drift.")]
+        [Tooltip("Grip coefficient over normalized speed — how much force a tyre can put down, as a "
+               + "multiple of the load on it.\n\n"
+               + "This used to mean 'fraction of the sideways slide removed', which charged nothing for "
+               + "it: a tyre could put down full power and hold full cornering force at once. It is now "
+               + "the radius of a friction circle that driving and braking spend from as well, so 1.6 "
+               + "is a grippy road tyre and 1.0 is a car that will step out if you ask it to. The shape "
+               + "still falls with speed, which is aerodynamic and tyre heat standing in for each "
+               + "other.")]
         public AnimationCurve LateralGrip = new AnimationCurve(
-            new Keyframe(0f, 1f),
-            new Keyframe(0.5f, 0.9f),
-            new Keyframe(1f, 0.78f));
+            new Keyframe(0f, 1.70f),
+            new Keyframe(0.5f, 1.52f),
+            new Keyframe(1f, 1.32f));
 
-        [Tooltip("Rear grip multiplier while the handbrake is held.")]
-        [Range(0f, 1f)] public float HandbrakeGrip = 0.22f;
+        [Tooltip("What the handbrake does to rear grip on top of locking the wheels. The lock is "
+               + "HandbrakeForceN and does most of the work; this is the rest.")]
+        [Range(0f, 1f)] public float HandbrakeGrip = 0.55f;
+
+        [Tooltip("Braking force the handbrake puts through each rear wheel, newtons.\n\n"
+               + "Large on purpose: it has to be able to take the whole of a rear tyre's grip budget, "
+               + "because that is what leaves nothing for cornering and brings the car round. Too small "
+               + "and the handbrake merely slows you down.")]
+        public float HandbrakeForceN = 9000f;
+
+        [Header("Drift")]
+        [Tooltip("Slip angle in degrees past which the car counts as sideways. Below it the assists do "
+               + "nothing at all and the model is on its own.")]
+        public float DriftSlipAngle = 12f;
+
+        [Tooltip("Torque opposing yaw *rate* once past the slip angle, in newton-metres per rad/s per "
+               + "kilogram of car.\n\n"
+               + "Rate, not angle: a torque pulling the car straight would fight the drift and snap it "
+               + "into line the moment you lifted. This one lets the car sit at whatever angle you put "
+               + "it at and only bites when the rotation starts running away, which is what makes a "
+               + "slide holdable. Zero switches it off.\n\n"
+               + "2.5 is about 1 rad/s² of correction against this car's yaw inertia — enough to catch a "
+               + "slide, not enough to hide the model underneath. The first value tried here was 0.35, "
+               + "which worked out at 0.15 rad/s² and would have taken seven seconds to arrest a spin.")]
+        public float DriftYawDamping = 2.5f;
+
+        [Tooltip("How much of the steering lock that SteeringBySpeed takes away is handed back while "
+               + "sideways, 0 to 1. Full lock at speed is nervous on a straight and exactly what is "
+               + "wanted when catching a slide. Zero switches it off.")]
+        [Range(0f, 1f)] public float CountersteerAuthority = 0.75f;
 
         [Tooltip("Downforce in N per (m/s)². Presses the car onto the road as speed rises. Kept low "
                + "now that the car actually reaches 220 km/h — at 6 it would generate nearly twice the "

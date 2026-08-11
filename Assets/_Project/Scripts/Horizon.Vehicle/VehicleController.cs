@@ -47,6 +47,18 @@ namespace Horizon.Vehicle
             public float SpringLength;
             public float Compression01;
             public float SpinAngle;
+
+            /// <summary>
+            /// How much of the cornering force this tyre asked for it actually got, 0 to 1.
+            ///
+            /// 1 is a tyre holding on. Anything under it is the friction circle refusing, which is the
+            /// same thing as sliding — so this is what the squeal, the drift state and the overlay all
+            /// read rather than each deriving a slip angle of its own.
+            /// </summary>
+            public float GripUsed = 1f;
+
+            /// <summary>Sideways speed at the contact patch, m/s.</summary>
+            public float LateralSlip;
         }
 
         /// <summary>Signed forward speed in m/s. Negative when reversing.</summary>
@@ -83,6 +95,36 @@ namespace Horizon.Vehicle
         /// <summary>Engine speed as a fraction of the redline, for audio and instruments.</summary>
         public float RpmNormalized =>
             config != null ? Mathf.Clamp01(engineRpm / Mathf.Max(1f, config.RedlineRpm)) : 0f;
+
+        /// <summary>
+        /// How far the car is travelling sideways to the way it is pointing, in degrees.
+        ///
+        /// Taken from the body's own velocity rather than from a tyre, so it is the angle you would
+        /// measure from outside the car — which is the one that matters for whether this reads as a
+        /// drift. Zero below walking pace, where the direction of travel is noise.
+        /// </summary>
+        public float SlipAngle { get; private set; }
+
+        /// <summary>Sideways speed at the rear axle, m/s. What the tyre squeal is driven by.</summary>
+        public float RearSlip { get; private set; }
+
+        /// <summary>
+        /// The worst grip shortfall on the rear axle, 0 to 1, where 1 is holding on.
+        ///
+        /// Rear rather than either axle because that is the end whose letting go is a drift; the front
+        /// letting go is understeer, and it wants a different noise and a different camera.
+        /// </summary>
+        public float RearGrip { get; private set; } = 1f;
+
+        /// <summary>
+        /// True when the car is meaningfully sideways *and* the rear tyres are the reason.
+        ///
+        /// Both halves are needed. Slip angle alone counts a car sliding bodily down a wet camber,
+        /// which is not a drift; lost rear grip alone counts a standstill wheelspin, which is not one
+        /// either.
+        /// </summary>
+        public bool IsDrifting =>
+            config != null && SlipAngle > config.DriftSlipAngle && RearGrip < 0.92f;
 
         private bool reversing;
 
@@ -204,7 +246,17 @@ namespace Horizon.Vehicle
             forwardSpeed = Vector3.Dot(velocity, transform.forward);
             float speed01 = Mathf.Clamp01(Mathf.Abs(forwardSpeed) / Mathf.Max(1f, config.TopSpeed));
 
-            float targetSteer = drive.Steer * config.MaxSteerAngle * config.SteeringBySpeed.Evaluate(speed01);
+            // Lock available at this speed, plus whatever the slide has earned back. SteeringBySpeed
+            // cuts to a third at speed to keep a straight calm, and that is the exact opposite of what
+            // is needed with the car sideways — see ApplyDriftAssists.
+            float lock01 = config.SteeringBySpeed.Evaluate(speed01);
+            if (SlipAngle > config.DriftSlipAngle)
+            {
+                float past = Mathf.InverseLerp(config.DriftSlipAngle, config.DriftSlipAngle + 25f, SlipAngle);
+                lock01 = Mathf.Lerp(lock01, 1f, past * config.CountersteerAuthority);
+            }
+
+            float targetSteer = drive.Steer * config.MaxSteerAngle * lock01;
             steerAngle = Mathf.MoveTowards(steerAngle, targetSteer, config.SteerRate * deltaTime);
 
             // Brake doubles as reverse once we are almost stopped — one pedal, no gear selection.
@@ -230,6 +282,9 @@ namespace Horizon.Vehicle
 
             ApplyAntiRoll(FrontLeft, FrontRight);
             ApplyAntiRoll(RearLeft, RearRight);
+
+            UpdateSlipState(velocity);
+            ApplyDriftAssists();
 
             // Aerodynamic drag, on the body once — not per wheel. Applying drag four times over is how
             // the car ended up with a top speed of about 45 km/h.
@@ -400,18 +455,8 @@ namespace Horizon.Vehicle
             float longitudinalVelocity = Vector3.Dot(pointVelocity, forward);
             float wheelShareOfMass = config.Mass * 0.25f;
 
-            // --- Lateral grip: cancel the sideways component. grip == 1 removes it entirely within
-            // this step; anything lower leaves a proportional slide, which is the drift control.
-            float grip = config.LateralGrip.Evaluate(speed01);
-            if (handbrake && !isFront)
-            {
-                grip *= config.HandbrakeGrip;
-            }
-
-            float lateralAcceleration = -lateralVelocity * grip / deltaTime;
-            body.AddForceAtPosition(right * (lateralAcceleration * wheelShareOfMass), hit.point);
-
-            // --- Longitudinal: drive, then everything that opposes motion.
+            // --- Longitudinal first, because the friction circle below has to know what this tyre is
+            // already asking of the road before it can say how much is left for cornering.
             float longitudinalForce = config.IsDriven(index) ? driveForcePerWheel : 0f;
 
             // Rolling resistance is a constant force opposing the direction of travel, not something
@@ -425,15 +470,144 @@ namespace Horizon.Vehicle
                 resistive += rollingSign * (brake * config.BrakeForce * 0.25f);
             }
 
+            // The handbrake is a brake, not a switch on the grip.
+            //
+            // It used to multiply rear grip by a constant, which slid the car sideways without ever
+            // rotating it — the back stepped out and the nose carried straight on. Locking the rear
+            // wheels instead spends their whole grip budget on stopping, and the circle below then has
+            // nothing left to give cornering, so the car comes round because it is being braked at one
+            // end. That is what a handbrake turn actually is.
+            if (handbrake && !isFront)
+            {
+                resistive += rollingSign * config.HandbrakeForceN;
+            }
+
             // Clamp so braking and rolling resistance can bring the wheel to a stop but never drag
             // it backwards through zero — that would make the car creep while fully braked.
             float maxResistive = Mathf.Abs(longitudinalVelocity) * wheelShareOfMass / deltaTime;
             resistive = Mathf.Clamp(resistive, -maxResistive, maxResistive);
             longitudinalForce -= resistive;
 
+            // --- The friction circle.
+            //
+            // <b>One tyre, one budget, shared between going and turning.</b> The model before this
+            // cancelled a fraction of the sideways velocity and charged nothing for it, so a tyre could
+            // put down full power and hold full cornering force at the same time — which is why the car
+            // could not be made to oversteer by any amount of throttle, and why the handbrake had to be
+            // a special case.
+            //
+            // The budget is the normal load times a grip coefficient, and the load is the suspension
+            // force computed a few lines above rather than a quarter of the car's mass. That is what
+            // brings load sensitivity for free: a wheel gone light over a crest or on the inside of a
+            // hairpin loses grip on its own, and the anti-roll bar's load transfer starts to mean
+            // something.
+            float mu = config.LateralGrip.Evaluate(speed01);
+            if (handbrake && !isFront)
+            {
+                mu *= config.HandbrakeGrip;
+            }
+
+            float budget = suspensionForce * mu;
+
+            // The tyre cannot put down more than it has, in *either* direction. Clamping only the
+            // cornering half would be the old bug wearing a circle: the car would accelerate as though
+            // traction were free while its grip quietly went to nothing, so first gear would launch like
+            // an electric motor and corner like it was on ice. Clamped here, asking for more drive than
+            // the road can take costs acceleration — which is wheelspin, and is why a standing start in
+            // first now has to be fed in rather than stamped on.
+            longitudinalForce = Mathf.Clamp(longitudinalForce, -budget, budget);
+
+            float spent = Mathf.Abs(longitudinalForce);
+            float capacity = Mathf.Sqrt(Mathf.Max(0f, budget * budget - spent * spent));
+
+            // What it would take to cancel the slide outright, which is what the old model always got.
+            // Now it is a request, and the circle answers with what it can afford.
+            float wanted = -lateralVelocity * wheelShareOfMass / deltaTime;
+            float lateralForce = Mathf.Clamp(wanted, -capacity, capacity);
+
+            body.AddForceAtPosition(right * lateralForce, hit.point);
             body.AddForceAtPosition(forward * longitudinalForce, hit.point);
 
+            // How much of what the tyre wanted it actually got, for the slip readouts and the overlay.
+            // Measured rather than inferred from the wheel's angle, because at very low speed a slip
+            // angle is all noise while this stays meaningful.
+            wheel.GripUsed = Mathf.Abs(wanted) > 1f ? Mathf.Clamp01(Mathf.Abs(lateralForce / wanted)) : 1f;
+            wheel.LateralSlip = Mathf.Abs(lateralVelocity);
+
             UpdateWheelVisual(index, springLength, wheelSteer, longitudinalVelocity, deltaTime);
+        }
+
+        /// <summary>
+        /// Works out how sideways the car is, once per step, from the body and the rear tyres.
+        ///
+        /// One place rather than four: the squeal, the flame, the overlay and the assists below all
+        /// want the same numbers, and a slip angle each would be four chances to disagree.
+        /// </summary>
+        private void UpdateSlipState(Vector3 velocity)
+        {
+            Vector3 flat = velocity;
+            flat.y = 0f;
+
+            // Below walking pace the direction of travel is mostly noise, and an angle taken from it
+            // would have the car reporting wild drifts while parking.
+            if (flat.sqrMagnitude < 4f)
+            {
+                SlipAngle = 0f;
+            }
+            else
+            {
+                Vector3 heading = transform.forward;
+                heading.y = 0f;
+
+                // Unsigned: which way round a slide is going matters to the assists, which read the yaw
+                // rate directly, but not to anything that only wants to know how sideways it is.
+                SlipAngle = Vector3.Angle(heading, flat.normalized);
+
+                // Reversing is not a 180° drift.
+                if (SlipAngle > 90f)
+                {
+                    SlipAngle = 180f - SlipAngle;
+                }
+            }
+
+            RearSlip = Mathf.Max(wheels[RearLeft].LateralSlip, wheels[RearRight].LateralSlip);
+            RearGrip = Mathf.Min(wheels[RearLeft].GripUsed, wheels[RearRight].GripUsed);
+        }
+
+        /// <summary>
+        /// The two things that make a slide catchable rather than a spin.
+        ///
+        /// <para>Both are assists and both go to nothing at zero, which is deliberate: the friction
+        /// circle underneath has to be judgeable on its own, and an assist that cannot be switched off
+        /// is a model you can never tune because you can never see it.</para>
+        ///
+        /// <para><b>Yaw damping resists the rate, not the angle.</b> A torque pulling the car back
+        /// straight would fight the drift itself and the car would snap into line the moment you lifted;
+        /// a torque opposing how fast it is rotating lets it sit at whatever angle you put it at and
+        /// only bites when it starts to run away. That is the difference between a drift you hold and
+        /// one you catch or lose.</para>
+        ///
+        /// <para><b>Countersteer authority</b> gives back the lock that <c>SteeringBySpeed</c> takes
+        /// away. That curve cuts to a third at speed, which is right for stability on a straight and
+        /// exactly wrong when you are sideways and need the wheel — so it is restored in proportion to
+        /// how far sideways the car already is, which is when it can do no harm.</para>
+        /// </summary>
+        private void ApplyDriftAssists()
+        {
+            if (GroundedWheelCount == 0 || SlipAngle <= config.DriftSlipAngle)
+            {
+                return;
+            }
+
+            float past = Mathf.InverseLerp(config.DriftSlipAngle, config.DriftSlipAngle + 25f, SlipAngle);
+            float yawRate = Vector3.Dot(body.angularVelocity, transform.up);
+
+            // Force, not Impulse: a continuous torque for as long as the car is sideways. The first
+            // version multiplied by deltaTime and passed Impulse, which is the same thing written twice
+            // as confusingly.
+            body.AddTorque(
+                -transform.up * (yawRate * config.DriftYawDamping * past * config.Mass),
+                ForceMode.Force);
         }
 
         /// <summary>

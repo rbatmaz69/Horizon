@@ -15,6 +15,22 @@ namespace Horizon.Vehicle
     {
         [SerializeField] private VehicleController vehicle;
 
+        [Tooltip("Flame emitter at the same tailpipe, fired in bursts rather than run at a rate. Left "
+               + "empty there is simply no flame.")]
+        [SerializeField] private ParticleSystem flame;
+
+        [Tooltip("The audio that decides when the exhaust lights. Found automatically if left empty.\n\n"
+               + "Driven by the sound rather than by the vehicle directly, and deliberately: a flame "
+               + "without its bang is a silent film, so the one gate that decides whether this is a hard "
+               + "shift lives in one place and the picture follows the noise.")]
+        [SerializeField] private EngineAudio engineAudio;
+
+        [Tooltip("Particles in a shift-bang burst.")]
+        [SerializeField] private int bangParticles = 14;
+
+        [Tooltip("...and in an overrun crackle, which is a spit rather than a gout.")]
+        [SerializeField] private int crackleParticles = 5;
+
         [Tooltip("Particles per second while idling.")]
         [SerializeField] private float idleRate = 7f;
 
@@ -36,6 +52,51 @@ namespace Horizon.Vehicle
             if (vehicle == null)
             {
                 vehicle = GetComponentInParent<VehicleController>();
+            }
+
+            if (engineAudio == null)
+            {
+                engineAudio = GetComponentInParent<EngineAudio>();
+            }
+        }
+
+        private void OnEnable()
+        {
+            if (engineAudio == null)
+            {
+                return;
+            }
+
+            engineAudio.Banged += OnBanged;
+            engineAudio.Crackled += OnCrackled;
+        }
+
+        private void OnDisable()
+        {
+            if (engineAudio == null)
+            {
+                return;
+            }
+
+            engineAudio.Banged -= OnBanged;
+            engineAudio.Crackled -= OnCrackled;
+        }
+
+        private void OnBanged()
+        {
+            Emit(bangParticles);
+        }
+
+        private void OnCrackled()
+        {
+            Emit(crackleParticles);
+        }
+
+        private void Emit(int count)
+        {
+            if (flame != null)
+            {
+                flame.Emit(count);
             }
         }
 
