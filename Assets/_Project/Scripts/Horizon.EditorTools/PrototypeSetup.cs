@@ -321,7 +321,14 @@ namespace Horizon.EditorTools
         /// </summary>
         private static VehicleConfig LoadVehicleConfig()
         {
-            return AssetDatabase.LoadAssetAtPath<VehicleConfig>(VehicleConfigPath);
+            VehicleConfig config = AssetDatabase.LoadAssetAtPath<VehicleConfig>(VehicleConfigPath);
+
+            // A rebuild must not silently construct the car from an asset whose numbers were chosen
+            // under meanings the code has since changed. VehicleConfigReset owns that judgement — it is
+            // a version stamp, not a guess at which values look wrong.
+            VehicleConfigReset.ResetIfStale(config);
+
+            return config;
         }
 
         /// <summary>Re-loads the time-of-day profile from disk. See <see cref="LoadVehicleConfig"/>.</summary>

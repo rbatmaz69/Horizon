@@ -10,18 +10,20 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 2e6c54b425c874741ae73be512ddf6a2, type: 3}
-  m_Name: VehicleConfig_Prototype
+  m_Name: 
   m_EditorClassIdentifier: Horizon.Vehicle::Horizon.Vehicle.VehicleConfig
+  Version: 1
   Mass: 1250
   CenterOfMass: {x: 0, y: -0.3, z: 0.05}
   LinearDamping: 0.06
-  AngularDamping: 1.2
+  AngularDamping: 0.05
+  RollPitchDamping: 2.5
   WheelRadius: 0.44
   SuspensionRestLength: 0.3
   SuspensionStiffness: 42000
   SuspensionDamping: 3800
   AntiRollStiffness: 14000
-  DrivenAxle: 2
+  DrivenAxle: 1
   MaxTorqueNm: 570
   TorqueByRpm:
     serializedVersion: 2
@@ -100,7 +102,7 @@ MonoBehaviour:
   ReverseSpeed: 8
   RollingResistanceN: 46
   AeroDrag: 0.45
-  MaxSteerAngle: 32
+  MaxSteerAngle: 40
   SteeringBySpeed:
     serializedVersion: 2
     m_Curve:
@@ -115,7 +117,7 @@ MonoBehaviour:
       outWeight: 0
     - serializedVersion: 3
       time: 0.35
-      value: 0.62
+      value: 0.8
       inSlope: 0
       outSlope: 0
       tangentMode: 0
@@ -124,7 +126,7 @@ MonoBehaviour:
       outWeight: 0
     - serializedVersion: 3
       time: 1
-      value: 0.32
+      value: 0.5
       inSlope: 0
       outSlope: 0
       tangentMode: 0
@@ -134,13 +136,13 @@ MonoBehaviour:
     m_PreInfinity: 2
     m_PostInfinity: 2
     m_RotationOrder: 4
-  SteerRate: 160
+  SteerRate: 300
   LateralGrip:
     serializedVersion: 2
     m_Curve:
     - serializedVersion: 3
       time: 0
-      value: 1
+      value: 1.7
       inSlope: 0
       outSlope: 0
       tangentMode: 0
@@ -149,7 +151,7 @@ MonoBehaviour:
       outWeight: 0
     - serializedVersion: 3
       time: 0.5
-      value: 0.9
+      value: 1.52
       inSlope: 0
       outSlope: 0
       tangentMode: 0
@@ -158,7 +160,7 @@ MonoBehaviour:
       outWeight: 0
     - serializedVersion: 3
       time: 1
-      value: 0.78
+      value: 1.32
       inSlope: 0
       outSlope: 0
       tangentMode: 0
@@ -168,5 +170,10 @@ MonoBehaviour:
     m_PreInfinity: 2
     m_PostInfinity: 2
     m_RotationOrder: 4
-  HandbrakeGrip: 0.22
+  HandbrakeGrip: 0.55
+  HandbrakeForceN: 9000
+  DriftSlipAngle: 12
+  DriftYawDamping: 2.5
+  CountersteerAuthority: 0.75
+  TurnInAssist: 3
   Downforce: 2.5

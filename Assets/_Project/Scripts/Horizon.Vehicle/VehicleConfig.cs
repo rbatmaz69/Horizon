@@ -17,6 +17,24 @@ namespace Horizon.Vehicle
     [CreateAssetMenu(menuName = "Horizon/Vehicle Config", fileName = "VehicleConfig")]
     public sealed class VehicleConfig : ScriptableObject
     {
+        /// <summary>
+        /// Bumped whenever a field in here changes <i>meaning</i> rather than merely value. An asset
+        /// stamped below this is stale and gets rewritten from the code defaults — see
+        /// <c>VehicleConfigReset</c>.
+        /// </summary>
+        public const int CurrentVersion = 1;
+
+        /// <summary>
+        /// Which set of meanings this asset's numbers were chosen under.
+        ///
+        /// <para>Deliberately <b>without</b> an initialiser, and that is the whole trick. An asset
+        /// written before this field existed carries no key for it and therefore reads 0, which is
+        /// below <see cref="CurrentVersion"/> and marks it stale — exactly the assets that need
+        /// rewriting. An initialiser here would stamp every one of them as current and defeat the
+        /// mechanism at the only moment it matters.</para>
+        /// </summary>
+        [HideInInspector] public int Version;
+
         [Header("Body")]
         public float Mass = 1250f;
 
@@ -24,7 +42,23 @@ namespace Horizon.Vehicle
         public Vector3 CenterOfMass = new Vector3(0f, -0.30f, 0.05f);
 
         public float LinearDamping = 0.06f;
-        public float AngularDamping = 1.2f;
+
+        [Tooltip("Rigidbody angular damping. Deliberately almost nothing — see RollPitchDamping.\n\n"
+               + "This was 1.2, and it is why the steering felt vague no matter how much lock was wound "
+               + "on. Rigidbody damping cannot tell yaw from roll, so the figure that stopped a tall car "
+               + "wallowing was also being applied to the axis the driver steers with. Holding a steady "
+               + "corner at 1.2 rad/s took roughly 2600 Nm of yaw torque from the damper alone, which the "
+               + "front tyres had to find on top of turning the car — a permanent bias toward understeer "
+               + "that no amount of steering angle could answer.")]
+        public float AngularDamping = 0.05f;
+
+        [Tooltip("Damping applied to roll and pitch only, in rad/s per rad/s — a time constant of about "
+               + "1/this.\n\n"
+               + "Higher than the 1.2 it replaces, so the body is *steadier* in roll than before, while "
+               + "yaw is left to the tyres and DriftYawDamping. Turning it down makes the car livelier "
+               + "over crests and closer to flipping on a hairpin, which is the failure this and the "
+               + "anti-roll bars exist to prevent.")]
+        public float RollPitchDamping = 2.5f;
 
         [Header("Suspension")]
         /// <summary>
@@ -169,8 +203,15 @@ namespace Horizon.Vehicle
         public int ForwardGearCount => GearRatios != null ? GearRatios.Length : 1;
 
         [Header("Steering")]
-        [Tooltip("Steering angle at full lock, degrees.")]
-        public float MaxSteerAngle = 34f;
+        [Tooltip("Steering angle at full lock, degrees.\n\n"
+               + "40° against a 2.70 m wheelbase is a 3.2 m turning radius — a hairpin or a U-turn taken "
+               + "in one go rather than in three.\n\n"
+               + "Worth knowing where it stops mattering: with LateralGrip as it stands, the friction "
+               + "circle becomes the tighter of the two limits at about 27 km/h, and above that the car "
+               + "runs out of grip long before it runs out of lock. So this number buys geometry at "
+               + "manoeuvring speed and, above it, only the authority to reach the limit whenever the "
+               + "driver asks — which is most of what 'direct' means on a phone.")]
+        public float MaxSteerAngle = 40f;
 
         [Tooltip("Fraction of full lock available over normalized speed. Falling off with speed is "
                + "what makes fast driving calm instead of nervous.\n\n"
@@ -181,11 +222,14 @@ namespace Horizon.Vehicle
                + "arrow buttons having no proportion at all, and lives in TouchSteer.")]
         public AnimationCurve SteeringBySpeed = new AnimationCurve(
             new Keyframe(0f, 1f),
-            new Keyframe(0.35f, 0.72f),
-            new Keyframe(1f, 0.42f));
+            new Keyframe(0.35f, 0.80f),
+            new Keyframe(1f, 0.50f));
 
-        [Tooltip("Degrees per second the steering angle can change.")]
-        public float SteerRate = 160f;
+        [Tooltip("Degrees per second the steering angle can change.\n\n"
+               + "300 takes full lock in about 0.13 s. At 160 the rack itself was a fifth of a second "
+               + "behind the thumb, which reads as the car responding late rather than as slow steering — "
+               + "the other half of what felt vague.")]
+        public float SteerRate = 300f;
 
         [Header("Grip")]
         [Tooltip("Grip coefficient over normalized speed — how much force a tyre can put down, as a "
@@ -231,6 +275,21 @@ namespace Horizon.Vehicle
                + "sideways, 0 to 1. Full lock at speed is nervous on a straight and exactly what is "
                + "wanted when catching a slide. Zero switches it off.")]
         [Range(0f, 1f)] public float CountersteerAuthority = 0.75f;
+
+        [Header("Assists")]
+        [Tooltip("How hard the car is pulled toward the yaw rate its steering angle is asking for, in "
+               + "1/s — roughly the reciprocal of the time it takes to get there. Zero switches it off.\n\n"
+               + "This is what makes the car feel *direct* without touching the tyres. The tyre model "
+               + "builds yaw the honest way, through a slip angle that has to develop before it makes "
+               + "force, and on a phone the corner is frequently over before that has happened. The "
+               + "assist supplies the missing yaw immediately and then gets out of the way.\n\n"
+               + "It cannot make the car do anything the tyres could not: the target is capped at the "
+               + "yaw rate the current friction circle would hold, so at the limit the car still runs "
+               + "wide. It also fades out past DriftSlipAngle, because that region belongs to "
+               + "DriftYawDamping and CountersteerAuthority and two controllers on one axis fight. "
+               + "Above about 4 the car starts to rotate like it is on rails — 3 is the most that still "
+               + "reads as a car.")]
+        public float TurnInAssist = 3f;
 
         [Tooltip("Downforce in N per (m/s)². Presses the car onto the road as speed rises. Kept low "
                + "now that the car actually reaches 220 km/h — at 6 it would generate nearly twice the "

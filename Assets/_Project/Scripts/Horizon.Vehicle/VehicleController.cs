@@ -34,6 +34,7 @@ namespace Horizon.Vehicle
         private IDriveInput explicitInput;
         private float steerAngle;
         private float forwardSpeed;
+        private float wheelbase = 2.7f;
 
         private int gearIndex;
         private float shiftTimer;
@@ -160,7 +161,35 @@ namespace Horizon.Vehicle
                 };
             }
 
+            CacheWheelbase();
             ApplyConfigToBody();
+        }
+
+        /// <summary>
+        /// Measures the wheelbase off the anchors once, because <see cref="ApplyTurnInAssist"/> needs it
+        /// every physics step and reading two transforms in there would be a needless dependency on the
+        /// anchors still being where they were. Falls back to the prototype's 2.70 m if the anchors are
+        /// not wired, which is a bad prefab rather than a bad number.
+        /// </summary>
+        private void CacheWheelbase()
+        {
+            wheelbase = 2.7f;
+
+            if (wheelAnchors == null
+                || wheelAnchors.Length < WheelCount
+                || wheelAnchors[FrontLeft] == null
+                || wheelAnchors[RearLeft] == null)
+            {
+                return;
+            }
+
+            float measured = Mathf.Abs(
+                wheelAnchors[FrontLeft].localPosition.z - wheelAnchors[RearLeft].localPosition.z);
+
+            if (measured > 0.5f)
+            {
+                wheelbase = measured;
+            }
         }
 
         /// <summary>
@@ -283,7 +312,10 @@ namespace Horizon.Vehicle
             ApplyAntiRoll(FrontLeft, FrontRight);
             ApplyAntiRoll(RearLeft, RearRight);
 
+            ApplyAxisDamping();
+
             UpdateSlipState(velocity);
+            ApplyTurnInAssist(speed01, drive.Handbrake);
             ApplyDriftAssists();
 
             // Aerodynamic drag, on the body once — not per wheel. Applying drag four times over is how
@@ -300,6 +332,103 @@ namespace Horizon.Vehicle
                 float downforce = config.Downforce * velocity.sqrMagnitude;
                 body.AddForce(-transform.up * downforce);
             }
+        }
+
+        /// <summary>
+        /// Damps roll and pitch while leaving yaw alone.
+        ///
+        /// <para>Rigidbody.angularDamping applies to every axis at once, and a vehicle wants very
+        /// different things from each: roll and pitch should be calmed so the body settles, while yaw is
+        /// the axis the driver is actually commanding and should be decided by the tyres. Damping them
+        /// together meant the damper was quietly fighting every corner — at the old 1.2, about 2600 Nm
+        /// of yaw torque was going into the damper just to hold a steady turn, which the front tyres had
+        /// to supply on top of the force that was turning the car. The result was a car that understeered
+        /// by construction and steering that went numb the harder it was asked.</para>
+        ///
+        /// <para>Acceleration mode so the coefficient means rad/s² per rad/s regardless of the inertia
+        /// tensor, and so the number in the config can be read as a time constant.</para>
+        /// </summary>
+        private void ApplyAxisDamping()
+        {
+            if (config.RollPitchDamping <= 0f)
+            {
+                return;
+            }
+
+            Vector3 angular = body.angularVelocity;
+
+            float roll = Vector3.Dot(angular, transform.forward);
+            float pitch = Vector3.Dot(angular, transform.right);
+
+            Vector3 damped = transform.forward * roll + transform.right * pitch;
+            body.AddTorque(-damped * config.RollPitchDamping, ForceMode.Acceleration);
+        }
+
+        /// <summary>
+        /// Pulls the car toward the yaw rate its steering angle is asking for.
+        ///
+        /// <para><b>Why an assist at all.</b> The tyre model builds cornering force the honest way: the
+        /// car has to be travelling sideways at the contact patch before there is any sideways force to
+        /// have. That delay is real and it is most of what a car feels like — but it is measured against
+        /// a corner the driver could see coming, and on a phone the input arrives late and the corner is
+        /// frequently over before the yaw has developed. This supplies the missing rotation at turn-in
+        /// and then has nothing left to do, because once the car is actually rotating the error it works
+        /// on is zero and the tyres are carrying the corner unaided.</para>
+        ///
+        /// <para><b>Why it cannot cheat.</b> The target comes from Ackermann geometry — the yaw rate that
+        /// steering angle and wheelbase geometrically imply — and is then capped at
+        /// <c>mu * g / speed</c>, the fastest the friction circle could turn the car at all. So the
+        /// assist never asks for rotation the tyres could not have produced, and a corner taken too fast
+        /// still runs wide. What it removes is the lag, not the limit.</para>
+        ///
+        /// <para><b>Why it stops at the drift line.</b> Past <see cref="VehicleConfig.DriftSlipAngle"/>
+        /// the car belongs to <c>DriftYawDamping</c> and <c>CountersteerAuthority</c>. Leaving this one
+        /// running there would put two controllers on the yaw axis with opposite ideas — one trying to
+        /// reach a target rate, the other trying to bleed rate off — and a slide would neither hold nor
+        /// catch. It fades out over the same band the drift assists fade in over, so nothing is fighting
+        /// at the handover. The handbrake is a deliberate request to break traction, so it switches the
+        /// assist off outright.</para>
+        /// </summary>
+        private void ApplyTurnInAssist(float speed01, bool handbrake)
+        {
+            if (config.TurnInAssist <= 0f || handbrake || GroundedWheelCount == 0)
+            {
+                return;
+            }
+
+            float speed = Mathf.Abs(forwardSpeed);
+            if (speed < 1f)
+            {
+                // Below walking pace there is no meaningful yaw rate to aim at, and the division
+                // below would ask for an enormous one.
+                return;
+            }
+
+            float authority = GroundedWheelCount * 0.25f;
+            if (SlipAngle > config.DriftSlipAngle)
+            {
+                authority *= 1f - Mathf.InverseLerp(
+                    config.DriftSlipAngle, config.DriftSlipAngle + 25f, SlipAngle);
+            }
+
+            if (authority <= 0f)
+            {
+                return;
+            }
+
+            // What the front wheels are geometrically pointing at.
+            float target = forwardSpeed * Mathf.Tan(steerAngle * Mathf.Deg2Rad) / wheelbase;
+
+            // What the tyres could actually hold: a_lat = mu * g, and yaw rate = a_lat / v.
+            float mu = config.LateralGrip.Evaluate(speed01);
+            float ceiling = mu * Physics.gravity.magnitude / speed;
+            target = Mathf.Clamp(target, -ceiling, ceiling);
+
+            float error = target - Vector3.Dot(body.angularVelocity, transform.up);
+
+            body.AddTorque(
+                transform.up * (error * config.TurnInAssist * authority),
+                ForceMode.Acceleration);
         }
 
         /// <summary>
