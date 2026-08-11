@@ -100,7 +100,11 @@ namespace Horizon.Game
 
             if (knob != null)
             {
-                knob.anchoredPosition = new Vector2(0f, value * self.rect.height * 0.5f);
+                // Travel is the track minus the knob, not the track: moving by half the track height
+                // puts the knob's *centre* on the end of the track and half of it outside, which read
+                // as the control being broken rather than as full throttle.
+                float travel = Mathf.Max(0f, self.rect.height - knob.rect.height) * 0.5f;
+                knob.anchoredPosition = new Vector2(0f, value * travel);
             }
         }
     }

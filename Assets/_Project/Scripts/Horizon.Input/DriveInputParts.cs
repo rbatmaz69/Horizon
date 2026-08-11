@@ -194,11 +194,17 @@ namespace Horizon.Input
         /// <para>A third of a second is long enough to be steerable and short enough not to feel like
         /// the wheel is stuck in treacle. The wheel does not use this: a thumb on a wheel is already
         /// giving a continuous angle, and ramping it would fight the player's own hand.</para>
+        ///
+        /// <para>The exact figure now comes from the sensitivity setting, since "how long to reach full
+        /// lock" is what that question means for a button.</para>
         /// </summary>
-        private const float ArrowRampSeconds = 0.32f;
+        private const float SlowestRampSeconds = 0.55f;
+
+        /// <summary>Ramp at full sensitivity. See <see cref="SlowestRampSeconds"/>.</summary>
+        private const float FastestRampSeconds = 0.14f;
 
         /// <summary>Release is quicker than application: a car should straighten more readily than it turns.</summary>
-        private const float ArrowReturnSeconds = 0.18f;
+        private const float ReturnRatio = 0.56f;
 
         private readonly bool wheel;
 
@@ -213,29 +219,41 @@ namespace Horizon.Input
 
         public void Enable()
         {
-            TouchControlState.Steer = 0f;
-            Steer = 0f;
+            Clear();
         }
 
         public void Disable()
         {
+            Clear();
+        }
+
+        private void Clear()
+        {
             TouchControlState.Steer = 0f;
+            TouchControlState.SteerLeftHeld = false;
+            TouchControlState.SteerRightHeld = false;
             Steer = 0f;
         }
 
         public void Sample(float deltaTime)
         {
-            float target = Mathf.Clamp(TouchControlState.Steer, -1f, 1f);
-
             if (wheel)
             {
-                Steer = target;
+                Steer = Mathf.Clamp(TouchControlState.Steer, -1f, 1f);
                 return;
             }
 
+            // From the two held flags rather than a shared value, so releasing one arrow while the other
+            // is still down leaves the steering where that other arrow is asking for it.
+            float target = (TouchControlState.SteerRightHeld ? 1f : 0f)
+                         - (TouchControlState.SteerLeftHeld ? 1f : 0f);
+
+            float ramp = Mathf.Lerp(
+                SlowestRampSeconds, FastestRampSeconds, Mathf.Clamp01(TouchControlState.SteerSensitivity01));
+
             // Toward zero is a release; away from it is a press.
             bool returning = Mathf.Abs(target) < Mathf.Abs(Steer) || target * Steer < 0f;
-            float seconds = returning ? ArrowReturnSeconds : ArrowRampSeconds;
+            float seconds = returning ? ramp * ReturnRatio : ramp;
 
             Steer = Mathf.MoveTowards(Steer, target, deltaTime / Mathf.Max(0.01f, seconds));
         }

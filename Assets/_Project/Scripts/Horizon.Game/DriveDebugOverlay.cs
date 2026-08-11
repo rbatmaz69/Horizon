@@ -61,7 +61,10 @@ namespace Horizon.Game
         {
             EnsureStyles();
 
-            GUILayout.BeginArea(new Rect(12f, 12f, 290f, 260f), GUIContent.none, panelStyle);
+            // Clear of the top-left corner, which belongs to the pause button. IMGUI always draws over
+            // the canvas, so at 12 the overlay hid a button it could not be clicked through — the
+            // clicks landed, but you had to know the button was under there.
+            GUILayout.BeginArea(new Rect(12f, 150f, 290f, 260f), GUIContent.none, panelStyle);
 
             if (vehicle != null)
             {

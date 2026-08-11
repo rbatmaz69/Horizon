@@ -14,8 +14,23 @@ namespace Horizon.Input
     /// </summary>
     public sealed class TiltInput : ISteerInput
     {
-        /// <summary>Degrees of roll away from neutral that corresponds to full lock.</summary>
-        public float TiltRange { get; set; } = 22f;
+        /// <summary>
+        /// Degrees of roll away from neutral that corresponds to full lock, derived from the shared
+        /// steering-sensitivity setting.
+        ///
+        /// <para>Inverted, because the two scales run opposite ways: high sensitivity means a small
+        /// movement does a lot, so a <i>smaller</i> range. Below about 12° full lock is a twitch you
+        /// cannot avoid triggering; above about 40° you cannot reach it sitting down holding a
+        /// phone.</para>
+        /// </summary>
+        public float TiltRange =>
+            Mathf.Lerp(WidestRange, NarrowestRange, Mathf.Clamp01(TouchControlState.SteerSensitivity01));
+
+        /// <summary>Roll for full lock at zero sensitivity. See <see cref="TiltRange"/>.</summary>
+        public const float WidestRange = 40f;
+
+        /// <summary>Roll for full lock at full sensitivity. See <see cref="TiltRange"/>.</summary>
+        public const float NarrowestRange = 12f;
 
         /// <summary>Tilt below this fraction of the range is ignored, to stop micro-wobble.</summary>
         public float Deadzone { get; set; } = 0.06f;

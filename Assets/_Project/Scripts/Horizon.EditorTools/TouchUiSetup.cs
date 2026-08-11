@@ -26,6 +26,35 @@ namespace Horizon.EditorTools
         /// <summary>Big enough to hit with a thumb without looking. Roughly 15 mm on a typical phone.</summary>
         private const float ButtonSize = 150f;
 
+        // --- The right-hand grid.
+        //
+        // Two columns and two rows, and every driving control on that side comes from these four
+        // numbers rather than carrying coordinates of its own. That is not tidiness: the handbrake and
+        // the throttle slider were both authored by hand into the same corner and overlapped by
+        // 120x100 units, right across the slider's full-brake end. Both are visible at once in slider
+        // mode and the handbrake is built later, so it took the raycast — pulling the slider hard down
+        // pressed the handbrake and did not brake.
+        //
+        // The rule the grid encodes: the outer column is whatever the right thumb rests on all the
+        // time (throttle, or the slider), and the inner column is everything it reaches across for.
+        // Nothing may share a column with the slider, because the slider is 440 units tall and owns
+        // its whole column top to bottom.
+
+        /// <summary>Outer column centre, from the right screen edge: throttle or slider.</summary>
+        private const float OuterColumnX = -150f;
+
+        /// <summary>Inner column centre: brake and handbrake, reached across for.</summary>
+        private const float InnerColumnX = -365f;
+
+        /// <summary>Height of the primary control in each column.</summary>
+        private const float PrimaryRowY = 300f;
+
+        /// <summary>Height of the handbrake, below the inner column's primary control.</summary>
+        private const float HandbrakeRowY = 110f;
+
+        /// <summary>Driving buttons, larger than <see cref="ButtonSize"/> — these are held, not tapped.</summary>
+        private static readonly Vector2 PedalSize = new Vector2(200f, 200f);
+
         /// <summary>The drawn symbols. Built once per run and handed to the widgets that need them.</summary>
         private struct Glyphset
         {
@@ -79,7 +108,7 @@ namespace Horizon.EditorTools
             // --- Menu.
             GameObject pauseButton = BuildPauseButton(safe, box);
             GameObject menuPanel = BuildMenuPanel(safe, box, out GameObject settingsPanel,
-                out Text schemeLabel, out Slider tiltSlider, out GameObject recalibrate,
+                out Text schemeLabel, out Slider sensitivity, out GameObject recalibrate,
                 out Button resume, out Button openSettings, out Button closeSettings,
                 out Button cycleSteering, out Button cyclePedals, out Button respawn);
 
@@ -105,7 +134,7 @@ namespace Horizon.EditorTools
                 serialized.FindProperty("settingsPanel").objectReferenceValue = settingsPanel;
                 serialized.FindProperty("pauseButton").objectReferenceValue = pauseButton;
                 serialized.FindProperty("schemeLabel").objectReferenceValue = schemeLabel;
-                serialized.FindProperty("tiltRangeSlider").objectReferenceValue = tiltSlider;
+                serialized.FindProperty("sensitivitySlider").objectReferenceValue = sensitivity;
                 serialized.FindProperty("recalibrateButton").objectReferenceValue = recalibrate;
             });
 
@@ -121,8 +150,8 @@ namespace Horizon.EditorTools
             Bind(respawn, menu, nameof(PauseMenu.Respawn));
 
             UnityEditor.Events.UnityEventTools.AddPersistentListener(
-                tiltSlider.onValueChanged,
-                new UnityEngine.Events.UnityAction<float>(menu.OnTiltRangeChanged));
+                sensitivity.onValueChanged,
+                new UnityEngine.Events.UnityAction<float>(menu.OnSteerSensitivityChanged));
 
             menuPanel.SetActive(false);
             settingsPanel.SetActive(false);
@@ -202,9 +231,13 @@ namespace Horizon.EditorTools
         {
             GameObject group = Group(parent, "Wheel");
 
+            // 320 rather than 280: the angle a thumb can sweep is fixed by the thumb, so a bigger rim
+            // is more travel for the same swing and a finer angle per pixel. The dead zone at the hub
+            // is taken from the rim's own width, so it grows with it and stays a hub rather than
+            // becoming a target.
             RectTransform rect = Panel(group.transform, "Rim", ring, ControlTint,
-                new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(280f, 280f),
-                new Vector2(210f, 190f));
+                new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(320f, 320f),
+                new Vector2(230f, 210f));
 
             // On the rim, not the group: the drag angle is measured about this rect's own centre, and
             // the group is stretched over the whole screen.
@@ -223,9 +256,9 @@ namespace Horizon.EditorTools
             // Wider apart and larger than the first attempt: two thumbs-width buttons crammed together
             // is how you press both at once in a corner.
             HoldButton(group.transform, "Left", box, TouchHoldButton.Action.SteerLeft, Glyphs.Left,
-                new Vector2(0f, 0f), new Vector2(130f, 160f), new Vector2(190f, 190f));
+                new Vector2(0f, 0f), new Vector2(145f, PrimaryRowY - 130f), PedalSize);
             HoldButton(group.transform, "Right", box, TouchHoldButton.Action.SteerRight, Glyphs.Right,
-                new Vector2(0f, 0f), new Vector2(340f, 160f), new Vector2(190f, 190f));
+                new Vector2(0f, 0f), new Vector2(375f, PrimaryRowY - 130f), PedalSize);
 
             return group;
         }
@@ -235,9 +268,9 @@ namespace Horizon.EditorTools
             GameObject group = Group(parent, "Pedals");
 
             HoldButton(group.transform, "Throttle", box, TouchHoldButton.Action.Throttle, Glyphs.Throttle,
-                new Vector2(1f, 0f), new Vector2(-140f, 250f), new Vector2(190f, 190f));
+                new Vector2(1f, 0f), new Vector2(OuterColumnX, PrimaryRowY), PedalSize);
             HoldButton(group.transform, "Brake", box, TouchHoldButton.Action.Brake, Glyphs.Brake,
-                new Vector2(1f, 0f), new Vector2(-340f, 160f), new Vector2(190f, 190f));
+                new Vector2(1f, 0f), new Vector2(InnerColumnX, PrimaryRowY), PedalSize);
 
             return group;
         }
@@ -247,21 +280,43 @@ namespace Horizon.EditorTools
             GameObject group = Group(parent, "AutoPedals");
 
             HoldButton(group.transform, "Brake", box, TouchHoldButton.Action.Brake, Glyphs.Brake,
-                new Vector2(1f, 0f), new Vector2(-140f, 250f), new Vector2(190f, 190f));
+                new Vector2(1f, 0f), new Vector2(OuterColumnX, PrimaryRowY), PedalSize);
 
             return group;
         }
 
+        /// <summary>
+        /// The bipolar throttle/brake slider: push up for throttle, pull down for brake, let go and it
+        /// centres.
+        ///
+        /// <para>It is drawn as two halves either side of a centre line rather than as one plain box.
+        /// A single rectangle with a knob in it says nothing about which way is which, and the control
+        /// it most resembles on a phone is a volume slider, which has its zero at the bottom. The tinted
+        /// upper half and the line at rest are the only cues that the middle means coasting.</para>
+        /// </summary>
         private static GameObject BuildSlider(RectTransform parent, Sprite box)
         {
             GameObject group = Group(parent, "Slider");
 
             RectTransform track = Panel(group.transform, "Track", box, ControlTint,
-                new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(120f, 420f),
-                new Vector2(-140f, 250f));
+                new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(130f, 440f),
+                new Vector2(OuterColumnX, PrimaryRowY));
+
+            // Upper half tinted and lower half left plain: throttle is the half a thumb lives in.
+            RectTransform throttleHalf = Panel(track, "ThrottleHalf", box,
+                new Color(AccentTint.r, AccentTint.g, AccentTint.b, 0.16f),
+                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                new Vector2(130f, 220f), new Vector2(0f, 110f));
+            throttleHalf.GetComponent<Image>().raycastTarget = false;
+
+            RectTransform centreLine = Panel(track, "CentreLine", box, GlyphTint,
+                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                new Vector2(130f, 4f), Vector2.zero);
+            centreLine.GetComponent<Image>().raycastTarget = false;
 
             RectTransform knob = Panel(track, "Knob", box, AccentTint,
-                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(110f, 90f), Vector2.zero);
+                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(118f, 90f), Vector2.zero);
+            knob.GetComponent<Image>().raycastTarget = false;
 
             TouchThrottleSlider throttle = track.gameObject.AddComponent<TouchThrottleSlider>();
             HorizonAssetUtility.Configure(throttle, serialized =>
@@ -270,12 +325,17 @@ namespace Horizon.EditorTools
             return group;
         }
 
+        /// <summary>
+        /// Inner column, below the brake — never the outer one. The slider lives in the outer column
+        /// and is 440 units tall, so anything placed there is placed on top of it. See the grid
+        /// constants for what that cost.
+        /// </summary>
         private static GameObject BuildHandbrake(RectTransform parent, Sprite box)
         {
             GameObject group = Group(parent, "Handbrake");
 
             HoldButton(group.transform, "Handbrake", box, TouchHoldButton.Action.Handbrake, Glyphs.Handbrake,
-                new Vector2(1f, 0f), new Vector2(-140f, 80f), new Vector2(190f, 120f));
+                new Vector2(1f, 0f), new Vector2(InnerColumnX, HandbrakeRowY), new Vector2(200f, 130f));
 
             return group;
         }
@@ -302,12 +362,23 @@ namespace Horizon.EditorTools
             return rect.gameObject;
         }
 
+        /// <summary>
+        /// Both menu panels, stacked by a layout group rather than by hand-placed offsets.
+        ///
+        /// <para>The offsets were wrong, and not by accident — they cannot be kept right. Every row
+        /// carried an absolute y, so the panel's height, the gap between rows and the position of the
+        /// last row were three independent numbers that had to agree, and they did not: "Back" sat on
+        /// top of the sensitivity slider, and its label on top of that. Worse, a row that hides leaves
+        /// its gap behind, which is what the orphaned sensitivity control looked like. A vertical layout
+        /// group and a content-size fitter make the height a consequence of the rows instead of a fourth
+        /// number to keep in step, so hiding a row closes its gap and the panel shrinks to fit.</para>
+        /// </summary>
         private static GameObject BuildMenuPanel(
             RectTransform parent,
             Sprite box,
             out GameObject settingsPanel,
             out Text schemeLabel,
-            out Slider tiltSlider,
+            out Slider sensitivity,
             out GameObject recalibrate,
             out Button resume,
             out Button openSettings,
@@ -316,62 +387,97 @@ namespace Horizon.EditorTools
             out Button cyclePedals,
             out Button respawn)
         {
-            RectTransform panel = Panel(parent, "PauseMenu", box, PanelTint,
-                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(720f, 620f), Vector2.zero);
+            RectTransform panel = StackPanel(parent, "PauseMenu", box, 720f);
 
-            Label(panel, "PAUSED", 48, new Vector2(0f, 240f));
+            MenuLabel(panel, "PAUSED", 48, 66f);
 
-            resume = MenuButton(panel, "Resume", box, "Resume", 130f);
-            openSettings = MenuButton(panel, "Controls", box, "Controls", 10f);
-            respawn = MenuButton(panel, "Respawn", box, "Put the car back", -110f);
+            resume = MenuButton(panel, "Resume", box, "Resume");
+            openSettings = MenuButton(panel, "Controls", box, "Controls");
+            respawn = MenuButton(panel, "Respawn", box, "Put the car back");
 
             // --- Settings, a second panel over the first.
-            RectTransform settings = Panel(parent, "SettingsPanel", box, PanelTint,
-                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(860f, 700f), Vector2.zero);
+            RectTransform settings = StackPanel(parent, "SettingsPanel", box, 860f);
 
-            Label(settings, "CONTROLS", 44, new Vector2(0f, 280f));
-            schemeLabel = Label(settings, "—", 30, new Vector2(0f, 215f));
+            MenuLabel(settings, "CONTROLS", 44, 60f);
+            schemeLabel = MenuLabel(settings, "—", 30, 42f);
 
-            cycleSteering = MenuButton(settings, "Steering", box, "Steering: change", 110f);
-            cyclePedals = MenuButton(settings, "Throttle", box, "Throttle: change", 0f);
+            cycleSteering = MenuButton(settings, "Steering", box, "Steering: change");
+            cyclePedals = MenuButton(settings, "Throttle", box, "Throttle: change");
 
-            Button recalibrateButton = MenuButton(settings, "Recalibrate", box, "Recalibrate tilt", -110f);
+            // Hidden outside the tilt scheme, and the only row that is — everything below applies to
+            // whatever the player is steering with. The layout group closes the gap when it goes.
+            Button recalibrateButton = MenuButton(settings, "Recalibrate", box, "Recalibrate tilt");
             recalibrate = recalibrateButton.gameObject;
 
-            Label(settings, "Tilt sensitivity", 26, new Vector2(0f, -190f));
-            tiltSlider = BuildTiltSlider(settings, box);
+            MenuLabel(settings, "Steering sensitivity", 26, 38f);
+            sensitivity = BuildSensitivitySlider(settings, box);
 
-            closeSettings = MenuButton(settings, "Back", box, "Back", -300f);
+            closeSettings = MenuButton(settings, "Back", box, "Back");
 
             settingsPanel = settings.gameObject;
             return panel.gameObject;
         }
 
-        private static Slider BuildTiltSlider(RectTransform parent, Sprite box)
+        /// <summary>
+        /// A panel whose height is whatever its rows add up to. See <see cref="BuildMenuPanel"/> for
+        /// why that is not the same panel with a nicer implementation.
+        /// </summary>
+        private static RectTransform StackPanel(RectTransform parent, string name, Sprite box, float width)
         {
-            RectTransform rect = Panel(parent, "TiltRange", box, ControlTint,
-                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(520f, 50f),
-                new Vector2(0f, -235f));
+            RectTransform panel = Panel(parent, name, box, PanelTint,
+                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(width, 0f), Vector2.zero);
 
-            RectTransform fillArea = Child(rect, "Fill Area", new Vector2(520f, 30f), Vector2.zero);
+            var layout = panel.gameObject.AddComponent<VerticalLayoutGroup>();
+            layout.padding = new RectOffset(60, 60, 46, 46);
+            layout.spacing = 22f;
+            layout.childAlignment = TextAnchor.UpperCenter;
+            layout.childControlWidth = true;
+            layout.childControlHeight = true;
+            layout.childForceExpandWidth = true;
+            layout.childForceExpandHeight = false;
+
+            var fitter = panel.gameObject.AddComponent<ContentSizeFitter>();
+            fitter.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
+            fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+            return panel;
+        }
+
+        /// <summary>
+        /// The steering sensitivity, 0 to 1, for whichever scheme is active — see
+        /// <c>TouchControlState.SteerSensitivity01</c> for what each one does with it.
+        ///
+        /// <para>Normalised rather than in the units of one scheme, which is what it used to be: it read
+        /// 12 to 40 because it was degrees of phone roll, and it sat in the menu saying "tilt
+        /// sensitivity" while the player was steering with a wheel. One question, asked once, in units
+        /// that survive changing your mind about how to steer.</para>
+        /// </summary>
+        private static Slider BuildSensitivitySlider(RectTransform parent, Sprite box)
+        {
+            RectTransform rect = Panel(parent, "Sensitivity", box, ControlTint,
+                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(520f, 50f), Vector2.zero);
+            Row(rect.gameObject, 50f);
+
+            // Stretched rather than sized: the layout group decides the slider's width, so anything
+            // inside it with a fixed width would be right at one panel width and wrong at every other.
+            RectTransform fillArea = StretchChild(rect, "Fill Area", 25f, 10f);
             RectTransform fill = Panel(fillArea, "Fill", box, AccentTint,
-                new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(260f, 30f), Vector2.zero);
+                new Vector2(0f, 0f), new Vector2(1f, 1f), Vector2.zero, Vector2.zero);
+            fill.offsetMin = Vector2.zero;
+            fill.offsetMax = Vector2.zero;
 
-            RectTransform handleArea = Child(rect, "Handle Slide Area", new Vector2(520f, 50f), Vector2.zero);
+            RectTransform handleArea = StretchChild(rect, "Handle Slide Area", 25f, 0f);
             RectTransform handle = Panel(handleArea, "Handle", box, Color.white,
-                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(50f, 50f), Vector2.zero);
+                new Vector2(0f, 0f), new Vector2(0f, 1f), new Vector2(50f, 0f), Vector2.zero);
 
             Slider slider = rect.gameObject.AddComponent<Slider>();
             slider.fillRect = fill;
             slider.handleRect = handle;
             slider.targetGraphic = handle.GetComponent<Image>();
 
-            // Degrees of roll for full lock, now that the tilt reads a real angle rather than a raw
-            // sensor component. Below about 12° full lock is a twitch; above about 40° you cannot reach
-            // it sitting down holding a phone.
-            slider.minValue = 12f;
-            slider.maxValue = 40f;
-            slider.value = 22f;
+            slider.minValue = 0f;
+            slider.maxValue = 1f;
+            slider.value = TouchControlState.DefaultSensitivity;
 
             return slider;
         }
@@ -418,18 +524,56 @@ namespace Horizon.EditorTools
             });
         }
 
-        private static Button MenuButton(
-            RectTransform parent, string name, Sprite box, string caption, float y)
+        /// <summary>Height of a tappable menu row. Comfortably over the 9 mm a fingertip needs.</summary>
+        private const float MenuRowHeight = 96f;
+
+        private static Button MenuButton(RectTransform parent, string name, Sprite box, string caption)
         {
             RectTransform rect = Panel(parent, name, box, ControlTint,
-                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(560f, 96f),
-                new Vector2(0f, y));
+                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                new Vector2(560f, MenuRowHeight), Vector2.zero);
 
             Label(rect, caption, 32);
+            Row(rect.gameObject, MenuRowHeight);
 
             Button button = rect.gameObject.AddComponent<Button>();
             button.targetGraphic = rect.GetComponent<Image>();
             return button;
+        }
+
+        private static Text MenuLabel(RectTransform parent, string caption, int fontSize, float height)
+        {
+            Text text = Label(parent, caption, fontSize);
+            Row(text.gameObject, height);
+            return text;
+        }
+
+        /// <summary>
+        /// Fixes a row's height for the layout group. Without one the group asks the row how tall it
+        /// wants to be, and an Image has no opinion — every row collapses to nothing.
+        /// </summary>
+        private static void Row(GameObject go, float height)
+        {
+            var element = go.AddComponent<LayoutElement>();
+            element.preferredHeight = height;
+            element.minHeight = height;
+            element.flexibleHeight = 0f;
+        }
+
+        /// <summary>A child filling its parent, inset by <paramref name="x"/> and <paramref name="y"/>.</summary>
+        private static RectTransform StretchChild(RectTransform parent, string name, float x, float y)
+        {
+            var go = new GameObject(name, typeof(RectTransform));
+            go.transform.SetParent(parent, false);
+
+            var rect = (RectTransform)go.transform;
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = Vector2.one;
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.offsetMin = new Vector2(x, y);
+            rect.offsetMax = new Vector2(-x, -y);
+
+            return rect;
         }
 
         private static RectTransform Panel(
@@ -460,38 +604,17 @@ namespace Horizon.EditorTools
             return rect;
         }
 
-        private static RectTransform Child(RectTransform parent, string name, Vector2 size, Vector2 position)
-        {
-            var go = new GameObject(name, typeof(RectTransform));
-            go.transform.SetParent(parent, false);
-
-            var rect = (RectTransform)go.transform;
-            rect.anchorMin = new Vector2(0.5f, 0.5f);
-            rect.anchorMax = new Vector2(0.5f, 0.5f);
-            rect.sizeDelta = size;
-            rect.anchoredPosition = position;
-
-            return rect;
-        }
-
-        private static Text Label(RectTransform parent, string caption, int fontSize, Vector2? offset = null)
+        /// <summary>
+        /// Always stretched to its parent. It used to take an offset and force a 760-unit width with it,
+        /// which is wider than the 720-wide panel the captions were being put in — so the text was
+        /// centred on something larger than the box around it.
+        /// </summary>
+        private static Text Label(RectTransform parent, string caption, int fontSize)
         {
             var go = new GameObject("Label", typeof(RectTransform));
             go.transform.SetParent(parent, false);
 
-            var rect = (RectTransform)go.transform;
-
-            if (offset.HasValue)
-            {
-                rect.anchorMin = new Vector2(0.5f, 0.5f);
-                rect.anchorMax = new Vector2(0.5f, 0.5f);
-                rect.sizeDelta = new Vector2(760f, 60f);
-                rect.anchoredPosition = offset.Value;
-            }
-            else
-            {
-                Stretch(rect);
-            }
+            Stretch((RectTransform)go.transform);
 
             Text text = go.AddComponent<Text>();
             text.text = caption;

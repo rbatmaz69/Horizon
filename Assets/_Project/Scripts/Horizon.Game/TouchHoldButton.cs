@@ -67,11 +67,14 @@ namespace Horizon.Game
 
             switch (action)
             {
+                // Each arrow owns a flag rather than both writing the steering value. A button can
+                // only honestly report its own state; writing a shared zero on release is a claim
+                // about the other button as well, and it was wrong whenever both were pressed.
                 case Action.SteerLeft:
-                    TouchControlState.Steer = value ? -1f : 0f;
+                    TouchControlState.SteerLeftHeld = value;
                     break;
                 case Action.SteerRight:
-                    TouchControlState.Steer = value ? 1f : 0f;
+                    TouchControlState.SteerRightHeld = value;
                     break;
                 case Action.Throttle:
                     TouchControlState.Throttle = value ? 1f : 0f;

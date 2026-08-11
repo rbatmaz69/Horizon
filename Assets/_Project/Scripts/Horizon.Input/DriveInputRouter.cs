@@ -17,8 +17,12 @@ namespace Horizon.Input
     public sealed class DriveInputRouter : MonoBehaviour, IDriveInput
     {
         [Header("Smoothing")]
-        [Tooltip("Seconds for steering to catch up to the raw input. Higher feels heavier.")]
-        [SerializeField] private float steerSmoothTime = 0.09f;
+        [Tooltip("Seconds for steering to catch up to the raw input. Higher feels heavier.\n\n"
+               + "Down from 0.09, which was too much of a good thing once the on-screen controls got "
+               + "proportional. The wheel already hands over a smooth, self-centring angle and the arrows "
+               + "already ramp, so this was smoothing something that was not rough — 90 ms of pure delay "
+               + "on top of a rack that has its own rate limit, all of it read as the car answering late.")]
+        [SerializeField] private float steerSmoothTime = 0.05f;
 
         [Tooltip("Units per second the throttle and brake ramp toward their raw values.")]
         [SerializeField] private float pedalRate = 6f;
@@ -235,7 +239,11 @@ namespace Horizon.Input
 
             if (Application.isMobilePlatform)
             {
-                Steering = SteeringMethod.Tilt;
+                // The wheel rather than tilt, now that it tracks a thumb properly. It is the most
+                // precise of the four and the only one that is obvious on sight; tilt asks the player to
+                // discover that the phone itself is the control, and needs calibrating before it is
+                // even usable. Both are still one menu apart.
+                Steering = SteeringMethod.Wheel;
                 Pedals = PedalMethod.Pedals;
                 return;
             }

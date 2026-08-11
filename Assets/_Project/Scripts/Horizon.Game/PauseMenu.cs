@@ -6,8 +6,8 @@ using UnityEngine.UI;
 namespace Horizon.Game
 {
     /// <summary>
-    /// Pause, and the settings behind it: which steering and which pedals, how sensitive the tilt is,
-    /// and a way to re-zero it.
+    /// Pause, and the settings behind it: which steering and which pedals, how sharp the steering is,
+    /// and a way to re-zero the tilt.
     ///
     /// <para>This exists because there was no way to change anything on a phone. The only scheme
     /// switcher lived in <c>DriveDebugOverlay</c>, which is compiled out of release builds — so a
@@ -26,8 +26,18 @@ namespace Horizon.Game
 
         [Header("Settings widgets")]
         [SerializeField] private Text schemeLabel;
-        [SerializeField] private Slider tiltRangeSlider;
+        [SerializeField] private Slider sensitivitySlider;
         [SerializeField] private GameObject recalibrateButton;
+
+        private const string SensitivityKey = "Horizon.SteerSensitivity";
+
+        /// <summary>
+        /// What the setting was saved under while it was degrees of phone roll rather than a normalised
+        /// sharpness. Read once and converted — a player who had already found the tilt range that suits
+        /// them should not be put back to the middle because the setting was generalised underneath
+        /// them. Same reasoning as <c>DriveInputRouter</c>'s legacy scheme key.
+        /// </summary>
+        private const string LegacyTiltRangeKey = "Horizon.TiltRangeDegrees";
 
         private VehicleController vehicle;
         private Vector3 spawnPosition;
@@ -195,14 +205,16 @@ namespace Horizon.Game
             Resume();
         }
 
-        public void OnTiltRangeChanged(float value)
+        /// <summary>
+        /// One sharpness for every steering scheme, 0 to 1. Each scheme reads
+        /// <see cref="TouchControlState.SteerSensitivity01"/> and decides for itself what that means in
+        /// its own units, so nothing here has to know which one is active.
+        /// </summary>
+        public void OnSteerSensitivityChanged(float value)
         {
-            if (router?.Tilt != null)
-            {
-                router.Tilt.TiltRange = value;
-                PlayerPrefs.SetFloat("Horizon.TiltRangeDegrees", value);
-                PlayerPrefs.Save();
-            }
+            TouchControlState.SteerSensitivity01 = Mathf.Clamp01(value);
+            PlayerPrefs.SetFloat(SensitivityKey, TouchControlState.SteerSensitivity01);
+            PlayerPrefs.Save();
         }
 
         private void Start()
@@ -212,18 +224,38 @@ namespace Horizon.Game
                 router = FindFirstObjectByType<DriveInputRouter>();
             }
 
-            if (router?.Tilt != null && PlayerPrefs.HasKey("Horizon.TiltRangeDegrees"))
-            {
-                router.Tilt.TiltRange = PlayerPrefs.GetFloat("Horizon.TiltRangeDegrees");
-            }
-
-            if (tiltRangeSlider != null && router?.Tilt != null)
-            {
-                tiltRangeSlider.SetValueWithoutNotify(router.Tilt.TiltRange);
-            }
+            LoadSensitivity();
 
             SetPaused(false);
             RefreshSettings();
+        }
+
+        private void LoadSensitivity()
+        {
+            float value = TouchControlState.DefaultSensitivity;
+
+            if (PlayerPrefs.HasKey(SensitivityKey))
+            {
+                value = PlayerPrefs.GetFloat(SensitivityKey);
+            }
+            else if (PlayerPrefs.HasKey(LegacyTiltRangeKey))
+            {
+                // Degrees of roll ran the other way round: a narrow range is a sharp setting.
+                value = Mathf.InverseLerp(
+                    TiltInput.WidestRange, TiltInput.NarrowestRange,
+                    PlayerPrefs.GetFloat(LegacyTiltRangeKey));
+
+                PlayerPrefs.SetFloat(SensitivityKey, value);
+                PlayerPrefs.DeleteKey(LegacyTiltRangeKey);
+                PlayerPrefs.Save();
+            }
+
+            TouchControlState.SteerSensitivity01 = Mathf.Clamp01(value);
+
+            if (sensitivitySlider != null)
+            {
+                sensitivitySlider.SetValueWithoutNotify(TouchControlState.SteerSensitivity01);
+            }
         }
 
         private void RefreshSettings()
