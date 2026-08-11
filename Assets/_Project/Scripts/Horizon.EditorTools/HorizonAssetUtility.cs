@@ -449,6 +449,369 @@ namespace Horizon.EditorTools
         }
 
         /// <summary>
+        /// A white sprite: a rounded rectangle, or a ring if <paramref name="holeRadius"/> is set.
+        ///
+        /// <para>Generated rather than imported for the same reason every mesh in this project is: art
+        /// nobody authored is art nobody has to keep, and a control that is a rounded box and a ring
+        /// does not need an artist. It is white so the UI can tint it per widget — one texture serves
+        /// every button, the wheel and the slider.</para>
+        ///
+        /// <para>Sprites, not textures, because uGUI's <c>Image</c> takes a sprite and generates a
+        /// dreadful default if it does not get one.</para>
+        /// </summary>
+        /// <param name="holeRadius">
+        /// Fraction of the half-size left transparent in the middle, for the steering wheel. Zero gives
+        /// a solid rounded rectangle.
+        /// </param>
+        public static Sprite LoadOrCreateUiSprite(
+            string assetPath, int size = 128, float cornerRadius = 0.25f, float holeRadius = 0f)
+        {
+            var existing = AssetDatabase.LoadAssetAtPath<Sprite>(assetPath);
+            if (existing != null)
+            {
+                return existing;
+            }
+
+            var texture = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            float half = size * 0.5f;
+            float radius = cornerRadius * half;
+
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    // Distance outside a rounded rectangle, the standard rounded-box field: clamp the
+                    // point into the inner rectangle and measure from there.
+                    float dx = Mathf.Abs(x + 0.5f - half) - (half - radius);
+                    float dy = Mathf.Abs(y + 0.5f - half) - (half - radius);
+
+                    float outside = new Vector2(Mathf.Max(dx, 0f), Mathf.Max(dy, 0f)).magnitude
+                                    + Mathf.Min(Mathf.Max(dx, dy), 0f) - radius;
+
+                    // One pixel of feather, so the edge is not a staircase.
+                    float alpha = Mathf.Clamp01(0.5f - outside);
+
+                    if (holeRadius > 0f)
+                    {
+                        float centre = new Vector2(x + 0.5f - half, y + 0.5f - half).magnitude;
+                        alpha = Mathf.Min(alpha, Mathf.Clamp01(centre - holeRadius * half - 0.5f));
+                    }
+
+                    texture.SetPixel(x, y, new Color(1f, 1f, 1f, alpha));
+                }
+            }
+
+            texture.Apply();
+            File.WriteAllBytes(assetPath, texture.EncodeToPNG());
+            UnityEngine.Object.DestroyImmediate(texture);
+
+            AssetDatabase.ImportAsset(assetPath, ImportAssetOptions.ForceSynchronousImport);
+
+            var importer = AssetImporter.GetAtPath(assetPath) as TextureImporter;
+            if (importer != null)
+            {
+                importer.textureType = TextureImporterType.Sprite;
+
+                // Single, explicitly. Setting textureType from code does *not* imply it the way the
+                // inspector does — the importer defaults to Multiple, which means "this texture is an
+                // atlas of named sub-sprites", and an atlas with no rects defined contains no Sprite at
+                // all. LoadAssetAtPath<Sprite> then correctly returns null, every Image is assigned
+                // null, and the UI draws as blank rectangles while every validator reports success.
+                importer.spriteImportMode = SpriteImportMode.Single;
+
+                importer.alphaIsTransparency = true;
+                importer.wrapMode = TextureWrapMode.Clamp;
+                importer.mipmapEnabled = false;
+
+                // Nine-sliced from the corners, so one square texture stretches into a wide pedal or a
+                // tall slider without the corners smearing.
+                if (holeRadius <= 0f)
+                {
+                    importer.spriteBorder = new Vector4(radius, radius, radius, radius);
+                }
+
+                importer.SaveAndReimport();
+            }
+
+            return LoadFreshSprite(assetPath);
+        }
+
+        /// <summary>
+        /// A steering wheel: a rim, three spokes and a hub, drawn rather than imported.
+        ///
+        /// <para>A bare ring does not read as a steering wheel — it reads as a ring, and worse, it gives
+        /// no clue which way up it is, so a player cannot see how much lock they are holding. The spokes
+        /// are what make the rotation legible, which is the entire job of this widget.</para>
+        ///
+        /// <para>Three spokes at the bottom and sides, leaving the top clear: that is the shape of most
+        /// real wheels and it means the spokes are furthest from horizontal at rest, so the first few
+        /// degrees of turn are the most visible.</para>
+        /// </summary>
+        public static Sprite LoadOrCreateWheelSprite(string assetPath, int size = 256)
+        {
+            var existing = AssetDatabase.LoadAssetAtPath<Sprite>(assetPath);
+            if (existing != null)
+            {
+                return existing;
+            }
+
+            var texture = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            float half = size * 0.5f;
+
+            float outer = half * 0.96f;
+            float inner = half * 0.74f;
+            float hub = half * 0.26f;
+            float spokeHalfWidth = half * 0.075f;
+
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float dx = x + 0.5f - half;
+                    float dy = y + 0.5f - half;
+                    float r = Mathf.Sqrt(dx * dx + dy * dy);
+
+                    // The rim: a band, feathered a pixel at both edges.
+                    float alpha = Mathf.Min(
+                        Mathf.Clamp01(outer - r + 0.5f),
+                        Mathf.Clamp01(r - inner + 0.5f));
+
+                    // The hub.
+                    alpha = Mathf.Max(alpha, Mathf.Clamp01(hub - r + 0.5f));
+
+                    // Three spokes: down, and up-left and up-right at 30° above the horizontal. Each is
+                    // a capsule from the hub out to the rim, so it meets both cleanly.
+                    for (int s = 0; s < 3; s++)
+                    {
+                        float angle = (-90f + s * 120f) * Mathf.Deg2Rad;
+                        float ax = Mathf.Cos(angle);
+                        float ay = Mathf.Sin(angle);
+
+                        // Distance from the segment running hub -> rim along this spoke.
+                        float along = Mathf.Clamp(dx * ax + dy * ay, hub * 0.5f, inner + 1f);
+                        float px = dx - ax * along;
+                        float py = dy - ay * along;
+                        float distance = Mathf.Sqrt(px * px + py * py);
+
+                        alpha = Mathf.Max(alpha, Mathf.Clamp01(spokeHalfWidth - distance + 0.5f));
+                    }
+
+                    texture.SetPixel(x, y, new Color(1f, 1f, 1f, alpha));
+                }
+            }
+
+            return SaveSprite(texture, assetPath, Vector4.zero);
+        }
+
+        /// <summary>
+        /// A glyph for a control: an arrow, a pedal, a hand or a pause bar, drawn into a square.
+        ///
+        /// <para>Generated for the same reason the wheel is — a handful of shapes does not justify an
+        /// art pipeline, and a caption reading "GAS" is a label rather than a control. A symbol is also
+        /// the only version of this that works in any language.</para>
+        /// </summary>
+        public static Sprite LoadOrCreateGlyphSprite(string assetPath, string glyph, int size = 128)
+        {
+            var existing = AssetDatabase.LoadAssetAtPath<Sprite>(assetPath);
+            if (existing != null)
+            {
+                return existing;
+            }
+
+            var texture = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            float half = size * 0.5f;
+
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    // Normalised to -1..1 with the origin in the middle, so the shapes below can be
+                    // written in plain proportions rather than in pixels.
+                    float u = (x + 0.5f - half) / half;
+                    float v = (y + 0.5f - half) / half;
+
+                    texture.SetPixel(x, y, new Color(1f, 1f, 1f, GlyphAlpha(glyph, u, v, 1f / half)));
+                }
+            }
+
+            return SaveSprite(texture, assetPath, Vector4.zero);
+        }
+
+        private static float GlyphAlpha(string glyph, float u, float v, float pixel)
+        {
+            switch (glyph)
+            {
+                case "left":
+                    return Triangle(-u, v, pixel);
+                case "right":
+                    return Triangle(u, v, pixel);
+
+                // A pedal seen from the side, with the motion lines behind it that say "go".
+                //
+                // The lines are not decoration. The first pair of these glyphs was a bar leaning one way
+                // for throttle and the same bar leaning the other way for brake, and that is one shape
+                // shown twice: at thumb size, half covered by the thumb itself, nobody reads a fourteen
+                // degree difference in lean. Throttle and brake have to differ in *silhouette*, which is
+                // why the brake below is a disc rather than a third bar.
+                case "throttle":
+                {
+                    float pedal = Bar(u - 0.30f, v, 0.17f, 0.60f, 14f, pixel);
+
+                    float lines = 0f;
+                    for (int i = 0; i < 3; i++)
+                    {
+                        lines = Mathf.Max(lines,
+                            Bar(u + 0.10f + i * 0.24f, v, 0.055f, 0.34f - i * 0.08f, 0f, pixel));
+                    }
+
+                    return Mathf.Max(pedal, lines);
+                }
+
+                // A brake disc and its caliper. Round against the throttle's bars — the one difference
+                // that survives being small.
+                case "brake":
+                {
+                    float disc = Ring(u, v, 0.62f, 0.30f, pixel);
+                    float hub = Mathf.Clamp01((0.13f - new Vector2(u, v).magnitude) / pixel);
+                    float caliper = Bar(u - 0.46f, v - 0.30f, 0.15f, 0.27f, -35f, pixel);
+
+                    return Mathf.Max(Mathf.Max(disc, hub), caliper);
+                }
+
+                // The handbrake: a lever, angled, with a knob on the end.
+                case "handbrake":
+                {
+                    float lever = Bar(u + 0.1f, v, 0.11f, 0.55f, 32f, pixel);
+                    float knob = Mathf.Clamp01((0.24f - new Vector2(u - 0.28f, v - 0.44f).magnitude) / pixel);
+                    return Mathf.Max(lever, knob);
+                }
+
+                // Two bars: pause.
+                case "pause":
+                    return Mathf.Max(
+                        Bar(u + 0.26f, v, 0.16f, 0.52f, 0f, pixel),
+                        Bar(u - 0.26f, v, 0.16f, 0.52f, 0f, pixel));
+
+                default:
+                    return 0f;
+            }
+        }
+
+        /// <summary>A solid triangle pointing right, for the arrows.</summary>
+        private static float Triangle(float u, float v, float pixel)
+        {
+            // Inside when behind the sloping front faces and ahead of the back edge.
+            float front = 0.62f - u - Mathf.Abs(v) * 1.15f;
+            float back = u + 0.42f;
+
+            return Mathf.Clamp01(Mathf.Min(front, back) / pixel);
+        }
+
+        /// <summary>A filled annulus — the brake disc.</summary>
+        private static float Ring(float u, float v, float outerRadius, float innerRadius, float pixel)
+        {
+            float r = new Vector2(u, v).magnitude;
+
+            return Mathf.Min(
+                Mathf.Clamp01((outerRadius - r) / pixel),
+                Mathf.Clamp01((r - innerRadius) / pixel));
+        }
+
+        /// <summary>A rounded bar of a given half-size, rotated by <paramref name="degrees"/>.</summary>
+        private static float Bar(float u, float v, float halfWidth, float halfHeight, float degrees, float pixel)
+        {
+            float a = degrees * Mathf.Deg2Rad;
+            float c = Mathf.Cos(a);
+            float s = Mathf.Sin(a);
+
+            float ru = u * c + v * s;
+            float rv = -u * s + v * c;
+
+            float radius = halfWidth * 0.55f;
+            float dx = Mathf.Abs(ru) - (halfWidth - radius);
+            float dy = Mathf.Abs(rv) - (halfHeight - radius);
+
+            float outside = new Vector2(Mathf.Max(dx, 0f), Mathf.Max(dy, 0f)).magnitude
+                            + Mathf.Min(Mathf.Max(dx, dy), 0f) - radius;
+
+            return Mathf.Clamp01(-outside / pixel);
+        }
+
+        /// <summary>
+        /// Loads the sprite a generator has just written, and <b>refuses to return null</b>.
+        ///
+        /// <para>The importer does not always have the sprite ready on the call that follows
+        /// <c>SaveAndReimport</c> — the texture is on disk and the <c>.meta</c> is correct, but
+        /// <c>LoadAssetAtPath&lt;Sprite&gt;</c> comes back empty on the run that created the file, and
+        /// only resolves on the next one. A caller that shrugs at that assigns null to every
+        /// <c>Image</c>, and null is not a visible failure: an Image with no sprite draws a plain tinted
+        /// quad. The result is a UI of blank rectangles that builds cleanly and passes every validator,
+        /// which is exactly how a set of buttons shipped with no symbols on them.</para>
+        ///
+        /// <para>So: one forced re-import, and then an exception rather than a null. A rebuild that
+        /// stops with a message is worth a great deal more than a scene that quietly comes out
+        /// wrong.</para>
+        /// </summary>
+        private static Sprite LoadFreshSprite(string assetPath)
+        {
+            var sprite = AssetDatabase.LoadAssetAtPath<Sprite>(assetPath);
+            if (sprite != null)
+            {
+                return sprite;
+            }
+
+            AssetDatabase.ImportAsset(
+                assetPath, ImportAssetOptions.ForceUpdate | ImportAssetOptions.ForceSynchronousImport);
+
+            sprite = AssetDatabase.LoadAssetAtPath<Sprite>(assetPath);
+            if (sprite != null)
+            {
+                return sprite;
+            }
+
+            throw new System.InvalidOperationException(
+                $"[Horizon] Generated '{assetPath}' but the importer would not hand back a Sprite, even "
+                + "after a forced re-import. Rebuilding again usually resolves it; letting it through "
+                + "would silently produce a UI of blank rectangles.");
+        }
+
+        /// <summary>Writes a generated texture out as a sprite asset and imports it as one.</summary>
+        private static Sprite SaveSprite(Texture2D texture, string assetPath, Vector4 border)
+        {
+            texture.Apply();
+            File.WriteAllBytes(assetPath, texture.EncodeToPNG());
+            UnityEngine.Object.DestroyImmediate(texture);
+
+            AssetDatabase.ImportAsset(assetPath, ImportAssetOptions.ForceSynchronousImport);
+
+            var importer = AssetImporter.GetAtPath(assetPath) as TextureImporter;
+            if (importer != null)
+            {
+                importer.textureType = TextureImporterType.Sprite;
+
+                // Single, explicitly. Setting textureType from code does *not* imply it the way the
+                // inspector does — the importer defaults to Multiple, which means "this texture is an
+                // atlas of named sub-sprites", and an atlas with no rects defined contains no Sprite at
+                // all. LoadAssetAtPath<Sprite> then correctly returns null, every Image is assigned
+                // null, and the UI draws as blank rectangles while every validator reports success.
+                importer.spriteImportMode = SpriteImportMode.Single;
+
+                importer.alphaIsTransparency = true;
+                importer.wrapMode = TextureWrapMode.Clamp;
+                importer.mipmapEnabled = false;
+
+                if (border != Vector4.zero)
+                {
+                    importer.spriteBorder = border;
+                }
+
+                importer.SaveAndReimport();
+            }
+
+            return LoadFreshSprite(assetPath);
+        }
+
+        /// <summary>
         /// Creates an alpha-blended URP particle material. URP materials do not become transparent by
         /// setting a colour with alpha — the surface type, blend factors, keyword and render queue all
         /// have to be set together, which is what this wraps up.
@@ -458,6 +821,27 @@ namespace Horizon.EditorTools
             string name,
             Texture2D texture,
             Color baseColor)
+        {
+            return LoadOrCreateParticleMaterial(assetPath, name, texture, baseColor, false);
+        }
+
+        /// <param name="additive">
+        /// Add the particle to what is behind it instead of blending over it.
+        ///
+        /// <para>What fire is. An alpha-blended flame can only ever be as bright as the texture it is
+        /// drawn with, so against a bright sky it reads as a grey smudge and against a night road it
+        /// reads as a sticker; adding means it brightens whatever it is over, which is why it glows at
+        /// dusk and disappears into a noon sky. The only difference from the blended case is the
+        /// destination blend factor — <c>One</c> rather than <c>OneMinusSrcAlpha</c> — but it has to be
+        /// set alongside the surface type and the queue, which is what this whole method exists to keep
+        /// together.</para>
+        /// </param>
+        public static Material LoadOrCreateParticleMaterial(
+            string assetPath,
+            string name,
+            Texture2D texture,
+            Color baseColor,
+            bool additive)
         {
             Material existing = AssetDatabase.LoadAssetAtPath<Material>(assetPath);
             if (existing != null)
@@ -479,8 +863,21 @@ namespace Horizon.EditorTools
             created.SetFloat("_ZWrite", 0f);
             created.SetFloat("_AlphaClip", 0f);
             created.SetOverrideTag("RenderType", "Transparent");
+            created.SetFloat("_BlendModePreserveSpecular", 0f);
             created.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
-            created.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            created.SetInt(
+                "_DstBlend",
+                additive
+                    ? (int)UnityEngine.Rendering.BlendMode.One
+                    : (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+
+            if (additive)
+            {
+                // URP's particle shader reads the blend *mode* as well as the factors, and leaving this
+                // at its default quietly puts the alpha factors back on a material whose queue and
+                // keywords all say additive.
+                created.SetFloat("_Blend", 1f);
+            }
             created.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
             created.DisableKeyword("_ALPHATEST_ON");
             created.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;

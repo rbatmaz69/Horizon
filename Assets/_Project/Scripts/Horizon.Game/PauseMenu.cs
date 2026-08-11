@@ -1,0 +1,243 @@
+using Horizon.Input;
+using Horizon.Vehicle;
+using UnityEngine;
+using UnityEngine.UI;
+
+namespace Horizon.Game
+{
+    /// <summary>
+    /// Pause, and the settings behind it: which steering and which pedals, how sensitive the tilt is,
+    /// and a way to re-zero it.
+    ///
+    /// <para>This exists because there was no way to change anything on a phone. The only scheme
+    /// switcher lived in <c>DriveDebugOverlay</c>, which is compiled out of release builds — so a
+    /// player who did not get on with tilt steering had no route to anything else, and no way to fix a
+    /// tilt that had calibrated itself wrong.</para>
+    /// </summary>
+    public sealed class PauseMenu : MonoBehaviour
+    {
+        [SerializeField] private DriveInputRouter router;
+        [SerializeField] private TouchControlsHud hud;
+
+        [Header("Panels")]
+        [SerializeField] private GameObject menuPanel;
+        [SerializeField] private GameObject settingsPanel;
+        [SerializeField] private GameObject pauseButton;
+
+        [Header("Settings widgets")]
+        [SerializeField] private Text schemeLabel;
+        [SerializeField] private Slider tiltRangeSlider;
+        [SerializeField] private GameObject recalibrateButton;
+
+        private VehicleController vehicle;
+        private Vector3 spawnPosition;
+        private Quaternion spawnRotation;
+        private bool spawnCaptured;
+
+        public bool IsPaused { get; private set; }
+
+        private void Update()
+        {
+            // The world arrives a frame or two after Bootstrap, and the spawn has to be captured once
+            // it has — Respawn is otherwise a teleport to the origin, five kilometres under the pass.
+            if (vehicle == null)
+            {
+                vehicle = FindFirstObjectByType<VehicleController>();
+            }
+            else if (!spawnCaptured)
+            {
+                spawnPosition = vehicle.transform.position;
+                spawnRotation = vehicle.transform.rotation;
+                spawnCaptured = true;
+            }
+
+            // Escape on desktop, the hardware back button on Android — a phone player reaches for back
+            // before they look for a button.
+            if (UnityEngine.InputSystem.Keyboard.current != null
+                && UnityEngine.InputSystem.Keyboard.current.escapeKey.wasPressedThisFrame)
+            {
+                Toggle();
+            }
+        }
+
+        public void Toggle()
+        {
+            SetPaused(!IsPaused);
+        }
+
+        public void Resume()
+        {
+            SetPaused(false);
+        }
+
+        public void SetPaused(bool value)
+        {
+            IsPaused = value;
+
+            // Zero stops FixedUpdate, and the whole vehicle lives there. The input router and the
+            // widgets deliberately run on unscaled time so they keep working while this is zero.
+            Time.timeScale = value ? 0f : 1f;
+            AudioListener.pause = value;
+
+            if (menuPanel != null)
+            {
+                menuPanel.SetActive(value);
+            }
+
+            if (settingsPanel != null && !value)
+            {
+                settingsPanel.SetActive(false);
+            }
+
+            if (pauseButton != null)
+            {
+                pauseButton.SetActive(!value);
+            }
+
+            if (hud != null)
+            {
+                hud.SetPaused(value);
+            }
+
+            // Whatever a finger was on when the menu opened is not held any more.
+            TouchControlState.Clear();
+        }
+
+        /// <summary>
+        /// Shows the settings and <b>hides the pause menu behind it</b>.
+        ///
+        /// The second half is not a detail. Both panels are children of the same canvas at the same
+        /// depth, so leaving the first one up draws two lots of translucent panel and two sets of
+        /// buttons through each other, and neither can be read — which is exactly what it did.
+        /// </summary>
+        public void OpenSettings()
+        {
+            if (menuPanel != null)
+            {
+                menuPanel.SetActive(false);
+            }
+
+            if (settingsPanel != null)
+            {
+                settingsPanel.SetActive(true);
+            }
+
+            RefreshSettings();
+        }
+
+        /// <summary>Back to the pause menu, which means putting it back as well as taking this away.</summary>
+        public void CloseSettings()
+        {
+            if (settingsPanel != null)
+            {
+                settingsPanel.SetActive(false);
+            }
+
+            if (menuPanel != null && IsPaused)
+            {
+                menuPanel.SetActive(true);
+            }
+        }
+
+        /// <summary>Steps through the steering methods. Wired to one button rather than four.</summary>
+        public void CycleSteering()
+        {
+            if (router == null)
+            {
+                return;
+            }
+
+            var next = (SteeringMethod)(((int)router.Steering + 1) % 4);
+            router.SetSteering(next);
+            RefreshSettings();
+        }
+
+        /// <summary>Steps through the throttle methods.</summary>
+        public void CyclePedals()
+        {
+            if (router == null)
+            {
+                return;
+            }
+
+            var next = (PedalMethod)(((int)router.Pedals + 1) % 4);
+            router.SetPedals(next);
+            RefreshSettings();
+        }
+
+        /// <summary>
+        /// Re-zeroes the tilt where the phone is being held now.
+        ///
+        /// The most important button on this screen: neutral is a property of how the player is
+        /// sitting, and until this existed a bad calibration could only be escaped by killing the app.
+        /// </summary>
+        public void RecalibrateTilt()
+        {
+            router?.Tilt?.Calibrate();
+        }
+
+        /// <summary>Puts the car back where it started, upright. For when it is on its roof.</summary>
+        public void Respawn()
+        {
+            if (vehicle == null || !spawnCaptured)
+            {
+                return;
+            }
+
+            var body = vehicle.GetComponent<Rigidbody>();
+            if (body != null)
+            {
+                body.linearVelocity = Vector3.zero;
+                body.angularVelocity = Vector3.zero;
+            }
+
+            vehicle.transform.SetPositionAndRotation(spawnPosition, spawnRotation);
+            Resume();
+        }
+
+        public void OnTiltRangeChanged(float value)
+        {
+            if (router?.Tilt != null)
+            {
+                router.Tilt.TiltRange = value;
+                PlayerPrefs.SetFloat("Horizon.TiltRangeDegrees", value);
+                PlayerPrefs.Save();
+            }
+        }
+
+        private void Start()
+        {
+            if (router == null)
+            {
+                router = FindFirstObjectByType<DriveInputRouter>();
+            }
+
+            if (router?.Tilt != null && PlayerPrefs.HasKey("Horizon.TiltRangeDegrees"))
+            {
+                router.Tilt.TiltRange = PlayerPrefs.GetFloat("Horizon.TiltRangeDegrees");
+            }
+
+            if (tiltRangeSlider != null && router?.Tilt != null)
+            {
+                tiltRangeSlider.SetValueWithoutNotify(router.Tilt.TiltRange);
+            }
+
+            SetPaused(false);
+            RefreshSettings();
+        }
+
+        private void RefreshSettings()
+        {
+            if (schemeLabel != null && router != null)
+            {
+                schemeLabel.text = router.ActiveSchemeName;
+            }
+
+            // Only offer to recalibrate the thing that can be calibrated.
+            if (recalibrateButton != null && router != null)
+            {
+                recalibrateButton.SetActive(router.Steering == SteeringMethod.Tilt);
+            }
+        }
+    }
+}

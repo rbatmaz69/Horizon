@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using Horizon.Atmosphere;
 using Horizon.Input;
 using Horizon.Vehicle;
@@ -7,9 +6,12 @@ using UnityEngine;
 namespace Horizon.Game
 {
     /// <summary>
-    /// Development HUD: speed, active control scheme, the touch zones the scheme listens to, and a
-    /// time-of-day slider. This is the tuning instrument for the whole prototype — being able to
-    /// swap schemes and scrub the sun without leaving Play mode is what makes the loop fast.
+    /// Development HUD: speed, slip, the active control methods and a time-of-day slider. This is the
+    /// tuning instrument for the whole prototype — being able to watch the friction circle and scrub
+    /// the sun without leaving Play mode is what makes the loop fast.
+    ///
+    /// It no longer draws touch zones or switches schemes. Both moved to the on-screen controls and
+    /// the pause menu, which exist in real builds — where this class, being behind its #if, does not.
     ///
     /// IMGUI allocates every frame, so the whole thing is compiled out of release builds. Nothing
     /// here is a template for shipping UI.
@@ -18,7 +20,6 @@ namespace Horizon.Game
     {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
         [SerializeField] private DriveInputRouter inputRouter;
-        [SerializeField] private bool showTouchZones = true;
 
         private VehicleController vehicle;
         private TimeOfDayController timeOfDay;
@@ -26,7 +27,6 @@ namespace Horizon.Game
         private Quaternion spawnRotation;
         private bool spawnCaptured;
         private GUIStyle panelStyle;
-        private GUIStyle zoneStyle;
 
         private void Awake()
         {
@@ -61,11 +61,6 @@ namespace Horizon.Game
         {
             EnsureStyles();
 
-            if (showTouchZones && inputRouter != null)
-            {
-                DrawTouchZones(inputRouter.ActiveZones);
-            }
-
             GUILayout.BeginArea(new Rect(12f, 12f, 290f, 260f), GUIContent.none, panelStyle);
 
             if (vehicle != null)
@@ -75,6 +70,13 @@ namespace Horizon.Game
                 string gear = vehicle.Gear == 0 ? "R" : vehicle.Gear.ToString();
                 string shifting = vehicle.IsShifting ? "  shifting" : string.Empty;
                 GUILayout.Label($"gear {gear}   {vehicle.EngineRpm:0} rpm{shifting}");
+
+                // The friction circle is tuned by watching these while driving — there is no other way
+                // to see whether the rear is at its limit, and a number that only exists in the physics
+                // step is a number nobody can tune against.
+                string drifting = vehicle.IsDrifting ? "  DRIFT" : string.Empty;
+                GUILayout.Label($"slip {vehicle.SlipAngle:0}°   rear {vehicle.RearSlip:0.0} m/s"
+                              + $"   grip {vehicle.RearGrip:0.00}{drifting}");
             }
             else
             {
@@ -87,15 +89,9 @@ namespace Horizon.Game
                 GUILayout.Label($"steer {inputRouter.Steer:0.00}   gas {inputRouter.Throttle:0.00}   "
                               + $"brake {inputRouter.Brake:0.00}");
 
-                if (GUILayout.Button("Next control scheme"))
-                {
-                    inputRouter.CycleScheme();
-                }
-
-                if (inputRouter.Scheme == DriveInputScheme.Tilt && GUILayout.Button("Recalibrate tilt"))
-                {
-                    inputRouter.CalibrateTilt();
-                }
+                // The scheme is chosen in the pause menu now, which exists in real builds where this
+                // overlay does not. This is left as a readout so the tuning loop can still see which
+                // pair is live without opening a menu.
             }
 
             if (vehicle != null && spawnCaptured && GUILayout.Button("Back to start"))
@@ -117,41 +113,13 @@ namespace Horizon.Game
             GUILayout.EndArea();
         }
 
-        private void DrawTouchZones(IReadOnlyList<TouchZone> zones)
-        {
-            for (int i = 0; i < zones.Count; i++)
-            {
-                TouchZone zone = zones[i];
-                Rect rect = ViewportToGui(zone.Viewport);
-                GUI.Box(rect, zone.Label, zoneStyle);
-            }
-        }
 
-        /// <summary>Viewport coords are bottom-up, IMGUI is top-down.</summary>
-        private static Rect ViewportToGui(Rect viewport)
-        {
-            return new Rect(
-                viewport.x * Screen.width,
-                (1f - viewport.y - viewport.height) * Screen.height,
-                viewport.width * Screen.width,
-                viewport.height * Screen.height);
-        }
 
         private void EnsureStyles()
         {
             if (panelStyle == null)
             {
                 panelStyle = new GUIStyle(GUI.skin.box) { padding = new RectOffset(10, 10, 10, 10) };
-            }
-
-            if (zoneStyle == null)
-            {
-                zoneStyle = new GUIStyle(GUI.skin.box)
-                {
-                    alignment = TextAnchor.MiddleCenter,
-                    fontSize = 11,
-                };
-                zoneStyle.normal.textColor = new Color(1f, 1f, 1f, 0.6f);
             }
         }
 #endif

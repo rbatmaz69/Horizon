@@ -1,14 +1,18 @@
 using System;
-using System.Collections.Generic;
 using UnityEngine;
 
 namespace Horizon.Input
 {
     /// <summary>
-    /// Owns the control schemes, samples the active one, and smooths the result. Deadzone and
+    /// Owns the control methods, samples the active pair, and smooths the result. Deadzone and
     /// smoothing live here — once — so every scheme drives the same car. Speed-dependent steering
     /// reduction deliberately does *not* live here: that is a property of the vehicle and belongs
     /// to <c>VehicleConfig.SteeringBySpeed</c>.
+    ///
+    /// <para><b>Steering and pedals are chosen separately.</b> There used to be four whole schemes,
+    /// which offered four of the twelve combinations that actually exist — you could have tilt with an
+    /// automatic throttle or buttons with pedals, but not the wheel with a slider, for no reason other
+    /// than that nobody had written that class. Two halves compose into all of them.</para>
     /// </summary>
     public sealed class DriveInputRouter : MonoBehaviour, IDriveInput
     {
@@ -22,16 +26,27 @@ namespace Horizon.Input
         [Tooltip("Raw steering below this is treated as centred.")]
         [SerializeField] private float steerDeadzone = 0.02f;
 
-        [Header("Scheme")]
-        [Tooltip("Scheme used when no preference has been saved yet.")]
-        [SerializeField] private DriveInputScheme defaultScheme = DriveInputScheme.KeyboardGamepad;
+        [Header("Defaults")]
+        [Tooltip("Used when nothing has been saved yet. On a phone this is overridden — see LoadPreferences.")]
+        [SerializeField] private SteeringMethod defaultSteering = SteeringMethod.KeyboardGamepad;
 
-        private const string SchemePreferenceKey = "Horizon.InputScheme";
+        [SerializeField] private PedalMethod defaultPedals = PedalMethod.KeyboardGamepad;
 
-        private readonly Dictionary<DriveInputScheme, DriveInputSource> sources =
-            new Dictionary<DriveInputScheme, DriveInputSource>(4);
+        private const string SteeringKey = "Horizon.Steering";
+        private const string PedalKey = "Horizon.Pedals";
 
-        private DriveInputSource active;
+        /// <summary>
+        /// The key the four old whole-schemes were saved under.
+        ///
+        /// Read once and translated — a player who had already chosen tilt should not silently be put
+        /// back on the keyboard because the settings were restructured underneath them.
+        /// </summary>
+        private const string LegacySchemeKey = "Horizon.InputScheme";
+
+        private readonly TiltInput tilt = new TiltInput();
+
+        private ISteerInput steer;
+        private IPedalInput pedals;
         private float steerVelocity;
 
         public float Steer { get; private set; }
@@ -39,42 +54,37 @@ namespace Horizon.Input
         public float Brake { get; private set; }
         public bool Handbrake { get; private set; }
 
-        /// <summary>The active scheme. Setting it swaps sources and saves the preference.</summary>
-        public DriveInputScheme Scheme { get; private set; }
+        public SteeringMethod Steering { get; private set; }
 
-        /// <summary>Display name of the active scheme, for the HUD.</summary>
-        public string ActiveSchemeName => active != null ? active.DisplayName : "None";
+        public PedalMethod Pedals { get; private set; }
 
-        /// <summary>Touch regions the active scheme reads. Never null.</summary>
-        public IReadOnlyList<TouchZone> ActiveZones =>
-            active != null ? active.Zones : Array.Empty<TouchZone>();
+        /// <summary>The tilt source, so the pause menu can re-zero it where the player is sitting.</summary>
+        public TiltInput Tilt => tilt;
 
-        /// <summary>Raised after a scheme change, so HUDs can rebuild.</summary>
-        public event Action<DriveInputScheme> SchemeChanged;
+        /// <summary>Display names of the active pair, for the settings screen and the debug overlay.</summary>
+        public string ActiveSchemeName =>
+            steer != null && pedals != null ? $"{steer.DisplayName} + {pedals.DisplayName}" : "None";
+
+        /// <summary>Raised after either half changes, so the on-screen controls can rebuild.</summary>
+        public event Action SchemeChanged;
 
         private void Awake()
         {
-            sources[DriveInputScheme.KeyboardGamepad] = new KeyboardGamepadInput();
-            sources[DriveInputScheme.Tilt] = new TiltInput();
-            sources[DriveInputScheme.TouchSteer] = new TouchSteerInput();
-            sources[DriveInputScheme.TouchButtons] = new TouchButtonInput();
-
-            Scheme = LoadPreferredScheme();
+            LoadPreferences();
         }
 
         private void OnEnable()
         {
-            SetScheme(Scheme, save: false);
+            Apply(Steering, Pedals, save: false);
             DriveInput.Current = this;
         }
 
         private void OnDisable()
         {
-            if (active != null)
-            {
-                active.Disable();
-                active = null;
-            }
+            steer?.Disable();
+            pedals?.Disable();
+            steer = null;
+            pedals = null;
 
             if (ReferenceEquals(DriveInput.Current, this))
             {
@@ -84,81 +94,154 @@ namespace Horizon.Input
 
         private void Update()
         {
-            if (active == null)
+            if (steer == null || pedals == null)
             {
                 return;
             }
 
-            float deltaTime = Time.deltaTime;
-            active.Sample(deltaTime);
+            // Unscaled, because the pause menu sets the time scale to zero and input still has to be
+            // sampled — otherwise the smoothing below freezes mid-corner and the car resumes with
+            // whatever was held a moment before it paused.
+            float deltaTime = Time.unscaledDeltaTime;
 
-            float rawSteer = Mathf.Abs(active.Steer) <= steerDeadzone ? 0f : active.Steer;
-            Steer = Mathf.SmoothDamp(Steer, rawSteer, ref steerVelocity, steerSmoothTime);
-            Throttle = Mathf.MoveTowards(Throttle, active.Throttle, pedalRate * deltaTime);
-            Brake = Mathf.MoveTowards(Brake, active.Brake, pedalRate * deltaTime);
-            Handbrake = active.Handbrake;
+            steer.Sample(deltaTime);
+            pedals.Sample(deltaTime);
+
+            float rawSteer = Mathf.Abs(steer.Steer) <= steerDeadzone ? 0f : steer.Steer;
+            Steer = Mathf.SmoothDamp(Steer, rawSteer, ref steerVelocity, steerSmoothTime, Mathf.Infinity, deltaTime);
+            Throttle = Mathf.MoveTowards(Throttle, pedals.Throttle, pedalRate * deltaTime);
+            Brake = Mathf.MoveTowards(Brake, pedals.Brake, pedalRate * deltaTime);
+            Handbrake = pedals.Handbrake;
         }
 
-        /// <summary>Switches control scheme, optionally persisting the choice.</summary>
-        public void SetScheme(DriveInputScheme scheme, bool save = true)
+        /// <summary>Switches the steering half, keeping the pedals.</summary>
+        public void SetSteering(SteeringMethod method)
         {
-            if (!sources.TryGetValue(scheme, out DriveInputSource next))
-            {
-                Debug.LogWarning($"[Horizon] No input source registered for {scheme}.", this);
-                return;
-            }
+            Apply(method, Pedals, save: true);
+        }
 
-            if (active != null)
-            {
-                active.Disable();
-            }
+        /// <summary>Switches the pedal half, keeping the steering.</summary>
+        public void SetPedals(PedalMethod method)
+        {
+            Apply(Steering, method, save: true);
+        }
 
-            Scheme = scheme;
-            active = next;
-            active.Enable();
+        private void Apply(SteeringMethod steering, PedalMethod pedal, bool save)
+        {
+            steer?.Disable();
+            pedals?.Disable();
 
-            // Drop any carried-over steering so the car does not jerk on the swap.
+            // Anything a widget was holding belongs to the controls that are going away.
+            TouchControlState.Clear();
+
+            Steering = steering;
+            Pedals = pedal;
+
+            steer = CreateSteering(steering);
+            pedals = CreatePedals(pedal);
+
+            steer.Enable();
+            pedals.Enable();
+
             Steer = 0f;
+            Throttle = 0f;
+            Brake = 0f;
+            Handbrake = false;
             steerVelocity = 0f;
 
             if (save)
             {
-                PlayerPrefs.SetInt(SchemePreferenceKey, (int)scheme);
+                PlayerPrefs.SetInt(SteeringKey, (int)steering);
+                PlayerPrefs.SetInt(PedalKey, (int)pedal);
                 PlayerPrefs.Save();
             }
 
-            SchemeChanged?.Invoke(scheme);
+            SchemeChanged?.Invoke();
         }
 
-        /// <summary>Steps to the next scheme. Wired to the debug overlay.</summary>
-        public void CycleScheme()
+        private ISteerInput CreateSteering(SteeringMethod method)
         {
-            int next = ((int)Scheme + 1) % 4;
-            SetScheme((DriveInputScheme)next);
-        }
-
-        /// <summary>Re-captures the neutral hold angle, if the active scheme is tilt.</summary>
-        public void CalibrateTilt()
-        {
-            if (active is TiltInput tilt)
+            switch (method)
             {
-                tilt.Calibrate();
+                case SteeringMethod.Tilt:
+                    return tilt;
+                case SteeringMethod.Wheel:
+                    return new TouchSteer(true);
+                case SteeringMethod.Arrows:
+                    return new TouchSteer(false);
+                default:
+                    return new KeyboardSteer();
             }
         }
 
-        private DriveInputScheme LoadPreferredScheme()
+        private IPedalInput CreatePedals(PedalMethod method)
         {
-            if (!PlayerPrefs.HasKey(SchemePreferenceKey))
+            switch (method)
             {
-                // On desktop the touch schemes are only testable via the mouse fallback, so start
-                // with the scheme that actually lets us tune the car.
-                return Application.isMobilePlatform ? DriveInputScheme.Tilt : defaultScheme;
+                case PedalMethod.Auto:
+                    return new AutoPedals();
+                case PedalMethod.Pedals:
+                    return new TouchPedals(false);
+                case PedalMethod.Slider:
+                    return new TouchPedals(true);
+                default:
+                    return new KeyboardPedals();
+            }
+        }
+
+        /// <summary>
+        /// Restores the saved pair, translating the old single-scheme preference if that is all there is.
+        ///
+        /// On a phone with nothing saved the keyboard default would be a game with no controls at all,
+        /// so mobile starts on tilt and pedals — visible, and the combination the on-screen controls
+        /// were designed around.
+        /// </summary>
+        private void LoadPreferences()
+        {
+            if (PlayerPrefs.HasKey(SteeringKey) && PlayerPrefs.HasKey(PedalKey))
+            {
+                Steering = Enum.IsDefined(typeof(SteeringMethod), PlayerPrefs.GetInt(SteeringKey))
+                    ? (SteeringMethod)PlayerPrefs.GetInt(SteeringKey)
+                    : defaultSteering;
+
+                Pedals = Enum.IsDefined(typeof(PedalMethod), PlayerPrefs.GetInt(PedalKey))
+                    ? (PedalMethod)PlayerPrefs.GetInt(PedalKey)
+                    : defaultPedals;
+
+                return;
             }
 
-            int stored = PlayerPrefs.GetInt(SchemePreferenceKey);
-            return Enum.IsDefined(typeof(DriveInputScheme), stored)
-                ? (DriveInputScheme)stored
-                : defaultScheme;
+            if (PlayerPrefs.HasKey(LegacySchemeKey))
+            {
+                // 0 keyboard, 1 tilt, 2 drag-to-steer, 3 on-screen buttons. Drag-to-steer no longer
+                // exists; its players get the arrows, which is the nearest thing that does.
+                switch (PlayerPrefs.GetInt(LegacySchemeKey))
+                {
+                    case 1:
+                        Steering = SteeringMethod.Tilt;
+                        Pedals = PedalMethod.Auto;
+                        return;
+                    case 2:
+                    case 3:
+                        Steering = SteeringMethod.Arrows;
+                        Pedals = PedalMethod.Pedals;
+                        return;
+                    default:
+                        Steering = SteeringMethod.KeyboardGamepad;
+                        Pedals = PedalMethod.KeyboardGamepad;
+                        return;
+                }
+            }
+
+            if (Application.isMobilePlatform)
+            {
+                Steering = SteeringMethod.Tilt;
+                Pedals = PedalMethod.Pedals;
+                return;
+            }
+
+            Steering = defaultSteering;
+            Pedals = defaultPedals;
         }
     }
 }

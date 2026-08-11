@@ -7,7 +7,9 @@
         "Horizon.Vehicle",
         "Horizon.World",
         "Horizon.Atmosphere",
-        "Horizon.Game"
+        "Horizon.Game",
+        "UnityEngine.UI",
+        "Unity.InputSystem"
     ],
     "includePlatforms": [
         "Editor"

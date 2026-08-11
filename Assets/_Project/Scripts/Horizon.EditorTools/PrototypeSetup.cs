@@ -152,6 +152,13 @@ namespace Horizon.EditorTools
             public readonly Material LightRear;
             public readonly Material Smoke;
 
+            /// <summary>
+            /// The exhaust flame. Additive, so it brightens what it is over rather than being pasted on
+            /// top — which is the difference between fire and an orange sticker, and the reason it can
+            /// glow at dusk and vanish into a noon sky.
+            /// </summary>
+            public readonly Material Flame;
+
             public PrototypeMaterials()
             {
                 // New names rather than reusing M_Asphalt: materials are created only if missing, so an
@@ -285,6 +292,10 @@ namespace Horizon.EditorTools
 
                 Texture2D smokeTexture = HorizonAssetUtility.LoadOrCreateSoftCircleTexture(
                     ProjectRoot + "/Art/T_SmokePuff.png");
+                Flame = HorizonAssetUtility.LoadOrCreateParticleMaterial(
+                    MaterialsFolder + "/M_ExhaustFlame.mat", "M_ExhaustFlame", smokeTexture,
+                    new Color(1f, 0.66f, 0.26f, 1f), additive: true);
+
                 Smoke = HorizonAssetUtility.LoadOrCreateParticleMaterial(
                     MaterialsFolder + "/M_ExhaustSmoke.mat", "M_ExhaustSmoke", smokeTexture,
                     new Color(0.62f, 0.62f, 0.64f, 0.5f));
@@ -417,6 +428,19 @@ namespace Horizon.EditorTools
 
             AudioSource engineSource = CreateAudioSource(root.transform, "Audio_Engine", 0.25f);
 
+            // The loaded voice sits on the same object family and the same spatial blend as the other,
+            // because the two are one engine crossfaded — any difference in placement would be audible
+            // as the sound moving when you put your foot down.
+            AudioSource engineLoadSource = CreateAudioSource(root.transform, "Audio_EngineLoad", 0.25f);
+
+            // The exhaust is behind you and the tyres are under you, so neither is worth spatialising as
+            // much as the engine: at this camera distance it only smears them.
+            AudioSource exhaustSource = CreateAudioSource(root.transform, "Audio_Exhaust", 0.15f);
+            exhaustSource.loop = false;
+            exhaustSource.volume = 1f;
+
+            AudioSource tyreSource = CreateAudioSource(root.transform, "Audio_Tyres", 0.1f);
+
             // Reverb on the engine layer only. Configured as a stone corridor but starting silent — the
             // level is faded in from the cover probe, so an open road is unaffected.
             AudioReverbFilter reverb = engineSource.gameObject.AddComponent<AudioReverbFilter>();
@@ -439,9 +463,20 @@ namespace Horizon.EditorTools
             HorizonAssetUtility.Configure(engineAudio, serialized =>
             {
                 serialized.FindProperty("engineSource").objectReferenceValue = engineSource;
+                serialized.FindProperty("engineLoadSource").objectReferenceValue = engineLoadSource;
+                serialized.FindProperty("exhaustSource").objectReferenceValue = exhaustSource;
+                serialized.FindProperty("tyreSource").objectReferenceValue = tyreSource;
                 serialized.FindProperty("engineReverb").objectReferenceValue = reverb;
                 serialized.FindProperty("cover").objectReferenceValue = cover;
             });
+
+            // A silent layer is invisible until someone drives the car and notices something missing,
+            // which for the exhaust means noticing an absence of a noise that only happens on a hard
+            // shift. Cheaper to assert it here.
+            HorizonAssetUtility.AssertReferenceAssigned(engineAudio, "engineSource");
+            HorizonAssetUtility.AssertReferenceAssigned(engineAudio, "engineLoadSource");
+            HorizonAssetUtility.AssertReferenceAssigned(engineAudio, "exhaustSource");
+            HorizonAssetUtility.AssertReferenceAssigned(engineAudio, "tyreSource");
 
             VehicleLights lights = root.AddComponent<VehicleLights>();
             HorizonAssetUtility.Configure(lights, serialized =>
@@ -799,6 +834,10 @@ namespace Horizon.EditorTools
                 }
             });
 
+            // The controls the player actually sees. On the Bootstrap object rather than in the world
+            // scene, so they survive the additive load and exist before there is anything to drive.
+            TouchUiSetup.Build(root, router);
+
             EditorSceneManager.SaveScene(scene, BootstrapScenePath);
         }
 
@@ -1013,8 +1052,90 @@ namespace Horizon.EditorTools
                 renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
                 renderer.receiveShadows = false;
 
-                emitterObject.AddComponent<ExhaustSmoke>();
+                ParticleSystem flame = CreateExhaustFlame(emitterObject.transform, materials);
+
+                ExhaustSmoke smoke = emitterObject.AddComponent<ExhaustSmoke>();
+                HorizonAssetUtility.Configure(smoke, serialized =>
+                    serialized.FindProperty("flame").objectReferenceValue = flame);
+
+                HorizonAssetUtility.AssertReferenceAssigned(smoke, "flame");
             }
+        }
+
+        /// <summary>
+        /// The flame at a tailpipe: a burst emitter that does nothing at all until the exhaust lights.
+        ///
+        /// <para>Emission by burst rather than by rate, so the particle system is idle for almost all of
+        /// its life and <c>ExhaustSmoke</c> decides the moments. It sits <i>beside</i> the smoke rather
+        /// than replacing it, because the plume is always there and the flame is punctuation on it.</para>
+        ///
+        /// <para>Local simulation space, unlike the smoke. Smoke is left behind by a moving car and so
+        /// lives in world space; a flame lasts a tenth of a second and belongs to the pipe, and in world
+        /// space it would smear into a streak at anything above walking pace.</para>
+        /// </summary>
+        private static ParticleSystem CreateExhaustFlame(Transform parent, PrototypeMaterials materials)
+        {
+            var flameObject = new GameObject("Flame");
+            flameObject.transform.SetParent(parent, false);
+
+            ParticleSystem particles = flameObject.AddComponent<ParticleSystem>();
+
+            ParticleSystem.MainModule main = particles.main;
+            main.duration = 1f;
+            main.loop = false;
+            main.playOnAwake = false;
+
+            // A tenth of a second. Long enough to see, short enough that it is over before the eye can
+            // decide it is a particle system.
+            main.startLifetime = new ParticleSystem.MinMaxCurve(0.07f, 0.16f);
+            main.startSpeed = new ParticleSystem.MinMaxCurve(6f, 13f);
+            main.startSize = new ParticleSystem.MinMaxCurve(0.14f, 0.30f);
+            main.startColor = new Color(1f, 0.62f, 0.20f, 1f);
+            main.gravityModifier = 0f;
+            main.maxParticles = 48;
+            main.simulationSpace = ParticleSystemSimulationSpace.Local;
+
+            // Nothing over time; every particle comes from an Emit call.
+            ParticleSystem.EmissionModule emission = particles.emission;
+            emission.enabled = false;
+
+            ParticleSystem.ShapeModule shape = particles.shape;
+            shape.shapeType = ParticleSystemShapeType.Cone;
+            shape.angle = 13f;
+            shape.radius = 0.03f;
+
+            // White hot at the pipe, orange in the middle, gone. Fading the alpha to nothing matters
+            // more than usual on an additive material, which has no other way to disappear.
+            ParticleSystem.ColorOverLifetimeModule color = particles.colorOverLifetime;
+            color.enabled = true;
+            var burn = new Gradient();
+            burn.SetKeys(
+                new[]
+                {
+                    new GradientColorKey(new Color(1f, 0.95f, 0.75f), 0f),
+                    new GradientColorKey(new Color(1f, 0.55f, 0.12f), 0.45f),
+                    new GradientColorKey(new Color(0.75f, 0.16f, 0.03f), 1f),
+                },
+                new[]
+                {
+                    new GradientAlphaKey(1f, 0f),
+                    new GradientAlphaKey(0.85f, 0.35f),
+                    new GradientAlphaKey(0f, 1f),
+                });
+            color.color = new ParticleSystem.MinMaxGradient(burn);
+
+            ParticleSystem.SizeOverLifetimeModule size = particles.sizeOverLifetime;
+            size.enabled = true;
+            size.size = new ParticleSystem.MinMaxCurve(1f, AnimationCurve.EaseInOut(0f, 1f, 1f, 0.35f));
+
+            var renderer = flameObject.GetComponent<ParticleSystemRenderer>();
+            renderer.renderMode = ParticleSystemRenderMode.Billboard;
+            renderer.sharedMaterial = materials.Flame;
+            renderer.sortingFudge = 10f;
+            renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            renderer.receiveShadows = false;
+
+            return particles;
         }
 
         /// <summary>
