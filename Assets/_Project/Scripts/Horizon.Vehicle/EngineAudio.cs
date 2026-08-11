@@ -4,19 +4,25 @@ using UnityEngine;
 namespace Horizon.Vehicle
 {
     /// <summary>
-    /// Engine and wind sound, synthesised at runtime — the project carries no audio files, and a
-    /// generated harmonic stack is both cheaper and more controllable than a recorded loop.
+    /// Engine sound, synthesised at runtime — the project carries no audio files, and a generated
+    /// harmonic stack is both cheaper and more controllable than a recorded loop.
     ///
-    /// Two layers: a pitch-modulated engine drone, and a speed-driven wind bed. The engine runs
-    /// through a **simulated gearbox** rather than sweeping monotonically to top speed, because a
-    /// pitch that only ever rises reads as a scooter or a CVT. The drop on each upshift is most of
-    /// what makes it sound like a car.
+    /// One layer: a pitch-modulated engine drone, whose revs come from the drivetrain's own gearbox
+    /// rather than sweeping monotonically to top speed, because a pitch that only ever rises reads as
+    /// a scooter or a CVT. The drop on each upshift is most of what makes it sound like a car.
+    ///
+    /// <para><b>There was a second layer and it was removed on purpose.</b> A speed-driven wind bed
+    /// rose with the square of speed and swept its pitch from 0.85 to 1.3 as it went, so every
+    /// acceleration came with a whoosh over the engine — which is what it sounds like from outside a
+    /// car, not from in one. Wind that only appears when the car is already fast, or that ducks under
+    /// throttle, was considered and is worse: the first is a layer you never hear and the second
+    /// swells when you lift off, which is backwards. If wind comes back it should come back as
+    /// something the player can hear *through*, not over.</para>
     /// </summary>
     public sealed class EngineAudio : MonoBehaviour
     {
         [SerializeField] private VehicleController vehicle;
         [SerializeField] private AudioSource engineSource;
-        [SerializeField] private AudioSource windSource;
 
         [Header("Engine")]
         [Tooltip("Playback pitch at idle.")]
@@ -42,15 +48,6 @@ namespace Horizon.Vehicle
 
         [Tooltip("How much louder the engine gets with walls around it.")]
         [SerializeField] private float coveredEngineBoost = 0.3f;
-
-        [Tooltip("How much of the wind is cut when the airflow is enclosed.")]
-        [Range(0f, 1f)] [SerializeField] private float coveredWindCut = 0.65f;
-
-        [Header("Wind")]
-        [SerializeField] private float windVolume = 0.35f;
-
-        [Tooltip("Fraction of top speed at which wind reaches full volume.")]
-        [SerializeField] private float windFullSpeed = 0.75f;
 
         private const int SampleRate = 44100;
 
@@ -86,14 +83,6 @@ namespace Horizon.Vehicle
                 engineSource.loop = true;
                 engineSource.Play();
             }
-
-            if (windSource != null)
-            {
-                windSource.clip = BuildWindClip();
-                windSource.loop = true;
-                windSource.volume = 0f;
-                windSource.Play();
-            }
         }
 
         private void Update()
@@ -103,7 +92,6 @@ namespace Horizon.Vehicle
             smoothedThrottle = Mathf.MoveTowards(smoothedThrottle, throttle, 4f * deltaTime);
 
             float coverAmount = cover != null ? cover.CoverAmount : 0f;
-            float speed01 = vehicle != null ? vehicle.SpeedNormalized : 0f;
             float targetRevs = ResolveRevs();
 
             revs = Mathf.Lerp(revs, targetRevs, 1f - Mathf.Exp(-revSmoothing * deltaTime));
@@ -131,16 +119,6 @@ namespace Horizon.Vehicle
                 // and the mouth of a tunnel is a gradual thing anyway.
                 engineReverb.reverbLevel = Mathf.Lerp(-10000f, 600f, coverAmount);
                 engineReverb.dryLevel = Mathf.Lerp(0f, -280f, coverAmount);
-            }
-
-            if (windSource != null)
-            {
-                float wind = Mathf.Clamp01(speed01 / Mathf.Max(0.01f, windFullSpeed));
-
-                // Squared so wind stays out of the way at town speeds and only builds up high.
-                // Enclosed air is not rushing past the windows any more.
-                windSource.volume = windVolume * wind * wind * (1f - coveredWindCut * coverAmount);
-                windSource.pitch = Mathf.Lerp(0.85f, 1.3f, wind);
             }
         }
 
@@ -224,60 +202,6 @@ namespace Horizon.Vehicle
             }
 
             AudioClip clip = AudioClip.Create("EngineDrone", samples.Length, 1, SampleRate, false);
-            clip.SetData(samples, 0);
-            return clip;
-        }
-
-        /// <summary>
-        /// Low-passed noise for wind. The tail is crossfaded into the head, otherwise the loop point
-        /// is an audible tick every second.
-        /// </summary>
-        private static AudioClip BuildWindClip()
-        {
-            const int fade = 4096;
-            int generated = SampleRate + fade;
-            var raw = new float[generated];
-
-            uint state = 0x13579BDFu;
-            float lowpass = 0f;
-
-            for (int i = 0; i < generated; i++)
-            {
-                // xorshift rather than UnityEngine.Random: deterministic and independent of game state.
-                state ^= state << 13;
-                state ^= state >> 17;
-                state ^= state << 5;
-
-                float white = (state / (float)uint.MaxValue) * 2f - 1f;
-                lowpass += (white - lowpass) * 0.10f;
-                raw[i] = lowpass;
-            }
-
-            var samples = new float[SampleRate];
-            System.Array.Copy(raw, samples, SampleRate);
-
-            for (int i = 0; i < fade; i++)
-            {
-                float t = i / (float)fade;
-                samples[i] = samples[i] * t + raw[SampleRate + i] * (1f - t);
-            }
-
-            float peak = 0f;
-            for (int i = 0; i < samples.Length; i++)
-            {
-                peak = Mathf.Max(peak, Mathf.Abs(samples[i]));
-            }
-
-            if (peak > 0.0001f)
-            {
-                float scale = 0.8f / peak;
-                for (int i = 0; i < samples.Length; i++)
-                {
-                    samples[i] *= scale;
-                }
-            }
-
-            AudioClip clip = AudioClip.Create("WindNoise", samples.Length, 1, SampleRate, false);
             clip.SetData(samples, 0);
             return clip;
         }

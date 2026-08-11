@@ -277,6 +277,58 @@ namespace Horizon.EditorTools
         /// GPU than lit shading did. For a game whose art direction is flat colour, it is also simply
         /// the more honest choice.
         /// </summary>
+        /// <summary>
+        /// The one material a whole palette rides on: <c>Horizon/VertexTintLit</c>, white, lit.
+        ///
+        /// <para>Its base colour is white on purpose — the colour comes from the mesh's vertices, so this
+        /// material is a shading model rather than a shade. That is what lets the town's twelve façade
+        /// materials be one, which is the difference between twelve draw calls a tile and three.</para>
+        ///
+        /// <para>Falls back to URP/Lit if the shader is missing, which renders the whole town white
+        /// rather than magenta and says so. A magenta town is obvious; a white one with a warning is
+        /// diagnosable.</para>
+        /// </summary>
+        public static Material LoadOrCreateTintMaterial(string assetPath, string name, float smoothness)
+        {
+            Material existing = AssetDatabase.LoadAssetAtPath<Material>(assetPath);
+            if (existing != null)
+            {
+                return existing;
+            }
+
+            Shader shader = Shader.Find("Horizon/VertexTintLit");
+            if (shader == null)
+            {
+                Debug.LogWarning(
+                    "[Horizon] Horizon/VertexTintLit not found, so the buildings fall back to URP/Lit and "
+                    + "lose their palette — every façade will be plain white. The shader lives at "
+                    + "Assets/_Project/Art/Shaders/HorizonVertexTint.shader; if it is present, it failed "
+                    + "to compile and the console will say why.");
+
+                shader = Shader.Find("Universal Render Pipeline/Lit");
+            }
+
+            var created = new Material(shader) { name = name };
+
+            if (created.HasProperty("_BaseColor"))
+            {
+                created.SetColor("_BaseColor", Color.white);
+            }
+
+            if (created.HasProperty("_Smoothness"))
+            {
+                created.SetFloat("_Smoothness", smoothness);
+            }
+
+            if (created.HasProperty("_Metallic"))
+            {
+                created.SetFloat("_Metallic", 0f);
+            }
+
+            AssetDatabase.CreateAsset(created, assetPath);
+            return created;
+        }
+
         public static Material LoadOrCreateUnlitMaterial(string assetPath, string name, Color baseColor)
         {
             Material existing = AssetDatabase.LoadAssetAtPath<Material>(assetPath);

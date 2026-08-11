@@ -6,16 +6,23 @@ using UnityEngine.Rendering;
 namespace Horizon.EditorTools
 {
     /// <summary>
-    /// Generates the low-poly car body, wheels and tailpipes — shaped after a late-sixties American
-    /// fastback: long hood, short deck, low roof, a roofline that runs unbroken from the cabin to the
-    /// tail panel, and wide haunches over the rear wheels.
+    /// Generates the low-poly car bodies, wheels and tailpipes.
     ///
-    /// The body is a stack of closed cross-sections along Z. <see cref="KeyStations"/> describes the
+    /// The body is a stack of closed cross-sections along Z. A <see cref="CarProfile"/> describes one
     /// silhouette at a handful of points; those are interpolated to a fine grid so the shell is smooth
-    /// and so the wheel arches can be carved out of the underside.
+    /// and so the wheel arches can be carved out of the underside. Normals are smoothed, with hard
+    /// creases inserted only where a real car has them by emitting a duplicate ring there so no normal
+    /// averages across the edge.
     ///
-    /// Normals are smoothed, with hard creases inserted only where a real car has them (see
-    /// <see cref="CreaseZ"/>) by emitting a duplicate ring there so no normal averages across the edge.
+    /// <para>There are five profiles. <see cref="Fastback"/> is the player's car — a late-sixties
+    /// American fastback: long hood, short deck, low roof, a roofline running unbroken from the cabin to
+    /// the tail panel, and wide haunches over the rear wheels. The other four exist so that ambient
+    /// traffic is not two dozen copies of it, and all five share a wheelbase, a track and a wheel, which
+    /// is what keeps the arches, the flares and the ride height one problem rather than five.</para>
+    ///
+    /// <para>The player's car is built at full detail (<see cref="BuildBody"/>); traffic runs the same
+    /// loft at a fifth of the ring density with the grille, plates and exhausts left off
+    /// (<see cref="BuildTrafficBody"/>).</para>
     ///
     /// Authoring-only, hence EditorTools.
     /// </summary>
@@ -90,7 +97,89 @@ namespace Horizon.EditorTools
         /// </summary>
         private const float ArchHalfLength = 0.50f;
 
-        private readonly struct Station
+        /// <summary>
+        /// One car's silhouette, as a value.
+        ///
+        /// <para><b>This exists because a shape was five things and only one of them was the station
+        /// table.</b> The glass bands, the crease positions and the Z the lamps are seated at were all
+        /// bare literals scattered through the builder, every one of them a fact about the fastback
+        /// rather than about cars. A second body type is wrong in all of them, and wrong quietly: put a
+        /// van's lamps at the fastback's nose and they end up sealed inside the bodywork, which is a
+        /// failure this file has already had once and only found because somebody rendered the town at
+        /// night.</para>
+        ///
+        /// <para>Note what is <i>not</i> here. <see cref="TrackHalfWidth"/>, <see cref="WheelBaseHalf"/>,
+        /// the wheel radius and <see cref="TrafficRideHeight"/> stay global, so every body type sits on
+        /// the same wheels at the same wheelbase. That keeps <see cref="FlareAt"/>, <see cref="BottomAt"/>,
+        /// the wheel seating and <c>TrafficDirector.rideHeight</c> working untouched, and a wheelbase
+        /// that varied per profile would buy variety no player can see from thirty metres through
+        /// fog.</para>
+        /// </summary>
+        public readonly struct CarProfile
+        {
+            /// <summary>Used in mesh and asset names, so it has to be a valid file name.</summary>
+            public readonly string Name;
+
+            public readonly Station[] Stations;
+
+            /// <summary>
+            /// Z positions that get a duplicated ring, so no normal averages across the edge.
+            /// </summary>
+            public readonly float[] CreaseZ;
+
+            /// <summary>Z range over which the top surface is windscreen rather than bodywork.</summary>
+            public readonly float WindscreenFrom;
+
+            public readonly float WindscreenTo;
+
+            /// <summary>And the backlight. Equal values switch it off — a pickup has no rear window.</summary>
+            public readonly float RearWindowFrom;
+
+            public readonly float RearWindowTo;
+
+            /// <summary>Z range over which the flanks carry side glass.</summary>
+            public readonly float CabinFrom;
+
+            public readonly float CabinTo;
+
+            /// <summary>
+            /// Where the reduced body's lamp panels are seated.
+            ///
+            /// <b>On the caps, not near them.</b> A value a comfortable margin inside the shell puts
+            /// every lamp on every car inside the bodywork, and nothing about that is visible by day.
+            /// </summary>
+            public readonly float NoseZ;
+
+            public readonly float TailZ;
+
+            public CarProfile(
+                string name,
+                Station[] stations,
+                float[] creaseZ,
+                float windscreenFrom,
+                float windscreenTo,
+                float rearWindowFrom,
+                float rearWindowTo,
+                float cabinFrom,
+                float cabinTo,
+                float noseZ,
+                float tailZ)
+            {
+                Name = name;
+                Stations = stations;
+                CreaseZ = creaseZ;
+                WindscreenFrom = windscreenFrom;
+                WindscreenTo = windscreenTo;
+                RearWindowFrom = rearWindowFrom;
+                RearWindowTo = rearWindowTo;
+                CabinFrom = cabinFrom;
+                CabinTo = cabinTo;
+                NoseZ = noseZ;
+                TailZ = tailZ;
+            }
+        }
+
+        public readonly struct Station
         {
             public readonly float Z;
             public readonly float HalfWidth;
@@ -233,6 +322,210 @@ namespace Horizon.EditorTools
         /// </summary>
         private static readonly float[] CreaseZ = { -2.32f, -2.15f, 0.25f, 0.85f };
 
+        /// <summary>
+        /// The player's car, and one of the five shapes on the road.
+        ///
+        /// Every number in it is the one that was there before this became a profile — the glass bands,
+        /// the creases and the lamp seating were literals inside the builder, and lifting them out is
+        /// meant to change nothing about this car at all.
+        /// </summary>
+        public static readonly CarProfile Fastback = new CarProfile(
+            "Fastback", KeyStations, CreaseZ,
+            windscreenFrom: 0.25f, windscreenTo: 0.85f,
+            rearWindowFrom: -1.55f, rearWindowTo: -0.45f,
+            cabinFrom: -1.05f, cabinTo: 0.27f,
+            noseZ: 2.27f, tailZ: -2.49f);
+
+        /// <summary>
+        /// An estate: the fastback's face and cabin, with the roof carried level to a raked tailgate.
+        ///
+        /// The cheapest useful variation there is, and the one that proves the profile is doing its job —
+        /// it is the same car from the cowl forward and a different one behind the B-pillar, which is
+        /// exactly what an estate is. The roof runs 0.75 rather than the fastback's 0.66, because an
+        /// estate is taller over its load bay than a coupé is over its rear seats, and the ten
+        /// centimetres that buys is most of what tells the two apart in silhouette.
+        ///
+        /// <para>Built: 4.68 m long, roof 1.53 m above the road. Note that is 4 cm more than
+        /// <c>0.75 + 0.74</c> — <see cref="CrownFraction"/> bulges the top surface above its own edges,
+        /// so a profile's built roof always stands a little proud of its table's <c>TopY</c>. Worth
+        /// knowing before quoting a height from the numbers rather than from the build log.</para>
+        /// </summary>
+        private static readonly Station[] EstateStations =
+        {
+            //           z       halfW  belt   top    topHalf sill
+            new Station(-2.40f, 0.84f, 0.26f, 0.50f, 0.60f, -0.46f),
+            new Station(-2.34f, 0.92f, 0.28f, 0.66f, 0.66f, -0.52f),
+            new Station(-2.24f, 0.98f, 0.29f, 0.74f, 0.68f, -0.56f),
+
+            // Level roof over the load bay, and the haunch still swells over the rear axle — an estate
+            // that is a plain box from the door back reads as a delivery van rather than as a car.
+            new Station(-1.95f, 1.01f, 0.30f, 0.75f, 0.68f, -0.59f),
+            new Station(-1.60f, 1.03f, 0.31f, 0.75f, 0.68f, -0.59f),
+            new Station(-1.35f, 1.04f, 0.31f, 0.75f, 0.68f, -0.59f),
+            new Station(-1.10f, 1.02f, 0.29f, 0.75f, 0.67f, -0.59f),
+            new Station(-0.80f, 0.99f, 0.26f, 0.73f, 0.64f, -0.59f),
+
+            // The cabin, and from here forward every number is the fastback's.
+            new Station(-0.45f, 0.97f, 0.24f, 0.70f, 0.61f, -0.59f),
+            new Station(0.25f, 0.97f, 0.24f, 0.68f, 0.60f, -0.59f),
+            new Station(0.85f, 0.98f, 0.25f, 0.29f, 0.78f, -0.59f),
+            new Station(1.15f, 1.01f, 0.27f, 0.30f, 0.80f, -0.59f),
+            new Station(1.40f, 1.04f, 0.29f, 0.30f, 0.81f, -0.59f),
+            new Station(1.70f, 1.02f, 0.27f, 0.30f, 0.81f, -0.59f),
+            new Station(1.95f, 1.00f, 0.25f, 0.30f, 0.79f, -0.58f),
+            new Station(2.10f, 0.99f, 0.24f, 0.30f, 0.78f, -0.57f),
+            new Station(2.20f, 0.96f, 0.22f, 0.29f, 0.75f, -0.55f),
+            new Station(2.26f, 0.90f, 0.19f, 0.27f, 0.69f, -0.51f),
+        };
+
+        /// <summary>
+        /// A panel van. The one profile that differs in <b>height</b>, and therefore the one that does
+        /// most of the work.
+        ///
+        /// <para>Shapes are read at thirty metres through fog, where a roofline is legible and a
+        /// tailgate angle is not. A van standing 2.00 m tall against everything else's 1.4-1.5 is the
+        /// only one of these five you can identify from the far side of the valley, which is why it is
+        /// here and why it is worth the awkwardness of a beltline twice everyone else's.</para>
+        ///
+        /// <para>That high belt is not decoration either: side glass runs from the belt to the roof, so a
+        /// van on a car's beltline has 0.85 m of window down each flank and reads as a minibus. At 0.62
+        /// the glass is half a metre and the rest is slab.</para>
+        /// </summary>
+        private static readonly Station[] VanStations =
+        {
+            //           z       halfW  belt   top    topHalf sill
+            new Station(-2.55f, 0.94f, 0.58f, 1.10f, 0.80f, -0.46f),
+            new Station(-2.48f, 1.00f, 0.60f, 1.18f, 0.86f, -0.52f),
+            new Station(-2.40f, 1.03f, 0.61f, 1.21f, 0.88f, -0.56f),
+
+            // Dead level for two and a half metres. A van is a box and the box is the point; the only
+            // relief along here is the flare over the rear wheel, which FlareAt adds without the table
+            // having to say anything.
+            new Station(-1.90f, 1.05f, 0.62f, 1.21f, 0.88f, -0.59f),
+            new Station(-1.35f, 1.06f, 0.62f, 1.21f, 0.88f, -0.59f),
+            new Station(-0.60f, 1.05f, 0.62f, 1.21f, 0.88f, -0.59f),
+            new Station(0.30f, 1.04f, 0.61f, 1.21f, 0.88f, -0.59f),
+            new Station(1.05f, 1.03f, 0.60f, 1.21f, 0.87f, -0.59f),
+
+            // Screen and stub bonnet. The screen falls 0.49 m over 0.32, which is 33° off vertical —
+            // upright, as a cab-forward van's is. Rake it like the fastback's 58° and the whole nose has
+            // to grow a metre to put it anywhere.
+            new Station(1.30f, 1.02f, 0.59f, 1.21f, 0.85f, -0.59f),
+            new Station(1.62f, 1.01f, 0.56f, 0.72f, 0.82f, -0.59f),
+            new Station(1.85f, 1.02f, 0.52f, 0.50f, 0.82f, -0.59f),
+            new Station(2.08f, 1.00f, 0.44f, 0.48f, 0.80f, -0.57f),
+            new Station(2.22f, 0.96f, 0.36f, 0.45f, 0.76f, -0.54f),
+            new Station(2.30f, 0.90f, 0.28f, 0.40f, 0.70f, -0.50f),
+        };
+
+        /// <summary>
+        /// A pickup: the fastback's nose and a two-seat cab, then an open deck to the tail.
+        ///
+        /// The step down from the cab roof at 0.70 to the bed rail at 0.36 happens over six centimetres,
+        /// which is a vertical panel and needs a crease at both of its edges or the normals smear the
+        /// back of the cab into the load bed and the whole thing reads as a melted estate.
+        /// </summary>
+        private static readonly Station[] PickupStations =
+        {
+            //           z       halfW  belt   top    topHalf sill
+            new Station(-2.55f, 0.92f, 0.28f, 0.33f, 0.86f, -0.48f),
+            new Station(-2.48f, 0.98f, 0.30f, 0.35f, 0.90f, -0.53f),
+            new Station(-2.35f, 1.02f, 0.31f, 0.36f, 0.94f, -0.57f),
+
+            // The bed. TopHalfWidth runs close to HalfWidth along here on purpose: a load bed is flat
+            // to its rails, unlike a roof, which tucks in.
+            new Station(-1.90f, 1.04f, 0.32f, 0.37f, 0.96f, -0.59f),
+            new Station(-1.35f, 1.05f, 0.33f, 0.38f, 0.97f, -0.59f),
+            new Station(-0.90f, 1.03f, 0.32f, 0.37f, 0.95f, -0.59f),
+            new Station(-0.78f, 1.01f, 0.30f, 0.36f, 0.92f, -0.59f),
+
+            // The back of the cab.
+            new Station(-0.72f, 0.99f, 0.28f, 0.64f, 0.60f, -0.59f),
+            new Station(-0.45f, 0.98f, 0.26f, 0.70f, 0.60f, -0.59f),
+            new Station(0.25f, 0.97f, 0.25f, 0.70f, 0.60f, -0.59f),
+
+            new Station(0.85f, 0.98f, 0.25f, 0.29f, 0.78f, -0.59f),
+            new Station(1.15f, 1.01f, 0.27f, 0.30f, 0.80f, -0.59f),
+            new Station(1.40f, 1.04f, 0.29f, 0.30f, 0.81f, -0.59f),
+            new Station(1.70f, 1.02f, 0.27f, 0.30f, 0.81f, -0.59f),
+            new Station(1.95f, 1.00f, 0.25f, 0.30f, 0.79f, -0.58f),
+            new Station(2.10f, 0.99f, 0.24f, 0.30f, 0.78f, -0.57f),
+            new Station(2.20f, 0.96f, 0.22f, 0.29f, 0.75f, -0.55f),
+            new Station(2.26f, 0.90f, 0.19f, 0.27f, 0.69f, -0.51f),
+        };
+
+        /// <summary>
+        /// A small hatchback: 4.12 m against everyone else's 4.7-4.9, on the same wheelbase.
+        ///
+        /// <para>All of the 0.6 m comes off the overhangs, because the wheelbase is shared by every
+        /// profile — which is what a small car actually is, and it is why this one works despite the
+        /// constraint. Short overhangs on a fixed wheelbase read as a small car; a shortened wheelbase
+        /// would read the same and would cost the arches, the flares and the wheel seating.</para>
+        ///
+        /// <para>The flanks stay wide at the axles (0.99) even though the car is narrow elsewhere: the
+        /// wheels are at <see cref="TrackHalfWidth"/> like everything else, and a body that pulled in to
+        /// match the small car's <i>look</i> would leave the tyres standing outside the arches.</para>
+        /// </summary>
+        private static readonly Station[] HatchbackStations =
+        {
+            //           z       halfW  belt   top    topHalf sill
+            new Station(-2.10f, 0.84f, 0.22f, 0.42f, 0.62f, -0.46f),
+            new Station(-2.04f, 0.90f, 0.24f, 0.54f, 0.66f, -0.52f),
+            new Station(-1.95f, 0.95f, 0.26f, 0.62f, 0.66f, -0.56f),
+
+            new Station(-1.70f, 0.98f, 0.28f, 0.65f, 0.64f, -0.59f),
+            new Station(-1.35f, 0.99f, 0.29f, 0.66f, 0.62f, -0.59f),
+            new Station(-1.05f, 0.96f, 0.27f, 0.66f, 0.60f, -0.59f),
+            new Station(-0.45f, 0.94f, 0.25f, 0.66f, 0.59f, -0.59f),
+            new Station(0.25f, 0.94f, 0.25f, 0.66f, 0.59f, -0.59f),
+
+            new Station(0.80f, 0.95f, 0.26f, 0.32f, 0.76f, -0.59f),
+            new Station(1.10f, 0.98f, 0.27f, 0.33f, 0.78f, -0.59f),
+            new Station(1.40f, 0.99f, 0.28f, 0.33f, 0.78f, -0.58f),
+            new Station(1.70f, 0.97f, 0.27f, 0.32f, 0.77f, -0.57f),
+            new Station(1.88f, 0.93f, 0.25f, 0.31f, 0.74f, -0.55f),
+            new Station(2.00f, 0.87f, 0.21f, 0.28f, 0.68f, -0.50f),
+        };
+
+        public static readonly CarProfile Estate = new CarProfile(
+            "Estate", EstateStations, new[] { -2.24f, 0.25f, 0.85f },
+            windscreenFrom: 0.25f, windscreenTo: 0.85f,
+            rearWindowFrom: -2.42f, rearWindowTo: -2.22f,
+            cabinFrom: -2.15f, cabinTo: 0.27f,
+            noseZ: 2.27f, tailZ: -2.41f);
+
+        public static readonly CarProfile Van = new CarProfile(
+            "Van", VanStations, new[] { -2.40f, 1.30f, 1.62f },
+            windscreenFrom: 1.28f, windscreenTo: 1.64f,
+
+            // A panel van has no back window, and an equal pair is how a profile says so.
+            rearWindowFrom: 0f, rearWindowTo: 0f,
+            cabinFrom: 0.55f, cabinTo: 1.32f,
+            noseZ: 2.31f, tailZ: -2.56f);
+
+        public static readonly CarProfile Pickup = new CarProfile(
+            "Pickup", PickupStations, new[] { -2.35f, -0.78f, -0.72f, 0.25f, 0.85f },
+            windscreenFrom: 0.25f, windscreenTo: 0.85f,
+            rearWindowFrom: -0.75f, rearWindowTo: -0.69f,
+            cabinFrom: -0.70f, cabinTo: 0.27f,
+            noseZ: 2.27f, tailZ: -2.56f);
+
+        public static readonly CarProfile Hatchback = new CarProfile(
+            "Hatchback", HatchbackStations, new[] { -1.95f, 0.25f, 0.80f },
+            windscreenFrom: 0.25f, windscreenTo: 0.82f,
+            rearWindowFrom: -2.06f, rearWindowTo: -1.93f,
+            cabinFrom: -1.60f, cabinTo: 0.27f,
+            noseZ: 2.01f, tailZ: -2.11f);
+
+        /// <summary>
+        /// The shapes ambient traffic is built from.
+        ///
+        /// <para>The fastback is in here as well as being the player's car, and that is deliberate: the
+        /// player's own model appearing in traffic is what makes it one car among many rather than the
+        /// only one of its kind in the world.</para>
+        /// </summary>
+        public static readonly CarProfile[] TrafficProfiles = { Fastback, Estate, Van, Pickup, Hatchback };
+
         /// <summary>Spacing of the interpolated cross-sections.</summary>
         private const float StationStep = 0.13f;
 
@@ -261,10 +554,11 @@ namespace Horizon.EditorTools
         /// </summary>
         private static readonly HashSet<int> FlankKeySegments = new HashSet<int> { 3, 4, 11, 12 };
 
-        /// <summary>Builds the car body. Five submeshes — see the Submesh constants for the order.</summary>
+        /// <summary>Builds the player's car body. Five submeshes — see the Submesh constants for the order.</summary>
         public static Mesh BuildBody(string meshName = "CarBodyMesh")
         {
-            return BuildShell(BuildFineStations(), RingSubdivisions, true, meshName);
+            CarProfile profile = Fastback;
+            return BuildShell(profile, BuildFineStations(profile), RingSubdivisions, true, meshName);
         }
 
         /// <summary>
@@ -280,10 +574,10 @@ namespace Horizon.EditorTools
         /// <para>Key stations only, rather than the interpolated fine grid: the table's own entries are
         /// where the shape actually changes, and everything between them is a straight loft.</para>
         /// </summary>
-        public static Mesh BuildTrafficBody(string meshName = "TrafficCarMesh")
+        public static Mesh BuildTrafficBody(in CarProfile profile)
         {
-            var stations = new List<Station>(KeyStations);
-            return BuildShell(stations, 1, false, meshName);
+            var stations = new List<Station>(profile.Stations);
+            return BuildShell(profile, stations, 1, false, $"TrafficCarMesh_{profile.Name}");
         }
 
         /// <summary>
@@ -295,7 +589,11 @@ namespace Horizon.EditorTools
         /// cost per car rather than a per-ring one.
         /// </summary>
         private static Mesh BuildShell(
-            List<Station> stations, int ringSubdivisions, bool details, string meshName)
+            in CarProfile profile,
+            List<Station> stations,
+            int ringSubdivisions,
+            bool details,
+            string meshName)
         {
             int ringVertexCount = KeyPointCount * ringSubdivisions;
 
@@ -314,7 +612,7 @@ namespace Horizon.EditorTools
             {
                 Station station = stations[i];
                 bool interior = i > 0 && i < stations.Count - 1;
-                int copies = interior && IsCrease(station.Z) ? 2 : 1;
+                int copies = interior && IsCrease(profile, station.Z) ? 2 : 1;
 
                 Vector3[] ring = BuildRing(station, ringSubdivisions);
                 for (int copy = 0; copy < copies; copy++)
@@ -341,7 +639,7 @@ namespace Horizon.EditorTools
                 for (int i = 0; i < ringVertexCount; i++)
                 {
                     int next = (i + 1) % ringVertexCount;
-                    int submesh = ResolveSubmesh(midZ, i / ringSubdivisions);
+                    int submesh = ResolveSubmesh(profile, midZ, i / ringSubdivisions);
                     List<int> triangles = submeshTriangles[submesh];
 
                     int a = backStart + i;
@@ -382,7 +680,7 @@ namespace Horizon.EditorTools
                 // The lamps alone, as flat panels. Without them a traffic car has no headlight or
                 // taillight submesh at all, and the day-and-night material swap that lights the town has
                 // nothing on it to swap — which after dark is a car with no lights on.
-                AddTrafficLamps(vertices, submeshTriangles);
+                AddTrafficLamps(profile, vertices, submeshTriangles);
             }
 
             var mesh = new Mesh { name = meshName };
@@ -403,14 +701,15 @@ namespace Horizon.EditorTools
         /// Interpolates the key stations onto a fine grid. Key Z values are always included, so the
         /// crease positions land exactly on a station and the windscreen keeps its hard edge.
         /// </summary>
-        private static List<Station> BuildFineStations()
+        private static List<Station> BuildFineStations(in CarProfile profile)
         {
+            Station[] key = profile.Stations;
             var fine = new List<Station>(64);
 
-            for (int gap = 0; gap < KeyStations.Length - 1; gap++)
+            for (int gap = 0; gap < key.Length - 1; gap++)
             {
-                Station from = KeyStations[gap];
-                Station to = KeyStations[gap + 1];
+                Station from = key[gap];
+                Station to = key[gap + 1];
 
                 float span = to.Z - from.Z;
                 int steps = Mathf.Max(1, Mathf.CeilToInt(span / StationStep));
@@ -428,15 +727,15 @@ namespace Horizon.EditorTools
                 }
             }
 
-            fine.Add(KeyStations[KeyStations.Length - 1]);
+            fine.Add(key[key.Length - 1]);
             return fine;
         }
 
-        private static bool IsCrease(float z)
+        private static bool IsCrease(in CarProfile profile, float z)
         {
-            for (int i = 0; i < CreaseZ.Length; i++)
+            for (int i = 0; i < profile.CreaseZ.Length; i++)
             {
-                if (Mathf.Abs(CreaseZ[i] - z) < 0.001f)
+                if (Mathf.Abs(profile.CreaseZ[i] - z) < 0.001f)
                 {
                     return true;
                 }
@@ -521,15 +820,21 @@ namespace Horizon.EditorTools
         /// four wheels cost no extra draw call, only a different material in a slot that was being
         /// submitted anyway.</para>
         /// </summary>
-        private static void AddTrafficLamps(List<Vector3> vertices, List<int>[] submeshTriangles)
+        private static void AddTrafficLamps(
+            in CarProfile profile, List<Vector3> vertices, List<int>[] submeshTriangles)
         {
-            const float noseZ = 2.27f;
-            const float tailZ = -2.49f;
+            float noseZ = profile.NoseZ;
+            float tailZ = profile.TailZ;
 
-            AddLampPanel(vertices, submeshTriangles[HeadlightSubmesh], 0.30f, 0.02f, noseZ, 0.18f, 0.08f);
-            AddLampPanel(vertices, submeshTriangles[HeadlightSubmesh], -0.30f, 0.02f, noseZ, 0.18f, 0.08f);
-            AddLampPanel(vertices, submeshTriangles[TaillightSubmesh], 0.45f, 0.02f, tailZ, 0.22f, 0.09f);
-            AddLampPanel(vertices, submeshTriangles[TaillightSubmesh], -0.45f, 0.02f, tailZ, 0.22f, 0.09f);
+            // Seated against each profile's own beltline rather than at a fixed height: a van's face is a
+            // metre taller than a fastback's, and lamps at the fastback's 0.02 would sit at its knees.
+            float noseY = LampHeight(profile, noseZ);
+            float tailY = LampHeight(profile, tailZ);
+
+            AddLampPanel(vertices, submeshTriangles[HeadlightSubmesh], 0.30f, noseY, noseZ, 0.18f, 0.08f);
+            AddLampPanel(vertices, submeshTriangles[HeadlightSubmesh], -0.30f, noseY, noseZ, 0.18f, 0.08f);
+            AddLampPanel(vertices, submeshTriangles[TaillightSubmesh], 0.45f, tailY, tailZ, 0.22f, 0.09f);
+            AddLampPanel(vertices, submeshTriangles[TaillightSubmesh], -0.45f, tailY, tailZ, 0.22f, 0.09f);
 
             // Seated so the tyre touches the road the director puts the car on: TrafficDirector lifts the
             // transform by its ride height, which places the ground at y = -0.55 in this frame.
@@ -549,6 +854,48 @@ namespace Horizon.EditorTools
                 AddTrafficWheel(vertices, submeshTriangles[ChromeSubmesh],
                     new Vector3(x, centreY, z), radius, 0.13f, 8);
             }
+        }
+
+        /// <summary>
+        /// Where a lamp panel sits vertically: a hand below the beltline at that end of the car.
+        ///
+        /// <para>Derived from the profile's own stations rather than given as a number per profile, so a
+        /// body type cannot be described without its lamps following. The alternative — one height for
+        /// every shape — puts a van's headlights at the height of a fastback's, which on a face a metre
+        /// taller is somewhere around its front axle.</para>
+        ///
+        /// <para>The beltline is the right datum rather than the roof or the floor because it is the one
+        /// line every one of these shapes has in the same place relative to its lamps: below the glass,
+        /// above the wheel. On the fastback this lands within a centimetre of the fixed 0.02 it
+        /// replaced.</para>
+        /// </summary>
+        private static float LampHeight(in CarProfile profile, float z)
+        {
+            const float belowBelt = 0.17f;
+
+            Station[] stations = profile.Stations;
+
+            // Off either end, the nearest station is the answer: a lamp is seated on a cap, and the cap
+            // is the last station.
+            if (z <= stations[0].Z)
+            {
+                return stations[0].BeltY - belowBelt;
+            }
+
+            for (int i = 1; i < stations.Length; i++)
+            {
+                if (z > stations[i].Z)
+                {
+                    continue;
+                }
+
+                float span = stations[i].Z - stations[i - 1].Z;
+                float t = span > 0.0001f ? (z - stations[i - 1].Z) / span : 0f;
+
+                return Mathf.Lerp(stations[i - 1].BeltY, stations[i].BeltY, t) - belowBelt;
+            }
+
+            return stations[stations.Length - 1].BeltY - belowBelt;
         }
 
         /// <summary>
@@ -743,11 +1090,11 @@ namespace Horizon.EditorTools
         /// <para>The rear screen keeps its own extent, further back than the side glass, because it lies
         /// down along the roofline between those sail panels — a top surface, not a flank.</para>
         /// </summary>
-        private static int ResolveSubmesh(float z, int keySegment)
+        private static int ResolveSubmesh(in CarProfile profile, float z, int keySegment)
         {
-            bool windscreen = z > 0.25f && z < 0.85f;
-            bool rearWindow = z > -1.55f && z < -0.45f;
-            bool cabin = z > -1.05f && z < 0.27f;
+            bool windscreen = z > profile.WindscreenFrom && z < profile.WindscreenTo;
+            bool rearWindow = z > profile.RearWindowFrom && z < profile.RearWindowTo;
+            bool cabin = z > profile.CabinFrom && z < profile.CabinTo;
 
             if (TopKeySegments.Contains(keySegment) && (windscreen || rearWindow))
             {

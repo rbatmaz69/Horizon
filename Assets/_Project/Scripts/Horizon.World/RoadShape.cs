@@ -84,15 +84,20 @@ namespace Horizon.World
 
         public static RoadShape Default => new RoadShape
         {
-            // 9 m of asphalt as two 4.5 m lanes. Wider than a real pass, deliberately: the car is
-            // 1.86 m across and tilt steering is not precise to the centimetre.
-            HalfWidth = 4.5f,
+            // 10.5 m of asphalt as two 5.25 m lanes. Wider than a real pass, deliberately: the car is
+            // 1.86 m across and tilt steering is not precise to the centimetre. Widening this is close
+            // to free because everything that needs the number takes it from here — the ribbon and its
+            // marking atlas, the tunnel arch, the guard rails, the trunk mouths, the spawn lane and the
+            // clearance sweeps — but see ShoulderDrop for the one thing it eats into.
+            HalfWidth = 5.25f,
             ShoulderWidth = 1.5f,
 
             // 0.5 m, and it has to be read together with TerrainShape.RoadShelfDrop and MaxBankDegrees.
             // The camber lowers the inner edge of the carriageway by HalfWidth × sin(bank); if the terrain
             // shelf is not below *that*, the hillside comes up through the asphalt on the inside of every
-            // corner. At 4° that is 0.31 m, so the shelf at 0.45 m leaves 0.14 m of clearance.
+            // corner. At 4° that is 0.37 m, so the shelf at 0.45 m leaves 0.08 m of clearance — the
+            // margin a wider carriageway is paid for out of, and the number to watch if this widens
+            // again. ValidateRoadClearance measures it.
             ShoulderDrop = 0.5f,
 
             // 2.5 m, not 4 m: on a 20 m hairpin radius, 4 m steps are 11° apart and the corner
@@ -174,7 +179,7 @@ namespace Horizon.World
             VergeWidth = 24f,
 
             // Must clear the lowest point of the cambered carriageway, which is the inner edge in a
-            // corner: HalfWidth 4.5 × sin(4°) = 0.31 m below the centreline. 0.45 leaves 0.14 m, and it
+            // corner: HalfWidth 5.25 × sin(4°) = 0.37 m below the centreline. 0.45 leaves 0.08 m, and it
             // also lands close to where the outer edge of the verge falls to.
             RoadShelfDrop = 0.45f,
             // 70 m, not 30: this is now the width of the cutting the road sits in, and a short blend

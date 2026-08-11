@@ -146,6 +146,38 @@ namespace Horizon.World
         }
     }
 
+    /// <summary>
+    /// How much room a layout needs, in town-local coordinates.
+    ///
+    /// <para>Two rectangles rather than one, and the difference is the whole use of this type. The paved
+    /// extent is what has to be <b>levelled</b>: centrelines plus paving, kerbs, footways, verges and the
+    /// reach of a junction pad. The centreline extent is what has to be <b>mapped</b>: a street whose
+    /// centreline runs past the town's declared along-extent is out on the pass's first bend, where
+    /// town-local coordinates fold and no amount of levelling will help.</para>
+    /// </summary>
+    public readonly struct TownLayoutExtent
+    {
+        public readonly float AlongMin;
+        public readonly float AlongMax;
+        public readonly float AcrossMin;
+        public readonly float AcrossMax;
+
+        public readonly float CentreAlongMin;
+        public readonly float CentreAlongMax;
+
+        public TownLayoutExtent(
+            float alongMin, float alongMax, float acrossMin, float acrossMax,
+            float centreAlongMin, float centreAlongMax)
+        {
+            AlongMin = alongMin;
+            AlongMax = alongMax;
+            AcrossMin = acrossMin;
+            AcrossMax = acrossMax;
+            CentreAlongMin = centreAlongMin;
+            CentreAlongMax = centreAlongMax;
+        }
+    }
+
     /// <summary>The layout table as data: nodes, the streets between them, and any squares.</summary>
     public sealed class TownNetworkSpec
     {
@@ -168,6 +200,136 @@ namespace Horizon.World
         public void AddSquare(string name, params int[] nodes)
         {
             Squares.Add(new TownSquareSpec(name, nodes));
+        }
+
+        /// <summary>
+        /// How far out this layout reaches, so the basin can be sized to it rather than guessed at.
+        ///
+        /// <para>This exists because the two were separate numbers and drifted: <c>AcrossOuter</c> said the
+        /// levelled floor stopped at 260 m while the green's crescent and the lane out to it were authored
+        /// past it, so their paving stood over ground the height field had never flattened. Any hand-set
+        /// extent has that failure available to it the moment a street moves or a carriageway widens.
+        /// Measured, it does not.</para>
+        ///
+        /// <para>A street is sampled along its bow rather than at its endpoints: the bow is what puts the
+        /// crescent 34 m further out than either of the nodes it joins, and a rectangle taken from the node
+        /// table alone would miss exactly the street that started this.</para>
+        ///
+        /// <para>A node's own reach is its widest street's paving swung through a junction pad — a trim of
+        /// at most <see cref="StreetJunctionBuilder.MaximumTrimFactor"/> half-widths with the street's
+        /// outer corner across it, so <c>hypot(2.5, 1)</c> half-widths — plus the verge. Deliberately the
+        /// worst case rather than the trim that node will actually get: the trims are not resolved until
+        /// the graph is built, and a basin that is a few metres too generous costs a handful of level
+        /// samples while one that is a metre short is the bug above.</para>
+        /// </summary>
+        /// <param name="shelfDrop">
+        /// <c>TerrainShape.RoadShelfDrop</c>, so the cross-sections measured here are the same ones
+        /// <see cref="StreetNetwork.Build"/> will give the streets.
+        /// </param>
+        public TownLayoutExtent MeasureExtent(float shelfDrop)
+        {
+            float alongMin = float.MaxValue;
+            float alongMax = float.MinValue;
+            float acrossMin = float.MaxValue;
+            float acrossMax = float.MinValue;
+            float centreAlongMin = float.MaxValue;
+            float centreAlongMax = float.MinValue;
+
+            // The widest paving meeting each node, which is what its pad is built from.
+            var nodeHalfOuter = new float[Nodes.Count];
+
+            for (int i = 0; i < Streets.Count; i++)
+            {
+                TownStreetSpec street = Streets[i];
+                if (street.From < 0 || street.From >= Nodes.Count
+                    || street.To < 0 || street.To >= Nodes.Count)
+                {
+                    continue;
+                }
+
+                TownStreetShape shape = TownStreetShape.For(street.Kind, shelfDrop);
+                float reach = shape.HalfOuter + shape.VergeWidth;
+
+                nodeHalfOuter[street.From] = Mathf.Max(nodeHalfOuter[street.From], shape.HalfOuter);
+                nodeHalfOuter[street.To] = Mathf.Max(nodeHalfOuter[street.To], shape.HalfOuter);
+
+                const int steps = 8;
+                for (int step = 0; step <= steps; step++)
+                {
+                    CentrelineAt(street, step / (float)steps, out float along, out float across);
+
+                    centreAlongMin = Mathf.Min(centreAlongMin, along);
+                    centreAlongMax = Mathf.Max(centreAlongMax, along);
+
+                    alongMin = Mathf.Min(alongMin, along - reach);
+                    alongMax = Mathf.Max(alongMax, along + reach);
+                    acrossMin = Mathf.Min(acrossMin, across - reach);
+                    acrossMax = Mathf.Max(acrossMax, across + reach);
+                }
+            }
+
+            for (int i = 0; i < Nodes.Count; i++)
+            {
+                if (nodeHalfOuter[i] <= 0f)
+                {
+                    continue;
+                }
+
+                TownPoint at = Nodes[i].At;
+
+                // The pad's own verge skirt is the same width the ribbons' is, and it is the last thing
+                // standing between the paving and the hillside.
+                float reach = nodeHalfOuter[i]
+                              * Mathf.Sqrt(StreetJunctionBuilder.MaximumTrimFactor
+                                           * StreetJunctionBuilder.MaximumTrimFactor + 1f)
+                              + TownStreetShape.For(TownStreetKind.Lane, shelfDrop).VergeWidth;
+
+                centreAlongMin = Mathf.Min(centreAlongMin, at.Along);
+                centreAlongMax = Mathf.Max(centreAlongMax, at.Along);
+
+                alongMin = Mathf.Min(alongMin, at.Along - reach);
+                alongMax = Mathf.Max(alongMax, at.Along + reach);
+                acrossMin = Mathf.Min(acrossMin, at.Across - reach);
+                acrossMax = Mathf.Max(acrossMax, at.Across + reach);
+            }
+
+            if (alongMin > alongMax)
+            {
+                return new TownLayoutExtent(0f, 0f, 0f, 0f, 0f, 0f);
+            }
+
+            return new TownLayoutExtent(
+                alongMin, alongMax, acrossMin, acrossMax, centreAlongMin, centreAlongMax);
+        }
+
+        /// <summary>
+        /// A point on a street's centreline at <paramref name="t"/> along it, bow included.
+        ///
+        /// The same expression <see cref="StreetNetwork.BuildPath"/> lays the path out with, down to the
+        /// <c>4t(1-t)</c> term — if the two ever disagree, the basin is sized against a street that is not
+        /// the one built.
+        /// </summary>
+        private void CentrelineAt(in TownStreetSpec street, float t, out float along, out float across)
+        {
+            TownPoint a = Nodes[street.From].At;
+            TownPoint b = Nodes[street.To].At;
+
+            float spanAlong = b.Along - a.Along;
+            float spanAcross = b.Across - a.Across;
+            float span = Mathf.Sqrt(spanAlong * spanAlong + spanAcross * spanAcross);
+
+            along = Mathf.Lerp(a.Along, b.Along, t);
+            across = Mathf.Lerp(a.Across, b.Across, t);
+
+            if (span < 0.01f)
+            {
+                return;
+            }
+
+            float bow = street.Bow * 4f * t * (1f - t);
+
+            along += -spanAcross / span * bow;
+            across += spanAlong / span * bow;
         }
     }
 
@@ -235,7 +397,12 @@ namespace Horizon.World
             int back3 = spec.AddNode(880f, 202f);
             int back4 = spec.AddNode(955f, 200f);
 
-            int greenWest = spec.AddNode(590f, 266f);
+            // 250 m out, not 266. At 266 this lane's paving, its verge and the turning head at the end of
+            // it all stood past the levelled basin, on ground the height field had only ever seen as
+            // hillside. TownShape.CoverLayout now sizes the basin to whatever the table asks for, so this
+            // is no longer load-bearing — but there is no reason to make the town's flattest ground reach
+            // fifteen metres further for one dead end, and the green is a green either way.
+            int greenWest = spec.AddNode(588f, 250f);
             int crossNorth = spec.AddNode(505f, 208f);
 
             // --- The market square, between the high street and the housing row.
@@ -301,7 +468,11 @@ namespace Horizon.World
 
             // --- The green: a crescent off the back row, bowed hard enough that the block between the two
             // is a proper open space rather than a sliver.
-            spec.AddStreet(back1, back2, TownStreetKind.Alley, TownQuarter.Green, 46f);
+            //
+            // 34 m of bow rather than 46, for the reason greenWest moved in: at 46 the deepest point of
+            // the crescent carried its paving past the edge of the levelled floor. 34 m is still a green
+            // you can see across, and it is measured against the basin now rather than hoped at.
+            spec.AddStreet(back1, back2, TownStreetKind.Alley, TownQuarter.Green, 34f);
             spec.AddStreet(back0, greenWest, TownStreetKind.Alley, TownQuarter.Green, -6f);
 
             // --- Streets out from the trunk road.
@@ -317,9 +488,10 @@ namespace Horizon.World
 
             // --- The market square: four edges, and the two streets that thread through it.
             //
-            // The edges are SquareEdge, which is both a cross-section — 4 m carriageway against 4.5 m of
-            // footway, the widest pavement in the town — and the mark the builders read to tell that the
-            // land inside the ring is a square rather than a block waiting to be parcelled.
+            // The edges are SquareEdge, which is both a cross-section — 4.4 m carriageway against 2.8 m
+            // of footway, and the narrowest carriageway of any through street here for the reason
+            // TownStreetShape.For gives — and the mark the builders read to tell that the land inside the
+            // ring is a square rather than a block waiting to be parcelled.
             // Dead straight, unlike every other street in the town, because a square is the one place in
             // it where straight is the point. The corners are the town's only degree-two nodes, and the
             // convention elsewhere — a bend is a bowed edge, never two edges and a node — cannot apply:

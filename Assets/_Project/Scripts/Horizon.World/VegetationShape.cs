@@ -137,11 +137,16 @@ namespace Horizon.World
             TuftCellSize = 4f,
             BoulderCellSize = 20f,
 
-            // RoadShape.OuterHalfWidth is 6 m and the rails stand a little outside that. 13 m leaves a
+            // RoadShape.OuterHalfWidth is 6.75 m and the rails stand a little outside that. 14 m leaves a
             // driveable-feeling corridor without a bare strip.
-            TreeClearance = 13f,
+            TreeClearance = 14f,
             ShrubClearance = 9f,
-            TuftClearance = 7.5f,
+
+            // 8.5 m, up from 7.5. Grass is the one of these that grows right up to the road, so it is
+            // the one that a wider carriageway pushes out first: at OuterHalfWidth 6.75 the shoulder now
+            // ends at 6.75 m and tufts at 7.5 were standing in the strip the clearance report calls the
+            // road's own. This has to keep clearing that number, which is OuterHalfWidth + 1.
+            TuftClearance = 8.5f,
             BoulderClearance = 11f,
             TuftMaxDistance = 30f,
 

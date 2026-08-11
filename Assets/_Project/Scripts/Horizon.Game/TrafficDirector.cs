@@ -8,7 +8,7 @@ namespace Horizon.Game
     ///
     /// <para><b>The agents are kinematic followers, not vehicles.</b> No Rigidbody dynamics, no wheel
     /// raycasts, no engine — a lane index, a distance along it, and a speed, integrated and written
-    /// straight to the transform. Fourteen cars each running the raycast-wheel model would cost more per
+    /// straight to the transform. Two dozen cars each running the raycast-wheel model would cost more per
     /// frame than everything else in this world put together, and would buy nothing: what the player
     /// reads at thirty metres is that the traffic moves plausibly, not that it has suspension.</para>
     ///
@@ -48,9 +48,13 @@ namespace Horizon.Game
         [SerializeField] private MeshRenderer[] renderers;
 
         [Header("Motion")]
-        [Tooltip("Free-running speed, metres per second. 11 is about 40 km/h — a town speed, and fast "
-               + "enough that traffic reads as moving rather than as scenery that drifts.")]
-        [SerializeField] private float cruiseSpeed = 11f;
+        [Tooltip("Multiplies every lane's own speed limit. 1 drives them as baked.\n\n"
+               + "The limits themselves live on the lanes, because a town street and a mountain pass are "
+               + "the same object to this component and one number for both is wrong for one of them: at "
+               + "a town speed the player spends the descent behind a car doing 40 km/h, and at a pass "
+               + "speed the traffic races through Talheim. This is the knob for making all of it quicker "
+               + "or slower at once.")]
+        [SerializeField] private float speedScale = 1f;
 
         [SerializeField] private float acceleration = 3.5f;
 
@@ -118,7 +122,6 @@ namespace Horizon.Game
             {
                 agents[i].Random = (uint)(i * 2654435761u + 12345u);
                 agents[i].HeldNode = -1;
-                agents[i].Speed = cruiseSpeed;
 
                 // Matches the state the renderers are actually in, so the first frame past the load
                 // radius switches them off rather than agreeing with itself that it already had.
@@ -126,7 +129,7 @@ namespace Horizon.Game
 
                 // Spread over the network rather than started together, or the whole pool leaves the
                 // same junction in convoy on the first frame.
-                PlaceOnLane(i, StreetLane(ref agents[i].Random),
+                PlaceOnLane(i, DrivenLane(ref agents[i].Random),
                     NextFloat(ref agents[i].Random));
             }
         }
@@ -160,14 +163,16 @@ namespace Horizon.Game
                 gap = Mathf.Min(gap, remaining + stopGap);
             }
 
-            float target = cruiseSpeed;
+            float limit = LimitOf(agents[index].Lane);
+            float target = limit;
+
             if (gap < stopGap)
             {
                 target = 0f;
             }
             else if (gap < lookAhead)
             {
-                target = cruiseSpeed * Mathf.InverseLerp(stopGap, lookAhead, gap);
+                target = limit * Mathf.InverseLerp(stopGap, lookAhead, gap);
             }
 
             float rate = target > agents[index].Speed ? acceleration : braking;
@@ -339,11 +344,14 @@ namespace Horizon.Game
                 return;
             }
 
-            // Rejected rather than searched: a handful of tries finds a lane near the viewer on a network
-            // this size, and a failed attempt simply leaves the car where it was for another frame.
-            for (int attempt = 0; attempt < 8; attempt++)
+            // Rejected rather than searched, and given a good many tries: most of the lane list is now the
+            // six kilometres of pass rather than the town, so a uniform pick lands near the viewer only
+            // about one time in ten. Twenty-four tries makes that near-certain, it allocates nothing, and
+            // a run that finds nothing simply leaves the car where it was for another frame — the search
+            // runs again next frame and the car is out of sight either way.
+            for (int attempt = 0; attempt < 24; attempt++)
             {
-                int lane = StreetLane(ref agents[index].Random);
+                int lane = DrivenLane(ref agents[index].Random);
                 network.GetLane(lane, network.LengthOf(lane) * 0.5f, out Vector3 at, out Vector3 _);
 
                 if (Vector3.Distance(at, eye) < loadRadius * 0.8f)
@@ -360,19 +368,30 @@ namespace Horizon.Game
             agents[index].Lane = lane;
             agents[index].Distance = network.LengthOf(lane) * Mathf.Clamp01(fraction);
 
+            // At the new lane's own limit rather than at whatever it was doing on the old one. A car
+            // recycled from the pass onto a town street would otherwise arrive there at 70 km/h and brake
+            // in full view, which is a stranger thing to watch than the teleport it is hiding.
+            agents[index].Speed = LimitOf(lane);
+
             network.GetLane(lane, agents[index].Distance, out Vector3 position, out Vector3 forward);
             position.y += rideHeight;
 
             cars[index].SetPositionAndRotation(position, Quaternion.LookRotation(forward, Vector3.up));
         }
 
+        /// <summary>This lane's speed limit, as the director is set to drive it.</summary>
+        private float LimitOf(int lane)
+        {
+            return network.SpeedOf(lane) * speedScale;
+        }
+
         /// <summary>
-        /// A random lane that is a street rather than a turn connector.
+        /// A random lane that is a road rather than a turn connector.
         ///
         /// Starting or recycling a car inside a junction would have it claim a token it never took
         /// through the handover, and hold it until it happened to leave.
         /// </summary>
-        private int StreetLane(ref uint state)
+        private int DrivenLane(ref uint state)
         {
             for (int attempt = 0; attempt < 16; attempt++)
             {

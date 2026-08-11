@@ -16,7 +16,8 @@ namespace Horizon.EditorTools
     /// dropped frame. None of it shows up in a screenshot and all of it shows up on the road.</para>
     ///
     /// <list type="bullet">
-    /// <item>Every lane sample sits within its street's half-width of the centreline.</item>
+    /// <item>Every street lane sample sits within its street's half-width of the centreline.</item>
+    /// <item>Every trunk lane sample sits within the trunk road's half-width of its centreline.</item>
     /// <item>Every connector is flush with the lanes it joins, to 5 cm.</item>
     /// <item>Every lane can be left — no route strands a car.</item>
     /// <item>No connector passes within a metre of a building.</item>
@@ -56,9 +57,10 @@ namespace Horizon.EditorTools
 
             try
             {
-                StreetNetwork streets = RebuildNetwork(out scratch);
+                StreetNetwork streets = RebuildNetwork(out scratch, out RoadPath trunk);
 
                 CheckLanesFollowTheirStreets(routes, streets);
+                CheckLanesFollowTheTrunkRoad(routes, trunk);
                 CheckConnectorsAreFlush(routes);
                 CheckNothingIsStranded(routes);
                 CheckConnectorsClearBuildings(routes);
@@ -98,7 +100,10 @@ namespace Horizon.EditorTools
 
             for (int lane = 0; lane < routes.LaneCount; lane++)
             {
-                if (routes.NodeOf(lane) >= 0)
+                // Street lanes only. A lane down the trunk road is legitimately hundreds of metres from
+                // the nearest town street, and measured against this index every one of them would be
+                // reported as a car on the pavement — which is how a check stops being read.
+                if (routes.KindOf(lane) != TrafficLaneKind.Street)
                 {
                     continue;
                 }
@@ -140,6 +145,139 @@ namespace Horizon.EditorTools
                              + $"carriageway, worst {worst:0.00} m on lane {worstLane}. A lane is offset "
                              + "half a half-width from the centreline, so this means the street it was "
                              + "baked from is narrower than the one it is being measured against.");
+        }
+
+        /// <summary>
+        /// Every trunk lane sample sits on the trunk road's carriageway.
+        ///
+        /// <para>The pass doubles back on itself twelve times, so "distance to the nearest point of the
+        /// centreline" is the only question with a defensible answer — an inverse projection would have
+        /// several and no way to choose. Asking it outright for every sample is five thousand walks of a
+        /// seven-kilometre path, so the search is <b>windowed</b>: a lane runs along the road, so the
+        /// answer for one sample is a few metres from the answer for the last one. A window that comes
+        /// back with something implausible falls through to the full sweep rather than reporting the
+        /// wrong stretch of road — which is the failure a windowed search has available to it, and it
+        /// would land on a hairpin, where being wrong matters most.</para>
+        ///
+        /// <para>The bound is the carriageway's half-width, not the paved width including shoulders. A
+        /// lane on the gravel is the thing being looked for.</para>
+        /// </summary>
+        private static void CheckLanesFollowTheTrunkRoad(TrafficNetwork routes, RoadPath trunk)
+        {
+            RoadShape shape = RoadShape.Default;
+
+            float worst = 0f;
+            int worstLane = -1;
+            int outside = 0;
+            int lanes = 0;
+
+            for (int lane = 0; lane < routes.LaneCount; lane++)
+            {
+                if (routes.KindOf(lane) != TrafficLaneKind.Trunk)
+                {
+                    continue;
+                }
+
+                lanes++;
+                float near = -1f;
+
+                for (int i = 0; i < routes.SampleCount(lane); i++)
+                {
+                    Vector3 at = routes.SampleAt(lane, i);
+                    float over = NearestApproach(trunk, at, ref near) - shape.HalfWidth;
+
+                    if (over > 0f)
+                    {
+                        outside++;
+                    }
+
+                    if (over > worst)
+                    {
+                        worst = over;
+                        worstLane = lane;
+                    }
+                }
+            }
+
+            if (lanes == 0)
+            {
+                Debug.LogWarning("[Horizon] Traffic routes: not one lane on the trunk road. Ambient "
+                                 + "traffic is confined to the town, which is a few hundred metres of a "
+                                 + "world seven kilometres long.");
+                return;
+            }
+
+            if (outside == 0)
+            {
+                Debug.Log($"[Horizon] Traffic routes: all {lanes} trunk lanes are inside the "
+                          + "carriageway.");
+                return;
+            }
+
+            Debug.LogWarning($"[Horizon] Traffic routes: {outside} trunk lane sample(s) fall outside the "
+                             + $"carriageway, worst {worst:0.00} m on lane {worstLane}. A trunk lane is "
+                             + "offset half a half-width from the centreline, so this means it was baked "
+                             + "against a different RoadShape from the one the road was built with.");
+        }
+
+        /// <summary>
+        /// Plan distance from a point to the nearest point of a path, and where along the path that was.
+        ///
+        /// <para><paramref name="near"/> carries the previous answer in and the new one out. Negative
+        /// means "no idea", which sweeps the whole path; anything else searches a window around it first
+        /// and only sweeps if what it finds there is too far off the road to believe.</para>
+        /// </summary>
+        private static float NearestApproach(RoadPath path, Vector3 point, ref float near)
+        {
+            const float window = 12f;
+            const float fine = 0.5f;
+            const float coarse = 4f;
+
+            // Far enough off the carriageway that a windowed answer is more likely to be the wrong
+            // stretch of road than a real fault.
+            const float implausible = 25f;
+
+            if (near >= 0f)
+            {
+                float windowed = Sweep(path, point, near - window, near + window, fine, out float at);
+                if (windowed < implausible)
+                {
+                    near = at;
+                    return windowed;
+                }
+            }
+
+            float found = Sweep(path, point, 0f, path.Length, coarse, out float coarsely);
+            found = Mathf.Min(found,
+                Sweep(path, point, coarsely - coarse, coarsely + coarse, fine, out float finely));
+
+            near = finely;
+            return found;
+        }
+
+        /// <summary>The nearest point of a path within a span of it, in plan.</summary>
+        private static float Sweep(
+            RoadPath path, Vector3 point, float from, float to, float step, out float at)
+        {
+            float bestSqr = float.MaxValue;
+            at = Mathf.Clamp(from, 0f, path.Length);
+
+            for (float along = Mathf.Max(0f, from); along <= Mathf.Min(to, path.Length); along += step)
+            {
+                Vector3 on = path.GetPositionAtDistance(along);
+
+                float dx = on.x - point.x;
+                float dz = on.z - point.z;
+                float distanceSqr = dx * dx + dz * dz;
+
+                if (distanceSqr < bestSqr)
+                {
+                    bestSqr = distanceSqr;
+                    at = along;
+                }
+            }
+
+            return Mathf.Sqrt(bestSqr);
         }
 
         /// <summary>
@@ -238,8 +376,10 @@ namespace Horizon.EditorTools
             }
 
             Debug.LogWarning($"[Horizon] Traffic routes: {stranded} lane(s) lead nowhere, first "
-                             + $"{firstStranded}. Even a dead end should offer the U-turn back out — "
-                             + "check that TrafficNetworkBuilder is still allowing it at degree one.");
+                             + $"{firstStranded}. Even a dead end should offer the U-turn back out, and "
+                             + "so should both ends of the trunk road — check that TrafficNetworkBuilder "
+                             + "is still falling back to the reverse lane when a junction offers nothing "
+                             + "else.");
         }
 
         /// <summary>
@@ -320,7 +460,7 @@ namespace Horizon.EditorTools
         /// caching it in a static would leave a hidden object holding forty <c>RoadPath</c> components
         /// alive between runs.</para>
         /// </summary>
-        private static StreetNetwork RebuildNetwork(out GameObject scratch)
+        private static StreetNetwork RebuildNetwork(out GameObject scratch, out RoadPath trunk)
         {
             scratch = new GameObject("TrafficValidatorScratch") { hideFlags = HideFlags.HideAndDontSave };
 
@@ -329,11 +469,16 @@ namespace Horizon.EditorTools
             var pathObject = new GameObject("Path");
             pathObject.transform.SetParent(scratch.transform, false);
 
-            RoadPath path = pathObject.AddComponent<RoadPath>();
-            path.SetControlPoints(course.ControlPoints);
+            trunk = pathObject.AddComponent<RoadPath>();
+            trunk.SetControlPoints(course.ControlPoints);
+
+            TownNetworkSpec layout = TalheimLayout.Build();
 
             StreetNetwork network = StreetNetwork.Build(
-                path, TownShape.Default, TalheimLayout.Build(), scratch.transform,
+                trunk,
+                TownShape.CoverLayout(TownShape.Default, layout, TerrainShape.Default.RoadShelfDrop),
+                layout,
+                scratch.transform,
                 TerrainShape.Default.RoadShelfDrop);
 
             StreetJunctionBuilder.ResolveTrims(network, RoadShape.Default.OuterHalfWidth);

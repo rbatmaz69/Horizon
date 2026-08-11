@@ -63,7 +63,10 @@ namespace Horizon.EditorTools
                 RenderFrom(camera, car.transform, new Vector3(9.5f, 0.6f, 0f),
                     Path.Combine(directory, "CarPreview_Side.png"));
 
-                Debug.Log($"[Horizon] Car preview written to {directory}/CarPreview_Front.png and _Rear.png");
+                RenderTrafficProfiles(camera, car, directory);
+
+                Debug.Log($"[Horizon] Car preview written to {directory}/CarPreview_Front.png, _Rear.png, "
+                          + $"_Side.png and one _Side_<body>.png per ambient body type.");
             }
             finally
             {
@@ -71,6 +74,102 @@ namespace Horizon.EditorTools
                 Object.DestroyImmediate(lightObject);
                 Object.DestroyImmediate(car);
             }
+        }
+
+        /// <summary>
+        /// A side elevation of every ambient body type, on the same stage and the same camera as the
+        /// player's car.
+        ///
+        /// <para>Four silhouettes cannot be judged from a table of cross-sections — the numbers say
+        /// nothing about whether a van reads as a van — and this project already reviews geometry by
+        /// rendering it rather than by opening the editor. Side-on only, because that is the view
+        /// proportion lives in: a roofline, an overhang and where the cabin sits over the wheelbase.</para>
+        ///
+        /// <para>Built from the mesh straight out of <see cref="CarMeshBuilder"/> rather than from the
+        /// saved assets, so this works before a rebuild has ever run and cannot show a stale shape.
+        /// It borrows the player car's materials, which is what puts glass and lamps in the right
+        /// slots without a second material table to keep in step.</para>
+        /// </summary>
+        private static void RenderTrafficProfiles(Camera camera, GameObject car, string directory)
+        {
+            Material[] shared = TrafficMaterials();
+
+            // The player's car is standing on the same spot. Switched off rather than moved, so the
+            // camera framing is identical between its side view and these and the five can be compared
+            // by flicking between the files.
+            car.SetActive(false);
+
+            try
+            {
+                foreach (CarMeshBuilder.CarProfile profile in CarMeshBuilder.TrafficProfiles)
+                {
+                    Mesh mesh = CarMeshBuilder.BuildTrafficBody(profile);
+                    var stand = new GameObject($"Preview_{profile.Name}");
+
+                    try
+                    {
+                        // Lifted so the wheels stand where the road would be. Without it each body is
+                        // framed on a different part of itself and the shots cannot be compared, which
+                        // is the entire point of rendering them.
+                        stand.transform.position =
+                            StagePosition + Vector3.up * CarMeshBuilder.TrafficRideHeight;
+
+                        stand.AddComponent<MeshFilter>().sharedMesh = mesh;
+
+                        MeshRenderer standRenderer = stand.AddComponent<MeshRenderer>();
+                        if (shared != null)
+                        {
+                            standRenderer.sharedMaterials = shared;
+                        }
+
+                        RenderFrom(camera, stand.transform, new Vector3(11f, 0.5f, 0f),
+                            Path.Combine(directory, $"CarPreview_Side_{profile.Name}.png"));
+                    }
+                    finally
+                    {
+                        Object.DestroyImmediate(stand);
+                        Object.DestroyImmediate(mesh);
+                    }
+                }
+            }
+            finally
+            {
+                car.SetActive(true);
+            }
+        }
+
+        /// <summary>
+        /// The five slots an ambient car is actually rendered with, in the order
+        /// <c>PrototypeSetup.BuildTraffic</c> assigns them.
+        ///
+        /// <para>Not the player car's set, which was the obvious shortcut and is wrong in the one slot
+        /// that matters: on the player's body the chrome slot is the wheel <i>rim</i>, while a reduced
+        /// body puts its whole wheel there and takes the tyre material. Borrowing the player's array
+        /// rendered every ambient car on bright chrome wheels — which looks like a styling choice rather
+        /// than like a preview lying to you, and is exactly the kind of thing a preview exists to not
+        /// do.</para>
+        ///
+        /// <para>Loaded by path rather than through <c>PrototypeMaterials</c>, which is private to the
+        /// setup tool. If a rebuild has never run these do not exist yet and the bodies render
+        /// untextured, which is still a usable silhouette.</para>
+        /// </summary>
+        private static Material[] TrafficMaterials()
+        {
+            const string folder = "Assets/_Project/Art/Materials";
+
+            Material body = AssetDatabase.LoadAssetAtPath<Material>($"{folder}/M_TrafficSlate.mat");
+            Material glass = AssetDatabase.LoadAssetAtPath<Material>($"{folder}/M_CarGlass.mat");
+            Material lamp = AssetDatabase.LoadAssetAtPath<Material>($"{folder}/M_WindowDay.mat");
+            Material tyre = AssetDatabase.LoadAssetAtPath<Material>($"{folder}/M_Tyre.mat");
+
+            if (body == null || glass == null || lamp == null || tyre == null)
+            {
+                Debug.LogWarning("[Horizon] Car preview: the traffic materials are missing, so the body "
+                                 + "types are rendered untextured. Run Rebuild Prototype Scene first.");
+                return null;
+            }
+
+            return new[] { body, glass, lamp, lamp, tyre };
         }
 
         private static void RenderFrom(Camera camera, Transform target, Vector3 offset, string filePath)

@@ -37,7 +37,11 @@ namespace Horizon.World
                + "*below* every road and level sample it is given — so a surface built at the path's own "
                + "height stands half a metre proud of the grass beside it, with a vertical face. The "
                + "trunk road hides that behind a 1.5 m shoulder; a town street has no shoulder, and the "
-               + "result was a network of plateaux you could drive off but not back onto.")]
+               + "result was a network of plateaux you could drive off but not back onto.\n\n"
+               + "How far it clears the shelf is the other half, and it is not free to choose: the "
+               + "terrain you see is the field interpolated across TerrainShape.CellSize, and that mesh "
+               + "can stand a sixth of a metre above the field near a street. Clear the shelf by less "
+               + "than that and the grass grows up through the road. See ValidateStreetClearance.")]
         public float SurfaceLift;
 
         [Tooltip("Camber: how much higher the centre of the carriageway sits than its gutters.")]
@@ -53,6 +57,30 @@ namespace Horizon.World
         public float HalfOuter => HalfWidth + KerbFace + FootwayWidth;
 
         /// <summary>
+        /// How far a street's carriageway stands above the shelf <see cref="MountainField"/> lays under
+        /// it, metres.
+        ///
+        /// <para><b>0.26, and it was 0.08.</b> At 0.08 the grass grew up through the road on eleven of
+        /// the town's forty-one streets — not because the height field was wrong, but because the terrain
+        /// is drawn as a linear interpolation of that field across twelve-metre cells and the mesh
+        /// therefore rides above the field between lattice points. Measured, it rode up to 0.16 m above
+        /// it near a street, against 0.08 m of room. The field-based clearance check could never see it:
+        /// the field is not what gets drawn.</para>
+        ///
+        /// <para>So this has to exceed the mesh's error, not merely be positive, and 0.26 leaves about a
+        /// tenth of a metre in hand. <b>It is coupled to <see cref="TerrainShape.CellSize"/></b> — a
+        /// coarser terrain grid interpolates over a longer span and misses by more, so raising that
+        /// number means raising this one. <c>ValidateStreetClearance</c> measures the pair rather than
+        /// trusting either.</para>
+        ///
+        /// <para>The cost is that a street now stands a hand above the grass beside it rather than a
+        /// finger. That is what the 1.6 m verge is for: it ramps the difference away at about a quarter,
+        /// which is a bank you can drive up, not the vertical half-metre plateau the negative lift was
+        /// introduced to get rid of. <c>VergeGradient</c> holds the line at 0.6.</para>
+        /// </summary>
+        public const float ClearsTheShelf = 0.26f;
+
+        /// <summary>
         /// The cross-section for a kind of street.
         ///
         /// The steps between the kinds are what make a street network legible from inside a car: you can
@@ -60,19 +88,19 @@ namespace Horizon.World
         /// </summary>
         /// <param name="shelfDrop">
         /// How far <see cref="MountainField"/> sets the ground below the roads it is given —
-        /// <see cref="TerrainShape.RoadShelfDrop"/>. The carriageway is built that far down and 8 cm
-        /// back up, which puts it the same fraction of a hand above the ground as the trunk road is.
+        /// <see cref="TerrainShape.RoadShelfDrop"/>. The carriageway is built that far down and
+        /// <see cref="ClearsTheShelf"/> back up.
         /// </param>
         public static TownStreetShape For(TownStreetKind kind, float shelfDrop = 0f)
         {
             var shape = new TownStreetShape
             {
-                HalfWidth = 3.4f,
+                HalfWidth = 4.0f,
                 KerbHeight = 0.14f,
                 KerbFace = 0.25f,
                 FootwayWidth = 1.8f,
                 StepLength = 5f,
-                SurfaceLift = 0.08f - shelfDrop,
+                SurfaceLift = ClearsTheShelf - shelfDrop,
                 Crown = 0.06f,
                 VergeWidth = 1.6f,
             };
@@ -80,13 +108,13 @@ namespace Horizon.World
             switch (kind)
             {
                 case TownStreetKind.HighStreet:
-                    shape.HalfWidth = 4.6f;
+                    shape.HalfWidth = 5.4f;
                     shape.FootwayWidth = 3.2f;
                     shape.KerbHeight = 0.16f;
                     break;
 
                 case TownStreetKind.Avenue:
-                    shape.HalfWidth = 4.0f;
+                    shape.HalfWidth = 4.8f;
                     shape.FootwayWidth = 2.4f;
                     break;
 
@@ -94,7 +122,7 @@ namespace Horizon.World
                     break;
 
                 case TownStreetKind.Alley:
-                    shape.HalfWidth = 2.6f;
+                    shape.HalfWidth = 3.1f;
                     shape.FootwayWidth = 0.7f;
                     shape.KerbHeight = 0.10f;
                     break;
@@ -105,8 +133,13 @@ namespace Horizon.World
                 // the junctions at both ends of it — a 8.75 m half-outer puts a street's outer corner
                 // forty degrees off its own axis, and at a node where two branches are under fifty
                 // degrees apart the corners cross and the pad polygon folds through itself.
+                //
+                // It is also the one kind that did *not* take the full widening the rest of the town
+                // took: the streets round a square eat their own half-widths out of it at both ends, so
+                // every metre added here is two metres off the market place, and these are the junctions
+                // that were the last in the town to stop folding.
                 case TownStreetKind.SquareEdge:
-                    shape.HalfWidth = 4.0f;
+                    shape.HalfWidth = 4.4f;
                     shape.FootwayWidth = 2.8f;
                     break;
             }

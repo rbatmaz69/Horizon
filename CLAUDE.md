@@ -133,8 +133,12 @@ in Play mode and the changes persist — that is the intended tuning loop.
 
 Sound is **synthesised in code**, not shipped as files — see `EngineAudio`. A generated harmonic stack
 costs a few kilobytes of source instead of megabytes of APK, has no licensing question attached, and
-maps directly onto revs. Keep it that way for engine, wind and tyre noise. Recorded audio is worth it
+maps directly onto revs. Keep it that way for engine and tyre noise. Recorded audio is worth it
 only for things synthesis genuinely cannot do (music, ambience with real character).
+
+There is deliberately **no wind layer**. One existed, driven by speed, and it put a whoosh over the
+engine on every acceleration — see the note on `EngineAudio` for why the obvious variations on it are
+worse rather than better.
 
 Generated loops must contain a whole number of cycles at the sample rate, or the loop point clicks
 once a second. The engine drone is 56 Hz over exactly one second for that reason; noise beds get their

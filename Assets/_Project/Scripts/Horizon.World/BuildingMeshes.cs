@@ -27,21 +27,56 @@ namespace Horizon.World
     public static class BuildingMeshes
     {
         /// <summary>
-        /// Three wall colours and three roof colours, each its own submesh.
+        /// The façade palette, as colours rather than as materials.
         ///
-        /// A palette costs submeshes because there is no cheaper way: URP/Lit does not read vertex
-        /// colours, and the mesh buffer these share with the vegetation carries no UV channel, so a
-        /// per-house tint has to be a per-house *material*. Empty submeshes are dropped when the tile mesh
-        /// is built and the SRP Batcher groups them by shader, so the cost is far smaller than the count
-        /// suggests — and thirty-five identical houses is the thing that makes a generated village read
-        /// as generated.
+        /// <para><b>This used to be twelve materials and is now one.</b> A per-house tint had to be a
+        /// per-house material, because URP/Lit cannot read vertex colours — and a material is a submesh,
+        /// and a submesh is a draw call. A town tile carried twelve, which <c>ReportDrawCallBudget</c>
+        /// reported as being over what a mid-range Android will hold. <c>Horizon/VertexTintLit</c> is
+        /// sixty lines of HLSL whose only unusual line multiplies the base colour by the vertex colour,
+        /// and with it the whole palette rides in the mesh and every opaque face of a building is one
+        /// draw call.</para>
         ///
-        /// <para><b>Three, not four, and that is the opinionated part of the budget below.</b> Three walls
-        /// against three roofs is nine combinations, and because a run of houses shares its colours the
-        /// street reads as varied at the scale of runs — which is the scale you actually see from a car. A
-        /// fourth wall colour buys less than the accent, the lit glass and the lamps do, and costs the
-        /// same.</para>
+        /// <para>The numbers are the ones the materials had, moved rather than re-chosen, so the town
+        /// comes out the colour it already was.</para>
+        ///
+        /// <para><b>Three walls, not four, and that is still the opinionated part.</b> Three walls against
+        /// three roofs is nine combinations, and because a run of houses shares its colours the street
+        /// reads as varied at the scale of runs — which is the scale you see from a car. The constraint
+        /// that made a fourth expensive is gone; the judgement that nine is enough is not.</para>
         /// </summary>
+        public static readonly Color[] WallColours =
+        {
+            new Color(0.87f, 0.83f, 0.75f),
+            new Color(0.91f, 0.86f, 0.70f),
+            new Color(0.80f, 0.68f, 0.53f),
+        };
+
+        public static readonly Color[] RoofColours =
+        {
+            new Color(0.44f, 0.23f, 0.18f),
+            new Color(0.31f, 0.30f, 0.32f),
+            new Color(0.55f, 0.32f, 0.20f),
+        };
+
+        /// <summary>Doors, sills, fence posts, beams, lamp posts, timber.</summary>
+        public static readonly Color TrimColour = new Color(0.38f, 0.31f, 0.25f);
+
+        /// <summary>Hedges and garden planting. The undergrowth green, so a hedge matches a bush.</summary>
+        public static readonly Color GardenColour = new Color(0.32f, 0.44f, 0.22f);
+
+        /// <summary>
+        /// The painted colour: shutters, canopies, balcony rails.
+        ///
+        /// One recurring saturated colour across a façade of plaster and stone does more for a street than
+        /// another plaster tone would, because it is the only thing in the palette that is *not* a
+        /// building material.
+        /// </summary>
+        public static readonly Color AccentColour = new Color(0.26f, 0.36f, 0.33f);
+
+        /// <summary>Glass that never lights, by day and by night alike.</summary>
+        public static readonly Color WindowDarkColour = new Color(0.20f, 0.23f, 0.27f);
+
         public const int WallVariants = 3;
 
         public const int RoofVariants = 3;
@@ -52,7 +87,13 @@ namespace Horizon.World
         /// <summary>Glass that never lights. Most windows, and every parked car.</summary>
         public const int WindowDarkSubmesh = FirstRoofSubmesh + RoofVariants;
 
-        /// <summary>Glass that swaps to the lit material at dusk. See <see cref="GlassSubmesh"/>.</summary>
+        /// <summary>
+        /// Glass that swaps to the lit material at dusk. See <see cref="GlassSubmesh"/>.
+        ///
+        /// One of only two submeshes left outside <see cref="TintedSubmesh"/>, and for a reason a vertex
+        /// colour cannot cover: <c>TownLights</c> swaps the whole material after sunset, and a swap is
+        /// per slot. A tint baked into the mesh is a tint for good.
+        /// </summary>
         public const int WindowLitSubmesh = WindowDarkSubmesh + 1;
 
         /// <summary>
@@ -70,32 +111,56 @@ namespace Horizon.World
         /// <summary>Hedges and garden planting.</summary>
         public const int GardenSubmesh = TrimSubmesh + 1;
 
-        /// <summary>
-        /// The painted colour: shutters, canopies, balcony rails — later awnings and sign boards.
-        ///
-        /// One recurring saturated colour across a façade of plaster and stone does more for a street than
-        /// another plaster tone would, because it is the only thing in the palette that is *not* a
-        /// building material.
-        /// </summary>
+        /// <summary>The painted colour: shutters, canopies, balcony rails.</summary>
         public const int AccentSubmesh = GardenSubmesh + 1;
 
         /// <summary>
-        /// Twelve, and every one of them is a draw call on a tile that uses it.
+        /// Twelve categories a face can belong to — but no longer twelve draw calls.
         ///
-        /// <para>Two costs bound this. Every submesh a tile mesh keeps is a draw call, and
-        /// <see cref="VegetationMeshBuffer.ToMesh"/>'s empty-submesh compaction — which is why the village
-        /// was cheap — stops helping in a town core, where every variant appears on every tile. That is
-        /// the real village-to-town change, and it is why <c>ReportDrawCallBudget</c> exists rather than
-        /// an assumption.</para>
+        /// <para>These stay twelve because they are what a <i>builder</i> means: a roof tile is not a
+        /// shutter, and saying so at the point the face is written is how the palette gets applied at
+        /// all. What changed is the other end. Ten of the twelve are merged into one submesh with their
+        /// colour written into the vertices — see <see cref="OpaqueTints"/> and
+        /// <c>VegetationMeshBuffer.MergeTinted</c> — so a town tile now costs three draw calls where it
+        /// cost twelve, and adding a thirteenth category costs a colour rather than a call.</para>
         ///
-        /// <para>The escape hatch, if the counter says twelve is too many, is <b>vertex colours plus one
-        /// small custom shader</b>: one material, unlimited tints, the best batching available, and about
-        /// sixty lines of shader against a <c>List&lt;Color32&gt;</c> on the buffer. It conflicts with
-        /// nothing here and is deferred only because it would be this project's first hand-written
-        /// shader. The cheaper levers come first — <c>WorldStreamer.loadRadius</c>, then merging the wall
-        /// palette to two.</para>
+        /// <para>Merging at the mesh rather than at the fifty-odd call sites is deliberate. Several
+        /// builders cache their submesh in a <c>const</c> and reuse it down the method; a scheme that
+        /// needed the tint set immediately before every emit would have had to unpick all of them, for
+        /// a mesh that comes out identical either way.</para>
         /// </summary>
         public const int SubmeshCount = AccentSubmesh + 1;
+
+        /// <summary>
+        /// The colour each submesh is tinted with when the opaque ones are merged, or null where a
+        /// submesh must keep its own material.
+        ///
+        /// <para>The two nulls are <see cref="WindowLitSubmesh"/> and <see cref="LampLitSubmesh"/>, and
+        /// they are not an oversight: <c>TownLights</c> swaps their whole material after sunset, and a
+        /// tint baked into a mesh cannot be swapped. Everything else in a building is one colour for
+        /// good, which is exactly what a vertex colour is.</para>
+        /// </summary>
+        public static Color?[] OpaqueTints()
+        {
+            var tints = new Color?[SubmeshCount];
+
+            for (int i = 0; i < WallVariants; i++)
+            {
+                tints[FirstWallSubmesh + i] = WallColours[i];
+            }
+
+            for (int i = 0; i < RoofVariants; i++)
+            {
+                tints[FirstRoofSubmesh + i] = RoofColours[i];
+            }
+
+            tints[WindowDarkSubmesh] = WindowDarkColour;
+            tints[TrimSubmesh] = TrimColour;
+            tints[GardenSubmesh] = GardenColour;
+            tints[AccentSubmesh] = AccentColour;
+
+            return tints;
+        }
 
         /// <summary>Wall submesh for one of the palette variants.</summary>
         public static int WallSubmesh(int variant)

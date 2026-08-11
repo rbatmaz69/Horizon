@@ -481,6 +481,12 @@ namespace Horizon.World
 
             stats.Triangles = buffer.TriangleCount;
             stats.Flips = buffer.FlipCount;
+
+            // Bark, conifer, broadleaf and undergrowth fold into one submesh carrying their colours.
+            // Four flat colours that appear on nearly every tile were four draw calls on nearly every
+            // tile — the largest single line in the draw-call budget, larger than the town's.
+            buffer.MergeTinted(PlantMeshes.FoliageTints());
+
             return buffer.ToMesh(meshName, stats.Submeshes);
         }
 

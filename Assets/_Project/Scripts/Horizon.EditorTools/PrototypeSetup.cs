@@ -123,19 +123,27 @@ namespace Horizon.EditorTools
             public readonly Material Rock;
             public readonly Material Lane;
             public readonly Material Footway;
-            public readonly Material[] Walls;
-            public readonly Material[] Roofs;
-            public readonly Material Trim;
-            public readonly Material Accent;
             public readonly Material WindowDay;
             public readonly Material WindowNight;
             public readonly Material LampNight;
             public readonly Material TailNight;
             public readonly Material[] TrafficBodies;
-            public readonly Material Bark;
-            public readonly Material Conifer;
-            public readonly Material Broadleaf;
-            public readonly Material Undergrowth;
+
+            /// <summary>
+            /// One material for every opaque face of every building, whatever colour it is.
+            ///
+            /// Horizon/VertexTintLit multiplies its base colour by the vertex colour, and the palette is
+            /// written into the mesh — so this is white, and the town is as colourful as it ever was on
+            /// one draw call instead of ten. See BuildingMeshes.OpaqueTints.
+            /// </summary>
+            public readonly Material BuildingTint;
+
+            /// <summary>
+            /// The same one material, for the foliage: bark, conifer, broadleaf and undergrowth in one
+            /// draw call instead of four. Separate from BuildingTint only because plants want a
+            /// different smoothness from plaster.
+            /// </summary>
+            public readonly Material FoliageTint;
             public readonly Material CarBody;
             public readonly Material Tyre;
             public readonly Material CarGlass;
@@ -186,37 +194,10 @@ namespace Horizon.EditorTools
                 // A palette, because URP/Lit reads no vertex colours and the building meshes carry no UVs
                 // — a per-house tint has to be a per-house material. Warm plaster tones, the kind an
                 // alpine town is actually rendered and limewashed in.
-                Walls = new[]
-                {
-                    HorizonAssetUtility.LoadOrCreateMaterial(
-                        MaterialsFolder + "/M_Wall.mat", "M_Wall", new Color(0.87f, 0.83f, 0.75f), 0.10f),
-                    HorizonAssetUtility.LoadOrCreateMaterial(
-                        MaterialsFolder + "/M_WallCream.mat", "M_WallCream",
-                        new Color(0.91f, 0.86f, 0.70f), 0.10f),
-                    HorizonAssetUtility.LoadOrCreateMaterial(
-                        MaterialsFolder + "/M_WallOchre.mat", "M_WallOchre",
-                        new Color(0.80f, 0.68f, 0.53f), 0.10f),
-                };
-
-                Roofs = new[]
-                {
-                    HorizonAssetUtility.LoadOrCreateMaterial(
-                        MaterialsFolder + "/M_Roof.mat", "M_Roof", new Color(0.44f, 0.23f, 0.18f), 0.15f),
-                    HorizonAssetUtility.LoadOrCreateMaterial(
-                        MaterialsFolder + "/M_RoofSlate.mat", "M_RoofSlate",
-                        new Color(0.31f, 0.30f, 0.32f), 0.18f),
-                    HorizonAssetUtility.LoadOrCreateMaterial(
-                        MaterialsFolder + "/M_RoofRust.mat", "M_RoofRust",
-                        new Color(0.55f, 0.32f, 0.20f), 0.14f),
-                };
-                Trim = HorizonAssetUtility.LoadOrCreateMaterial(
-                    MaterialsFolder + "/M_Trim.mat", "M_Trim", new Color(0.38f, 0.31f, 0.25f), 0.18f);
-
-                // The one saturated colour in the façade palette, and the only one that is paint rather
-                // than a building material. Shutters, canopies and balcony rails — the pieces small enough
-                // that a strong colour reads as charm instead of as a repaint.
-                Accent = HorizonAssetUtility.LoadOrCreateMaterial(
-                    MaterialsFolder + "/M_Accent.mat", "M_Accent", new Color(0.26f, 0.36f, 0.33f), 0.24f);
+                BuildingTint = HorizonAssetUtility.LoadOrCreateTintMaterial(
+                    MaterialsFolder + "/M_BuildingTint.mat", "M_BuildingTint", 0.12f);
+                FoliageTint = HorizonAssetUtility.LoadOrCreateTintMaterial(
+                    MaterialsFolder + "/M_FoliageTint.mat", "M_FoliageTint", 0.06f);
 
                 // Unlit, all of them. TownLights swaps between day and night on the lit-glass and lamp
                 // submeshes at dusk and dawn — no keyword, no property block, and nothing written to a
@@ -243,9 +224,14 @@ namespace Horizon.EditorTools
                     MaterialsFolder + "/M_TailNight.mat", "M_TailNight",
                     new Color(1.35f, 0.12f, 0.07f));
 
-                // Two more body colours, so a pool of fourteen is not fourteen of the same car. Muted
-                // against the player's orange: ambient traffic that pulls the eye is traffic that has
-                // stopped being ambient.
+                // Six body colours against five body shapes, which is the whole reason there are six.
+                // The two counts share no factor, so shape and colour drift against each other and a
+                // pairing only repeats after thirty cars — a pool of twenty-four has no two alike. Make
+                // them equal and you get five combinations shown five times each, which looks more like a
+                // bug than one colour would.
+                //
+                // All muted against the player's orange: ambient traffic that pulls the eye is traffic
+                // that has stopped being ambient.
                 TrafficBodies = new[]
                 {
                     HorizonAssetUtility.LoadOrCreateMaterial(
@@ -257,21 +243,22 @@ namespace Horizon.EditorTools
                     HorizonAssetUtility.LoadOrCreateMaterial(
                         MaterialsFolder + "/M_TrafficMoss.mat", "M_TrafficMoss",
                         new Color(0.34f, 0.42f, 0.34f), 0.55f, 0.1f),
+                    HorizonAssetUtility.LoadOrCreateMaterial(
+                        MaterialsFolder + "/M_TrafficMaroon.mat", "M_TrafficMaroon",
+                        new Color(0.38f, 0.20f, 0.20f), 0.54f, 0.1f),
+
+                    // The one light colour in the set, and the one that reads at distance in fog — a van
+                    // in off-white is the only ambient car you can pick out at four hundred metres.
+                    HorizonAssetUtility.LoadOrCreateMaterial(
+                        MaterialsFolder + "/M_TrafficBone.mat", "M_TrafficBone",
+                        new Color(0.78f, 0.77f, 0.72f), 0.50f, 0.1f),
+                    HorizonAssetUtility.LoadOrCreateMaterial(
+                        MaterialsFolder + "/M_TrafficNavy.mat", "M_TrafficNavy",
+                        new Color(0.22f, 0.27f, 0.36f), 0.56f, 0.1f),
                 };
                 Concrete = HorizonAssetUtility.LoadOrCreateMaterial(
                     MaterialsFolder + "/M_Concrete.mat", "M_Concrete", new Color(0.52f, 0.51f, 0.49f), 0.20f);
 
-                // Four flat colours carry the whole forest. URP/Lit does not read vertex colours, so
-                // variation between one tree and the next has to come from geometry — but variation between
-                // *kinds* of tree is what actually reads at driving speed, and that is these.
-                Bark = HorizonAssetUtility.LoadOrCreateMaterial(
-                    MaterialsFolder + "/M_Bark.mat", "M_Bark", new Color(0.29f, 0.21f, 0.16f), 0.05f);
-                Conifer = HorizonAssetUtility.LoadOrCreateMaterial(
-                    MaterialsFolder + "/M_Conifer.mat", "M_Conifer", new Color(0.16f, 0.29f, 0.22f), 0.06f);
-                Broadleaf = HorizonAssetUtility.LoadOrCreateMaterial(
-                    MaterialsFolder + "/M_Broadleaf.mat", "M_Broadleaf", new Color(0.43f, 0.53f, 0.24f), 0.07f);
-                Undergrowth = HorizonAssetUtility.LoadOrCreateMaterial(
-                    MaterialsFolder + "/M_Undergrowth.mat", "M_Undergrowth", new Color(0.32f, 0.44f, 0.22f), 0.06f);
                 GuardRail = HorizonAssetUtility.LoadOrCreateMaterial(
                     MaterialsFolder + "/M_GuardRail.mat", "M_GuardRail", new Color(0.66f, 0.68f, 0.70f), 0.55f, 0.6f);
                 CarBody = HorizonAssetUtility.LoadOrCreateMaterial(
@@ -429,7 +416,6 @@ namespace Horizon.EditorTools
             CreateExhaustEmitters(root.transform, materials);
 
             AudioSource engineSource = CreateAudioSource(root.transform, "Audio_Engine", 0.25f);
-            AudioSource windSource = CreateAudioSource(root.transform, "Audio_Wind", 0f);
 
             // Reverb on the engine layer only. Configured as a stone corridor but starting silent — the
             // level is faded in from the cover probe, so an open road is unaffected.
@@ -453,7 +439,6 @@ namespace Horizon.EditorTools
             HorizonAssetUtility.Configure(engineAudio, serialized =>
             {
                 serialized.FindProperty("engineSource").objectReferenceValue = engineSource;
-                serialized.FindProperty("windSource").objectReferenceValue = windSource;
                 serialized.FindProperty("engineReverb").objectReferenceValue = reverb;
                 serialized.FindProperty("cover").objectReferenceValue = cover;
             });
@@ -592,14 +577,22 @@ namespace Horizon.EditorTools
             // The street *meshes* sit in between quite happily, and that is the point of
             // TownShape.FloorHeight — a street takes its height from the same function the level samples
             // do, so neither has to wait for the other.
-            TownShape townShape = TownShape.Default;
+            TownNetworkSpec layout = TalheimLayout.Build();
+
+            // Sized to the layout before anything is validated against it. The basin's extent used to be
+            // a hand-set number that the table was trusted to stay inside of, and it did not: the green's
+            // crescent and the lane out to it were authored past the levelled floor, so their paving stood
+            // over hillside. See TownShape.CoverLayout.
+            TownShape townShape = TownShape.CoverLayout(
+                TownShape.Default, layout, terrainShape.RoadShelfDrop);
+
             ValidateTownMapping(path, townShape);
 
             var streetsRoot = new GameObject("TownStreets");
             streetsRoot.transform.SetParent(worldRoot.transform, false);
 
             StreetNetwork network = StreetNetwork.Build(
-                path, townShape, TalheimLayout.Build(), streetsRoot.transform,
+                path, townShape, layout, streetsRoot.transform,
                 terrainShape.RoadShelfDrop);
 
             StreetJunctionBuilder.ResolveTrims(network, roadShape.OuterHalfWidth);
@@ -649,6 +642,8 @@ namespace Horizon.EditorTools
             Phase(clock, "street meshes");
 
             ValidateRoadClearance(path, roadShape, field, course);
+            ValidateStreetClearance(network, field, terrainShape);
+            ReportPadWinding(network);
             ReportTownGround(field, path, terrainShape, townShape);
 
             // Planned after the field exists, because the plots are seated on the finished terrain.
@@ -679,7 +674,7 @@ namespace Horizon.EditorTools
             BuildCoveredSections(worldRoot.transform, path, roadShape, course, field, materials);
             BuildGuardRails(worldRoot.transform, path, roadShape, field, course, materials);
 
-            BuildTraffic(worldRoot.transform, network, materials,
+            BuildTraffic(worldRoot.transform, network, path, roadShape, materials,
                 litRenderers, litSlotStart, litSlots, litSlotGroups);
 
             // After both, so one component carries the town's windows and the traffic's lamps.
@@ -1076,6 +1071,7 @@ namespace Horizon.EditorTools
             // builder to go and read. One number per builder is the difference between a tripwire and a
             // hunt.
             int ribbonFlips = buffer.FlipCount;
+            var flipsBefore = (int[])buffer.FlipCountBySubmesh.Clone();
 
             int pads = 0;
             int mouths = 0;
@@ -1092,6 +1088,11 @@ namespace Horizon.EditorTools
             }
 
             int padFlips = buffer.FlipCount - ribbonFlips;
+            var padFlipsBySubmesh = new int[buffer.FlipCountBySubmesh.Length];
+            for (int i = 0; i < padFlipsBySubmesh.Length; i++)
+            {
+                padFlipsBySubmesh[i] = buffer.FlipCountBySubmesh[i] - flipsBefore[i];
+            }
 
             for (int i = 0; i < network.Nodes.Count; i++)
             {
@@ -1100,9 +1101,9 @@ namespace Horizon.EditorTools
                     continue;
                 }
 
-                float alongTrunk = NearestDistanceAlong(trunk, network.Nodes[i].Position);
                 StreetJunctionBuilder.AppendTrunkMouth(
-                    network, i, trunk, trunkShape, alongTrunk, buffer);
+                    network, i, trunk, trunkShape, network.Nodes[i].AlongTrunk,
+                    field, terrainShape, buffer);
                 mouths++;
             }
 
@@ -1145,7 +1146,7 @@ namespace Horizon.EditorTools
             }
 
             ReportWindingFlips("Town street ribbons", ribbonFlips);
-            ReportWindingFlips("Town junction pads", padFlips);
+            ReportWindingFlips("Town junction pads", padFlips, padFlipsBySubmesh);
             ReportWindingFlips("Town trunk mouths", mouthFlips);
             ReportWindingFlips("Town squares", squareFlips);
         }
@@ -1175,50 +1176,6 @@ namespace Horizon.EditorTools
             }
 
             return result;
-        }
-
-        /// <summary>
-        /// Where along a path a world point lies, by walking it.
-        ///
-        /// There is no inverse projection anywhere in this codebase and adding one for five trunk mouths
-        /// would be a poor trade. Two passes — coarse then fine — so a five-kilometre course costs a few
-        /// hundred samples rather than a few thousand.
-        /// </summary>
-        private static float NearestDistanceAlong(IRoadPath path, Vector3 point)
-        {
-            float best = 0f;
-            float bestSqr = float.MaxValue;
-
-            for (float along = 0f; along <= path.Length; along += 10f)
-            {
-                Vector3 at = path.GetPositionAtDistance(along);
-                float dx = at.x - point.x;
-                float dz = at.z - point.z;
-                float distanceSqr = dx * dx + dz * dz;
-
-                if (distanceSqr < bestSqr)
-                {
-                    bestSqr = distanceSqr;
-                    best = along;
-                }
-            }
-
-            for (float along = best - 10f; along <= best + 10f; along += 0.5f)
-            {
-                float clamped = Mathf.Clamp(along, 0f, path.Length);
-                Vector3 at = path.GetPositionAtDistance(clamped);
-                float dx = at.x - point.x;
-                float dz = at.z - point.z;
-                float distanceSqr = dx * dx + dz * dz;
-
-                if (distanceSqr < bestSqr)
-                {
-                    bestSqr = distanceSqr;
-                    best = clamped;
-                }
-            }
-
-            return best;
         }
 
         /// <summary>
@@ -1546,6 +1503,8 @@ namespace Horizon.EditorTools
         private static void BuildTraffic(
             Transform parent,
             StreetNetwork network,
+            RoadPath trunk,
+            in RoadShape trunkShape,
             PrototypeMaterials materials,
             List<MeshRenderer> litRenderers,
             List<int> litSlotStart,
@@ -1560,12 +1519,21 @@ namespace Horizon.EditorTools
             // Generated, not Settings. It is a ScriptableObject like VehicleConfig, but it is derived
             // output rather than something anyone tunes — regenerate it and every edit is gone — so it
             // belongs where the meshes are and under the orphan report that watches them.
-            TrafficNetwork routes = TrafficNetworkBuilder.Build(network);
+            TrafficNetwork routes = TrafficNetworkBuilder.Build(network, trunk, trunkShape);
             routes = HorizonAssetUtility.ReplaceAsset(routes, GeneratedFolder + "/TrafficNetwork.asset");
 
-            Mesh body = CarMeshBuilder.BuildTrafficBody();
-            int triangles = body.triangles.Length / 3;
-            body = HorizonAssetUtility.ReplaceAsset(body, GeneratedFolder + "/TrafficCarMesh.asset");
+            CarMeshBuilder.CarProfile[] profiles = CarMeshBuilder.TrafficProfiles;
+
+            var bodies = new Mesh[profiles.Length];
+            var bodyTriangles = new int[profiles.Length];
+
+            for (int i = 0; i < profiles.Length; i++)
+            {
+                Mesh shape = CarMeshBuilder.BuildTrafficBody(profiles[i]);
+                bodyTriangles[i] = shape.triangles.Length / 3;
+                bodies[i] = HorizonAssetUtility.ReplaceAsset(
+                    shape, $"{GeneratedFolder}/TrafficCarMesh_{profiles[i].Name}.asset");
+            }
 
             var root = new GameObject("Traffic");
             root.transform.SetParent(parent, false);
@@ -1575,7 +1543,11 @@ namespace Horizon.EditorTools
 
             for (int i = 0; i < TrafficPoolSize; i++)
             {
-                var carObject = new GameObject($"TrafficCar_{i}");
+                // Shape and colour are indexed separately and the two counts share no factor, so a pool
+                // of twenty-four holds no two identical cars. See PrototypeMaterials.TrafficBodies.
+                Mesh body = bodies[i % bodies.Length];
+
+                var carObject = new GameObject($"{TrafficCarPrefix}{i}");
                 carObject.transform.SetParent(root.transform, false);
 
                 carObject.AddComponent<MeshFilter>().sharedMesh = body;
@@ -1606,9 +1578,12 @@ namespace Horizon.EditorTools
                 agentBody.useGravity = false;
                 agentBody.interpolation = RigidbodyInterpolation.Interpolate;
 
+                // From the mesh it is wrapping, not from a literal. The box used to be one hand-measured
+                // size for one hand-built car; with five shapes on the road a fixed box is a van you can
+                // drive through the roof of and a hatchback with half a metre of invisible bumper.
                 BoxCollider collider = carObject.AddComponent<BoxCollider>();
-                collider.center = new Vector3(0f, 0.16f, 0.08f);
-                collider.size = new Vector3(2.28f, 1.45f, 4.94f);
+                collider.center = body.bounds.center;
+                collider.size = body.bounds.size;
 
                 cars[i] = carObject.transform;
                 renderers[i] = renderer;
@@ -1653,14 +1628,28 @@ namespace Horizon.EditorTools
 
             HorizonAssetUtility.AssertReferenceAssigned(director, "network");
 
-            ReportTraffic(routes, triangles);
+            ReportTraffic(routes, profiles, bodies, bodyTriangles);
         }
 
-        /// <summary>How many ambient cars there are. Fixed at build; the director never changes it.</summary>
-        private const int TrafficPoolSize = 14;
+        /// <summary>
+        /// How many ambient cars there are. Fixed at build; the director never changes it.
+        ///
+        /// Twenty-four, up from fourteen. The routes now cover six kilometres of pass as well as three of
+        /// town, and fourteen cars spread over that is a world where you meet one every other hairpin.
+        /// The director disables the renderers past its load radius and recycles what falls behind, so
+        /// what is actually submitted is bounded by what is on screen rather than by the count.
+        ///
+        /// <para>The draw-call report does not know that, and should not: it counts every material slot
+        /// on a renderer no <c>WorldChunk</c> owns, which is all five of each car's, and calls the total
+        /// an upper bound. So the pool shows up there as 120 always-resident slots against the old 70.
+        /// That is the honest number for the state the report describes; it is not the state the game is
+        /// ever in. If the always-resident figure has to come down, this constant is the cheapest lever
+        /// on it — and the one that costs the most in how populated the world feels.</para>
+        /// </summary>
+        private const int TrafficPoolSize = 24;
 
         /// <summary>
-        /// Stands one car on the routes, spread evenly over the street lanes.
+        /// Stands one car on the routes, spread evenly over every lane that is a road rather than a turn.
         ///
         /// <para>The director does this again in <c>Awake</c>, so this matters for exactly one thing —
         /// and it is not a small one. <c>Awake</c> does not run at edit time, so without it the saved
@@ -1675,23 +1664,23 @@ namespace Horizon.EditorTools
         /// </summary>
         private static void PlaceOnRoute(TrafficNetwork routes, Transform car, int index)
         {
-            var streetLanes = new List<int>(routes.LaneCount);
+            var drivenLanes = new List<int>(routes.LaneCount);
             for (int lane = 0; lane < routes.LaneCount; lane++)
             {
                 if (routes.NodeOf(lane) < 0 && routes.LengthOf(lane) > 8f)
                 {
-                    streetLanes.Add(lane);
+                    drivenLanes.Add(lane);
                 }
             }
 
-            if (streetLanes.Count == 0)
+            if (drivenLanes.Count == 0)
             {
                 return;
             }
 
             // A stride that shares no factor with the count walks the whole list rather than revisiting
             // a handful of lanes.
-            int chosen = streetLanes[index * 7 % streetLanes.Count];
+            int chosen = drivenLanes[index * 7 % drivenLanes.Count];
 
             routes.GetLane(chosen, routes.LengthOf(chosen) * 0.5f,
                 out Vector3 position, out Vector3 forward);
@@ -1702,24 +1691,37 @@ namespace Horizon.EditorTools
         }
 
         /// <summary>What the bake produced, and whether the routes are actually connected.</summary>
-        private static void ReportTraffic(TrafficNetwork routes, int trianglesPerCar)
+        private static void ReportTraffic(
+            TrafficNetwork routes,
+            CarMeshBuilder.CarProfile[] profiles,
+            Mesh[] bodies,
+            int[] bodyTriangles)
         {
             int streets = 0;
+            int trunkLanes = 0;
             int connectors = 0;
             int deadEnds = 0;
             float total = 0f;
+            float trunkTotal = 0f;
 
             for (int lane = 0; lane < routes.LaneCount; lane++)
             {
                 total += routes.LengthOf(lane);
 
-                if (routes.NodeOf(lane) < 0)
+                switch (routes.KindOf(lane))
                 {
-                    streets++;
-                }
-                else
-                {
-                    connectors++;
+                    case TrafficLaneKind.Street:
+                        streets++;
+                        break;
+
+                    case TrafficLaneKind.Trunk:
+                        trunkLanes++;
+                        trunkTotal += routes.LengthOf(lane);
+                        break;
+
+                    default:
+                        connectors++;
+                        break;
                 }
 
                 if (routes.ExitCount(lane) == 0)
@@ -1728,9 +1730,37 @@ namespace Horizon.EditorTools
                 }
             }
 
-            Debug.Log($"[Horizon] Traffic: {streets} street lanes and {connectors} turn connectors, "
-                      + $"{total:0} m of route, {TrafficPoolSize} cars at {trianglesPerCar} triangles "
-                      + $"each ({TrafficPoolSize * trianglesPerCar} total).");
+            // Per shape, not one average. Five silhouettes off one loft can differ by a factor of two in
+            // cost without anything looking wrong, and a mean would hide the one that had run away.
+            int poolTriangles = 0;
+            for (int i = 0; i < TrafficPoolSize; i++)
+            {
+                poolTriangles += bodyTriangles[i % bodyTriangles.Length];
+            }
+
+            Debug.Log($"[Horizon] Traffic: {streets} street lanes, {trunkLanes} trunk lanes "
+                      + $"({trunkTotal:0} m) and {connectors} turn connectors, {total:0} m of route, "
+                      + $"{TrafficPoolSize} cars over {profiles.Length} body types "
+                      + $"({poolTriangles} triangles in total).");
+
+            for (int i = 0; i < profiles.Length; i++)
+            {
+                Bounds bounds = bodies[i].bounds;
+                int howMany = TrafficPoolSize / profiles.Length
+                              + (i < TrafficPoolSize % profiles.Length ? 1 : 0);
+
+                Debug.Log($"[Horizon] Traffic body '{profiles[i].Name}': {bodyTriangles[i]} triangles, "
+                          + $"{bounds.size.z:0.00} x {bounds.size.x:0.00} x {bounds.size.y:0.00} m, "
+                          + $"roof {bounds.max.y + CarMeshBuilder.TrafficRideHeight:0.00} m above the "
+                          + $"road — {howMany} of them in the pool.");
+            }
+
+            if (trunkLanes == 0)
+            {
+                Debug.LogWarning("[Horizon] Traffic: no lanes on the trunk road. The pass is where the "
+                                 + "player spends nearly all of their time, and it is empty — check that "
+                                 + "the trunk nodes in the layout table carry an AlongTrunk.");
+            }
 
             if (deadEnds > 0)
             {
@@ -2029,16 +2059,33 @@ namespace Horizon.EditorTools
         /// signed-volume assertion on each closed primitive at the point it is authored — which needs those
         /// primitives exposed for test — not an inspection of the merged result.</para>
         /// </summary>
-        private static void ReportWindingFlips(string what, int flips)
+        private static void ReportWindingFlips(string what, int flips, int[] bySubmesh = null)
         {
             if (flips <= 0)
             {
                 return;
             }
 
+            // Named by strip where the caller can say. A junction emits its carriageway, its kerb faces,
+            // its footways and its grass through one method, and which of the four is backwards is the
+            // whole of the question.
+            string where = string.Empty;
+            if (bySubmesh != null)
+            {
+                string[] names = { "carriageway", "kerb faces", "footways", "grass" };
+
+                for (int i = 0; i < bySubmesh.Length && i < names.Length; i++)
+                {
+                    if (bySubmesh[i] > 0)
+                    {
+                        where += $" {bySubmesh[i]} in the {names[i]};";
+                    }
+                }
+            }
+
             Debug.LogWarning($"[Horizon] {what}: {flips} faces were wound backwards and were corrected at "
-                             + "build time. The helper that emitted them disagrees with its own outward "
-                             + "direction — the geometry is right, the code that wrote it is not.");
+                             + $"build time.{where} The helper that emitted them disagrees with its own "
+                             + "outward direction — the geometry is right, the code that wrote it is not.");
         }
 
         /// <summary>
@@ -2055,22 +2102,11 @@ namespace Horizon.EditorTools
             {
                 int submesh = stats.Submeshes[i];
 
-                if (submesh >= BuildingMeshes.FirstWallSubmesh
-                    && submesh < BuildingMeshes.FirstWallSubmesh + BuildingMeshes.WallVariants)
+                if (submesh == BuildingMeshes.WindowLitSubmesh)
                 {
-                    result[i] = materials.Walls[submesh - BuildingMeshes.FirstWallSubmesh];
-                }
-                else if (submesh >= BuildingMeshes.FirstRoofSubmesh
-                         && submesh < BuildingMeshes.FirstRoofSubmesh + BuildingMeshes.RoofVariants)
-                {
-                    result[i] = materials.Roofs[submesh - BuildingMeshes.FirstRoofSubmesh];
-                }
-                else if (submesh == BuildingMeshes.WindowDarkSubmesh
-                         || submesh == BuildingMeshes.WindowLitSubmesh)
-                {
-                    // Both start dark, and by day they are meant to be indistinguishable — a window you
-                    // can tell will light later is a window with a bulb painted on it. TownLights swaps
-                    // the lit one after sunset and never touches the dark one.
+                    // Dark by day, and deliberately the same dark as the glass that never lights — a
+                    // window you can tell will light later is a window with a bulb painted on it.
+                    // TownLights swaps this one after sunset.
                     result[i] = materials.WindowDay;
                 }
                 else if (submesh == BuildingMeshes.LampLitSubmesh)
@@ -2080,17 +2116,12 @@ namespace Horizon.EditorTools
                     // lantern head goes dark grey with it, which is what an unlit lantern is.
                     result[i] = materials.Lane;
                 }
-                else if (submesh == BuildingMeshes.GardenSubmesh)
-                {
-                    result[i] = materials.Undergrowth;
-                }
-                else if (submesh == BuildingMeshes.AccentSubmesh)
-                {
-                    result[i] = materials.Accent;
-                }
                 else
                 {
-                    result[i] = materials.Trim;
+                    // Everything else — three walls, three roofs, the dark glass, the trim, the gardens
+                    // and the accent — arrives here as one submesh carrying its colours in its vertices.
+                    // See BuildingMeshes.OpaqueTints.
+                    result[i] = materials.BuildingTint;
                 }
             }
 
@@ -2350,7 +2381,8 @@ namespace Horizon.EditorTools
             }
 
             int holes = CountJunctionHoles(network);
-            float worstGradient = VergeGradient(network, out int steepStreets);
+            float worstGradient = VergeGradient(
+                network, out int steepStreets, out int groundless, out int groundlessStreets);
 
             if (crossings > 0)
             {
@@ -2403,16 +2435,27 @@ namespace Horizon.EditorTools
                                  + "terrain beside it is not where the shelf should have put it.");
             }
 
-            if (crossings + shallow + folded + unreachable + steps + holes + steepStreets == 0)
+            if (groundless > 0)
+            {
+                Debug.LogWarning($"[Horizon] Street network: {groundless} verge sample(s) on "
+                                 + $"{groundlessStreets} street(s) have no ground under them at all. That "
+                                 + "paving is standing off the edge of the levelled basin with daylight "
+                                 + "under its kerb — TownShape.CoverLayout should have sized the basin to "
+                                 + "cover it, so either the layout reaches past the town's along-extent "
+                                 + "or the terrain corridor is not being built that far out.");
+            }
+
+            if (crossings + shallow + folded + unreachable + steps + holes + steepStreets + groundless == 0)
             {
                 Debug.Log($"[Horizon] Street network: {network.Nodes.Count} nodes and "
                           + $"{network.Edges.Count} streets — planar, connected, every pad convex about "
-                          + $"its node and flush with its streets. Tightest junction {tightestAngle:0} ° "
-                          + $"at node {tightestNode}, steepest verge {worstGradient:0.00}.");
+                          + "its node, flush with its streets and standing on levelled ground. Tightest "
+                          + $"junction {tightestAngle:0} ° at node {tightestNode}, steepest verge "
+                          + $"{worstGradient:0.00}.");
             }
 
             // The corridor sweep, once per street. Half-widths are per-street rather than the trunk
-            // road's 1.3 m: that box is over half the width of a 5.2 m alley, and a check that fires on
+            // road's 1.3 m: that box is over a fifth of a 6.2 m alley, and a check that fires on
             // every kerb is a check nobody reads.
             int blockedStreets = 0;
             for (int i = 0; i < network.Edges.Count; i++)
@@ -2768,20 +2811,25 @@ namespace Horizon.EditorTools
         /// <para>Nothing else was measuring this. The corridor sweep looks for solid things <i>in</i> the
         /// carriageway, and a street standing on a plinth has a perfectly clear one.</para>
         /// </summary>
-        private static float VergeGradient(StreetNetwork network, out int steepStreets)
+        private static float VergeGradient(
+            StreetNetwork network, out int steepStreets, out int groundless, out int groundlessStreets)
         {
             const float allowed = 0.6f;
 
             float worst = 0f;
             float worstDetail = 0f;
             string detail = null;
+            string firstGroundless = null;
             steepStreets = 0;
+            groundless = 0;
+            groundlessStreets = 0;
 
             for (int i = 0; i < network.Edges.Count; i++)
             {
                 StreetEdge edge = network.Edges[i];
                 float run = edge.Shape.VergeWidth + 0.5f;
                 float edgeWorst = 0f;
+                int edgeGroundless = 0;
 
                 for (float along = edge.TrimStart; along <= edge.Length - edge.TrimEnd; along += 12f)
                 {
@@ -2799,6 +2847,16 @@ namespace Horizon.EditorTools
                         if (!Physics.Raycast(beside + Vector3.up * 8f, Vector3.down,
                                 out RaycastHit hit, 16f, ~0, QueryTriggerInteraction.Ignore))
                         {
+                            // Nothing at all under the probe, which this used to skip in silence — and it
+                            // is not the absence of a measurement, it is the worst answer there is. A
+                            // street whose verge has no ground beneath it is standing off the edge of the
+                            // levelled basin with daylight under its kerb, and no gradient computed from
+                            // the samples that *did* hit will ever say so.
+                            edgeGroundless++;
+                            groundless++;
+                            firstGroundless ??= $"street {i} ({edge.Kind}) at {along:0} m along, "
+                                                + $"{run:0.0} m out on its "
+                                                + (sign < 0f ? "left" : "right");
                             continue;
                         }
 
@@ -2820,12 +2878,22 @@ namespace Horizon.EditorTools
                     steepStreets++;
                 }
 
+                if (edgeGroundless > 0)
+                {
+                    groundlessStreets++;
+                }
+
                 worst = Mathf.Max(worst, edgeWorst);
             }
 
             if (detail != null && worst > allowed)
             {
                 Debug.Log($"[Horizon] Steepest verge — {detail}.");
+            }
+
+            if (firstGroundless != null)
+            {
+                Debug.Log($"[Horizon] First verge sample with no ground under it — {firstGroundless}.");
             }
 
             return worst;
@@ -2948,12 +3016,12 @@ namespace Horizon.EditorTools
             for (int n = 0; n < network.Nodes.Count; n++)
             {
                 StreetNode node = network.Nodes[n];
-                if (node.OnTrunkRoad)
-                {
-                    continue;
-                }
 
-                if (!HasGroundAt(node.Position))
+                // A trunk node's own centre stands on the trunk road's carriageway, which is a different
+                // mesh and always there. Its street's trim point is not: that is where the bell-mouth has
+                // to hand over to the ribbon, and it is exactly the seam a mouth built to the wrong reach
+                // would leave open.
+                if (!node.OnTrunkRoad && !HasGroundAt(node.Position))
                 {
                     holes++;
                 }
@@ -3011,18 +3079,45 @@ namespace Horizon.EditorTools
                     centre + Vector3.up * (floorLift + clearance * 0.5f), halfExtents, hits,
                     Quaternion.LookRotation(forward, Vector3.up), ~0, QueryTriggerInteraction.Ignore);
 
-                if (count == 0)
+                for (int i = 0; i < count; i++)
                 {
-                    continue;
-                }
+                    if (hits[i] == null || IsTraffic(hits[i]))
+                    {
+                        continue;
+                    }
 
-                firstAt = distance;
-                firstBy = hits[0] != null ? hits[0].gameObject.name : "unknown";
-                return false;
+                    firstAt = distance;
+                    firstBy = hits[i].gameObject.name;
+                    return false;
+                }
             }
 
             return true;
         }
+
+        /// <summary>
+        /// Whether a collider in the carriageway is an ambient car rather than something built there.
+        ///
+        /// <para>The corridor sweep is looking for <i>scenery</i> in the road — a wall parcelled onto a
+        /// street mouth, a boulder scattered into a hairpin. A car standing on a lane is not that; it is
+        /// the thing the lane exists for. This is the same exemption the player's own car already gets,
+        /// which it gets by being spawned after the sweep runs — an ordering the ambient pool cannot use,
+        /// because its cars have to be standing on the routes before the scene is saved.</para>
+        ///
+        /// <para>Without it the sweep reported ten town streets as blocked, every one of them against a
+        /// <c>TrafficCar_</c>, and a check that cries wolf ten times is a check nobody reads the eleventh
+        /// time — which is the time it would have been a wall.</para>
+        /// </summary>
+        private static bool IsTraffic(Component collider)
+        {
+            return collider.gameObject.name.StartsWith(TrafficCarPrefix, System.StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Name prefix of the ambient cars. Read by the corridor sweep, so the two cannot drift apart
+        /// without the sweep quietly starting to report traffic as obstructions again.
+        /// </summary>
+        private const string TrafficCarPrefix = "TrafficCar_";
 
         /// <summary>
         /// The materials for a tile's plants, in the order the mesh's submeshes ended up in.
@@ -3038,20 +3133,15 @@ namespace Horizon.EditorTools
             {
                 switch (stats.Submeshes[i])
                 {
-                    case PlantMeshes.BarkSubmesh:
-                        result[i] = materials.Bark;
-                        break;
-                    case PlantMeshes.ConiferSubmesh:
-                        result[i] = materials.Conifer;
-                        break;
-                    case PlantMeshes.BroadleafSubmesh:
-                        result[i] = materials.Broadleaf;
-                        break;
-                    case PlantMeshes.UndergrowthSubmesh:
-                        result[i] = materials.Undergrowth;
+                    case PlantMeshes.RockSubmesh:
+                        // The one that keeps its own material: dry matte stone against wet foliage.
+                        result[i] = materials.Rock;
                         break;
                     default:
-                        result[i] = materials.Rock;
+                        // Bark, conifer, broadleaf and undergrowth arrive as one submesh carrying their
+                        // colours in its vertices — merged into the lowest of the four, which is bark's
+                        // index. See PlantMeshes.FoliageTints.
+                        result[i] = materials.FoliageTint;
                         break;
                 }
             }
@@ -3188,8 +3278,8 @@ namespace Horizon.EditorTools
         ///
         /// <para><paramref name="halfWidth"/> and <paramref name="clearance"/> are arguments rather than
         /// constants because the same check now runs over forty town streets as well as the pass. The
-        /// 1.3 m box that is right for a 9 m trunk carriageway is over half the width of a 5.2 m alley,
-        /// and a check that fires on every kerb is a check that gets ignored.</para>
+        /// 1.3 m box that is right for a 10.5 m trunk carriageway is over a fifth of a 6.2 m alley, and a
+        /// check that fires on every kerb is a check that gets ignored.</para>
         /// </summary>
         private static void ValidateDriveableCorridor(
             IRoadPath path, string what, float halfWidth, float clearance)
@@ -3274,6 +3364,162 @@ namespace Horizon.EditorTools
         /// five kilometres. The height field is a pure function, so the same question can simply be asked
         /// at every metre of road and answered with numbers — including *where*, and by how much.
         /// </summary>
+        /// <summary>
+        /// Whether the terrain stays under the town's paving — measured against the terrain <b>mesh</b>,
+        /// not against the height field.
+        ///
+        /// <para>That distinction is the entire reason this is a separate check from
+        /// <see cref="ValidateRoadClearance"/>. The trunk road's asphalt stands 0.53 m above its shelf, so
+        /// the field and the mesh can disagree by the metre or two they do on a slope and the road is
+        /// still clear. A town street stands <b>8 cm</b> above its shelf — <c>TownStreetShape.SurfaceLift</c>
+        /// is deliberately negative so the streets are not plateaux — and the mesh is a linear
+        /// interpolation of the field across twelve-metre cells, which <c>TerrainTileBuilder.SampleSurface</c>
+        /// records as being up to a fifth of a metre out. Eight centimetres of clearance against twenty of
+        /// error is grass growing through the road, and the field-based check cannot see it because the
+        /// field is not what is drawn.</para>
+        ///
+        /// <para>Sampled at the gutters and across the carriageway rather than down the centreline: the
+        /// crown lifts the middle by 6 cm, so the centre is the last place the ground would break through
+        /// and the gutter is the first.</para>
+        /// </summary>
+        /// <summary>
+        /// Which junction pads emit a backwards kerb or footway face, and where on the pad.
+        ///
+        /// <para>The flip counter says how many and, since it was split by submesh, which strip. Neither
+        /// says <i>where</i>, and two plausible-sounding explanations for these seven — grass laid across
+        /// the street mouths, then slivers too short to have a normal — were both wrong, at a rebuild
+        /// each. This replicates the two winding tests without emitting anything, so the answer is a node
+        /// index and a bearing rather than another hypothesis.</para>
+        /// </summary>
+        private static void ReportPadWinding(StreetNetwork network)
+        {
+            var found = new List<string>(8);
+
+            for (int n = 0; n < network.Nodes.Count; n++)
+            {
+                StreetNode node = network.Nodes[n];
+                if (node.PadGutter == null || node.PadKerbedAfter == null)
+                {
+                    continue;
+                }
+
+                int count = node.PadGutter.Length;
+
+                for (int i = 0; i < count; i++)
+                {
+                    int next = (i + 1) % count;
+                    if (!node.PadKerbedAfter[i])
+                    {
+                        continue;
+                    }
+
+                    CheckFace(node, n, i, "kerb",
+                        node.PadGutter[next], node.PadGutter[i], node.PadKerbTop[i], found);
+                    CheckFace(node, n, i, "kerb",
+                        node.PadGutter[next], node.PadKerbTop[i], node.PadKerbTop[next], found);
+                    CheckFace(node, n, i, "footway",
+                        node.PadKerbTop[next], node.PadKerbTop[i], node.PadOutline[i], found);
+                    CheckFace(node, n, i, "footway",
+                        node.PadKerbTop[next], node.PadOutline[i], node.PadOutline[next], found);
+                }
+            }
+
+            if (found.Count > 0)
+            {
+                Debug.Log($"[Horizon] Pad winding: {string.Join(" | ", found)}");
+            }
+        }
+
+        private static void CheckFace(
+            StreetNode node, int index, int span, string strip, Vector3 a, Vector3 b, Vector3 c,
+            List<string> into)
+        {
+            Vector3 normal = Vector3.Cross(b - a, c - a);
+            if (Vector3.Dot(normal, Vector3.up) >= 0f)
+            {
+                return;
+            }
+
+            Vector3 radial = a - node.Position;
+            float bearing = Mathf.Atan2(radial.x, radial.z) * Mathf.Rad2Deg;
+
+            into.Add($"node {index} (degree {node.Degree}, {node.PadGutter.Length} pad points) span "
+                     + $"{span} {strip}, bearing {bearing:0}°, |n| {normal.magnitude:0.0000}");
+        }
+
+        private static void ValidateStreetClearance(
+            StreetNetwork network, MountainField field, in TerrainShape terrainShape)
+        {
+            const float step = 2f;
+
+            int breaches = 0;
+            int streets = 0;
+            float worst = 0f;
+            string worstWhere = null;
+
+            for (int i = 0; i < network.Edges.Count; i++)
+            {
+                StreetEdge edge = network.Edges[i];
+                float[] offsets =
+                {
+                    -edge.HalfWidth, -edge.HalfWidth * 0.5f, 0f,
+                    edge.HalfWidth * 0.5f, edge.HalfWidth,
+                };
+
+                bool breached = false;
+
+                for (float along = edge.TrimStart; along <= edge.Length - edge.TrimEnd; along += step)
+                {
+                    for (int k = 0; k < offsets.Length; k++)
+                    {
+                        // At the gutter's own height, ignoring the crown: the crown only ever helps, and
+                        // a check that counted it would pass a street the ground breaks through at its
+                        // edges.
+                        Vector3 paved = TownStreetBuilder.PointAcross(
+                            edge.Path, edge.Shape, along, offsets[k], edge.Shape.SurfaceLift);
+
+                        TerrainTileBuilder.SampleSurface(field, terrainShape, paved.x, paved.z,
+                            out Vector3 ground, out Vector3 _);
+
+                        float intrusion = ground.y - paved.y;
+                        if (intrusion <= 0.005f)
+                        {
+                            continue;
+                        }
+
+                        breaches++;
+                        breached = true;
+
+                        if (intrusion > worst)
+                        {
+                            worst = intrusion;
+                            worstWhere = $"street {i} ({edge.Kind}) at {along:0} m along, "
+                                         + $"{offsets[k]:0.0} m across";
+                        }
+                    }
+                }
+
+                if (breached)
+                {
+                    streets++;
+                }
+            }
+
+            if (breaches == 0)
+            {
+                Debug.Log($"[Horizon] Street clearance: the terrain mesh is below the paving on all "
+                          + $"{network.Edges.Count} streets.");
+                return;
+            }
+
+            Debug.LogWarning(
+                $"[Horizon] Street clearance: the terrain mesh stands above the paving at {breaches} "
+                + $"sampled point(s) on {streets} street(s), worst {worst:0.00} m — {worstWhere}. That is "
+                + "grass growing up through the road. TownStreetShape.SurfaceLift decides how much room "
+                + "there is and TerrainShape.CellSize decides how badly the mesh can miss the field it is "
+                + "interpolating; the clearance has to exceed the error.");
+        }
+
         private static void ValidateRoadClearance(
             RoadPath path,
             in RoadShape roadShape,

@@ -38,7 +38,9 @@ namespace Horizon.World
                + "the same across-axis as everything else: enough for one row of frontage and no more.")]
         public float AcrossInner;
 
-        [Tooltip("How far the basin reaches onto the valley floor, metres.")]
+        [Tooltip("How far the basin reaches onto the valley floor, metres. A floor rather than a limit: "
+               + "CoverLayout widens it until it covers every street the layout table asks for, so this "
+               + "is how much flat ground the town gets *at least*.")]
         public float AcrossOuter;
 
         [Tooltip("Grid pitch of the level samples, metres, in both axes. Must stay under twice "
@@ -161,6 +163,62 @@ namespace Horizon.World
 
         /// <summary>Which way the town lies from the trunk road, as a clean ±1.</summary>
         public float Side => Mathf.Sign(TownSide == 0f ? -1f : TownSide);
+
+        /// <summary>
+        /// Widens the basin until it covers every piece of paving the layout table asks for.
+        ///
+        /// <para><b>Only the across-axis.</b> <see cref="AlongStart"/> and <see cref="AlongEnd"/> are not
+        /// preferences — they come from <see cref="MountainPassCourse"/>, and the far one is the foot of
+        /// the pass's first bend, past which town-local coordinates fold and the mapping stops meaning
+        /// anything. Extending the basin over that bend would not level the ground there, it would pile
+        /// several samples carrying different heights onto the same spot. So a street that reaches past it
+        /// is reported and left alone: the answer is to move the street or to reshape the course, and only
+        /// a person can pick. Across, there is nothing but valley floor and the basin may simply have
+        /// more of it.</para>
+        ///
+        /// <para>The pads at the ends of the town need no allowance here — <see cref="BuildLevelSamples"/>
+        /// already runs its grid 40 m past both ends, which is more than any junction reaches.</para>
+        /// </summary>
+        public static TownShape CoverLayout(TownShape shape, TownNetworkSpec spec, float shelfDrop)
+        {
+            if (spec == null)
+            {
+                return shape;
+            }
+
+            TownLayoutExtent extent = spec.MeasureExtent(shelfDrop);
+
+            float inner = Mathf.Min(shape.AcrossInner, extent.AcrossMin);
+            float outer = Mathf.Max(shape.AcrossOuter, extent.AcrossMax);
+
+            if (inner < shape.AcrossInner || outer > shape.AcrossOuter)
+            {
+                Debug.Log($"[Horizon] Town basin: widened from {shape.AcrossInner:0} .. "
+                          + $"{shape.AcrossOuter:0} m across to {inner:0} .. {outer:0} m, to cover the "
+                          + "paving the layout table asks for.");
+            }
+            else
+            {
+                Debug.Log($"[Horizon] Town basin: {shape.AcrossInner:0} .. {shape.AcrossOuter:0} m across "
+                          + $"covers a layout reaching {extent.AcrossMin:0} .. {extent.AcrossMax:0} m.");
+            }
+
+            shape.AcrossInner = inner;
+            shape.AcrossOuter = outer;
+
+            if (extent.CentreAlongMin < shape.AlongStart || extent.CentreAlongMax > shape.AlongEnd)
+            {
+                Debug.LogWarning(
+                    $"[Horizon] Town basin: the layout's streets run from {extent.CentreAlongMin:0} to "
+                    + $"{extent.CentreAlongMax:0} m along the trunk road, outside the town's extent of "
+                    + $"{shape.AlongStart:0} .. {shape.AlongEnd:0} m. That end of the town is where the "
+                    + "pass's first bend begins and town-local coordinates fold there, so the ground "
+                    + "under those streets cannot be levelled. Move them back inside, or open the bend "
+                    + "out in MountainPassCourse.");
+            }
+
+            return shape;
+        }
 
         /// <summary>Half the basin's span across, for anything that needs a radius rather than an extent.</summary>
         public float AcrossSpan => AcrossOuter - AcrossInner;

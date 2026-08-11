@@ -11,6 +11,19 @@ namespace Horizon.World
         public bool OnTrunkRoad;
         public string Name;
 
+        /// <summary>
+        /// Distance along the trunk road this node sits at, metres. Meaningless unless
+        /// <see cref="OnTrunkRoad"/>.
+        ///
+        /// <para>Carried through from the layout table, which is where the number came from in the first
+        /// place — a node's town-local <c>Along</c> <i>is</i> its distance along the trunk road. Both the
+        /// bell-mouths and the traffic bake need it, and both used to recover it by walking the whole
+        /// five-kilometre course looking for the nearest sample. Keeping a number the table already knows
+        /// is not an optimisation so much as the removal of a way to be wrong: an inverse projection is
+        /// exact only where the road does not double back, and this one does, twelve times.</para>
+        /// </summary>
+        public float AlongTrunk;
+
         /// <summary>Incident edge indices, sorted by <see cref="Bearings"/>.</summary>
         public int[] Edges;
 
@@ -184,6 +197,7 @@ namespace Horizon.World
                     Index = i,
                     Position = TownShape.ToWorld(main, shape, node.At.Along, node.At.Across),
                     OnTrunkRoad = node.OnTrunkRoad,
+                    AlongTrunk = Mathf.Clamp(node.At.Along, 0f, main != null ? main.Length : 0f),
                     Name = node.Name,
                 });
             }

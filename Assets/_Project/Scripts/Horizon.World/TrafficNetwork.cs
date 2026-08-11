@@ -3,6 +3,27 @@ using UnityEngine;
 namespace Horizon.World
 {
     /// <summary>
+    /// What a lane is, which decides who measures it against what.
+    ///
+    /// <para><c>NodeOf(lane) &lt; 0</c> used to answer this on its own, back when every lane was either a
+    /// town street or a turn through a town junction. It cannot any more: a lane down the trunk road is
+    /// no more a turn connector than a town street is, and a validator that measures it against the
+    /// nearest street centreline reports six kilometres of correct road as six kilometres of car on the
+    /// pavement.</para>
+    /// </summary>
+    public enum TrafficLaneKind : byte
+    {
+        /// <summary>One direction of one town street.</summary>
+        Street = 0,
+
+        /// <summary>One direction of one stretch of the trunk road, between two junctions.</summary>
+        Trunk = 1,
+
+        /// <summary>A turn through a junction, joining two of the above.</summary>
+        Connector = 2,
+    }
+
+    /// <summary>
     /// The routes ambient traffic drives on, baked at edit time into flat arrays.
     ///
     /// <para><b>Everything is a lane.</b> A street contributes two directed lanes, one each way, offset
@@ -40,6 +61,17 @@ namespace Horizon.World
                + "director's occupancy tokens are keyed on.")]
         [SerializeField] private int[] laneNode;
 
+        [Tooltip("What each lane is — a town street, a stretch of trunk road, or a turn through a "
+               + "junction. Stored as bytes because a TrafficLaneKind[] does not serialise.")]
+        [SerializeField] private byte[] laneKind;
+
+        [Tooltip("Speed limit of each lane, metres per second.\n\n"
+               + "Per lane rather than one number on the director, and it is not a refinement: a town "
+               + "street and a mountain pass are the same object here, and one cruise speed for both "
+               + "means either the traffic races through Talheim or the player spends the whole descent "
+               + "behind a car doing 40 km/h.")]
+        [SerializeField] private float[] laneSpeed;
+
         [Tooltip("Prefix offsets into the exit array, parallel to the lane array.")]
         [SerializeField] private int[] exitStart;
 
@@ -63,6 +95,24 @@ namespace Horizon.World
         public int NodeOf(int lane)
         {
             return laneNode[lane];
+        }
+
+        public TrafficLaneKind KindOf(int lane)
+        {
+            return laneKind != null && lane < laneKind.Length
+                ? (TrafficLaneKind)laneKind[lane]
+                : TrafficLaneKind.Street;
+        }
+
+        /// <summary>
+        /// This lane's speed limit, metres per second.
+        ///
+        /// Falls back to a town speed for a network baked before lanes carried one, so an asset from an
+        /// older tool drives slowly rather than not at all.
+        /// </summary>
+        public float SpeedOf(int lane)
+        {
+            return laneSpeed != null && lane < laneSpeed.Length ? laneSpeed[lane] : 11f;
         }
 
         public int ExitCount(int lane)
@@ -129,6 +179,8 @@ namespace Horizon.World
             float[] bakedLaneLength,
             float[] bakedLaneStep,
             int[] bakedLaneNode,
+            byte[] bakedLaneKind,
+            float[] bakedLaneSpeed,
             int[] bakedExitStart,
             int[] bakedExits,
             int junctionCount)
@@ -138,6 +190,8 @@ namespace Horizon.World
             laneLength = bakedLaneLength;
             laneStep = bakedLaneStep;
             laneNode = bakedLaneNode;
+            laneKind = bakedLaneKind;
+            laneSpeed = bakedLaneSpeed;
             exitStart = bakedExitStart;
             exits = bakedExits;
             nodeCount = junctionCount;

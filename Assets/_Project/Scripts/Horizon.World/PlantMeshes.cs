@@ -123,6 +123,16 @@ namespace Horizon.World
         private readonly List<Vector3> normals = new List<Vector3>(8192);
         private readonly List<int>[] submeshes;
 
+        /// <summary>
+        /// Per-vertex tint, or null until someone asks for one.
+        ///
+        /// <para>Lazy because most of what goes through this buffer does not want it. The vegetation is
+        /// four flat materials over four hundred thousand triangles, and giving every one of those a
+        /// colour it never reads would cost five megabytes of mesh to say white four hundred thousand
+        /// times. The buildings do want it — see <see cref="MergeTinted"/> — and they are the minority.</para>
+        /// </summary>
+        private List<Color32> colours;
+
         public VegetationMeshBuffer(int submeshCount)
         {
             submeshes = new List<int>[submeshCount];
@@ -130,6 +140,8 @@ namespace Horizon.World
             {
                 submeshes[i] = new List<int>(2048);
             }
+
+            FlipCountBySubmesh = new int[submeshCount];
         }
 
         public int TriangleCount => vertices.Count / 3;
@@ -156,6 +168,90 @@ namespace Horizon.World
         /// only cheap way to notice that a helper has drifted, and it costs one integer.
         /// </summary>
         public int FlipCount { get; private set; }
+
+        /// <summary>
+        /// The same count, split by submesh.
+        ///
+        /// <para>One number says a builder has drifted; this says <i>which strip of it</i>. A junction
+        /// emits four strips through one method — carriageway, kerb face, footway and grass — and
+        /// "seven faces are backwards" sends you reading all four, twice, guessing. It cost three wrong
+        /// guesses and three world rebuilds to learn that, which is more than an <c>int[]</c>.</para>
+        /// </summary>
+        public int[] FlipCountBySubmesh { get; }
+
+        /// <summary>
+        /// Folds several submeshes into one, writing what each of them was into its vertices' colours.
+        ///
+        /// <para><b>This is the twelve-draw-calls-to-three change, and it happens here rather than at the
+        /// fifty-odd places a face is written.</b> A builder saying "this is a roof tile" and a renderer
+        /// saying "this is one draw call" are different concerns, and the builders were right already:
+        /// <c>BuildingMeshes</c> names twelve categories because twelve is what a façade has. What was
+        /// wrong was that a category had to be a material, because URP/Lit cannot read a vertex colour.
+        /// <c>Horizon/VertexTintLit</c> can, so a category becomes a colour and the categories merge.</para>
+        ///
+        /// <para>Merging at the mesh also means the builders keep working unaltered — several of them
+        /// cache a submesh index in a <c>const</c> and reuse it, which a scheme that set a tint
+        /// immediately before each emit would have had to unpick, for a mesh that comes out the
+        /// same.</para>
+        ///
+        /// <para>Anything left untinted keeps its own submesh and its own material. That is not a
+        /// leftover: it is how the two slots <c>TownLights</c> swaps after dusk survive, because a colour
+        /// baked into a mesh is baked for good.</para>
+        /// </summary>
+        /// <param name="tints">
+        /// One entry per submesh, null where that submesh must keep its material. Merged into the lowest
+        /// submesh index that has a tint, so the surviving slot is stable across tiles.
+        /// </param>
+        public void MergeTinted(IReadOnlyList<Color?> tints)
+        {
+            int target = -1;
+            for (int i = 0; i < tints.Count && i < submeshes.Length; i++)
+            {
+                if (tints[i].HasValue)
+                {
+                    target = i;
+                    break;
+                }
+            }
+
+            if (target < 0)
+            {
+                return;
+            }
+
+            if (colours == null)
+            {
+                colours = new List<Color32>(vertices.Count);
+                for (int i = 0; i < vertices.Count; i++)
+                {
+                    colours.Add(new Color32(255, 255, 255, 255));
+                }
+            }
+
+            for (int source = 0; source < tints.Count && source < submeshes.Length; source++)
+            {
+                if (!tints[source].HasValue)
+                {
+                    continue;
+                }
+
+                Color32 colour = tints[source].Value;
+                List<int> indices = submeshes[source];
+
+                for (int i = 0; i < indices.Count; i++)
+                {
+                    colours[indices[i]] = colour;
+                }
+
+                if (source == target)
+                {
+                    continue;
+                }
+
+                submeshes[target].AddRange(indices);
+                indices.Clear();
+            }
+        }
 
         /// <summary>
         /// One flat-shaded triangle. The winding is taken as given — unlike the terrain, a plant genuinely
@@ -206,6 +302,7 @@ namespace Horizon.World
             if (Vector3.Dot(Vector3.Cross(b - a, c - a), outward) < 0f)
             {
                 FlipCount++;
+                FlipCountBySubmesh[submesh]++;
                 AddTriangleRaw(submesh, a, c, b);
                 return;
             }
@@ -259,6 +356,12 @@ namespace Horizon.World
             mesh.indexFormat = vertices.Count > 65000 ? IndexFormat.UInt32 : IndexFormat.UInt16;
             mesh.SetVertices(vertices);
             mesh.SetNormals(normals);
+
+            if (colours != null)
+            {
+                mesh.SetColors(colours);
+            }
+
             mesh.subMeshCount = usedSubmeshes.Count;
 
             for (int slot = 0; slot < usedSubmeshes.Count; slot++)
@@ -296,6 +399,32 @@ namespace Horizon.World
         public const int RockSubmesh = 4;
 
         public const int SubmeshCount = 5;
+
+        /// <summary>
+        /// The colour each plant submesh is tinted with when they are merged, or null to keep its own
+        /// material.
+        ///
+        /// <para>The four foliage colours are the same trick the town's façades use, and the same win:
+        /// bark, conifer, broadleaf and undergrowth are four flat colours that appear on nearly every
+        /// tile in the world, so they were four draw calls on nearly every tile in the world. As vertex
+        /// colours they are one. The numbers are the ones the materials had, moved rather than
+        /// re-chosen.</para>
+        ///
+        /// <para>Rock keeps its own material. It is the one plant-buffer submesh with a genuinely
+        /// different surface — dry, matte stone against wet foliage — and merging it would mean either
+        /// the boulders take the leaves' smoothness or the leaves take the boulders'.</para>
+        /// </summary>
+        public static Color?[] FoliageTints()
+        {
+            var tints = new Color?[SubmeshCount];
+
+            tints[BarkSubmesh] = new Color(0.29f, 0.21f, 0.16f);
+            tints[ConiferSubmesh] = new Color(0.16f, 0.29f, 0.22f);
+            tints[BroadleafSubmesh] = new Color(0.43f, 0.53f, 0.24f);
+            tints[UndergrowthSubmesh] = new Color(0.32f, 0.44f, 0.22f);
+
+            return tints;
+        }
 
         /// <summary>How far a trunk or a boulder is sunk below the ground point, metres of local space.</summary>
         private const float Burial = 0.5f;

@@ -1185,7 +1185,16 @@ namespace Horizon.World
             stats.Triangles = buffer.TriangleCount;
             stats.Flips = buffer.FlipCount;
             stats.LitGlass = buffer.TriangleCountIn(BuildingMeshes.WindowLitSubmesh);
+
+            // Counted before the merge, not after: the dark glass is about to stop being a submesh of its
+            // own and become a colour, and the lit-versus-dark split is the one thing about the town at
+            // night that a night render cannot tell you.
             stats.DarkGlass = buffer.TriangleCountIn(BuildingMeshes.WindowDarkSubmesh);
+
+            // Ten of the twelve categories fold into one submesh here, carrying their colour in their
+            // vertices. Everything above this line is written exactly as it was.
+            buffer.MergeTinted(BuildingMeshes.OpaqueTints());
+
             return buffer.ToMesh(meshName, stats.Submeshes);
         }
 
