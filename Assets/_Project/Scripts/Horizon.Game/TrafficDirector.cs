@@ -59,8 +59,9 @@ namespace Horizon.Game
         [SerializeField] private float braking = 7f;
 
         [Tooltip("How far the car's transform sits above the lane, metres. The lane follows the road "
-               + "surface; this is the ride height that puts the wheels on it.")]
-        [SerializeField] private float rideHeight = 0.55f;
+               + "surface; this is the ride height that puts the wheels on it. Written by the setup "
+               + "tool from CarMeshBuilder.TrafficRideHeight, so the body and the number agree.")]
+        [SerializeField] private float rideHeight = 0.74f;
 
         [Header("Look-ahead")]
         [Tooltip("How far ahead an agent watches for something to brake for, metres.")]

@@ -47,23 +47,39 @@ namespace Horizon.EditorTools
         /// <summary>Distance of the wheel centres from the car's middle, along Z.</summary>
         public const float WheelBaseHalf = 1.35f;
 
+        /// <summary>
+        /// How far a traffic car's origin sits above the road, metres — which is the same thing as how
+        /// far the body's local origin is above the ground.
+        ///
+        /// The player's car gets there through its suspension: the wheel hangs at
+        /// <c>-SuspensionRestLength</c> and the tyre reaches a radius below that. A traffic car has no
+        /// suspension, so it is told the answer. Public because <c>TrafficDirector</c> has to lift its
+        /// agents by exactly this much or they drive with their sills in the tarmac.
+        /// </summary>
+        public const float TrafficRideHeight = 0.74f;
+
         /// <summary>Local position of each tailpipe mouth, for hanging the smoke emitters on.</summary>
         public static readonly Vector3[] ExhaustOutlets =
         {
-            new Vector3(0.42f, -0.46f, -2.44f),
-            new Vector3(-0.42f, -0.46f, -2.44f),
+            new Vector3(0.42f, -0.44f, -2.52f),
+            new Vector3(-0.42f, -0.44f, -2.52f),
         };
 
         /// <summary>
         /// Top of the wheel arch openings. Sized so the wheel nearly fills the opening — an arch much
         /// larger than its wheel makes the car look like it is on the wrong rims.
         ///
-        /// Note this is a *request*, not the final height: <see cref="BuildRing"/> clamps the arch to
-        /// <c>belt - 0.08</c> so the opening can never reach the beltline. It sat at 0.15 against a
-        /// beltline of 0.21 and was therefore doing nothing at all — the clamp won. Raising it only has
-        /// an effect because <see cref="KeyStations"/> now lifts the beltline over the wheels to match.
+        /// <para>Note this is a *request*, not the final height: <see cref="BuildRing"/> clamps the arch
+        /// to <c>belt - 0.08</c> so the opening can never reach the beltline.</para>
+        ///
+        /// <para><b>0.16 is not a taste call, it is arithmetic.</b> The wheel centre hangs at
+        /// <c>-SuspensionRestLength</c>, which is -0.30, so with a 0.44 m tyre the tread tops out at
+        /// +0.14. At the 0.22 this sat at, every arch stood a full ten centimetres clear of its own tyre
+        /// — the single reason the car looked as though it were on the wrong rims, and worth far more
+        /// than any amount of extra tyre would have been. Two centimetres of clearance is what a car
+        /// actually has.</para>
         /// </summary>
-        private const float ArchTopY = 0.22f;
+        private const float ArchTopY = 0.16f;
 
         /// <summary>
         /// Half-length of an arch opening along Z. Roughly the wheel radius plus a margin.
@@ -100,85 +116,112 @@ namespace Horizon.EditorTools
         }
 
         /// <summary>
-        /// The silhouette, tail to nose. Note the shape of it: the hood runs flat from z 0.62 to 2.30
-        /// (1.7 m of it), the deck behind the cabin is only 0.6 m, and TopY falls continuously from the
-        /// roof at 0.68 all the way to the tail — that unbroken slope is the fastback.
+        /// The silhouette, tail to nose, measured against a 1967 Mustang fastback.
+        ///
+        /// <para><b>Every Y in this table is quoted below as a height above the ground</b>, which sits at
+        /// -0.74: the wheel centre hangs at <c>-SuspensionRestLength</c> = -0.30 and the tyre radius is
+        /// 0.44. That is the only frame in which these numbers can be argued with, because it is the one
+        /// a photograph of a car is taken in — and measuring the body from its own floor instead is how
+        /// the shape ended up 1.60 m tall while every ratio inside it looked correct.</para>
+        ///
+        /// <code>
+        ///                       was    now    Mustang '67 fastback
+        ///   length              4.88   4.74   4.66
+        ///   width               2.08   2.08   1.80   (locked by TrackHalfWidth — see below)
+        ///   height              1.60   1.43   1.30
+        ///   wheelbase           2.70   2.70   2.74
+        ///   front overhang      1.17   0.91   0.83
+        ///   rear overhang       1.01   1.13   1.10
+        ///   ground clearance    0.20   0.15   0.13
+        ///   beltline            1.10   0.98   0.95
+        ///   length / height     3.05   3.31   3.58
+        ///   arch gap over tyre  0.10   0.02   ~0.02
+        /// </code>
+        ///
+        /// <para>Four things were wrong and all four were proportion rather than surfacing. The car stood
+        /// <b>1.60 m tall</b> against 1.30 — a length-to-height of 3.05 where a Mustang is 3.58, which is
+        /// most of why it read as a bubble. Its <b>front overhang was 1.17 m</b> against 0.83 while the
+        /// rear was short at 1.01, so the mass sat ahead of the front axle instead of behind it; a
+        /// fastback is nose-short and tail-long, and getting that backwards makes any car look like it is
+        /// leaning forward. It carried <b>0.20 m of ground clearance</b>. And the arch openings stood ten
+        /// centimetres clear of their own tyres.</para>
+        ///
+        /// <para><b>Width is not in that list and cannot be.</b> 2.08 m against a real 1.80 is the one
+        /// dimension this table does not own: the body has to cover the wheels, and the wheels are at
+        /// <see cref="TrackHalfWidth"/>, which is suspension geometry. Narrowing the car means narrowing
+        /// the track, which changes weight transfer and roll — and this project tunes feel before beauty.
+        /// So the car stays a wide reading of a Mustang, and everything else moves to meet it.</para>
+        ///
+        /// <para>The shape it now describes: a dead-flat hood 1.25 m long at a constant 0.30, an upright
+        /// face, a windscreen raked 58° from vertical, 0.70 m of flat roof, and then a single unbroken
+        /// fall of 0.40 m over 1.70 m from the roof to the deck. That last line <i>is</i> the fastback.
+        /// Flatten it and the same car is an estate; break it with a notch and it is a coupé.</para>
         /// </summary>
         private static readonly Station[] KeyStations =
         {
-            // Three things matter here.
+            // --- The tail. Long overhang, tiny deck, and a lip rather than a wing.
             //
-            // TopY stays at 0.28 from the cowl to the nose — the hood is dead flat and the face is
-            // near-vertical rather than drooping, which is the difference between a muscle car and a
-            // seventies boat nose.
+            // The deck is 0.33 m from where the backlight lands to the tail panel. That is what makes a
+            // fastback a fastback: on a notchback the roof stops and a boot begins, and the two are
+            // different volumes. Here the roof simply keeps going until it runs out of car.
             //
-            // The roof sits at 0.86 against a beltline of 0.22, so the glasshouse is 0.64 m of a 1.38 m
-            // body — a little under half. It has been raised twice, from 0.57 and then from 0.68, and
-            // both earlier numbers had the same fault: seen from the chase camera, which looks down at
-            // the car from behind, a shallow greenhouse reads as a body pressed flat from above. That
-            // view foreshortens height and not width, so the ratio that matters is not the one you see
-            // in a side elevation. At 2.04 m across and 1.20 m tall the car was 1.7 wide for every unit
-            // of height, against about 1.4 on a real one; it is now 1.48.
-            //
-            // The roof is also narrower than it was — 0.57 against a 0.90 body half-width, so the
-            // glasshouse tucks in by a third rather than a quarter. A wide flat roof reads as flat
-            // however high it is, and tapering it is worth as much as the height.
-            // The fall is now 0.47 over the last 1.9 m and follows a straight line from the roof to the
-            // tail panel, bowed out by a couple of centimetres — that line *is* the fastback. Flatten it
-            // and the same car reads as an estate.
-            //
-            // The two fender stations are noticeably wider than the body between them, which is the
-            // widebody flare. TrackHalfWidth is set so the tyres still stand proud of it.
-            // Two more things the table now does.
-            //
-            // BeltY rises to about 0.44 over each axle and drops back to 0.38 in the middle. That is the
-            // haunch, and it is not only styling: BuildRing caps the wheel arch at belt - 0.08, so the
-            // beltline is what physically decides how big an arch opening can be.
-            //
-            // It sat at 0.22-0.30, and that was the other half of the flattened look. The band between
-            // the belt and the roof *is* the side glass, so a low beltline under a raised roof gives a
-            // window 0.64 m deep against a 0.74 m door — the glass runs down into the door and the flank
-            // has almost no metal in it. At 0.38 the glass is 0.50 m against 0.90 m of door, which is
-            // about the proportion a car actually has. Raising the belt costs nothing elsewhere: the
-            // arch clamp only bites when the belt is *low*, so the openings are unchanged.
-            //
-            // The waist was also 0.13 m narrower than the fenders, and a car pinched in the middle reads
-            // as narrow whatever its widest number is. It is now within 0.07 of them.
-            //
-            // At the tail, TopY falls to 0.29 and then kicks back *up* to 0.36 before cutting off. That
-            // is the ducktail — a real one is an upturn pressed into the deck lid, not a part bolted on,
-            // so it is built the same way here and the shell stays closed.
+            // TopY falls to 0.26 at the deck and kicks back up to 0.30 before cutting off — a four
+            // centimetre lip. A '67 has barely any; the old table had 0.07 of upturn and it read as a
+            // bolt-on spoiler on a car that should not have one.
             //           z       halfW  belt   top    topHalf sill
-            new Station(-2.36f, 0.82f, 0.24f, 0.30f, 0.56f, -0.38f),
-            new Station(-2.30f, 0.89f, 0.28f, 0.40f, 0.64f, -0.45f),
-            new Station(-2.20f, 0.94f, 0.31f, 0.44f, 0.69f, -0.50f),
-            new Station(-2.05f, 0.98f, 0.34f, 0.37f, 0.71f, -0.52f),
-            new Station(-1.80f, 1.00f, 0.38f, 0.45f, 0.70f, -0.52f),
-            new Station(-1.55f, 1.02f, 0.42f, 0.55f, 0.67f, -0.52f),
-            new Station(-1.35f, 1.04f, 0.44f, 0.61f, 0.65f, -0.52f),
-            new Station(-1.15f, 1.02f, 0.42f, 0.68f, 0.63f, -0.52f),
-            new Station(-0.90f, 0.99f, 0.39f, 0.78f, 0.61f, -0.52f),
-            new Station(-0.45f, 0.97f, 0.38f, 0.88f, 0.59f, -0.52f),
-            new Station(0.25f, 0.97f, 0.38f, 0.87f, 0.59f, -0.52f),
-            new Station(0.85f, 0.98f, 0.39f, 0.44f, 0.77f, -0.52f),
-            new Station(1.15f, 1.01f, 0.41f, 0.46f, 0.79f, -0.52f),
-            new Station(1.40f, 1.04f, 0.43f, 0.47f, 0.80f, -0.52f),
-            new Station(1.70f, 1.02f, 0.41f, 0.46f, 0.80f, -0.52f),
+            new Station(-2.48f, 0.84f, 0.18f, 0.23f, 0.58f, -0.47f),
+            new Station(-2.42f, 0.88f, 0.20f, 0.27f, 0.64f, -0.52f),
+            new Station(-2.32f, 0.92f, 0.22f, 0.30f, 0.68f, -0.55f),
+            new Station(-2.15f, 0.97f, 0.24f, 0.26f, 0.70f, -0.59f),
 
-            // The nose. It used to end in a 1.64 m wide, 0.73 m tall flat disc — AddCap forces every
-            // vertex of the last ring to one Z, so the whole front shaded as a single plate, and that
-            // was most of why it read as a block. HalfWidth also fell only 13 % over the last 0.37 m and
-            // SillY rose only 8 cm, so there was nothing curving into it either.
+            // --- The fastback slope and the rear haunch.
             //
-            // Six rings now taper over 0.57 m and the cap is down to about a third of its old area, with
-            // the sill rising 0.31 m to dome the underside. Not tapered to a point: a Mustang has a full
-            // rounded snout, and a wedge would be the wrong car.
-            new Station(1.95f, 0.98f, 0.37f, 0.44f, 0.78f, -0.51f),
-            new Station(2.16f, 0.96f, 0.33f, 0.42f, 0.76f, -0.49f),
-            new Station(2.30f, 0.92f, 0.29f, 0.39f, 0.73f, -0.45f),
-            new Station(2.40f, 0.86f, 0.24f, 0.35f, 0.67f, -0.39f),
-            new Station(2.47f, 0.74f, 0.17f, 0.28f, 0.56f, -0.31f),
-            new Station(2.52f, 0.56f, 0.08f, 0.19f, 0.40f, -0.20f),
+            // One straight fall from the roof at -0.45 to the deck at -2.15, bowed out two centimetres
+            // in the middle. BeltY rises to 0.31 over the rear axle and drops to 0.24 at the doors,
+            // which is the haunch — and it is structural as well as styling, because BuildRing caps the
+            // arch at belt - 0.08 and the belt is therefore what decides how large an opening can be.
+            new Station(-1.90f, 1.00f, 0.27f, 0.33f, 0.70f, -0.59f),
+            new Station(-1.60f, 1.02f, 0.30f, 0.42f, 0.68f, -0.59f),
+            new Station(-1.35f, 1.04f, 0.31f, 0.49f, 0.66f, -0.59f),
+            new Station(-1.15f, 1.02f, 0.29f, 0.55f, 0.64f, -0.59f),
+            new Station(-0.90f, 0.99f, 0.26f, 0.61f, 0.62f, -0.59f),
+
+            // --- The cabin. Roof flat from -0.45 to 0.25, which is 0.70 m of it.
+            //
+            // Roof at 0.66 over a beltline of 0.24 leaves 0.42 m of glass, and that ratio is deliberately
+            // unchanged from before: seen from the chase camera, which looks down from behind, a shallow
+            // greenhouse reads as a body pressed flat from above, and that view foreshortens height but
+            // not width. What changed is that the whole cabin came down 0.22 m rather than the glass
+            // getting thinner. TopHalfWidth 0.60 against a 0.97 body tucks the glasshouse in by well
+            // over a third — a wide flat roof reads as flat however high it sits.
+            new Station(-0.45f, 0.97f, 0.24f, 0.66f, 0.60f, -0.59f),
+            new Station(0.25f, 0.97f, 0.24f, 0.66f, 0.60f, -0.59f),
+
+            // --- The hood. Dead flat at 0.30 for 1.25 m, which is 1.04 m above the ground.
+            //
+            // Flat is the whole point. A hood that falls away towards the nose is a seventies boat, and
+            // the previous table let TopY drift from 0.47 down to 0.19 over the last metre while the
+            // sill rose 0.31 to meet it — the two together closed the nose into a snout. The face is
+            // near-vertical now and the taper happens in plan, not in elevation.
+            new Station(0.85f, 0.98f, 0.25f, 0.29f, 0.78f, -0.59f),
+            new Station(1.15f, 1.01f, 0.27f, 0.30f, 0.80f, -0.59f),
+            new Station(1.40f, 1.04f, 0.29f, 0.30f, 0.81f, -0.59f),
+            new Station(1.70f, 1.02f, 0.27f, 0.30f, 0.81f, -0.59f),
+
+            // --- The nose, at 2.26 rather than 2.52.
+            //
+            // 0.26 m came off the front overhang, which was 1.17 m against a real 0.83 and was the
+            // largest single error in the old silhouette. A Mustang keeps its mass behind the front
+            // axle; a long snout in front of it is a front-drive saloon whatever else is done to the
+            // shape.
+            //
+            // Still not tapered to a point — a Mustang has a full, square-shouldered face, and a wedge
+            // would be the wrong car. The cap is small enough not to read as a plate because the last
+            // three stations pull the width in and dome the underside, not because the nose is pointed.
+            new Station(1.95f, 1.00f, 0.25f, 0.30f, 0.79f, -0.58f),
+            new Station(2.10f, 0.99f, 0.24f, 0.30f, 0.78f, -0.57f),
+            new Station(2.20f, 0.96f, 0.22f, 0.29f, 0.75f, -0.55f),
+            new Station(2.26f, 0.90f, 0.19f, 0.27f, 0.69f, -0.51f),
         };
 
         /// <summary>
@@ -188,7 +231,7 @@ namespace Horizon.EditorTools
         /// The ducktail needs its crease or the upturn reads as a soft swelling in the deck rather than
         /// as a spoiler with a lip.
         /// </summary>
-        private static readonly float[] CreaseZ = { -2.20f, -1.80f, 0.25f, 0.85f };
+        private static readonly float[] CreaseZ = { -2.32f, -2.15f, 0.25f, 0.85f };
 
         /// <summary>Spacing of the interpolated cross-sections.</summary>
         private const float StationStep = 0.13f;
@@ -480,8 +523,8 @@ namespace Horizon.EditorTools
         /// </summary>
         private static void AddTrafficLamps(List<Vector3> vertices, List<int>[] submeshTriangles)
         {
-            const float noseZ = 2.53f;
-            const float tailZ = -2.37f;
+            const float noseZ = 2.27f;
+            const float tailZ = -2.49f;
 
             AddLampPanel(vertices, submeshTriangles[HeadlightSubmesh], 0.30f, 0.02f, noseZ, 0.18f, 0.08f);
             AddLampPanel(vertices, submeshTriangles[HeadlightSubmesh], -0.30f, 0.02f, noseZ, 0.18f, 0.08f);
@@ -490,8 +533,10 @@ namespace Horizon.EditorTools
 
             // Seated so the tyre touches the road the director puts the car on: TrafficDirector lifts the
             // transform by its ride height, which places the ground at y = -0.55 in this frame.
-            const float radius = 0.40f;
-            const float centreY = -0.55f + radius;
+            // The same wheel the player's car hangs, at the same height: both bodies come off the same
+            // station table, so a traffic car that sat on different rubber would be a different car.
+            const float radius = 0.44f;
+            const float centreY = -TrafficRideHeight + radius;
 
             // At TrackHalfWidth, not inboard of it. That constant is set so a tyre stands proud of the
             // widebody flare — put the wheel a hand's width further in, as this first did, and the
@@ -725,33 +770,40 @@ namespace Horizon.EditorTools
         /// </summary>
         private static void AddFrontDetails(List<Vector3> vertices, List<int>[] submeshTriangles)
         {
-            // Just ahead of the nose cap, which now ends at 2.52 and is ±0.54 wide. A panel placed back
-            // where the body is widest ends up buried inside the shell and renders nothing — which is
-            // exactly what would have happened if these had been left at the old 2.34 after the nose was
-            // extended, and it would have looked like the grille had simply vanished.
-            const float z = 2.54f;
+            // Two centimetres ahead of the nose cap, which now ends at 2.26 and is ±0.86 wide. A panel
+            // placed back where the body is widest ends up buried inside the shell and renders nothing.
+            //
+            // Wider than it was, because the cap it sits on is wider: the face is upright now instead of
+            // domed, so there is a real panel to put a grille on. A Mustang's grille runs nearly the
+            // full width with the lamps set into its outer ends, and that full-width bar is as much of
+            // the front-end read as the shape of the nose is.
+            const float z = 2.28f;
 
-            AddPanel(vertices, submeshTriangles[GlassSubmesh], z, -0.30f, 0.30f, -0.13f, 0.02f, true);
-            AddPanel(vertices, submeshTriangles[HeadlightSubmesh], z, 0.34f, 0.50f, -0.02f, 0.10f, true);
-            AddPanel(vertices, submeshTriangles[HeadlightSubmesh], z, -0.50f, -0.34f, -0.02f, 0.10f, true);
+            // A full-width opening with the lamps set into its outer ends, two centimetres proud of it —
+            // which is the front of a Mustang in one sentence, and is why the grille is drawn first and
+            // wide rather than as a slot between the lights. It spans 1.24 m of a 1.80 m face and 0.28 m
+            // of its 0.78 m height; the previous 0.80 by 0.17 read as a letterbox on a blank panel.
+            AddPanel(vertices, submeshTriangles[GlassSubmesh], z, -0.62f, 0.62f, -0.22f, 0.06f, true);
+
+            AddPanel(vertices, submeshTriangles[HeadlightSubmesh], z + 0.02f, 0.34f, 0.56f, -0.18f, 0.02f, true);
+            AddPanel(vertices, submeshTriangles[HeadlightSubmesh], z + 0.02f, -0.56f, -0.34f, -0.18f, 0.02f, true);
         }
 
         /// <summary>Three vertical bars each side, which is the tail this car is quoting.</summary>
         private static void AddRearDetails(List<Vector3> vertices, List<int>[] submeshTriangles)
         {
-            // Two centimetres behind the tail cap at -2.36, so the bars sit proud of it rather than
-            // coplanar with it and z-fighting.
-            const float z = -2.38f;
-            var barStarts = new[] { 0.18f, 0.34f, 0.50f };
-            const float barWidth = 0.13f;
+            // Two centimetres behind the tail cap, which now ends at -2.48.
+            const float z = -2.50f;
+            var barStarts = new[] { 0.15f, 0.32f, 0.49f };
+            const float barWidth = 0.14f;
 
             for (int i = 0; i < barStarts.Length; i++)
             {
                 float x0 = barStarts[i];
                 float x1 = x0 + barWidth;
 
-                AddPanel(vertices, submeshTriangles[TaillightSubmesh], z, x0, x1, -0.10f, 0.14f, false);
-                AddPanel(vertices, submeshTriangles[TaillightSubmesh], z, -x1, -x0, -0.10f, 0.14f, false);
+                AddPanel(vertices, submeshTriangles[TaillightSubmesh], z, x0, x1, -0.19f, 0.09f, false);
+                AddPanel(vertices, submeshTriangles[TaillightSubmesh], z, -x1, -x0, -0.19f, 0.09f, false);
             }
         }
 

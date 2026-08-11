@@ -31,7 +31,7 @@ namespace Horizon.Vehicle
         /// Rolling radius. **Coupled to <see cref="FinalDrive"/>** — read the note there before changing
         /// it, because the radius is not only a visual dimension.
         /// </summary>
-        public float WheelRadius = 0.42f;
+        public float WheelRadius = 0.44f;
 
         [Tooltip("Suspension travel in metres.\n\n"
                + "0.30 rather than 0.35 because the wheels grew: ride height is rest length plus radius, "

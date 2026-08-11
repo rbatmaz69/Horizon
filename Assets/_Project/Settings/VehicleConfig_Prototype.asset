@@ -16,7 +16,7 @@ MonoBehaviour:
   CenterOfMass: {x: 0, y: -0.3, z: 0.05}
   LinearDamping: 0.06
   AngularDamping: 1.2
-  WheelRadius: 0.42
+  WheelRadius: 0.44
   SuspensionRestLength: 0.3
   SuspensionStiffness: 42000
   SuspensionDamping: 3800
