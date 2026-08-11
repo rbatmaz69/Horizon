@@ -356,8 +356,11 @@ namespace Horizon.EditorTools
             //   Y: sill -0.52 to crowned roof ~0.72.
             //   Z: tail cap -2.36 to nose cap 2.52, so 4.88 long and biased forward.
             BoxCollider collider = root.AddComponent<BoxCollider>();
-            collider.center = new Vector3(0f, 0.10f, 0.08f);
-            collider.size = new Vector3(2.25f, 1.25f, 4.94f);
+            // Follows the shell: the body is 2.26 m across the arches and runs from a sill at -0.52 to
+            // a roof at 0.88. A collider left at the old 1.25 m of height would have had the roof
+            // sticking out of it, which is the kind of thing nothing complains about until a tunnel does.
+            collider.center = new Vector3(0f, 0.16f, 0.08f);
+            collider.size = new Vector3(2.28f, 1.45f, 4.94f);
 
             Mesh bodyMesh = HorizonAssetUtility.ReplaceAsset(
                 CarMeshBuilder.BuildBody(), GeneratedFolder + "/CarBodyMesh.asset");
