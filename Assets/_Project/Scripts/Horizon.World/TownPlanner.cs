@@ -3,16 +3,31 @@ using UnityEngine;
 
 namespace Horizon.World
 {
-    /// <summary>What stands on a plot.</summary>
+    /// <summary>
+    /// What stands on a plot.
+    ///
+    /// <para>The numbering is not contiguous and that is deliberate — these are persisted in nothing, but
+    /// they are read by name in four files, and renumbering them to tidy the list would be a change with
+    /// no upside.</para>
+    /// </summary>
     public enum TownPlotKind
     {
         House = 0,
 
-        /// <summary>The town's landmark, and the only building visible from the pass road above.</summary>
+        /// <summary>One of the town's three silhouettes. It was the landmark when this was a village.</summary>
         Windmill = 1,
 
-        /// <summary>The town's landmark, and the thing it is recognised by from the pass above.</summary>
+        /// <summary>The tallest thing in the town, and what it is recognised by from the pass above.</summary>
         Mosque = 5,
+
+        /// <summary>The market square's civic front, on its uphill edge.</summary>
+        TownHall = 6,
+
+        /// <summary>At the centre of the market square.</summary>
+        Fountain = 7,
+
+        /// <summary>One of the stalls scattered over the market square's paving.</summary>
+        Stall = 8,
 
         Barn = 2,
         Sawmill = 3,
@@ -111,8 +126,11 @@ namespace Horizon.World
             /// a lawn needs none.
             /// </summary>
             public float BuildingRadius => Kind == TownPlotKind.Mosque ? 16f
+                : Kind == TownPlotKind.TownHall ? 15f
                 : Kind == TownPlotKind.Windmill ? 11f
                 : Kind == TownPlotKind.Barn ? 9f
+                : Kind == TownPlotKind.Fountain ? 4f
+                : Kind == TownPlotKind.Stall ? 2.5f
                 : 7.5f;
         }
 
@@ -277,6 +295,9 @@ namespace Horizon.World
     {
         public int Houses;
         public int Mosques;
+        public int TownHalls;
+        public int Fountains;
+        public int Stalls;
         public int Windmills;
         public int Barns;
         public int Sawmills;
@@ -320,6 +341,9 @@ namespace Horizon.World
         {
             Houses += other.Houses;
             Mosques += other.Mosques;
+            TownHalls += other.TownHalls;
+            Fountains += other.Fountains;
+            Stalls += other.Stalls;
             Windmills += other.Windmills;
             Barns += other.Barns;
             Sawmills += other.Sawmills;
@@ -490,6 +514,14 @@ namespace Horizon.World
                     bool left = s == 0;
                     int face = FaceOn(network, blockOfHalfEdge, i, left);
 
+                    // Nothing fronts *into* a square. The buildings that address one stand across the
+                    // street from it, and the open space is the whole point — a market place with a row
+                    // of back gardens down the middle of it is a block with a hole in it.
+                    if (face >= 0 && face < blocks.Count && blocks[face].IsSquare)
+                    {
+                        continue;
+                    }
+
                     TownQuarter quarter = face >= 0 && face < blocks.Count
                         ? blocks[face].Quarter
                         : edge.Quarter;
@@ -513,6 +545,12 @@ namespace Horizon.World
             }
 
             AddMosque(plots, trunk, index, field, terrainShape, shape);
+
+            for (int i = 0; i < network.Squares.Count; i++)
+            {
+                AddSquareFurniture(plots, network, network.Squares[i], index);
+                AddTownHall(plots, network, network.Squares[i], field, terrainShape);
+            }
 
             // Lamps down the trunk road through the town, on the town side only. Poolless — see
             // TownLamp — because the pass is textured asphalt and a flat day colour cannot vanish into it.
@@ -721,6 +759,170 @@ namespace Horizon.World
                 Hash(7717, Mathf.RoundToInt(bestAlong), 0)));
         }
 
+        /// <summary>
+        /// A fountain at the middle of a square, and a scatter of stalls over the rest of it.
+        ///
+        /// <para>Everything here is seated on <see cref="TownSquare.PavedHeightAt"/> rather than on the
+        /// terrain, because the paving stands a kerb height above the ground it covers — a stall placed
+        /// against the height field stands 16 cm into the flagstones.</para>
+        ///
+        /// <para>Candidates are rejected against the street index up front rather than left for
+        /// <see cref="ClearStreets"/> to sweep up afterwards. Both would work, but a stall dropped after
+        /// placement leaves a gap in the pattern the placement was trying to make, and the count would
+        /// then depend on how many happened to survive.</para>
+        /// </summary>
+        private static void AddSquareFurniture(
+            List<TownPlan.Plot> plots, StreetNetwork network, TownSquare square, StreetIndex index)
+        {
+            if (square.Interior == null || square.Interior.Length < 3)
+            {
+                return;
+            }
+
+            var random = new PlantRandom(Hash(3301, square.Index, 0));
+
+            plots.Add(new TownPlan.Plot(
+                square.Centre, 0f, 4f, 4f, TownPlotKind.Fountain, false, false, 0f, random.NextSeed()));
+
+            // Clear of the fountain, clear of the surrounding carriageways, and inside the paving. A
+            // rejection sample rather than a grid: the square is not rectangular, and a grid clipped to a
+            // polygon reads as a grid with its corners bitten off.
+            const float fountainKeepOut = 7f;
+            const float streetKeepOut = 12f;
+            int wanted = 8 + Mathf.FloorToInt(random.Range(0f, 7f));
+            int placed = 0;
+
+            var bounds = new Bounds(square.Interior[0], Vector3.zero);
+            for (int i = 1; i < square.Interior.Length; i++)
+            {
+                bounds.Encapsulate(square.Interior[i]);
+            }
+
+            for (int attempt = 0; attempt < wanted * 30 && placed < wanted; attempt++)
+            {
+                float x = random.Range(bounds.min.x, bounds.max.x);
+                float z = random.Range(bounds.min.z, bounds.max.z);
+                var at = new Vector3(x, 0f, z);
+
+                if (!StreetNetwork.Contains(square.Interior, at)
+                    || index.IsWithin(x, z, streetKeepOut))
+                {
+                    continue;
+                }
+
+                float dx = x - square.Centre.x;
+                float dz = z - square.Centre.z;
+                if (dx * dx + dz * dz < fountainKeepOut * fountainKeepOut)
+                {
+                    continue;
+                }
+
+                if (TooClose(plots, x, z, 4.5f))
+                {
+                    continue;
+                }
+
+                plots.Add(new TownPlan.Plot(
+                    new Vector3(x, square.PavedHeightAt(x, z), z),
+                    random.Range(0f, 360f),
+                    2.5f, 2.5f, TownPlotKind.Stall, false, false, 0f, random.NextSeed()));
+
+                placed++;
+            }
+
+            if (placed < 6)
+            {
+                Debug.LogWarning($"[Horizon] Square '{square.Name}' took only {placed} stalls. Either it "
+                                 + "is too small for the keep-outs, or its paved boundary has come out "
+                                 + "inside out and the point-in-polygon test is rejecting the middle.");
+            }
+        }
+
+        /// <summary>Whether any plot already stands within a radius of a point, in plan.</summary>
+        private static bool TooClose(List<TownPlan.Plot> plots, float x, float z, float radius)
+        {
+            for (int i = 0; i < plots.Count; i++)
+            {
+                float dx = plots[i].Position.x - x;
+                float dz = plots[i].Position.z - z;
+
+                if (dx * dx + dz * dz < radius * radius)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// The town hall, across the street from the uphill edge of a square and facing back into it.
+        ///
+        /// <para>Uphill because that is where a civic building goes: it is the one frontage on the square
+        /// that is seen against the sky from the other side rather than against the buildings behind it.
+        /// Which edge that is comes from <see cref="TownSquare.UphillEdge"/>, measured off the built
+        /// geometry — naming it in the layout table would be a number that quietly stopped being true the
+        /// first time the square moved.</para>
+        ///
+        /// <para>Anything the frontage pass has already put on that spot is removed first. The alternative
+        /// is placing the hall before the frontages and teaching those to avoid it, which would mean the
+        /// frontage code carrying a special case for every landmark there will ever be.</para>
+        /// </summary>
+        private static void AddTownHall(
+            List<TownPlan.Plot> plots,
+            StreetNetwork network,
+            TownSquare square,
+            MountainField field,
+            in TerrainShape terrainShape)
+        {
+            if (square.Edges == null || square.Edges.Length == 0)
+            {
+                return;
+            }
+
+            StreetEdge edge = network.Edges[square.Edges[square.UphillEdge]];
+            if (edge.Path == null)
+            {
+                return;
+            }
+
+            float at = edge.Length * 0.5f;
+            Vector3 centre = edge.Path.GetPositionAtDistance(at);
+            Vector3 right = edge.Path.GetRightAtDistance(at);
+
+            // Away from the square: the hall stands on the far side of the street that edges it.
+            float sign = -Mathf.Sign(Vector3.Dot(right, square.Centre - centre));
+
+            const float halfWidth = 12f;
+            const float halfDepth = 8f;
+
+            // Close to the pavement — 2 m, against the 9 m an ordinary house on a housing street stands
+            // back. A civic building addresses its square; one set back behind a front garden is a large
+            // villa. It is also the only setback the land allows: the strip between the square and the
+            // housing row behind it is under twenty metres deep.
+            float setback = edge.HalfOuter + 2f + halfDepth;
+
+            Vector3 site = centre + right * (setback * sign);
+            TerrainTileBuilder.SampleSurface(field, terrainShape, site.x, site.z,
+                out Vector3 point, out Vector3 _);
+
+            for (int i = plots.Count - 1; i >= 0; i--)
+            {
+                float dx = plots[i].Position.x - point.x;
+                float dz = plots[i].Position.z - point.z;
+
+                if (dx * dx + dz * dz < 20f * 20f)
+                {
+                    plots.RemoveAt(i);
+                }
+            }
+
+            plots.Add(new TownPlan.Plot(
+                point, HeadingOf(-right * sign), halfWidth, halfDepth,
+                TownPlotKind.TownHall, false, false, 0.75f,
+                Hash(6151, square.Index, 0)));
+        }
+
         /// <summary>Which block lies on one side of a street, or -1 for the open edge of the town.</summary>
         private static int FaceOn(
             StreetNetwork network, int[] blockOfHalfEdge, int edgeIndex, bool left)
@@ -903,6 +1105,21 @@ namespace Horizon.World
                     case TownPlotKind.Mosque:
                         LandmarkMeshes.AddMosque(buffer, place, ref random);
                         stats.Mosques++;
+                        continue;
+
+                    case TownPlotKind.TownHall:
+                        LandmarkMeshes.AddTownHall(buffer, place, ref random);
+                        stats.TownHalls++;
+                        continue;
+
+                    case TownPlotKind.Fountain:
+                        LandmarkMeshes.AddFountain(buffer, place, ref random);
+                        stats.Fountains++;
+                        continue;
+
+                    case TownPlotKind.Stall:
+                        LandmarkMeshes.AddMarketStall(buffer, place, ref random);
+                        stats.Stalls++;
                         continue;
 
                     case TownPlotKind.Windmill:

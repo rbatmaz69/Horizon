@@ -103,6 +103,19 @@ namespace Horizon.World
 
         private readonly float[] junctionRadius;
 
+        /// <summary>
+        /// The squares' paved outlines, so nothing grows out of the market place.
+        ///
+        /// <para>A polygon rather than a centre and a radius, unlike the junctions above, because a square
+        /// is eighty metres by forty and a circle would either leave trees on the flagstones or clear a
+        /// disc out of the buildings around it. And it cannot be left to the street keep-out at all: that
+        /// measures distance to the nearest centreline, and the middle of a square is twenty metres from
+        /// every street that bounds it — which is to say, as far from a street as a back garden is.</para>
+        /// </summary>
+        private readonly Vector3[][] squareOutlines;
+
+        private readonly Bounds[] squareBounds;
+
         private Bounds townBounds;
         private readonly bool hasStreets;
 
@@ -164,6 +177,30 @@ namespace Horizon.World
 
                 junctions = centres.ToArray();
                 junctionRadius = radii.ToArray();
+
+                var outlines = new List<Vector3[]>(network.Squares.Count);
+                var squareBoxes = new List<Bounds>(network.Squares.Count);
+
+                for (int i = 0; i < network.Squares.Count; i++)
+                {
+                    Vector3[] interior = network.Squares[i].Interior;
+                    if (interior == null || interior.Length < 3)
+                    {
+                        continue;
+                    }
+
+                    var box = new Bounds(interior[0], Vector3.zero);
+                    for (int p = 1; p < interior.Length; p++)
+                    {
+                        box.Encapsulate(interior[p]);
+                    }
+
+                    outlines.Add(interior);
+                    squareBoxes.Add(box);
+                }
+
+                squareOutlines = outlines.ToArray();
+                squareBounds = squareBoxes.ToArray();
 
                 townBounds = network.Footprint;
                 townBounds.Expand(new Vector3(60f, 0f, 60f));
@@ -253,7 +290,37 @@ namespace Horizon.World
                 margin = Mathf.Min(margin, Mathf.Sqrt(dx * dx + dz * dz) - junctionRadius[i]);
             }
 
-            return margin;
+            // Standing on a square is standing on paving, and that is all this needs to say. How far
+            // *into* the square it is would cost a distance-to-polygon and is a number about a plant that
+            // is not there — IsBlocked keeps them all out.
+            return IsOnPaving(x, z) ? Mathf.Min(margin, -1f) : margin;
+        }
+
+        /// <summary>Whether a point falls inside any square's paved outline.</summary>
+        private bool IsOnPaving(float x, float z)
+        {
+            if (squareOutlines == null)
+            {
+                return false;
+            }
+
+            var at = new Vector3(x, 0f, z);
+
+            for (int i = 0; i < squareOutlines.Length; i++)
+            {
+                if (x < squareBounds[i].min.x || x > squareBounds[i].max.x
+                    || z < squareBounds[i].min.z || z > squareBounds[i].max.z)
+                {
+                    continue;
+                }
+
+                if (StreetNetwork.Contains(squareOutlines[i], at))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         /// <summary>Normalised position up the climb: 0 at the foot of the pass, 1 at the summit.</summary>
@@ -280,6 +347,11 @@ namespace Horizon.World
 
                 float toStreet = streets.DistanceTo(x, z, out int edgeIndex);
                 if (edgeIndex >= 0 && toStreet < streetEdges[edgeIndex].HalfOuter + margin)
+                {
+                    return true;
+                }
+
+                if (IsOnPaving(x, z))
                 {
                     return true;
                 }

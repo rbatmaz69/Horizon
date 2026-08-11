@@ -99,9 +99,15 @@ namespace Horizon.World
                     shape.KerbHeight = 0.10f;
                     break;
 
+                // A 2.8 m pavement, not the 4.5 m this started at. The generous figure was double
+                // counting: the square itself is thirty metres of paving on the other side of the kerb,
+                // so the footway does not also have to be the widest in the town. It was also breaking
+                // the junctions at both ends of it — a 8.75 m half-outer puts a street's outer corner
+                // forty degrees off its own axis, and at a node where two branches are under fifty
+                // degrees apart the corners cross and the pad polygon folds through itself.
                 case TownStreetKind.SquareEdge:
                     shape.HalfWidth = 4.0f;
-                    shape.FootwayWidth = 4.5f;
+                    shape.FootwayWidth = 2.8f;
                     break;
             }
 

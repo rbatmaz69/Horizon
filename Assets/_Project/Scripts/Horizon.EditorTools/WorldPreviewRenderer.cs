@@ -226,6 +226,27 @@ namespace Horizon.EditorTools
                     Capture(camera, Path.Combine(directory, "WorldPreview_Town_Junction.png"));
                 }
 
+                // The square from a standing eye inside it, not from above. A market place is a room, and
+                // the only question about it — whether the buildings round it read as walls or as a row
+                // of houses that happen to face the same way — cannot be asked from a helicopter.
+                // Station and aim both come from the scene marker, which is the only thing that knows
+                // which edge came out uphill.
+                CaptureFromMarker(camera, "TownSquareView", 65f,
+                    Path.Combine(directory, "WorldPreview_Town_Square.png"));
+
+                // The mosque from the street, close enough that the two-stage spire, the dome and the
+                // porch are separate things rather than one blob.
+                GameObject landmark = GameObject.Find("TownLandmark");
+                if (landmark != null)
+                {
+                    Vector3 at = landmark.transform.position;
+                    camera.fieldOfView = 50f;
+                    camera.transform.position = at + new Vector3(-46f, 12f, -38f);
+                    camera.transform.rotation = Quaternion.LookRotation(
+                        (at + Vector3.up * 14f) - camera.transform.position, Vector3.up);
+                    Capture(camera, Path.Combine(directory, "WorldPreview_Town_Mosque.png"));
+                }
+
                 CaptureFromViewpoint(camera, path, directory);
 
                 // A close look across the verge at the roadside, which is the one angle that exposes plants
@@ -395,6 +416,11 @@ namespace Horizon.EditorTools
                 camera.transform.position = at - right * 130f + Vector3.up * 85f;
                 camera.transform.rotation = Quaternion.LookRotation(at - camera.transform.position, Vector3.up);
                 Capture(camera, Path.Combine(directory, "WorldPreview_Town_Night_Above.png"));
+
+                // The square after dark: the stalls' awnings, the fountain, and whether the town hall's
+                // clock still reads when everything around it has gone to two flat colours.
+                CaptureFromMarker(camera, "TownSquareView", 65f,
+                    Path.Combine(directory, "WorldPreview_Town_Night_Square.png"));
 
                 CaptureNightFromViewpoint(camera, path, directory, townMiddle);
 
@@ -572,6 +598,28 @@ namespace Horizon.EditorTools
             }
 
             return bounds;
+        }
+
+        /// <summary>
+        /// Takes a shot from a marker the build placed, using both its position and its rotation.
+        ///
+        /// The marker carries the aim as well as the station because the thing worth looking at is often
+        /// decided by geometry only the builder has — which edge of a square came out uphill, which
+        /// junction came out worst. A renderer that re-derived those would be a second opinion about them.
+        /// </summary>
+        private static void CaptureFromMarker(
+            Camera camera, string markerName, float fieldOfView, string filePath)
+        {
+            GameObject marker = GameObject.Find(markerName);
+            if (marker == null)
+            {
+                return;
+            }
+
+            camera.fieldOfView = fieldOfView;
+            camera.transform.SetPositionAndRotation(
+                marker.transform.position, marker.transform.rotation);
+            Capture(camera, filePath);
         }
 
         private static void Capture(Camera camera, string filePath)

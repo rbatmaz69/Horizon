@@ -34,6 +34,12 @@ namespace Horizon.World
         /// <summary>Longest trim, as a multiple of the street's own outer half-width.</summary>
         private const float MaximumTrimFactor = 2.5f;
 
+        /// <summary>
+        /// How much further back than the bare minimum a street is trimmed so its outer corner clears its
+        /// neighbour's with room to spare. See the corner term in <see cref="ResolveTrims"/>.
+        /// </summary>
+        private const float CornerMargin = 1.3f;
+
         /// <summary>How far back from the trunk centreline a street's own ribbon starts, beyond the throat.</summary>
         private const float TrunkThroatReach = 11f;
 
@@ -70,6 +76,7 @@ namespace Horizon.World
                     else
                     {
                         trim = edge.HalfOuter;
+                        float nearestGap = 180f;
 
                         for (int j = 0; j < node.Degree; j++)
                         {
@@ -78,12 +85,34 @@ namespace Horizon.World
                                 continue;
                             }
 
-                            float between = Mathf.Abs(Mathf.Sin(
-                                (node.Bearings[i] - node.Bearings[j]) * Mathf.Deg2Rad));
+                            float gap = Mathf.Abs(Mathf.DeltaAngle(node.Bearings[i], node.Bearings[j]));
+                            nearestGap = Mathf.Min(nearestGap, gap);
+
+                            float between = Mathf.Abs(Mathf.Sin(gap * Mathf.Deg2Rad));
 
                             StreetEdge other = network.Edges[node.Edges[j]];
                             trim = Mathf.Max(trim, other.HalfOuter / Mathf.Max(MinimumSine, between));
                         }
+
+                        // And the street's *own* width has to fit inside the gap to its nearest
+                        // neighbour. The rule above only clears the other street's width measured along
+                        // this one, which is a different and weaker condition — it says nothing about
+                        // where this street's outer corners land.
+                        //
+                        // A corner sits atan(HalfOuter / trim) off the street's own axis, so keeping it
+                        // out of the neighbour's half of the gap needs trim > HalfOuter / tan(gap / 2).
+                        // Without this a wide street meeting a narrow one at fifty degrees puts its
+                        // corner past the neighbour's, the pad outline goes backwards in bearing, and the
+                        // fan folds a wedge through itself — which is exactly what the star-shape
+                        // validator reports and what six pads round the new market square were doing.
+                        //
+                        // CornerMargin is not decoration. At exactly the limit the two corners land on
+                        // the *same* bearing and the fillet between them spans nothing, so any difference
+                        // in the two streets' widths or trims tips it over — which is why a square's
+                        // right-angled corners were still folding after the term above was added, and
+                        // only those. The margin also gives the corner something to round off.
+                        float halfGap = Mathf.Max(1f, nearestGap * 0.5f) * Mathf.Deg2Rad;
+                        trim = Mathf.Max(trim, edge.HalfOuter * CornerMargin / Mathf.Tan(halfGap));
 
                         trim = Mathf.Min(trim, edge.HalfOuter * MaximumTrimFactor);
                     }
@@ -482,6 +511,53 @@ namespace Horizon.World
                     node.PadOutline[next], node.PadOutline[i], skirt[i], skirt[next],
                     Vector3.up);
             }
+        }
+
+        /// <summary>
+        /// Paves a square: one fan from its centre out to the boundary, in the footway material.
+        ///
+        /// <para>Exactly the operation <see cref="AppendPad"/> performs on a junction, which is why it
+        /// lives here rather than in a builder of its own — a square is a very large junction with nothing
+        /// driving across the middle of it. The only differences are that the whole surface is footway
+        /// rather than carriageway, and that there are no kerbs, because the kerb that matters is the one
+        /// already standing along each of the streets around it.</para>
+        ///
+        /// <para>The fan holds because the boundary is star-shaped about its centroid, which a ring of
+        /// four-to-six streets is. The layout table caps a square at six nodes for that reason.</para>
+        /// </summary>
+        public static void AppendSquare(TownSquare square, VegetationMeshBuffer into)
+        {
+            if (square?.Interior == null || square.Interior.Length < 3)
+            {
+                return;
+            }
+
+            Vector3[] ring = square.Interior;
+            var hub = new Vector3(square.Centre.x, MeanHeight(ring), square.Centre.z);
+
+            for (int i = 0; i < ring.Length; i++)
+            {
+                int next = (i + 1) % ring.Length;
+
+                if ((ring[next] - ring[i]).sqrMagnitude < 0.0004f)
+                {
+                    continue;
+                }
+
+                into.AddTriangleFacing(
+                    TownStreetBuilder.FootwaySubmesh, hub, ring[i], ring[next], Vector3.up);
+            }
+        }
+
+        private static float MeanHeight(Vector3[] points)
+        {
+            float sum = 0f;
+            for (int i = 0; i < points.Length; i++)
+            {
+                sum += points[i].y;
+            }
+
+            return points.Length > 0 ? sum / points.Length : 0f;
         }
 
         /// <summary>

@@ -576,6 +576,11 @@ namespace Horizon.EditorTools
                 terrainShape.RoadShelfDrop);
 
             StreetJunctionBuilder.ResolveTrims(network, roadShape.OuterHalfWidth);
+
+            // After the trims and before anything is built: a square's paved edge runs from one trim
+            // point to the other, because between the trim point and the node the ground belongs to the
+            // junction pad.
+            network.BuildSquareInteriors();
             Phase(clock, "road and street network");
 
             // One field, shared: the terrain is built from it, the guard rails ask it where the ground falls
@@ -630,7 +635,8 @@ namespace Horizon.EditorTools
 
             BuildTerrainTiles(worldRoot.transform, path, roadShape, course, field, terrainShape,
                 townShape, townFootprint, network, townPlan, materials);
-            ValidateLandmarkVisibility(field, course, path, townPlan);
+            ValidateLandmarks(field, course, path, townPlan);
+            MarkTownLandmarks(worldRoot.transform, network, townPlan);
             Phase(clock, "terrain, vegetation and buildings");
 
             BuildCoveredSections(worldRoot.transform, path, roadShape, course, field, materials);
@@ -1058,6 +1064,13 @@ namespace Horizon.EditorTools
 
             int mouthFlips = buffer.FlipCount - ribbonFlips - padFlips;
 
+            for (int i = 0; i < network.Squares.Count; i++)
+            {
+                StreetJunctionBuilder.AppendSquare(network.Squares[i], buffer);
+            }
+
+            int squareFlips = buffer.FlipCount - ribbonFlips - padFlips - mouthFlips;
+
             var used = new List<int>(TownStreetBuilder.StreetSubmeshCount);
             Mesh mesh = buffer.ToMesh("TownStreetsMesh", used);
             if (mesh == null)
@@ -1079,9 +1092,18 @@ namespace Horizon.EditorTools
                       + $"streets, {network.TotalLength:0} m, {pads} junction pads and {mouths} trunk "
                       + $"mouths — {mesh.triangles.Length / 3} triangles in {used.Count} draw calls.");
 
+            for (int i = 0; i < network.Squares.Count; i++)
+            {
+                TownSquare square = network.Squares[i];
+                Debug.Log($"[Horizon] Square '{square.Name}': {square.Edges.Length} edges, "
+                          + $"{square.Area:0} m² paved, centre at "
+                          + $"({square.Centre.x:0}, {square.Centre.z:0}).");
+            }
+
             ReportWindingFlips("Town street ribbons", ribbonFlips);
             ReportWindingFlips("Town junction pads", padFlips);
             ReportWindingFlips("Town trunk mouths", mouthFlips);
+            ReportWindingFlips("Town squares", squareFlips);
         }
 
         /// <summary>The materials for the street mesh, in the order its submeshes survived compaction.</summary>
@@ -1534,7 +1556,8 @@ namespace Horizon.EditorTools
             }
 
             Debug.Log($"[Horizon] Town: {stats.Houses} houses, {stats.Mosques} mosque, "
-                      + $"{stats.Windmills} windmill, "
+                      + $"{stats.TownHalls} town hall, {stats.Fountains} fountain, "
+                      + $"{stats.Stalls} market stalls, {stats.Windmills} windmill, "
                       + $"{stats.Barns} barns, {stats.Sawmills} sawmills, {stats.Fences} fences, "
                       + $"{stats.Lamps} lamps with {stats.Pools} ground pools, {stats.Cars} parked cars "
                       + $"— {stats.Triangles} triangles "
@@ -1573,7 +1596,7 @@ namespace Horizon.EditorTools
 
             float lit = stats.LitGlass / (float)total;
             Debug.Log($"[Horizon] Town glass: {lit * 100f:0.0} % of {total} pane triangles light after "
-                      + "dark. Expect roughly 30-45 %, weighted across the quarters.");
+                      + "dark. Expect roughly 25-45 %, weighted across the quarters.");
 
             if (lit > 0.46f || lit < 0.12f)
             {
@@ -1789,7 +1812,89 @@ namespace Horizon.EditorTools
         }
 
         /// <summary>
-        /// One box collider per plot, sized to the house rather than to the garden.
+        /// One box of a building's collision: a half-extent pair, a height, and where it sits in the
+        /// building's own frame.
+        /// </summary>
+        private readonly struct BuildingBox
+        {
+            public readonly float HalfWidth;
+            public readonly float HalfDepth;
+            public readonly float Height;
+
+            /// <summary>Offset from the plot's origin, in the building's frame. +Z faces the street.</summary>
+            public readonly float OffsetX;
+
+            public readonly float OffsetZ;
+
+            public BuildingBox(float halfWidth, float halfDepth, float height,
+                float offsetX = 0f, float offsetZ = 0f)
+            {
+                HalfWidth = halfWidth;
+                HalfDepth = halfDepth;
+                Height = height;
+                OffsetX = offsetX;
+                OffsetZ = offsetZ;
+            }
+        }
+
+        /// <summary>
+        /// What a kind of building collides as: one box, or two where one would be a lie.
+        ///
+        /// <para>A table rather than the ladder of ternaries this replaces. The ladder was three
+        /// expressions each carrying every kind's number, so adding the town hall meant editing three
+        /// lines in three places and there was no way to read one building's collision without reading
+        /// all of them.</para>
+        ///
+        /// <para><b>The mosque gets two.</b> A single box around the hall and the minaret together would
+        /// enclose the courtyard between them and wall off ground the player can see straight through —
+        /// which is why the previous version simply left the minaret out, leaving thirty-three metres of
+        /// tower you could drive through. Two boxes says the true thing.</para>
+        ///
+        /// <para>Stalls and fountains get one small box each. They are the only things in the town at
+        /// bumper height in the middle of an open space, so they are also the only things a driver will
+        /// actually try to hit.</para>
+        ///
+        /// <para>The plan for this stage also called for terraces to collide per run rather than per unit,
+        /// one box spanning the row. There are no terraces yet — the parcelling stage that produces them
+        /// has not run — so there is nothing here to merge, and a <c>Terrace</c> entry with no producer
+        /// would be a line of code that has never once executed.</para>
+        /// </summary>
+        private static BuildingBox[] ColliderFor(TownPlotKind kind, in TownPlan.Plot plot)
+        {
+            switch (kind)
+            {
+                case TownPlotKind.Mosque:
+                    return new[]
+                    {
+                        new BuildingBox(9.5f, 9.5f, 15f),
+                        new BuildingBox(2.2f, 2.2f, 31f, 7.4f, -7.4f),
+                    };
+
+                case TownPlotKind.TownHall:
+                    return new[] { new BuildingBox(12f, 8f, 15.5f) };
+
+                case TownPlotKind.Windmill:
+                    return new[] { new BuildingBox(4.5f, 4.5f, 16f) };
+
+                case TownPlotKind.Barn:
+                    return new[] { new BuildingBox(7.5f, 5.5f, 8f) };
+
+                case TownPlotKind.Sawmill:
+                    return new[] { new BuildingBox(5.6f, 4.8f, 6f) };
+
+                case TownPlotKind.Fountain:
+                    return new[] { new BuildingBox(3.2f, 3.2f, 1f) };
+
+                case TownPlotKind.Stall:
+                    return new[] { new BuildingBox(2.1f, 1.4f, 2.6f) };
+
+                default:
+                    return new[] { new BuildingBox(5.6f, 4.8f, 6f) };
+            }
+        }
+
+        /// <summary>
+        /// The box colliders for every plot standing on one terrain tile.
         ///
         /// Boxes rather than the merged mesh because the mesh is concave and full of window ledges, fence
         /// rails and roof eaves — exactly the kind of surface a car catches on in ways that feel arbitrary,
@@ -1815,26 +1920,25 @@ namespace Horizon.EditorTools
                     continue;
                 }
 
-                bool mosque = plot.Kind == TownPlotKind.Mosque;
-                bool tall = plot.Kind == TownPlotKind.Windmill;
-                bool wide = plot.Kind == TownPlotKind.Barn;
+                BuildingBox[] boxes = ColliderFor(plot.Kind, plot);
 
-                // The prayer hall only. One box round the minaret as well would wall off the courtyard,
-                // and the minaret is 2 m of it against 18 m of hall.
-                float halfWidth = mosque ? 9.5f : tall ? 4.5f : wide ? 7.5f : 5.6f;
-                float halfDepth = mosque ? 9.5f : tall ? 4.5f : wide ? 5.5f : 4.8f;
-                float height = mosque ? 15f : tall ? 16f : wide ? 8f : 6f;
+                var holder = new GameObject($"Plot_{i}");
+                holder.transform.SetParent(parent, false);
+                holder.transform.position = plot.Position;
+                holder.transform.rotation = Quaternion.Euler(0f, plot.Yaw, 0f);
 
-                var box = new GameObject($"Plot_{i}");
-                box.transform.SetParent(parent, false);
-                box.transform.position = plot.Position;
-                box.transform.rotation = Quaternion.Euler(0f, plot.Yaw, 0f);
+                // Several colliders on one object rather than a child each: a BoxCollider carries its own
+                // centre, so a second box needs no second transform, and the tile ends up with one
+                // GameObject per building however many boxes that building takes.
+                for (int b = 0; b < boxes.Length; b++)
+                {
+                    BuildingBox box = boxes[b];
+                    BoxCollider collider = holder.AddComponent<BoxCollider>();
+                    collider.center = new Vector3(box.OffsetX, box.Height * 0.5f, box.OffsetZ);
+                    collider.size = new Vector3(box.HalfWidth * 2f, box.Height, box.HalfDepth * 2f);
+                }
 
-                BoxCollider collider = box.AddComponent<BoxCollider>();
-                collider.center = new Vector3(0f, height * 0.5f, 0f);
-                collider.size = new Vector3(halfWidth * 2f, height, halfDepth * 2f);
-
-                GameObjectUtility.SetStaticEditorFlags(box, StaticEditorFlags.BatchingStatic);
+                GameObjectUtility.SetStaticEditorFlags(holder, StaticEditorFlags.BatchingStatic);
             }
         }
 
@@ -1922,11 +2026,19 @@ namespace Horizon.EditorTools
             }
 
             int folded = 0;
+            var foldedNodes = new List<int>(4);
             for (int n = 0; n < network.Nodes.Count; n++)
             {
                 if (!IsStarShaped(network.Nodes[n]))
                 {
                     folded++;
+
+                    // Named, not just counted. "Six pads are folded" sends you reading every node in the
+                    // table; six node indices send you to six lines of it.
+                    if (foldedNodes.Count < 12)
+                    {
+                        foldedNodes.Add(n);
+                    }
                 }
             }
 
@@ -1971,9 +2083,9 @@ namespace Horizon.EditorTools
             if (folded > 0)
             {
                 Debug.LogWarning($"[Horizon] Street network: {folded} junction pad(s) are not star-shaped "
-                                 + "about their node, so the fan triangulation has folded through itself. "
-                                 + "The trims at those nodes are too short for the angle between the "
-                                 + "streets.");
+                                 + $"about their node — nodes {string.Join(", ", foldedNodes)} — so the "
+                                 + "fan triangulation has folded through itself. The trims at those nodes "
+                                 + "are too short for the angle between the streets.");
             }
 
             if (unreachable > 0)
@@ -2070,15 +2182,211 @@ namespace Horizon.EditorTools
         }
 
         /// <summary>
-        /// Whether the mosque can actually be seen from the pass, in metres of hillside in the way.
+        /// Drops an empty at the market square and another at the mosque, and checks that the chunk
+        /// carrying the minaret is big enough to know it is there.
+        ///
+        /// <para>The markers are for the preview renderer, for the same reason <c>TownWorstJunction</c> is:
+        /// a camera aimed at a coordinate copied out of the layout table is a camera aimed at where the
+        /// square used to be. Finding the object by name means the shot follows the thing.</para>
+        ///
+        /// <para>The chunk check is worth its five lines. <see cref="WorldChunk.RecalculateBounds"/> walks
+        /// renderers, and the minaret is thirty-three metres of a tile whose terrain is flat — so the
+        /// radius depends entirely on the town mesh's bounds being included, and if it were not, the
+        /// tallest thing in the world would pop out of existence at close range while its own hillside
+        /// stayed drawn.</para>
+        /// </summary>
+        private static void MarkTownLandmarks(Transform parent, StreetNetwork network, TownPlan plan)
+        {
+            for (int i = 0; i < network.Squares.Count; i++)
+            {
+                TownSquare square = network.Squares[i];
+
+                var marker = new GameObject(i == 0 ? "TownSquare" : $"TownSquare_{i}");
+                marker.transform.SetParent(parent, false);
+                marker.transform.position = square.Centre;
+
+                if (i == 0)
+                {
+                    MarkSquareView(parent, network, square, plan);
+                }
+            }
+
+            for (int i = 0; i < plan.Plots.Count; i++)
+            {
+                if (plan.Plots[i].Kind != TownPlotKind.Mosque)
+                {
+                    continue;
+                }
+
+                Vector3 at = plan.Plots[i].Position;
+
+                var marker = new GameObject("TownLandmark");
+                marker.transform.SetParent(parent, false);
+                marker.transform.position = at;
+
+                CheckChunkCovers(parent, at + Vector3.up * LandmarkMeshes.MinaretHeight, "the minaret");
+                break;
+            }
+        }
+
+        /// <summary>
+        /// An empty standing in the square at eye height, aimed at the town hall.
+        ///
+        /// <para>A camera station rather than a landmark, and it is here rather than in the preview
+        /// renderer because this is the only code that knows which edge came out uphill and where the
+        /// hall ended up. The first version guessed a fixed offset from the centroid and put the camera
+        /// outside the square behind somebody's garden fence — a shot of a market place taken from the
+        /// wrong side of the street, which looked plausible enough to nearly keep.</para>
+        ///
+        /// <para>Set back from the middle towards the low side, so the hall is across the open space
+        /// rather than overhead.</para>
+        /// </summary>
+        private static void MarkSquareView(
+            Transform parent, StreetNetwork network, TownSquare square, TownPlan plan)
+        {
+            StreetEdge uphill = network.Edges[square.Edges[square.UphillEdge]];
+            Vector3 towards = uphill.Path.GetPositionAtDistance(uphill.Length * 0.5f) - square.Centre;
+            towards.y = 0f;
+
+            float reach = towards.magnitude;
+            if (reach < 1f)
+            {
+                return;
+            }
+
+            Vector3 station = square.Centre - towards.normalized * (reach * 0.55f);
+            station.y = square.PavedHeightAt(station.x, station.z) + 1.7f;
+
+            // The hall if there is one, otherwise the middle of the uphill edge — which is where it would
+            // have been.
+            Vector3 look = square.Centre + towards;
+            for (int i = 0; i < plan.Plots.Count; i++)
+            {
+                if (plan.Plots[i].Kind == TownPlotKind.TownHall)
+                {
+                    look = plan.Plots[i].Position + Vector3.up * 7f;
+                    break;
+                }
+            }
+
+            var marker = new GameObject("TownSquareView");
+            marker.transform.SetParent(parent, false);
+            marker.transform.SetPositionAndRotation(
+                station, Quaternion.LookRotation(look - station, Vector3.up));
+        }
+
+        /// <summary>Whether the chunk nearest a point actually contains it, bounds and all.</summary>
+        private static void CheckChunkCovers(Transform root, Vector3 point, string what)
+        {
+            WorldChunk[] chunks = root.GetComponentsInChildren<WorldChunk>(true);
+
+            WorldChunk nearest = null;
+            float best = float.MaxValue;
+
+            for (int i = 0; i < chunks.Length; i++)
+            {
+                // Skip the road and the streets, whose radius is set to 100 km so they never unload:
+                // they contain everything and would answer the question for free.
+                if (chunks[i].Radius > 10000f)
+                {
+                    continue;
+                }
+
+                float distance = Vector3.Distance(chunks[i].Center, point);
+                if (distance < best)
+                {
+                    best = distance;
+                    nearest = chunks[i];
+                }
+            }
+
+            if (nearest == null)
+            {
+                return;
+            }
+
+            if (best <= nearest.Radius)
+            {
+                Debug.Log($"[Horizon] Streaming: {what} sits {best:0} m from its chunk's centre, inside "
+                          + $"a {nearest.Radius:0} m radius.");
+                return;
+            }
+
+            Debug.LogWarning(
+                $"[Horizon] Streaming: {what} stands {best:0} m from the centre of {nearest.name}, whose "
+                + $"radius is only {nearest.Radius:0} m. WorldChunk.RecalculateBounds walks renderers, so "
+                + "either it ran before this geometry was parented or the geometry is not under it — "
+                + "and the result is the tallest thing in the world popping out at close range.");
+        }
+
+        /// <summary>
+        /// Whether one thing can actually be seen from another, in metres of hillside in the way.
         ///
         /// <para>The whole claim this milestone rests on is that the town reads from the road above, and
-        /// that claim is testable: walk the sight line from each viewpoint to the tip of the minaret,
-        /// sample the height field every ten metres, and report the worst amount by which the ground
-        /// stands above the line. Placing a landmark by eye and checking it in a render means checking it
-        /// from wherever the render happened to stand.</para>
+        /// that claim is testable: walk the sight line, sample the height field every ten metres, and
+        /// report the worst amount by which the ground stands above the line. Placing a landmark by eye
+        /// and checking it in a render means checking it from wherever the render happened to stand.</para>
+        ///
+        /// <para>Two points and a label rather than a landmark and a course, because there is more than
+        /// one landmark now and there is no reason this should know what any of them are. It answers a
+        /// question about geometry; deciding which geometry to ask about belongs to the caller.</para>
         /// </summary>
         private static void ValidateLandmarkVisibility(
+            MountainField field, Vector3 from, Vector3 to, string what)
+        {
+            float span = Vector3.Distance(from, to);
+            if (span < 1f)
+            {
+                return;
+            }
+
+            float worst = 0f;
+            float worstAt = 0f;
+
+            // From 5 % to 95 %: at the far end the line is inside the landmark's own tile, where the
+            // shelf under the town is legitimately above the line to a point 33 m up in the air, and at
+            // the near end it is inside the road shelf the camera is standing on.
+            for (float t = 0.05f; t <= 0.95f; t += 10f / span)
+            {
+                Vector3 on = Vector3.Lerp(from, to, t);
+                float ground = field.HeightAt(on.x, on.z);
+
+                if (ground - on.y > worst)
+                {
+                    worst = ground - on.y;
+                    worstAt = t * span;
+                }
+            }
+
+            if (worst <= 0f)
+            {
+                Debug.Log($"[Horizon] Landmark: {what} is clear, {span:0} m away.");
+                return;
+            }
+
+            Debug.Log($"[Horizon] Landmark: {what} at {span:0} m — the ground stands {worst:0.0} m into "
+                      + $"the sight line, worst at {worstAt:0} m along it.");
+
+            if (worst > 6f)
+            {
+                Debug.LogWarning(
+                    $"[Horizon] {what}: {worst:0.0} m of hillside in the way is enough to hide it. The "
+                    + "landmark is placed on the highest ground the basin has, so the fix is the "
+                    + "sight line rather than the building — either the viewpoint is looking over a "
+                    + "shoulder of the pass, or the town has drifted behind one.");
+            }
+        }
+
+        /// <summary>
+        /// Runs the sight line to the town's tallest thing from every viewpoint on the course and from
+        /// three stations on the climb.
+        ///
+        /// <para>The viewpoints are where the player is invited to stop and look, so those are the lines
+        /// that have to be clear. The three climb stations are the answer to the obvious objection — that
+        /// a viewpoint is chosen and could have been chosen to flatter the answer — and they are spread
+        /// over the part of the course that faces back down the valley.</para>
+        /// </summary>
+        private static void ValidateLandmarks(
             MountainField field, RoadCourse course, RoadPath path, TownPlan plan)
         {
             Vector3 finial = Vector3.zero;
@@ -2096,6 +2404,8 @@ namespace Horizon.EditorTools
 
             if (!found)
             {
+                Debug.LogWarning("[Horizon] Landmark: no mosque in the plan, so the claim that the town "
+                                 + "reads from the pass cannot be tested at all.");
                 return;
             }
 
@@ -2110,32 +2420,17 @@ namespace Horizon.EditorTools
                 Vector3 from = path.GetPositionAtDistance(
                     Mathf.Clamp(feature.StartDistance, 0f, path.Length)) + Vector3.up * 1.5f;
 
-                float span = Vector3.Distance(from, finial);
-                float worst = 0f;
-                float worstAt = 0f;
+                ValidateLandmarkVisibility(field, from, finial, $"the minaret from '{feature.Name}'");
+            }
 
-                for (float t = 0.05f; t <= 0.95f; t += 10f / Mathf.Max(1f, span))
-                {
-                    Vector3 on = Vector3.Lerp(from, finial, t);
-                    float ground = field.HeightAt(on.x, on.z);
+            float[] stations = { 0.28f, 0.42f, 0.56f };
+            for (int i = 0; i < stations.Length; i++)
+            {
+                float at = path.Length * stations[i];
+                Vector3 from = path.GetPositionAtDistance(at) + Vector3.up * 1.5f;
 
-                    if (ground - on.y > worst)
-                    {
-                        worst = ground - on.y;
-                        worstAt = t * span;
-                    }
-                }
-
-                if (worst <= 0f)
-                {
-                    Debug.Log($"[Horizon] Landmark: the minaret is clear from '{feature.Name}', "
-                              + $"{span:0} m away.");
-                    continue;
-                }
-
-                Debug.Log($"[Horizon] Landmark: from '{feature.Name}' at {span:0} m, the ground stands "
-                          + $"{worst:0.0} m into the sight line to the minaret, worst at {worstAt:0} m "
-                          + "along it.");
+                ValidateLandmarkVisibility(
+                    field, from, finial, $"the minaret from the climb at {at:0} m");
             }
         }
 

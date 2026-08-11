@@ -105,17 +105,26 @@ namespace Horizon.World
     {
         private readonly List<StreetNode> nodes;
         private readonly List<StreetEdge> edges;
+        private readonly List<TownSquare> squares;
 
-        private StreetNetwork(List<StreetNode> nodes, List<StreetEdge> edges, Bounds footprint)
+        private StreetNetwork(
+            List<StreetNode> nodes, List<StreetEdge> edges, List<TownSquare> squares, Bounds footprint)
         {
             this.nodes = nodes;
             this.edges = edges;
+            this.squares = squares;
             Footprint = footprint;
         }
 
         public IReadOnlyList<StreetNode> Nodes => nodes;
 
         public IReadOnlyList<StreetEdge> Edges => edges;
+
+        /// <summary>
+        /// The town's squares. Empty until <see cref="BuildSquareInteriors"/> has run, which needs the
+        /// trims.
+        /// </summary>
+        public IReadOnlyList<TownSquare> Squares => squares;
 
         /// <summary>Plan bounds of every street centreline, for the terrain corridor and cheap early-outs.</summary>
         public Bounds Footprint { get; }
@@ -221,7 +230,233 @@ namespace Horizon.World
                 SortByBearing(nodes[i], incident[i], edges);
             }
 
-            return new StreetNetwork(nodes, edges, footprint);
+            return new StreetNetwork(nodes, edges, BuildSquares(spec, edges), footprint);
+        }
+
+        /// <summary>
+        /// Resolves each declared square's ring of nodes into the streets between them.
+        ///
+        /// Only <see cref="TownStreetKind.SquareEdge"/> streets count as edges, which is what lets a
+        /// square node also carry ordinary streets leaving it — every square in a real town is somewhere
+        /// two roads happen to pass through, and the market square here is threaded onto the route from
+        /// the high street to the housing row rather than being a cul-de-sac.
+        /// </summary>
+        private static List<TownSquare> BuildSquares(TownNetworkSpec spec, List<StreetEdge> edges)
+        {
+            var squares = new List<TownSquare>(spec.Squares.Count);
+
+            for (int i = 0; i < spec.Squares.Count; i++)
+            {
+                TownSquareSpec declared = spec.Squares[i];
+                if (declared.Nodes == null || declared.Nodes.Length < 3)
+                {
+                    Debug.LogWarning($"[Horizon] Square '{declared.Name}' has "
+                                     + $"{declared.Nodes?.Length ?? 0} nodes, which is not a ring.");
+                    continue;
+                }
+
+                var square = new TownSquare
+                {
+                    Index = squares.Count,
+                    Name = declared.Name,
+                    Nodes = declared.Nodes,
+                    Edges = new int[declared.Nodes.Length],
+                };
+
+                bool complete = true;
+
+                for (int n = 0; n < declared.Nodes.Length; n++)
+                {
+                    int a = declared.Nodes[n];
+                    int b = declared.Nodes[(n + 1) % declared.Nodes.Length];
+
+                    square.Edges[n] = FindSquareEdge(edges, a, b);
+                    if (square.Edges[n] < 0)
+                    {
+                        complete = false;
+                        Debug.LogWarning($"[Horizon] Square '{declared.Name}' names nodes {a} and {b} as "
+                                         + "consecutive, but no SquareEdge street joins them. A square's "
+                                         + "ring has to be spelled out as streets like any other.");
+                    }
+                }
+
+                if (complete)
+                {
+                    squares.Add(square);
+                }
+            }
+
+            return squares;
+        }
+
+        private static int FindSquareEdge(List<StreetEdge> edges, int a, int b)
+        {
+            for (int i = 0; i < edges.Count; i++)
+            {
+                StreetEdge edge = edges[i];
+                if (edge.Kind != TownStreetKind.SquareEdge)
+                {
+                    continue;
+                }
+
+                if ((edge.FromNode == a && edge.ToNode == b) || (edge.FromNode == b && edge.ToNode == a))
+                {
+                    return i;
+                }
+            }
+
+            return -1;
+        }
+
+        /// <summary>
+        /// Works out the paved area of every square: the polygon bounded by the *inner* footway edges of
+        /// the streets around it.
+        ///
+        /// <para>Taken along the streets themselves rather than by insetting the ring of node positions,
+        /// so the boundary follows every bow exactly and is flush with the pavement it meets. An inset
+        /// polygon would be flush only where the streets happen to be straight, and the town's streets
+        /// are bowed on purpose.</para>
+        ///
+        /// <para>Must run after <see cref="StreetJunctionBuilder.ResolveTrims"/>: the boundary runs from
+        /// one trim point to the other, because between the trim point and the node the ground belongs to
+        /// the junction pad.</para>
+        /// </summary>
+        public void BuildSquareInteriors()
+        {
+            for (int s = 0; s < squares.Count; s++)
+            {
+                TownSquare square = squares[s];
+
+                var rough = Vector3.zero;
+                for (int i = 0; i < square.Nodes.Length; i++)
+                {
+                    rough += nodes[square.Nodes[i]].Position;
+                }
+
+                rough /= square.Nodes.Length;
+
+                var points = new List<Vector3>(square.Edges.Length * 8);
+
+                for (int i = 0; i < square.Edges.Length; i++)
+                {
+                    StreetEdge edge = edges[square.Edges[i]];
+                    bool forward = edge.FromNode == square.Nodes[i];
+
+                    float from = forward ? edge.TrimStart : edge.Length - edge.TrimEnd;
+                    float to = forward ? edge.Length - edge.TrimEnd : edge.TrimStart;
+
+                    // Which side of this street the square is on, measured rather than assumed: the ring
+                    // may be walked either way round and the edges may be stored either way round, so
+                    // there are four sign conventions in play and only the dot product knows.
+                    float middle = (from + to) * 0.5f;
+                    Vector3 right = edge.Path.GetRightAtDistance(middle);
+                    Vector3 at = edge.Path.GetPositionAtDistance(middle);
+                    float side = Mathf.Sign(Vector3.Dot(right, rough - at));
+
+                    float across = edge.Shape.HalfOuter * side;
+                    float rise = edge.Shape.SurfaceLift + edge.Shape.KerbHeight + TownSquare.PaveLift;
+
+                    int steps = Mathf.Max(2, Mathf.CeilToInt(Mathf.Abs(to - from) / 12f));
+                    for (int step = 0; step <= steps; step++)
+                    {
+                        points.Add(TownStreetBuilder.PointAcross(
+                            edge.Path, edge.Shape, Mathf.Lerp(from, to, step / (float)steps), across, rise));
+                    }
+                }
+
+                // Normalised to the winding a fan from the centre comes out facing up in — the same
+                // convention the junction pads walk in, and the same one FindBlocks uses to tell a
+                // bounded face from the outside of the town.
+                SortAboutCentre(points);
+                square.Interior = points.ToArray();
+                square.Area = Mathf.Abs(SignedArea(points));
+                square.Centre = CentroidOf(square.Interior);
+                square.UphillEdge = HighestEdge(square);
+            }
+        }
+
+        /// <summary>
+        /// Which of a square's edges stands highest, and therefore which side of it is uphill.
+        ///
+        /// The basin's floor rises away from the trunk road, so on this town's square it is the far edge —
+        /// but that is a fact about where the square happens to sit rather than a rule, and a town hall
+        /// placed by the rule would end up in the wrong place the moment the square moved. Measured off
+        /// the finished geometry instead.
+        /// </summary>
+        private int HighestEdge(TownSquare square)
+        {
+            int best = 0;
+            float bestHeight = float.MinValue;
+
+            for (int i = 0; i < square.Edges.Length; i++)
+            {
+                StreetEdge edge = edges[square.Edges[i]];
+                float height = edge.Path.GetPositionAtDistance(edge.Length * 0.5f).y;
+
+                if (height > bestHeight)
+                {
+                    bestHeight = height;
+                    best = i;
+                }
+            }
+
+            return best;
+        }
+
+        /// <summary>
+        /// Sorts a boundary into strict bearing order about its own middle.
+        ///
+        /// <para>A no-op for a boundary that is already star-shaped, which four straight-ish streets
+        /// produce almost everywhere — but only almost. Where two adjacent streets meet, the boundary
+        /// jumps from one street's trim point to the next street's, and at a corner where the bows work
+        /// against each other those two points can come out in the wrong order round the middle. The fan
+        /// then folds one sliver back through itself, which the flip counter reports and which renders as
+        /// a dark wedge in the paving.</para>
+        ///
+        /// <para>Sorting by bearing makes the fan valid by construction rather than by luck. It is the
+        /// right fix rather than a patch over one: a fan from a centre point is *defined* on a
+        /// bearing-ordered ring, and building the ring in street order and hoping was the assumption that
+        /// did not hold. It also settles the winding, so there is nothing left for a signed area to
+        /// correct afterwards.</para>
+        /// </summary>
+        private static void SortAboutCentre(List<Vector3> outline)
+        {
+            if (outline.Count < 3)
+            {
+                return;
+            }
+
+            var centre = Vector3.zero;
+            for (int i = 0; i < outline.Count; i++)
+            {
+                centre += outline[i];
+            }
+
+            centre /= outline.Count;
+
+            // Ascending, which is clockwise seen from above, which is the walk order the junction pads
+            // use and the one a fan from the centre comes out facing up in. Sorted the other way it is
+            // 22 flipped triangles, which is how this was settled.
+            outline.Sort((a, b) => Bearing(a, centre).CompareTo(Bearing(b, centre)));
+        }
+
+        private static float Bearing(Vector3 point, Vector3 centre)
+        {
+            return Mathf.Atan2(point.x - centre.x, point.z - centre.z);
+        }
+
+        private static float SignedArea(List<Vector3> outline)
+        {
+            float sum = 0f;
+
+            for (int i = 0; i < outline.Count; i++)
+            {
+                Vector3 a = outline[i];
+                Vector3 b = outline[(i + 1) % outline.Count];
+                sum += a.x * b.z - b.x * a.z;
+            }
+
+            return sum * 0.5f;
         }
 
         /// <summary>
@@ -316,11 +551,50 @@ namespace Horizon.World
                 }
 
                 block.Quarter = QuarterOf(block);
+                MarkSquare(block);
                 blocks.Add(block);
             }
 
             BlocksLieLeftOfWalk = blocks.Count > 0 && LiesLeftOfWalk(blocks[0]);
             return blocks;
+        }
+
+        /// <summary>
+        /// Decides whether a block is the inside of a square, and drags its neighbours into the market
+        /// quarter if it is.
+        ///
+        /// <para>A face bounded entirely by <see cref="TownStreetKind.SquareEdge"/> streets is a square's
+        /// interior. That is the whole test, and it is exact rather than a heuristic — the layout table
+        /// only ever uses that street kind to draw a square's ring, so there is nothing else it could
+        /// be.</para>
+        ///
+        /// <para>A block with <i>some</i> square edges on it is the land across the street from the
+        /// square, and is forced to <see cref="TownQuarter.Market"/> whatever its other frontages say. A
+        /// block whose boundary is one square edge and three housing lanes would otherwise come out
+        /// housing on length weighting, which would put back gardens on the market place.</para>
+        /// </summary>
+        private void MarkSquare(TownBlock block)
+        {
+            int squareEdges = 0;
+
+            for (int i = 0; i < block.BoundaryEdges.Length; i++)
+            {
+                if (edges[block.BoundaryEdges[i]].Kind == TownStreetKind.SquareEdge)
+                {
+                    squareEdges++;
+                }
+            }
+
+            if (squareEdges == 0)
+            {
+                return;
+            }
+
+            block.IsSquare = squareEdges == block.BoundaryEdges.Length;
+            if (!block.IsSquare)
+            {
+                block.Quarter = TownQuarter.Market;
+            }
         }
 
         /// <summary>
@@ -609,6 +883,110 @@ namespace Horizon.World
         public Vector3[] Outline;
 
         public TownQuarter Quarter;
+
+        /// <summary>
+        /// True where this face is the inside of a square rather than land to build on.
+        ///
+        /// The parcelling reads it and lays nothing here, and no frontage faces into it — the buildings
+        /// that address a square stand across the street from it, which is what makes the space read as
+        /// public rather than as a very large back garden.
+        /// </summary>
+        public bool IsSquare;
+    }
+
+    /// <summary>
+    /// A square: the open, paved space inside a ring of streets.
+    ///
+    /// <para>Its own type rather than a flavour of <see cref="TownBlock"/> because almost nothing about a
+    /// block applies to it. It is not parcelled, it has no frontage of its own, its interior is one paved
+    /// surface built like a junction pad rather than terrain, and the things standing on it — a fountain,
+    /// a row of stalls — are placed against its centroid rather than against a street.</para>
+    /// </summary>
+    public sealed class TownSquare
+    {
+        /// <summary>
+        /// How far the paving stands above the footways around it, metres.
+        ///
+        /// Two centimetres, and it is not cosmetic: the junction pad at each corner already paves a wedge
+        /// into the square, so the two surfaces overlap by a metre or so at every corner. Coplanar is the
+        /// one thing they must not be — that is a z-fighting shimmer across four corners at every angle —
+        /// and 2 cm is below what reads as a step at this scale.
+        /// </summary>
+        public const float PaveLift = 0.02f;
+
+        public int Index;
+        public string Name;
+
+        /// <summary>Node indices in ring order, straight off the layout table.</summary>
+        public int[] Nodes;
+
+        /// <summary>The street between each consecutive pair of nodes. Parallel to <see cref="Nodes"/>.</summary>
+        public int[] Edges;
+
+        /// <summary>The paved boundary, flush with the inner footway of every street around it.</summary>
+        public Vector3[] Interior;
+
+        public Vector3 Centre;
+
+        /// <summary>Paved area, square metres.</summary>
+        public float Area;
+
+        /// <summary>
+        /// Index into <see cref="Edges"/> of the edge standing highest — the uphill side, where the town
+        /// hall goes. Measured off the finished geometry, not named in the table.
+        /// </summary>
+        public int UphillEdge;
+
+        /// <summary>
+        /// How high the paving is at a point inside the square.
+        ///
+        /// <para>The surface is a fan from <see cref="Centre"/> out to <see cref="Interior"/>, so its
+        /// height at any point is linear along the ray from the middle to the boundary — and this is that
+        /// interpolation, taken against the boundary point nearest in bearing. Not exactly the triangle
+        /// the point falls in, which would need the crossing solved; the difference is under a centimetre
+        /// on a surface whose whole fall is 0.6 m across eighty metres, and a fountain seated a centimetre
+        /// out is not a thing anyone can see. A fountain seated on the <i>terrain</i> under the paving,
+        /// which is what asking the height field would give, sinks 16 cm into it.</para>
+        /// </summary>
+        public float PavedHeightAt(float x, float z)
+        {
+            if (Interior == null || Interior.Length == 0)
+            {
+                return Centre.y;
+            }
+
+            float dx = x - Centre.x;
+            float dz = z - Centre.z;
+            float distance = Mathf.Sqrt(dx * dx + dz * dz);
+            if (distance < 0.01f)
+            {
+                return Centre.y;
+            }
+
+            int best = 0;
+            float bestDot = float.MinValue;
+
+            for (int i = 0; i < Interior.Length; i++)
+            {
+                float ex = Interior[i].x - Centre.x;
+                float ez = Interior[i].z - Centre.z;
+                float length = Mathf.Sqrt(ex * ex + ez * ez);
+                if (length < 0.01f)
+                {
+                    continue;
+                }
+
+                float dot = (dx * ex + dz * ez) / (distance * length);
+                if (dot > bestDot)
+                {
+                    bestDot = dot;
+                    best = i;
+                }
+            }
+
+            float reach = new Vector2(Interior[best].x - Centre.x, Interior[best].z - Centre.z).magnitude;
+            return Mathf.Lerp(Centre.y, Interior[best].y, Mathf.Clamp01(distance / Mathf.Max(0.01f, reach)));
+        }
     }
 
     /// <summary>

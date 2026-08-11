@@ -119,11 +119,39 @@ namespace Horizon.World
         }
     }
 
-    /// <summary>The layout table as data: nodes, and the streets between them.</summary>
+    /// <summary>
+    /// A square, as a ring of nodes the streets between which are its edges.
+    ///
+    /// <para><b>Declared, not discovered.</b> The face walk in <see cref="StreetNetwork.FindBlocks"/>
+    /// would find the ring perfectly well and hand back a block like any other — and then the parcelling
+    /// would fill it with back gardens, because nothing about a bounded face says whether it is land to
+    /// build on or land to leave open. That is the whole reason a square is a thing the table says rather
+    /// than a thing the graph works out: it is a decision, and the graph has no way to make it.</para>
+    ///
+    /// <para>Four to six nodes. Fewer is a junction; more and the paved fan starts to want a real
+    /// triangulation rather than a fan from the centroid, which only holds while the ring stays roughly
+    /// star-shaped about its middle.</para>
+    /// </summary>
+    public readonly struct TownSquareSpec
+    {
+        /// <summary>Node indices in ring order. The street between each consecutive pair is an edge.</summary>
+        public readonly int[] Nodes;
+
+        public readonly string Name;
+
+        public TownSquareSpec(string name, int[] nodes)
+        {
+            Name = name;
+            Nodes = nodes;
+        }
+    }
+
+    /// <summary>The layout table as data: nodes, the streets between them, and any squares.</summary>
     public sealed class TownNetworkSpec
     {
         public readonly List<TownNodeSpec> Nodes = new List<TownNodeSpec>(32);
         public readonly List<TownStreetSpec> Streets = new List<TownStreetSpec>(40);
+        public readonly List<TownSquareSpec> Squares = new List<TownSquareSpec>(2);
 
         public int AddNode(float along, float across, bool onTrunkRoad = false, string name = null)
         {
@@ -135,6 +163,11 @@ namespace Horizon.World
             int from, int to, TownStreetKind kind, TownQuarter quarter, float bow = 0f)
         {
             Streets.Add(new TownStreetSpec(from, to, kind, quarter, bow));
+        }
+
+        public void AddSquare(string name, params int[] nodes)
+        {
+            Squares.Add(new TownSquareSpec(name, nodes));
         }
     }
 
@@ -150,7 +183,8 @@ namespace Horizon.World
     /// <see cref="MountainPassCourse"/> a list of instructions.</para>
     ///
     /// <para>The shape is three streets running the length of the valley floor, crossed by five that run
-    /// out from the trunk road, with the grid deliberately out of true — the rows drift a few metres
+    /// out from the trunk road, with a market square threaded onto the middle one, and the grid
+    /// deliberately out of true — the rows drift a few metres
     /// across as they go, the streets bow, and the far end thins out into dead ends and an industrial
     /// spur. A true grid at this scale reads as graph paper; the drift costs nothing and is most of what
     /// makes it look like a place that grew.</para>
@@ -183,7 +217,13 @@ namespace Horizon.World
             // --- The second row: housing.
             int row0 = spec.AddNode(515f, 134f);
             int row1 = spec.AddNode(605f, 140f);
-            int row2 = spec.AddNode(700f, 146f);
+            // row2 swings 34 m out around the market square. The block between the high street and the
+            // housing row is 82 m deep, and a square wide enough to be a square uses all of it — there was
+            // no land left for the buildings that face it, and the validators said so twice over: two
+            // streets running within a carriageway of each other, and six junction pads folded through
+            // themselves at the pinch. A housing row bulging round the market place is also what a town
+            // that grew round one actually looks like.
+            int row2 = spec.AddNode(700f, 180f);
             int row3 = spec.AddNode(790f, 138f);
             int row4 = spec.AddNode(880f, 128f);
             int row5 = spec.AddNode(958f, 120f);
@@ -198,6 +238,40 @@ namespace Horizon.World
             int greenWest = spec.AddNode(590f, 266f);
             int crossNorth = spec.AddNode(505f, 208f);
 
+            // --- The market square, between the high street and the housing row.
+            //
+            // It sits where the Markt avenue used to run straight from high2 to row2: that street is now
+            // two, entering the square at its low corner and leaving at its high one, so the square is on
+            // the way through rather than a cul-de-sac you would have to mean to visit. Deliberately not
+            // square in plan — 80 by 40 m with the corners a few metres out of true, because a true
+            // rectangle in a town whose whole grid is out of true is the one thing that would look drawn.
+            //
+            // The far pair of nodes sit 48 m further out than the near pair, which under the basin's
+            // cross-fall puts that edge about 0.9 m uphill. That is where the town hall goes, and it is
+            // measured rather than named — see TownSquare.UphillEdge.
+            //
+            // 48 m of ring is only 30 m of paving: the streets around a square eat their own half-widths
+            // out of it at both ends, and a square laid out to the size you want it to read is a third
+            // too small by the time it is built.
+            int sqSouthWest = spec.AddNode(664f, 90f);
+            int sqSouthEast = spec.AddNode(744f, 93f);
+            int sqNorthEast = spec.AddNode(746f, 138f);
+            int sqNorthWest = spec.AddNode(662f, 135f);
+
+            // The square's two approaches, both off the high street and both on their own T.
+            //
+            // The first attempt hung the square's corners straight onto high2 and high3, which already
+            // carried four streets each; a fifth arriving diagonally left two branches 38° and 33° apart.
+            // No trim can make a junction convex at that angle — a street's outer corner sits
+            // atan(halfWidth / trim) off its own axis, and the trim would have to be nearly thirty metres
+            // — so the pads folded through themselves and the validator said so at three nodes.
+            //
+            // Two turnings off the high street into the market place is also simply the better town plan,
+            // and it is what every market place of this kind actually looks like. No gap at any of these
+            // four nodes is now under 70°.
+            int highMarket = spec.AddNode(655f, 58f);
+            int highMarketEast = spec.AddNode(746f, 60f);
+
             // --- The uphill side. One lane, because the level samples only reach 90 m that way before the
             // mountain takes over, and a second row there would stand on the hillside.
             int up0 = spec.AddNode(500f, -58f);
@@ -207,8 +281,10 @@ namespace Horizon.World
 
             // --- Streets along the valley.
             spec.AddStreet(high0, high1, TownStreetKind.HighStreet, TownQuarter.OldTown, 3f);
-            spec.AddStreet(high1, high2, TownStreetKind.HighStreet, TownQuarter.Market, -2f);
-            spec.AddStreet(high2, high3, TownStreetKind.HighStreet, TownQuarter.Market, 2.5f);
+            spec.AddStreet(high1, highMarket, TownStreetKind.HighStreet, TownQuarter.Market, -1f);
+            spec.AddStreet(highMarket, high2, TownStreetKind.HighStreet, TownQuarter.Market, -1f);
+            spec.AddStreet(high2, highMarketEast, TownStreetKind.HighStreet, TownQuarter.Market, 1.5f);
+            spec.AddStreet(highMarketEast, high3, TownStreetKind.HighStreet, TownQuarter.Market, 1f);
             spec.AddStreet(high3, high4, TownStreetKind.HighStreet, TownQuarter.OldTown, -3f);
             spec.AddStreet(high4, high5, TownStreetKind.Avenue, TownQuarter.Industry, 2f);
 
@@ -237,8 +313,26 @@ namespace Horizon.World
             spec.AddStreet(row1, back0, TownStreetKind.Lane, TownQuarter.Housing, 3f);
 
             spec.AddStreet(trunkMarket, high2, TownStreetKind.Avenue, TownQuarter.Market);
-            spec.AddStreet(high2, row2, TownStreetKind.Avenue, TownQuarter.Market, 2f);
             spec.AddStreet(row2, back1, TownStreetKind.Lane, TownQuarter.Housing, -3f);
+
+            // --- The market square: four edges, and the two streets that thread through it.
+            //
+            // The edges are SquareEdge, which is both a cross-section — 4 m carriageway against 4.5 m of
+            // footway, the widest pavement in the town — and the mark the builders read to tell that the
+            // land inside the ring is a square rather than a block waiting to be parcelled.
+            // Dead straight, unlike every other street in the town, because a square is the one place in
+            // it where straight is the point. The corners are the town's only degree-two nodes, and the
+            // convention elsewhere — a bend is a bowed edge, never two edges and a node — cannot apply:
+            // a ring has to turn, and a bow cannot turn ninety degrees.
+            spec.AddStreet(sqSouthWest, sqSouthEast, TownStreetKind.SquareEdge, TownQuarter.Market);
+            spec.AddStreet(sqSouthEast, sqNorthEast, TownStreetKind.SquareEdge, TownQuarter.Market);
+            spec.AddStreet(sqNorthEast, sqNorthWest, TownStreetKind.SquareEdge, TownQuarter.Market);
+            spec.AddStreet(sqNorthWest, sqSouthWest, TownStreetKind.SquareEdge, TownQuarter.Market);
+
+            spec.AddStreet(highMarket, sqSouthWest, TownStreetKind.Avenue, TownQuarter.Market, 1f);
+            spec.AddStreet(sqSouthEast, highMarketEast, TownStreetKind.Avenue, TownQuarter.Market, -1f);
+
+            spec.AddSquare("Marktplatz", sqSouthWest, sqSouthEast, sqNorthEast, sqNorthWest);
 
             spec.AddStreet(high3, row3, TownStreetKind.Lane, TownQuarter.OldTown, 2f);
             spec.AddStreet(row3, back2, TownStreetKind.Lane, TownQuarter.Housing, -2f);
