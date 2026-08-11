@@ -234,6 +234,12 @@ namespace Horizon.EditorTools
                 CaptureFromMarker(camera, "TownSquareView", 65f,
                     Path.Combine(directory, "WorldPreview_Town_Square.png"));
 
+                // Down a town street with an ambient car in it. The routes are checked in numbers by
+                // Validate Traffic Routes; this is the shot that says whether a car baked onto its lane
+                // sits on the road the way a car sits on a road.
+                CaptureFromMarker(camera, "TrafficView", 55f,
+                    Path.Combine(directory, "WorldPreview_Town_Traffic.png"));
+
                 // The mosque from the street, close enough that the two-stage spire, the dome and the
                 // porch are separate things rather than one blob.
                 GameObject landmark = GameObject.Find("TownLandmark");
@@ -421,6 +427,12 @@ namespace Horizon.EditorTools
                 // clock still reads when everything around it has gone to two flat colours.
                 CaptureFromMarker(camera, "TownSquareView", 65f,
                     Path.Combine(directory, "WorldPreview_Town_Night_Square.png"));
+
+                // The one shot that says whether ambient traffic has lights at all. It has no Light
+                // components by design, so its lamps are two material swaps and nothing else — and a
+                // swap that never fired looks exactly like a car parked in the dark.
+                CaptureFromMarker(camera, "TrafficView", 55f,
+                    Path.Combine(directory, "WorldPreview_Town_Night_Traffic.png"));
 
                 CaptureNightFromViewpoint(camera, path, directory, townMiddle);
 

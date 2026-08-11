@@ -201,8 +201,12 @@ namespace Horizon.EditorTools
         private const float CrownFraction = 0.055f;
 
         private const int KeyPointCount = 17;
+
+        /// <summary>
+        /// How many points each of a cross-section's seventeen key segments is drawn with, for the
+        /// player's car. Ambient traffic runs the same loft at 1 — see <see cref="BuildTrafficBody"/>.
+        /// </summary>
         private const int RingSubdivisions = 3;
-        private const int RingVertexCount = KeyPointCount * RingSubdivisions;
 
         /// <summary>Ring segments forming the top surface — roof, hood, windscreen, rear window.</summary>
         private static readonly HashSet<int> TopKeySegments = new HashSet<int> { 6, 7, 8, 9 };
@@ -217,7 +221,40 @@ namespace Horizon.EditorTools
         /// <summary>Builds the car body. Five submeshes — see the Submesh constants for the order.</summary>
         public static Mesh BuildBody(string meshName = "CarBodyMesh")
         {
-            List<Station> stations = BuildFineStations();
+            return BuildShell(BuildFineStations(), RingSubdivisions, true, meshName);
+        }
+
+        /// <summary>
+        /// The same car at a fraction of the cost, for ambient traffic.
+        ///
+        /// <para>The <i>silhouette</i> is what is being reused, and it is the only thing worth reusing: an
+        /// ambient car is read at thirty metres through fog while the player is looking at the road, and
+        /// at that size a shape that agrees with the player's own car matters and the panel gaps on it do
+        /// not. So it runs off the same station table with the ring subdivided once instead of three
+        /// times and the front, rear and exhaust details left off — about a tenth of the triangles, and a
+        /// pool of fourteen costs less than one player car did.</para>
+        ///
+        /// <para>Key stations only, rather than the interpolated fine grid: the table's own entries are
+        /// where the shape actually changes, and everything between them is a straight loft.</para>
+        /// </summary>
+        public static Mesh BuildTrafficBody(string meshName = "TrafficCarMesh")
+        {
+            var stations = new List<Station>(KeyStations);
+            return BuildShell(stations, 1, false, meshName);
+        }
+
+        /// <summary>
+        /// The lofted shell, at whatever ring density and level of detail the caller asks for.
+        ///
+        /// <paramref name="ringSubdivisions"/> is how many points each of the seventeen key segments of a
+        /// cross-section is drawn with, so it multiplies the vertex count of every ring;
+        /// <paramref name="details"/> covers the grille, lights, plates and exhausts, which are a fixed
+        /// cost per car rather than a per-ring one.
+        /// </summary>
+        private static Mesh BuildShell(
+            List<Station> stations, int ringSubdivisions, bool details, string meshName)
+        {
+            int ringVertexCount = KeyPointCount * ringSubdivisions;
 
             var vertices = new List<Vector3>(2048);
             var submeshTriangles = new List<int>[BodySubmeshCount];
@@ -236,7 +273,7 @@ namespace Horizon.EditorTools
                 bool interior = i > 0 && i < stations.Count - 1;
                 int copies = interior && IsCrease(station.Z) ? 2 : 1;
 
-                Vector3[] ring = BuildRing(station);
+                Vector3[] ring = BuildRing(station, ringSubdivisions);
                 for (int copy = 0; copy < copies; copy++)
                 {
                     rowZ.Add(station.Z);
@@ -258,10 +295,10 @@ namespace Horizon.EditorTools
                 int backStart = rowStart[row];
                 int frontStart = rowStart[row + 1];
 
-                for (int i = 0; i < RingVertexCount; i++)
+                for (int i = 0; i < ringVertexCount; i++)
                 {
-                    int next = (i + 1) % RingVertexCount;
-                    int submesh = ResolveSubmesh(midZ, i / RingSubdivisions);
+                    int next = (i + 1) % ringVertexCount;
+                    int submesh = ResolveSubmesh(midZ, i / ringSubdivisions);
                     List<int> triangles = submeshTriangles[submesh];
 
                     int a = backStart + i;
@@ -281,17 +318,28 @@ namespace Horizon.EditorTools
             }
 
             // Caps get their own vertices so the tail and nose edges stay crisp.
-            AddCap(vertices, submeshTriangles[BodySubmesh], BuildRing(stations[0]), facingForward: false);
-            AddCap(vertices, submeshTriangles[BodySubmesh], BuildRing(stations[stations.Count - 1]),
-                facingForward: true);
+            AddCap(vertices, submeshTriangles[BodySubmesh], BuildRing(stations[0], ringSubdivisions),
+                facingForward: false);
+            AddCap(vertices, submeshTriangles[BodySubmesh],
+                BuildRing(stations[stations.Count - 1], ringSubdivisions), facingForward: true);
 
-            AddFrontDetails(vertices, submeshTriangles);
-            AddRearDetails(vertices, submeshTriangles);
-
-            // Long enough to run back under the tail rather than poke out of it like a peg.
-            for (int i = 0; i < ExhaustOutlets.Length; i++)
+            if (details)
             {
-                AddTube(vertices, submeshTriangles[ChromeSubmesh], ExhaustOutlets[i], 0.075f, 0.38f, 12);
+                AddFrontDetails(vertices, submeshTriangles);
+                AddRearDetails(vertices, submeshTriangles);
+
+                // Long enough to run back under the tail rather than poke out of it like a peg.
+                for (int i = 0; i < ExhaustOutlets.Length; i++)
+                {
+                    AddTube(vertices, submeshTriangles[ChromeSubmesh], ExhaustOutlets[i], 0.075f, 0.38f, 12);
+                }
+            }
+            else
+            {
+                // The lamps alone, as flat panels. Without them a traffic car has no headlight or
+                // taillight submesh at all, and the day-and-night material swap that lights the town has
+                // nothing on it to swap — which after dark is a car with no lights on.
+                AddTrafficLamps(vertices, submeshTriangles);
             }
 
             var mesh = new Mesh { name = meshName };
@@ -413,7 +461,154 @@ namespace Horizon.EditorTools
         /// the belt line and the shoulder, which tightens those corners — a muscle car needs a crisp
         /// beltline, not an egg. Reuses the road's Catmull-Rom rather than a second copy of it.
         /// </summary>
-        private static Vector3[] BuildRing(in Station station)
+        /// <summary>
+        /// Four flat lamp panels and four wheels, for the reduced-detail body.
+        ///
+        /// <para>Panels rather than the recessed units the player's car gets: at the distance this is
+        /// seen the lamps are two bright marks in the dark and their job is to exist at all.</para>
+        ///
+        /// <para><b>The Z values are on the caps, not near them.</b> The first version put the headlights
+        /// at 2.42 and the tail lamps at -2.30, which are both a comfortable margin <i>inside</i> a shell
+        /// that ends at 2.52 and -2.36 — so every lamp on every car was sealed in the bodywork, and at
+        /// night the pool drove around with no lights at all. Nothing about that is visible by day, which
+        /// is why it survived until there was a night render to look at.</para>
+        ///
+        /// <para>The wheels go in the chrome submesh, which the reduced body otherwise leaves empty
+        /// because the exhausts are part of the detail pass. That is worth doing deliberately: it means
+        /// four wheels cost no extra draw call, only a different material in a slot that was being
+        /// submitted anyway.</para>
+        /// </summary>
+        private static void AddTrafficLamps(List<Vector3> vertices, List<int>[] submeshTriangles)
+        {
+            const float noseZ = 2.53f;
+            const float tailZ = -2.37f;
+
+            AddLampPanel(vertices, submeshTriangles[HeadlightSubmesh], 0.30f, 0.02f, noseZ, 0.18f, 0.08f);
+            AddLampPanel(vertices, submeshTriangles[HeadlightSubmesh], -0.30f, 0.02f, noseZ, 0.18f, 0.08f);
+            AddLampPanel(vertices, submeshTriangles[TaillightSubmesh], 0.45f, 0.02f, tailZ, 0.22f, 0.09f);
+            AddLampPanel(vertices, submeshTriangles[TaillightSubmesh], -0.45f, 0.02f, tailZ, 0.22f, 0.09f);
+
+            // Seated so the tyre touches the road the director puts the car on: TrafficDirector lifts the
+            // transform by its ride height, which places the ground at y = -0.55 in this frame.
+            const float radius = 0.40f;
+            const float centreY = -0.55f + radius;
+
+            // At TrackHalfWidth, not inboard of it. That constant is set so a tyre stands proud of the
+            // widebody flare — put the wheel a hand's width further in, as this first did, and the
+            // bodywork swallows it and the car has no wheels at all.
+            for (int i = 0; i < 4; i++)
+            {
+                float x = (i & 1) == 0 ? -TrackHalfWidth : TrackHalfWidth;
+                float z = (i & 2) == 0 ? -WheelBaseHalf : WheelBaseHalf;
+
+                AddTrafficWheel(vertices, submeshTriangles[ChromeSubmesh],
+                    new Vector3(x, centreY, z), radius, 0.13f, 8);
+            }
+        }
+
+        /// <summary>
+        /// One wheel as a closed n-gon prism about the X axis.
+        ///
+        /// Eight sides, which is two more than a boulder gets and enough that the silhouette reads as
+        /// round at the distance a car in the next street is seen from. No rim, no tread, no hub: the
+        /// whole point of putting these in the chrome slot is that they are one flat dark colour.
+        /// </summary>
+        private static void AddTrafficWheel(
+            List<Vector3> vertices, List<int> triangles, Vector3 centre, float radius, float halfWidth,
+            int sides)
+        {
+            int start = vertices.Count;
+
+            for (int i = 0; i < sides; i++)
+            {
+                float angle = i * (Mathf.PI * 2f / sides);
+                float y = centre.y + Mathf.Sin(angle) * radius;
+                float z = centre.z + Mathf.Cos(angle) * radius;
+
+                vertices.Add(new Vector3(centre.x - halfWidth, y, z));
+                vertices.Add(new Vector3(centre.x + halfWidth, y, z));
+            }
+
+            for (int i = 0; i < sides; i++)
+            {
+                int a = start + i * 2;
+                int b = start + i * 2 + 1;
+                int c = start + ((i + 1) % sides) * 2;
+                int d = start + ((i + 1) % sides) * 2 + 1;
+
+                triangles.Add(a);
+                triangles.Add(c);
+                triangles.Add(b);
+
+                triangles.Add(b);
+                triangles.Add(c);
+                triangles.Add(d);
+            }
+
+            // Both discs, so a wheel seen from in front of the car is not a hollow tube.
+            int inner = vertices.Count;
+            vertices.Add(new Vector3(centre.x - halfWidth, centre.y, centre.z));
+            vertices.Add(new Vector3(centre.x + halfWidth, centre.y, centre.z));
+
+            for (int i = 0; i < sides; i++)
+            {
+                int a = start + i * 2;
+                int c = start + ((i + 1) % sides) * 2;
+
+                triangles.Add(inner);
+                triangles.Add(a);
+                triangles.Add(c);
+
+                triangles.Add(inner + 1);
+                triangles.Add(c + 1);
+                triangles.Add(a + 1);
+            }
+        }
+
+        /// <summary>One lamp: a quad facing along the car's own axis, at the Z it is given.</summary>
+        private static void AddLampPanel(
+            List<Vector3> vertices,
+            List<int> triangles,
+            float x,
+            float y,
+            float z,
+            float halfWidth,
+            float halfHeight)
+        {
+            int start = vertices.Count;
+            bool front = z > 0f;
+
+            vertices.Add(new Vector3(x - halfWidth, y - halfHeight, z));
+            vertices.Add(new Vector3(x + halfWidth, y - halfHeight, z));
+            vertices.Add(new Vector3(x + halfWidth, y + halfHeight, z));
+            vertices.Add(new Vector3(x - halfWidth, y + halfHeight, z));
+
+            // Wound so the panel looks the way the end of the car it is on does. The corners run
+            // anticlockwise in the XY plane, which gives a +Z normal — so that order is the *nose*, and
+            // the tail is its reverse. Both were the other way round to begin with, which put every lamp
+            // on every car facing into the bodywork: invisible from outside, and by day indistinguishable
+            // from a lamp that is simply switched off.
+            if (front)
+            {
+                triangles.Add(start);
+                triangles.Add(start + 1);
+                triangles.Add(start + 2);
+                triangles.Add(start);
+                triangles.Add(start + 2);
+                triangles.Add(start + 3);
+            }
+            else
+            {
+                triangles.Add(start);
+                triangles.Add(start + 3);
+                triangles.Add(start + 2);
+                triangles.Add(start);
+                triangles.Add(start + 2);
+                triangles.Add(start + 1);
+            }
+        }
+
+        private static Vector3[] BuildRing(in Station station, int ringSubdivisions)
         {
             float z = station.Z;
             float belt = station.BeltY;
@@ -467,7 +662,7 @@ namespace Horizon.EditorTools
                 new Vector3(-sillX, bottom, z),
             };
 
-            var ring = new Vector3[RingVertexCount];
+            var ring = new Vector3[KeyPointCount * ringSubdivisions];
             for (int segment = 0; segment < KeyPointCount; segment++)
             {
                 Vector3 p0 = key[((segment - 1) + KeyPointCount) % KeyPointCount];
@@ -475,12 +670,12 @@ namespace Horizon.EditorTools
                 Vector3 p2 = key[(segment + 1) % KeyPointCount];
                 Vector3 p3 = key[(segment + 2) % KeyPointCount];
 
-                for (int step = 0; step < RingSubdivisions; step++)
+                for (int step = 0; step < ringSubdivisions; step++)
                 {
-                    float t = step / (float)RingSubdivisions;
+                    float t = step / (float)ringSubdivisions;
                     Vector3 point = RoadPath.CatmullRom(p0, p1, p2, p3, t);
                     point.z = z;
-                    ring[segment * RingSubdivisions + step] = point;
+                    ring[segment * ringSubdivisions + step] = point;
                 }
             }
 

@@ -130,6 +130,8 @@ namespace Horizon.EditorTools
             public readonly Material WindowDay;
             public readonly Material WindowNight;
             public readonly Material LampNight;
+            public readonly Material TailNight;
+            public readonly Material[] TrafficBodies;
             public readonly Material Bark;
             public readonly Material Conifer;
             public readonly Material Broadleaf;
@@ -232,6 +234,30 @@ namespace Horizon.EditorTools
                 LampNight = HorizonAssetUtility.LoadOrCreateUnlitMaterial(
                     MaterialsFolder + "/M_LampNight.mat", "M_LampNight",
                     new Color(1.90f, 1.72f, 1.28f));
+
+                // A lit tail lamp, which is not the same thing as M_LightRear: that one is the *off*
+                // state of the player's car, animated by a property block. An ambient car has no block —
+                // it takes a whole material — and a pair of dark red rectangles is what a car looks like
+                // with its lights off, which after dark is wrong.
+                TailNight = HorizonAssetUtility.LoadOrCreateUnlitMaterial(
+                    MaterialsFolder + "/M_TailNight.mat", "M_TailNight",
+                    new Color(1.35f, 0.12f, 0.07f));
+
+                // Two more body colours, so a pool of fourteen is not fourteen of the same car. Muted
+                // against the player's orange: ambient traffic that pulls the eye is traffic that has
+                // stopped being ambient.
+                TrafficBodies = new[]
+                {
+                    HorizonAssetUtility.LoadOrCreateMaterial(
+                        MaterialsFolder + "/M_TrafficSlate.mat", "M_TrafficSlate",
+                        new Color(0.33f, 0.36f, 0.40f), 0.55f, 0.1f),
+                    HorizonAssetUtility.LoadOrCreateMaterial(
+                        MaterialsFolder + "/M_TrafficSand.mat", "M_TrafficSand",
+                        new Color(0.72f, 0.66f, 0.52f), 0.52f, 0.1f),
+                    HorizonAssetUtility.LoadOrCreateMaterial(
+                        MaterialsFolder + "/M_TrafficMoss.mat", "M_TrafficMoss",
+                        new Color(0.34f, 0.42f, 0.34f), 0.55f, 0.1f),
+                };
                 Concrete = HorizonAssetUtility.LoadOrCreateMaterial(
                     MaterialsFolder + "/M_Concrete.mat", "M_Concrete", new Color(0.52f, 0.51f, 0.49f), 0.20f);
 
@@ -633,14 +659,31 @@ namespace Horizon.EditorTools
                 network, streetIndex, field, terrainShape, townShape, path, blocks, blockOfHalfEdge);
             Phase(clock, $"blocks and parcels ({townPlan.Plots.Count} plots)");
 
+            // The counts-to-offsets shape TownLights reads: one start per renderer plus a terminator,
+            // and a flat run of (slot, group) pairs behind it. The town tiles fill it first and the
+            // traffic pool adds to it, because every window, lamp and headlight in the world is decided
+            // by one component reading one sun — see TownLights.
+            var litRenderers = new List<MeshRenderer>();
+            var litSlotStart = new List<int> { 0 };
+            var litSlots = new List<int>();
+            var litSlotGroups = new List<int>();
+
             BuildTerrainTiles(worldRoot.transform, path, roadShape, course, field, terrainShape,
-                townShape, townFootprint, network, townPlan, materials);
+                townShape, townFootprint, network, townPlan, materials,
+                litRenderers, litSlotStart, litSlots, litSlotGroups);
             ValidateLandmarks(field, course, path, townPlan);
             MarkTownLandmarks(worldRoot.transform, network, townPlan);
             Phase(clock, "terrain, vegetation and buildings");
 
             BuildCoveredSections(worldRoot.transform, path, roadShape, course, field, materials);
             BuildGuardRails(worldRoot.transform, path, roadShape, field, course, materials);
+
+            BuildTraffic(worldRoot.transform, network, materials,
+                litRenderers, litSlotStart, litSlots, litSlotGroups);
+
+            // After both, so one component carries the town's windows and the traffic's lamps.
+            WireTownLights(worldRoot.transform, litRenderers, litSlotStart, litSlots, litSlotGroups,
+                materials);
 
             // After every builder and before the car exists — otherwise the car is the obstruction.
             ValidateDriveableCorridor(path, "the pass", 1.3f, 4f);
@@ -1350,7 +1393,11 @@ namespace Horizon.EditorTools
             Bounds townFootprint,
             StreetNetwork network,
             TownPlan townPlan,
-            PrototypeMaterials materials)
+            PrototypeMaterials materials,
+            List<MeshRenderer> townRenderers,
+            List<int> townSlotStart,
+            List<int> townSlots,
+            List<int> townSlotGroups)
         {
             var extraRegions = new[] { townFootprint };
             List<TerrainTileKey> tiles = TerrainTileBuilder.ListTiles(
@@ -1371,14 +1418,6 @@ namespace Horizon.EditorTools
             string heaviestTileName = "none";
 
             var townTotal = new TownStats();
-
-            // The counts-to-offsets shape TownLights reads: one start per renderer plus a terminator,
-            // and a flat run of (slot, group) pairs behind it. A tile with houses and a lamp on it owns
-            // two entries; a tile with only lamps owns one.
-            var townRenderers = new List<MeshRenderer>();
-            var townSlotStart = new List<int> { 0 };
-            var townSlots = new List<int>();
-            var townSlotGroups = new List<int>();
 
             for (int i = 0; i < tiles.Count; i++)
             {
@@ -1489,7 +1528,210 @@ namespace Horizon.EditorTools
                 heaviestTile, heaviestTileName);
 
             ReportTown(townTotal, townShape, townPlan);
-            WireTownLights(parent, townRenderers, townSlotStart, townSlots, townSlotGroups, materials);
+        }
+
+        /// <summary>
+        /// Bakes the traffic routes and builds the pool of cars that drive them.
+        ///
+        /// <para>Everything is made here rather than at runtime: the routes are an asset, the cars are
+        /// instantiated once, and the director never constructs anything. That is the whole reason
+        /// ambient traffic fits the mobile budget at all — see <c>TrafficDirector</c>.</para>
+        ///
+        /// <para>Returns the agents' renderers and which material slot carries their lamps, so the same
+        /// <c>TownLights</c> that lights the town's windows lights their headlights too. A car with
+        /// <c>Light</c> components would be two more realtime lights each against a four-per-object
+        /// budget, twenty-eight for the pool; the swap costs nothing and is already written.</para>
+        /// </summary>
+        private static void BuildTraffic(
+            Transform parent,
+            StreetNetwork network,
+            PrototypeMaterials materials,
+            List<MeshRenderer> litRenderers,
+            List<int> litSlotStart,
+            List<int> litSlots,
+            List<int> litSlotGroups)
+        {
+            if (network.Edges.Count == 0)
+            {
+                return;
+            }
+
+            // Generated, not Settings. It is a ScriptableObject like VehicleConfig, but it is derived
+            // output rather than something anyone tunes — regenerate it and every edit is gone — so it
+            // belongs where the meshes are and under the orphan report that watches them.
+            TrafficNetwork routes = TrafficNetworkBuilder.Build(network);
+            routes = HorizonAssetUtility.ReplaceAsset(routes, GeneratedFolder + "/TrafficNetwork.asset");
+
+            Mesh body = CarMeshBuilder.BuildTrafficBody();
+            int triangles = body.triangles.Length / 3;
+            body = HorizonAssetUtility.ReplaceAsset(body, GeneratedFolder + "/TrafficCarMesh.asset");
+
+            var root = new GameObject("Traffic");
+            root.transform.SetParent(parent, false);
+
+            var cars = new Transform[TrafficPoolSize];
+            var renderers = new MeshRenderer[TrafficPoolSize];
+
+            for (int i = 0; i < TrafficPoolSize; i++)
+            {
+                var carObject = new GameObject($"TrafficCar_{i}");
+                carObject.transform.SetParent(root.transform, false);
+
+                carObject.AddComponent<MeshFilter>().sharedMesh = body;
+
+                MeshRenderer renderer = carObject.AddComponent<MeshRenderer>();
+                // Chrome takes the tyre material rather than the rim's: the reduced body puts its wheels
+                // in that submesh, which the detail pass would otherwise have filled with exhausts. Four
+                // wheels for no extra draw call, because the slot was being submitted regardless.
+                renderer.sharedMaterials = new[]
+                {
+                    materials.TrafficBodies[i % materials.TrafficBodies.Length],
+                    materials.CarGlass,
+                    materials.WindowDay,
+                    materials.WindowDay,
+                    materials.Tyre,
+                };
+
+                // Shadows off. Fourteen extra shadow casters is a second pass over the whole town for
+                // silhouettes that are under a car's own body anyway at the angle the sun sits at here.
+                renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+
+                // Kinematic, because the director writes the transform directly. Without a Rigidbody at
+                // all the collider would be static geometry that teleports, which PhysX handles by not
+                // noticing — and VehicleController raycasts on groundMask ~0, so the player's wheels
+                // would find these before its bumper did.
+                Rigidbody agentBody = carObject.AddComponent<Rigidbody>();
+                agentBody.isKinematic = true;
+                agentBody.useGravity = false;
+                agentBody.interpolation = RigidbodyInterpolation.Interpolate;
+
+                BoxCollider collider = carObject.AddComponent<BoxCollider>();
+                collider.center = new Vector3(0f, 0.16f, 0.08f);
+                collider.size = new Vector3(2.28f, 1.45f, 4.94f);
+
+                cars[i] = carObject.transform;
+                renderers[i] = renderer;
+
+                PlaceOnRoute(routes, carObject.transform, i);
+
+                // Slots 2 and 3 are the lamp submeshes, and the traffic body always emits both, so
+                // these are fixed rather than looked up the way a town tile's are.
+                litRenderers.Add(renderer);
+                litSlots.Add(CarMeshBuilder.HeadlightSubmesh);
+                litSlotGroups.Add((int)LitGroup.Headlights);
+                litSlots.Add(CarMeshBuilder.TaillightSubmesh);
+                litSlotGroups.Add((int)LitGroup.Taillights);
+                litSlotStart.Add(litSlots.Count);
+            }
+
+            // A camera station behind the first car, looking the way it faces. Aimed at an agent rather
+            // than at a coordinate for the same reason the square's station is: it follows whatever the
+            // bake actually produced, so a shot of the traffic cannot quietly become a shot of an empty
+            // street when the lane numbering changes.
+            var view = new GameObject("TrafficView");
+            view.transform.SetParent(parent, false);
+
+            Vector3 behind = cars[0].position - cars[0].forward * 13f + Vector3.up * 2.2f;
+            view.transform.SetPositionAndRotation(
+                behind, Quaternion.LookRotation(cars[0].position + Vector3.up * 0.6f - behind, Vector3.up));
+
+            var directorObject = new GameObject("TrafficDirector");
+            directorObject.transform.SetParent(parent, false);
+
+            TrafficDirector director = directorObject.AddComponent<TrafficDirector>();
+            HorizonAssetUtility.Configure(director, serialized =>
+            {
+                serialized.FindProperty("network").objectReferenceValue = routes;
+                HorizonAssetUtility.SetObjectArray(serialized, "cars", cars);
+                HorizonAssetUtility.SetObjectArray(serialized, "renderers", renderers);
+            });
+
+            HorizonAssetUtility.AssertReferenceAssigned(director, "network");
+
+            ReportTraffic(routes, triangles);
+        }
+
+        /// <summary>How many ambient cars there are. Fixed at build; the director never changes it.</summary>
+        private const int TrafficPoolSize = 14;
+
+        /// <summary>
+        /// Stands one car on the routes, spread evenly over the street lanes.
+        ///
+        /// <para>The director does this again in <c>Awake</c>, so this matters for exactly one thing —
+        /// and it is not a small one. <c>Awake</c> does not run at edit time, so without it the saved
+        /// scene holds fourteen cars stacked on top of each other at the world origin, a kilometre off
+        /// the road, and every preview render and every look at the scene shows them there. A build that
+        /// leaves the scene in a state nobody would ship is a build with a bug in it, whatever happens
+        /// on Play.</para>
+        ///
+        /// <para>Evenly rather than randomly, which is the one place the two differ usefully: a stride
+        /// through the lane list puts a car on every part of the network, so a preview shows traffic
+        /// where the camera happens to be pointing.</para>
+        /// </summary>
+        private static void PlaceOnRoute(TrafficNetwork routes, Transform car, int index)
+        {
+            var streetLanes = new List<int>(routes.LaneCount);
+            for (int lane = 0; lane < routes.LaneCount; lane++)
+            {
+                if (routes.NodeOf(lane) < 0 && routes.LengthOf(lane) > 8f)
+                {
+                    streetLanes.Add(lane);
+                }
+            }
+
+            if (streetLanes.Count == 0)
+            {
+                return;
+            }
+
+            // A stride that shares no factor with the count walks the whole list rather than revisiting
+            // a handful of lanes.
+            int chosen = streetLanes[index * 7 % streetLanes.Count];
+
+            routes.GetLane(chosen, routes.LengthOf(chosen) * 0.5f,
+                out Vector3 position, out Vector3 forward);
+
+            car.SetPositionAndRotation(
+                position + Vector3.up * 0.55f, Quaternion.LookRotation(forward, Vector3.up));
+        }
+
+        /// <summary>What the bake produced, and whether the routes are actually connected.</summary>
+        private static void ReportTraffic(TrafficNetwork routes, int trianglesPerCar)
+        {
+            int streets = 0;
+            int connectors = 0;
+            int deadEnds = 0;
+            float total = 0f;
+
+            for (int lane = 0; lane < routes.LaneCount; lane++)
+            {
+                total += routes.LengthOf(lane);
+
+                if (routes.NodeOf(lane) < 0)
+                {
+                    streets++;
+                }
+                else
+                {
+                    connectors++;
+                }
+
+                if (routes.ExitCount(lane) == 0)
+                {
+                    deadEnds++;
+                }
+            }
+
+            Debug.Log($"[Horizon] Traffic: {streets} street lanes and {connectors} turn connectors, "
+                      + $"{total:0} m of route, {TrafficPoolSize} cars at {trianglesPerCar} triangles "
+                      + $"each ({TrafficPoolSize * trianglesPerCar} total).");
+
+            if (deadEnds > 0)
+            {
+                Debug.LogWarning($"[Horizon] Traffic: {deadEnds} lane(s) lead nowhere. A car reaching one "
+                                 + "stops on it and stays there, which reads as a broken-down car that "
+                                 + "never gets towed. Every lane should at least be able to turn round.");
+            }
         }
 
         /// <summary>
@@ -1528,10 +1770,20 @@ namespace Horizon.EditorTools
                 SetIntArray(serialized, "slotGroup", slotGroups);
 
                 // Indexed by LitGroup, so the order of these two arrays is the order of that enum.
+                // Headlights and tail lamps take the dark window material by day, which is what an
+                // unlit lens is: the same near-black glass every window in the town starts as.
                 HorizonAssetUtility.SetObjectArray(serialized, "dayMaterials",
-                    new[] { materials.WindowDay, materials.Lane });
+                    new[]
+                    {
+                        materials.WindowDay, materials.Lane,
+                        materials.WindowDay, materials.WindowDay,
+                    });
                 HorizonAssetUtility.SetObjectArray(serialized, "nightMaterials",
-                    new[] { materials.WindowNight, materials.LampNight });
+                    new[]
+                    {
+                        materials.WindowNight, materials.LampNight,
+                        materials.LampNight, materials.TailNight,
+                    });
             });
         }
 
@@ -1566,7 +1818,8 @@ namespace Horizon.EditorTools
             if (stats.Triangles > shape.MaxTrianglesPerTile * 4)
             {
                 Debug.LogWarning($"[Horizon] Town: {stats.Triangles} triangles is heavier than expected. "
-                                 + "Raise PlotSpacing or lower the plot count in TownShape.");
+                                 + "Open out the spacing in TownPlanner's quarter table, or raise its "
+                                 + "vacancy.");
             }
 
             ReportGlassSplit(stats);
@@ -1679,13 +1932,19 @@ namespace Horizon.EditorTools
                 }
             }
 
+            // And everything the streamer never sees. Ambient traffic is deliberately not chunked — it
+            // migrates between tiles every few seconds — so it is resident wherever you stand, and a
+            // budget that walked chunks alone would silently leave seventy material slots out of the
+            // number it exists to report.
+            int unchunked = CountUnchunkedMaterials(worldRoot);
+
             int worst = 0;
             int worstStation = 0;
             int worstChunks = 0;
 
             for (int s = 0; s < stations.Count; s++)
             {
-                int calls = 0;
+                int calls = unchunked;
                 int resident = 0;
 
                 for (int i = 0; i < chunks.Length; i++)
@@ -1708,8 +1967,9 @@ namespace Horizon.EditorTools
             }
 
             Debug.Log($"[Horizon] Draw calls at loadRadius {loadRadius:0} m: worst of "
-                      + $"{stations.Count} stations is {worst} over {worstChunks} chunks, at station "
-                      + $"{worstStation + 1} ({stations[worstStation].x:0}, {stations[worstStation].z:0}). "
+                      + $"{stations.Count} stations is {worst} over {worstChunks} chunks plus "
+                      + $"{unchunked} always resident, at station {worstStation + 1} "
+                      + $"({stations[worstStation].x:0}, {stations[worstStation].z:0}). "
                       + "Upper bound — no culling, no batcher merging. Confirm on device.");
 
             if (worst > 400)
@@ -1720,6 +1980,26 @@ namespace Horizon.EditorTools
                     + "one field and the fog already hides the result — before touching the submesh "
                     + "budget. See BuildingMeshes.SubmeshCount for the order of the levers.");
             }
+        }
+
+        /// <summary>
+        /// Material slots on renderers that no <see cref="WorldChunk"/> owns, and which are therefore
+        /// drawn wherever the player stands.
+        /// </summary>
+        private static int CountUnchunkedMaterials(Transform worldRoot)
+        {
+            Renderer[] renderers = worldRoot.GetComponentsInChildren<Renderer>(true);
+            int calls = 0;
+
+            for (int i = 0; i < renderers.Length; i++)
+            {
+                if (renderers[i].GetComponentInParent<WorldChunk>(true) == null)
+                {
+                    calls += renderers[i].sharedMaterials.Length;
+                }
+            }
+
+            return calls;
         }
 
         /// <summary>

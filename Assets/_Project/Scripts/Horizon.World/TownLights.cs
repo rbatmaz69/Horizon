@@ -10,6 +10,12 @@ namespace Horizon.World
 
         /// <summary>Lantern heads and the pools of light under them.</summary>
         Lamps = 1,
+
+        /// <summary>Ambient traffic's headlights. Never <c>Light</c> components — see TrafficDirector.</summary>
+        Headlights = 2,
+
+        /// <summary>And their tail lamps, which are the pair the player actually drives behind.</summary>
+        Taillights = 3,
     }
 
     /// <summary>
@@ -64,13 +70,14 @@ namespace Horizon.World
         [Tooltip("Night material per group, indexed by LitGroup.")]
         [SerializeField] private Material[] nightMaterials;
 
-        [Tooltip("Sun intensity below which each group lights up. Lamps come on earlier than windows: "
-               + "street lighting is on while there is still light in the sky.")]
-        [SerializeField] private float[] nightSunIntensity = { 0.38f, 0.55f };
+        [Tooltip("Sun intensity below which each group lights up, indexed by LitGroup. Lamps and "
+               + "headlights come on earlier than windows: street lighting and dipped beams are both on "
+               + "while there is still light in the sky.")]
+        [SerializeField] private float[] nightSunIntensity = { 0.38f, 0.55f, 0.60f, 0.60f };
 
         [Tooltip("Sun intensity each group stays lit until. The gap is hysteresis — a single threshold "
                + "sits in the middle of dusk, where the sun barely moves, and the whole town flickers.")]
-        [SerializeField] private float[] dawnSunIntensity = { 0.50f, 0.68f };
+        [SerializeField] private float[] dawnSunIntensity = { 0.50f, 0.68f, 0.72f, 0.72f };
 
         private bool[] lit;
         private bool applied;
