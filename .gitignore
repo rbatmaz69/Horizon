@@ -72,3 +72,6 @@ crashlytics-build.properties
 # Generated IDE solution (Visual Studio Code Editor package)
 *.slnx
 .vscode/
+
+# Burst debug symbols, emitted beside a player build. Named DoNotShip by Unity, and it means it.
+/*_BurstDebugInformation_DoNotShip/
