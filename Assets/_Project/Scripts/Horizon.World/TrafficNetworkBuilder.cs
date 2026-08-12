@@ -90,7 +90,9 @@ namespace Horizon.World
             in RoadShape trunkShape,
             IRoadPath highway = null,
             RoadShape highwayShape = default,
-            float carriagewayOffset = 0f)
+            float carriagewayOffset = 0f,
+            int highwayEndTown = -1,
+            int highwayEndNode = -1)
         {
             var lanes = new LaneBuffer();
 
@@ -117,6 +119,21 @@ namespace Horizon.World
             int highwayEastNode = nodeCount + 3;
             nodeCount += 4;
 
+            // Unless the motorway ends somewhere real. Where it runs into a city, its far end and that
+            // city's gateway are the same junction — not two junctions in the same place — and that
+            // single fact is the whole of how the two networks join: AddConnectors works by node, so it
+            // then builds the turns from all four nearside lanes into the boulevard by itself. With a
+            // synthetic node there instead, the motorway's traffic has nothing to do at the end of the
+            // road but turn round, which is what it was doing.
+            bool joinsATown = highwayEndTown >= 0 && highwayEndTown < networks.Count
+                              && highwayEndNode >= 0
+                              && highwayEndNode < networks[highwayEndTown].Nodes.Count;
+
+            if (joinsATown)
+            {
+                highwayEastNode = nodeOffset[highwayEndTown] + highwayEndNode;
+            }
+
             var nodeAt = new Vector3[nodeCount];
 
             for (int i = 0; i < networks.Count; i++)
@@ -136,7 +153,13 @@ namespace Horizon.World
             if (highway != null)
             {
                 nodeAt[highwayWestNode] = highway.GetPositionAtDistance(0f);
-                nodeAt[highwayEastNode] = highway.GetPositionAtDistance(highway.Length);
+
+                // Left alone when it is a town's own node: that position came from the street graph and
+                // is where the junction actually is.
+                if (!joinsATown)
+                {
+                    nodeAt[highwayEastNode] = highway.GetPositionAtDistance(highway.Length);
+                }
             }
 
             var entryNode = new List<int>(256);

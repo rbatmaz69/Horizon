@@ -781,7 +781,8 @@ namespace Horizon.EditorTools
 
             BuildTraffic(worldRoot.transform, towns, path, roadShape, materials,
                 litRenderers, litSlotStart, litSlots, litSlotGroups,
-                motorwayPath, motorwayShape, AutobahnCourse.CarriagewayOffset);
+                motorwayPath, motorwayShape, AutobahnCourse.CarriagewayOffset,
+                System.Array.IndexOf(towns, hochstadt), HochstadtLayout.GatewayNode);
 
             // After both, so one component carries the town's windows and the traffic's lamps.
             WireTownLights(worldRoot.transform, litRenderers, litSlotStart, litSlots, litSlotGroups,
@@ -795,7 +796,8 @@ namespace Horizon.EditorTools
             Phase(clock, "validation");
             int worstJunction = ValidateStreetNetwork(talheim.Network, path, roadShape);
             MarkWorstJunction(worldRoot.transform, talheim.Network, worstJunction);
-            ValidateStreetNetwork(hochstadt.Network, arterialPath, motorwayShape);
+            ValidateStreetNetwork(hochstadt.Network, arterialPath, motorwayShape,
+                HochstadtLayout.GatewayNode);
 
             // --- Streaming.
             var streamingObject = new GameObject("Streaming");
@@ -1886,7 +1888,9 @@ namespace Horizon.EditorTools
             List<int> litSlotGroups,
             IRoadPath highway,
             RoadShape highwayShape,
-            float carriagewayOffset)
+            float carriagewayOffset,
+            int highwayEndTown,
+            int highwayEndNode)
         {
             var networks = new StreetNetwork[towns.Count];
             for (int i = 0; i < towns.Count; i++)
@@ -1903,7 +1907,8 @@ namespace Horizon.EditorTools
             // output rather than something anyone tunes — regenerate it and every edit is gone — so it
             // belongs where the meshes are and under the orphan report that watches them.
             TrafficNetwork routes = TrafficNetworkBuilder.Build(
-                networks, trunk, trunkShape, highway, highwayShape, carriagewayOffset);
+                networks, trunk, trunkShape, highway, highwayShape, carriagewayOffset,
+                highwayEndTown, highwayEndNode);
             routes = HorizonAssetUtility.ReplaceAsset(routes, GeneratedFolder + "/TrafficNetwork.asset");
 
             CarMeshBuilder.CarProfile[] profiles = CarMeshBuilder.TrafficProfiles;
@@ -2701,7 +2706,7 @@ namespace Horizon.EditorTools
         /// </list>
         /// </summary>
         private static int ValidateStreetNetwork(
-            StreetNetwork network, RoadPath trunk, in RoadShape trunkShape)
+            StreetNetwork network, RoadPath trunk, in RoadShape trunkShape, int entry = -1)
         {
             if (network.Edges.Count == 0)
             {
@@ -2777,7 +2782,7 @@ namespace Horizon.EditorTools
                 }
             }
 
-            int unreachable = CountUnreachable(network);
+            int unreachable = CountUnreachable(network, entry);
 
             int steps = 0;
             float worstStep = 0f;
@@ -3380,8 +3385,17 @@ namespace Horizon.EditorTools
             return true;
         }
 
-        /// <summary>Nodes a breadth-first walk from the trunk-road entrances never reaches.</summary>
-        private static int CountUnreachable(StreetNetwork network)
+        /// <summary>
+        /// Nodes a breadth-first walk from the town's entrances never reaches.
+        ///
+        /// <para>An entrance is a node marked <c>OnTrunkRoad</c> — a bell-mouth onto the road the town
+        /// hangs off — or <paramref name="entry"/>. The second exists because Hochstadt has no
+        /// bell-mouths at all: its arterial is a coordinate axis rather than a paved road, and what
+        /// arrives there is the motorway, at one gateway node. Without it the walk starts nowhere and
+        /// reports the entire city as unreachable, which is true of the trunk road and says nothing
+        /// about the city.</para>
+        /// </summary>
+        private static int CountUnreachable(StreetNetwork network, int entry = -1)
         {
             var seen = new bool[network.Nodes.Count];
             var queue = new Queue<int>();
@@ -3393,6 +3407,12 @@ namespace Horizon.EditorTools
                     seen[i] = true;
                     queue.Enqueue(i);
                 }
+            }
+
+            if (entry >= 0 && entry < network.Nodes.Count && !seen[entry])
+            {
+                seen[entry] = true;
+                queue.Enqueue(entry);
             }
 
             while (queue.Count > 0)

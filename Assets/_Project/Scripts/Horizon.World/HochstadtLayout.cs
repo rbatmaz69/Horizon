@@ -54,6 +54,17 @@ namespace Horizon.World
         private const int SquareAlongFrom = 1;
         private const int SquareAlongTo = 2;
 
+        /// <summary>
+        /// The gateway node's index, where the motorway hands over to the boulevard.
+        ///
+        /// <para>Derived from the two arrays rather than written down, because it is simply the first
+        /// node added after the grid. Exposed because the traffic graph needs the motorway's far end and
+        /// this node to be <i>the same node</i> — that is the whole of how the two road networks join,
+        /// and it is what turns the motorway's traffic from something that U-turns at the end of the
+        /// road into something that drives into a city.</para>
+        /// </summary>
+        public static int GatewayNode => Along.Length * Across.Length;
+
         public static TownNetworkSpec Build()
         {
             var spec = new TownNetworkSpec();
