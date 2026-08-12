@@ -195,7 +195,132 @@ namespace Horizon.World
         /// </summary>
         public const int VergeSubmesh = 3;
 
-        public const int StreetSubmeshCount = 4;
+        /// <summary>
+        /// Painted lines on the carriageway. Geometry rather than a texture.
+        ///
+        /// <para>The trunk road gets its markings from a baked atlas keyed on arc length, which works
+        /// because it is one ribbon of one width. A street network is sixty ribbons of six widths meeting
+        /// at thirty-seven junctions, and a shared atlas across that is a UV problem rather than a
+        /// drawing one. Laid-on quads cost about two triangles a dash and land in the same merged
+        /// submesh as everything else, so they are free at the draw call.</para>
+        /// </summary>
+        public const int MarkingSubmesh = 4;
+
+        public const int StreetSubmeshCount = 5;
+
+        /// <summary>
+        /// The colour each street submesh is tinted with when they are merged into one.
+        ///
+        /// <para>Same trick as the buildings and the terrain: four flat untextured materials were four
+        /// draw calls per town, and a category that is only ever a colour belongs in the vertices. The
+        /// numbers are the ones M_Lane, M_Concrete, M_Footway and M_Grass carried, so the streets come
+        /// out the colour they already were.</para>
+        /// </summary>
+        public static Color?[] SurfaceTints()
+        {
+            var tints = new Color?[StreetSubmeshCount];
+
+            tints[SurfaceSubmesh] = new Color(0.27f, 0.27f, 0.29f);
+            tints[KerbSubmesh] = new Color(0.52f, 0.51f, 0.49f);
+            tints[FootwaySubmesh] = new Color(0.60f, 0.58f, 0.55f);
+            tints[VergeSubmesh] = new Color(0.36f, 0.48f, 0.26f);
+            tints[MarkingSubmesh] = new Color(0.82f, 0.80f, 0.74f);
+
+            return tints;
+        }
+
+        /// <summary>Length of a painted dash and of the gap after it, metres.</summary>
+        private const float DashLength = 3f;
+
+        private const float DashGap = 5f;
+
+        /// <summary>Width of a painted line, metres.</summary>
+        private const float LineWidth = 0.14f;
+
+        /// <summary>How far a marking floats above the carriageway so it never z-fights with it.</summary>
+        private const float MarkingLift = 0.015f;
+
+        /// <summary>
+        /// Paints a street's lane lines: a dashed line down the middle, and one between each pair of
+        /// lanes on anything wide enough to have them.
+        ///
+        /// <para>Only the wide kinds are marked. A village lane with a dashed centre line reads as a main
+        /// road — which is the reason the street material was left untextured in the first place — so
+        /// this is a city thing, and <see cref="LaneLinesFor"/> is where that judgement lives.</para>
+        /// </summary>
+        public static void AppendMarkings(
+            IRoadPath path,
+            in TownStreetShape shape,
+            TownStreetKind kind,
+            float fromDistance,
+            float toDistance,
+            MountainField field,
+            in TerrainShape terrainShape,
+            VegetationMeshBuffer into)
+        {
+            float[] lines = LaneLinesFor(kind, shape);
+            if (lines.Length == 0 || path == null || into == null)
+            {
+                return;
+            }
+
+            float from = Mathf.Clamp(fromDistance, 0f, path.Length);
+            float to = Mathf.Clamp(toDistance, 0f, path.Length);
+
+            float cycle = DashLength + DashGap;
+
+            for (int i = 0; i < lines.Length; i++)
+            {
+                // Started half a gap in, so a dash never begins flush against a junction pad.
+                for (float at = from + DashGap * 0.5f; at + DashLength <= to; at += cycle)
+                {
+                    AppendDash(path, shape, lines[i], at, at + DashLength, field, terrainShape, into);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Where the painted lines go across a street, as offsets from its centre.
+        ///
+        /// <para>A boulevard is two lanes each way, so it takes a centre line and one lane line either
+        /// side of it; a city street is one lane each way and takes only the centre. Everything narrower
+        /// takes nothing at all.</para>
+        /// </summary>
+        private static float[] LaneLinesFor(TownStreetKind kind, in TownStreetShape shape)
+        {
+            switch (kind)
+            {
+                case TownStreetKind.Boulevard:
+                    return new[] { 0f, -shape.HalfWidth * 0.5f, shape.HalfWidth * 0.5f };
+
+                case TownStreetKind.CityStreet:
+                    return new[] { 0f };
+
+                default:
+                    return System.Array.Empty<float>();
+            }
+        }
+
+        private static void AppendDash(
+            IRoadPath path,
+            in TownStreetShape shape,
+            float across,
+            float from,
+            float to,
+            MountainField field,
+            in TerrainShape terrainShape,
+            VegetationMeshBuffer into)
+        {
+            Vector3 a0 = PointAcross(path, shape, from, across - LineWidth * 0.5f, shape.SurfaceLift);
+            Vector3 a1 = PointAcross(path, shape, from, across + LineWidth * 0.5f, shape.SurfaceLift);
+            Vector3 b0 = PointAcross(path, shape, to, across - LineWidth * 0.5f, shape.SurfaceLift);
+            Vector3 b1 = PointAcross(path, shape, to, across + LineWidth * 0.5f, shape.SurfaceLift);
+
+            Vector3 lift = Vector3.up * MarkingLift;
+
+            into.AddQuadFacing(MarkingSubmesh,
+                a0 + lift, b0 + lift, b1 + lift, a1 + lift, Vector3.up);
+        }
 
         /// <summary>Which submesh each of the eight strips across a section belongs to.</summary>
         private static readonly int[] StripSubmesh =

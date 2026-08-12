@@ -1525,6 +1525,13 @@ namespace Horizon.EditorTools
                     edge.TrimStart - StreetJunctionBuilder.RibbonOverlap,
                     edge.Length - edge.TrimEnd + StreetJunctionBuilder.RibbonOverlap,
                     field, terrainShape, buffer);
+
+                // Lane lines, on the wide kinds only. Between the trim points rather than past them:
+                // a dash running into a junction pad is a dash lying across a turning circle.
+                TownStreetBuilder.AppendMarkings(
+                    edge.Path, edge.Shape, edge.Kind,
+                    edge.TrimStart, edge.Length - edge.TrimEnd,
+                    field, terrainShape, buffer);
             }
 
             // Counted in three, because "five thousand faces are backwards" says nothing about which
@@ -1576,6 +1583,11 @@ namespace Horizon.EditorTools
 
             int squareFlips = buffer.FlipCount - ribbonFlips - padFlips - mouthFlips;
 
+            // Five categories, one draw call. Surface, kerb, footway, verge and paint were five flat
+            // untextured materials, which is five draw calls per town for information that is only ever
+            // a colour — the same case the buildings and the terrain already answered this way.
+            buffer.MergeTinted(TownStreetBuilder.SurfaceTints());
+
             var used = new List<int>(TownStreetBuilder.StreetSubmeshCount);
             Mesh mesh = buffer.ToMesh(what + "StreetsMesh", used);
             if (mesh == null)
@@ -1611,28 +1623,20 @@ namespace Horizon.EditorTools
             ReportWindingFlips("Town squares", squareFlips);
         }
 
-        /// <summary>The materials for the street mesh, in the order its submeshes survived compaction.</summary>
+        /// <summary>
+        /// The materials for the street mesh, in the order its submeshes survived compaction.
+        ///
+        /// <para>After <c>MergeTinted</c> there is normally one — every tinted category rides in the
+        /// vertices on <c>Horizon/VertexTintLit</c>. The switch survives because compaction is what
+        /// decides which slot is which, and a mesh with nothing tinted in it would still need naming.</para>
+        /// </summary>
         private static Material[] StreetMaterials(PrototypeMaterials materials, List<int> used)
         {
             var result = new Material[used.Count];
 
             for (int i = 0; i < used.Count; i++)
             {
-                switch (used[i])
-                {
-                    case TownStreetBuilder.SurfaceSubmesh:
-                        result[i] = materials.Lane;
-                        break;
-                    case TownStreetBuilder.KerbSubmesh:
-                        result[i] = materials.Concrete;
-                        break;
-                    case TownStreetBuilder.VergeSubmesh:
-                        result[i] = materials.Grass;
-                        break;
-                    default:
-                        result[i] = materials.Footway;
-                        break;
-                }
+                result[i] = materials.TerrainTint;
             }
 
             return result;
@@ -2136,10 +2140,9 @@ namespace Horizon.EditorTools
         /// <summary>
         /// How many ambient cars there are. Fixed at build; the director never changes it.
         ///
-        /// Sixty-four, up from twenty-four, because of the motorway: eight lanes over eight kilometres is
-        /// four times the road the pass and the town have between them, and the whole point of it is
-        /// traffic dense enough to thread through. Twenty-four cars spread over the new network is one
-        /// car every kilometre and a half.
+        /// Ninety-six. Sixty-four was set for the motorway alone; the city added ten kilometres of
+        /// street and two hundred lanes to the network, and the pool is shared — so the same number of
+        /// cars spread over half again as much road made both places thinner.
         ///
         /// <para>What makes that affordable is not this number but where the cars are. The director
         /// weights its lane choice by length and now searches a candidate lane for the point nearest the
@@ -2158,7 +2161,7 @@ namespace Horizon.EditorTools
         /// into the body would take the pool to 256 without removing a single car. That is deliberately
         /// not done yet — it is a mesh change made to fix a number that has not gone wrong.</para>
         /// </summary>
-        private const int TrafficPoolSize = 64;
+        private const int TrafficPoolSize = 96;
 
         /// <summary>
         /// Stands one car on the routes, spread evenly over every lane that is a road rather than a turn.
