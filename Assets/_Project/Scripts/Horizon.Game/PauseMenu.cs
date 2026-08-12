@@ -57,6 +57,7 @@ namespace Horizon.Game
 
         private VehicleController vehicle;
         private TimeOfDayController timeOfDay;
+        private Horizon.World.TrafficNetwork routes;
         private Vector3 spawnPosition;
         private Quaternion spawnRotation;
         private bool spawnCaptured;
@@ -324,22 +325,138 @@ namespace Horizon.Game
         }
 
         /// <summary>Puts the car back where it started, upright. For when it is on its roof.</summary>
+        /// <summary>
+        /// Puts the car back on the road, upright, <b>where it left it</b> — not where it started.
+        ///
+        /// <para>Going back to the start was the wrong thing twice over. It undid a drive the player had
+        /// no wish to undo, and after the world grew to twenty kilometres it could mean being sent from
+        /// a city back to a village half an hour away for the crime of clipping a kerb.</para>
+        ///
+        /// <para>It also did not reliably work. It wrote the <i>transform</i> and left the Rigidbody
+        /// where it was; the body is non-kinematic and interpolated, so PhysX kept its own pose and put
+        /// the car back where it had been on the next physics step. Sometimes. <c>Teleport</c> moves the
+        /// body, the transform and the suspension together, which is why the spawn menu already used
+        /// it.</para>
+        /// </summary>
         public void Respawn()
         {
-            if (vehicle == null || !spawnCaptured)
+            if (vehicle == null)
             {
                 return;
             }
 
-            var body = vehicle.GetComponent<Rigidbody>();
-            if (body != null)
+            if (!TryNearestRoad(vehicle.transform.position, out Vector3 position, out Quaternion rotation))
             {
-                body.linearVelocity = Vector3.zero;
-                body.angularVelocity = Vector3.zero;
+                // No routes baked — fall back to where the car started, which is what this always did.
+                if (!spawnCaptured)
+                {
+                    return;
+                }
+
+                position = spawnPosition;
+                rotation = spawnRotation;
             }
 
-            vehicle.transform.SetPositionAndRotation(spawnPosition, spawnRotation);
+            vehicle.Teleport(position, rotation);
             Resume();
+        }
+
+        /// <summary>
+        /// The nearest point on any driveable road, and which way it faces there.
+        ///
+        /// <para>Searched in the baked traffic routes rather than against the courses, because that
+        /// asset already <i>is</i> every road in the world as a set of world-space polylines — the pass,
+        /// both carriageways, the slip road and three hundred streets — sampled and ready. Re-deriving
+        /// that from the course tables would be the same search over data that has to be rebuilt first.
+        /// </para>
+        ///
+        /// <para>Coarse sweep then a local refinement. It runs on a button press, not per frame, so the
+        /// cost is a few thousand distance checks once — but a lane can be a kilometre long, and testing
+        /// every sample of every lane would be a hundred thousand.</para>
+        /// </summary>
+        private bool TryNearestRoad(Vector3 from, out Vector3 position, out Quaternion rotation)
+        {
+            position = Vector3.zero;
+            rotation = Quaternion.identity;
+
+            if (routes == null)
+            {
+                TrafficDirector director = FindFirstObjectByType<TrafficDirector>();
+                routes = director != null ? director.Network : null;
+            }
+
+            if (routes == null || routes.LaneCount == 0)
+            {
+                return false;
+            }
+
+            const float coarse = 20f;
+
+            int bestLane = -1;
+            float bestAt = 0f;
+            float bestSqr = float.MaxValue;
+
+            for (int lane = 0; lane < routes.LaneCount; lane++)
+            {
+                // Connectors excluded: they are the turns through a junction, and being put down in the
+                // middle of an intersection facing across it is a worse place to restart than the
+                // straight a few metres away.
+                if (routes.NodeOf(lane) >= 0)
+                {
+                    continue;
+                }
+
+                float length = routes.LengthOf(lane);
+                int steps = Mathf.Max(1, Mathf.CeilToInt(length / coarse));
+
+                for (int i = 0; i <= steps; i++)
+                {
+                    float at = length * i / steps;
+                    routes.GetLane(lane, at, out Vector3 point, out Vector3 _);
+
+                    float sqr = (point - from).sqrMagnitude;
+                    if (sqr < bestSqr)
+                    {
+                        bestSqr = sqr;
+                        bestLane = lane;
+                        bestAt = at;
+                    }
+                }
+            }
+
+            if (bestLane < 0)
+            {
+                return false;
+            }
+
+            float span = routes.LengthOf(bestLane);
+            for (float window = coarse * 0.5f; window > 0.5f; window *= 0.5f)
+            {
+                for (int side = -1; side <= 1; side += 2)
+                {
+                    float at = Mathf.Clamp(bestAt + window * side, 0f, span);
+                    routes.GetLane(bestLane, at, out Vector3 point, out Vector3 _);
+
+                    float sqr = (point - from).sqrMagnitude;
+                    if (sqr < bestSqr)
+                    {
+                        bestSqr = sqr;
+                        bestAt = at;
+                    }
+                }
+            }
+
+            routes.GetLane(bestLane, bestAt, out position, out Vector3 forward);
+
+            // Lifted onto its wheels: a lane polyline lies on the tarmac, and a car dropped with its
+            // origin there starts the frame with its suspension through the road.
+            float ride = vehicle != null && vehicle.Config != null
+                ? vehicle.Config.SuspensionRestLength + vehicle.Config.WheelRadius + 0.05f
+                : 0.75f;
+
+            position += Vector3.up * ride;
+            rotation = Quaternion.LookRotation(forward, Vector3.up);
+            return true;
         }
 
         /// <summary>

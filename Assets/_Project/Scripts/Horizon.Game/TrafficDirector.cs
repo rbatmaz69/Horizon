@@ -90,6 +90,16 @@ namespace Horizon.Game
                + "move a car than to keep simulating one nobody can reach.")]
         [SerializeField] private float recycleRadius = 900f;
 
+        /// <summary>
+        /// The baked routes, for anything that needs to know where a road is.
+        ///
+        /// <para>Exposed because it is the only description of the driveable world that exists at run
+        /// time: every carriageway, street and slip road in the game is a polyline in here, already
+        /// sampled and already in world space. The pause menu's "put the car back" reads it to find the
+        /// nearest road, which beats each caller re-deriving the road network from the courses.</para>
+        /// </summary>
+        public TrafficNetwork Network => network;
+
         private Agent[] agents;
 
         /// <summary>
