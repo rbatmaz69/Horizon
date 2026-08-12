@@ -123,6 +123,16 @@ namespace Horizon.EditorTools
             public readonly Material Concrete;
             public readonly Material GuardRail;
             public readonly Material Grass;
+
+            /// <summary>
+            /// The terrain, tinted per vertex. One slot per tile instead of two.
+            ///
+            /// <para>Grass and rock were two materials because rock-versus-grass is chosen per triangle
+            /// by slope, and a category had to be a submesh. Neither was textured, so both are now a
+            /// vertex colour on the shader the buildings already use — and every tile in the world stops
+            /// paying for a rock face it may not have.</para>
+            /// </summary>
+            public readonly Material TerrainTint;
             public readonly Material Rock;
             public readonly Material Lane;
             public readonly Material Footway;
@@ -202,6 +212,8 @@ namespace Horizon.EditorTools
                     shoulderTexture);
                 Grass = HorizonAssetUtility.LoadOrCreateMaterial(
                     MaterialsFolder + "/M_Grass.mat", "M_Grass", new Color(0.36f, 0.48f, 0.26f), 0.08f);
+                TerrainTint = HorizonAssetUtility.LoadOrCreateTintMaterial(
+                    MaterialsFolder + "/M_TerrainTint.mat", "M_TerrainTint", 0.08f);
                 Rock = HorizonAssetUtility.LoadOrCreateMaterial(
                     MaterialsFolder + "/M_Rock.mat", "M_Rock", new Color(0.44f, 0.39f, 0.34f), 0.12f);
 
@@ -1753,7 +1765,7 @@ namespace Horizon.EditorTools
                 mesh = HorizonAssetUtility.ReplaceAsset(mesh, $"{GeneratedFolder}/{name}.asset");
 
                 GameObject tileObject = CreateMeshObject(
-                    terrainRoot.transform, name, mesh, new[] { materials.Grass, materials.Rock });
+                    terrainRoot.transform, name, mesh, new[] { materials.TerrainTint });
 
                 Mesh plants = VegetationBuilder.BuildTile(
                     key, field, terrainShape, vegetationShape, vegetationContext,

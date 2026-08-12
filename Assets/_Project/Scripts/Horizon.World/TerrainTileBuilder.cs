@@ -29,6 +29,19 @@ namespace Horizon.World
     public static class TerrainTileBuilder
     {
         /// <summary>Submesh for shallow ground, meant for a grass material.</summary>
+        /// <summary>
+        /// The two ground colours, moved here from the materials they used to be.
+        ///
+        /// <para>The numbers are the ones M_Grass and M_Rock carried, so the world comes out the colour
+        /// it already was. Neither material was textured, so nothing is lost by folding them into the
+        /// vertices — see <c>Horizon/VertexTintLit</c>, which is the shader the town's buildings already
+        /// use for exactly this.</para>
+        /// </summary>
+        public static readonly Color32 GrassTint = new Color(0.36f, 0.48f, 0.26f);
+
+        /// <summary>See <see cref="GrassTint"/>.</summary>
+        public static readonly Color32 RockTint = new Color(0.44f, 0.39f, 0.34f);
+
         public const int GrassSubmesh = 0;
 
         /// <summary>Submesh for steep faces, meant for rock.</summary>
@@ -267,8 +280,8 @@ namespace Horizon.World
             var vertices = new List<Vector3>(quadCount * 6);
             var normals = new List<Vector3>(quadCount * 6);
             var uvs = new List<Vector2>(quadCount * 6);
-            var grass = new List<int>(quadCount * 6);
-            var rock = new List<int>(quadCount * 3);
+            var triangles = new List<int>(quadCount * 6);
+            var colours = new List<Color32>(quadCount * 6);
 
             float rockThreshold = Mathf.Cos(shape.RockSlopeThreshold * Mathf.Deg2Rad);
 
@@ -285,13 +298,13 @@ namespace Horizon.World
 
                     if (splitForward)
                     {
-                        AddTriangle(vertices, normals, uvs, grass, rock, rockThreshold, c00, c01, c11);
-                        AddTriangle(vertices, normals, uvs, grass, rock, rockThreshold, c00, c11, c10);
+                        AddTriangle(vertices, normals, uvs, colours, triangles, rockThreshold, c00, c01, c11);
+                        AddTriangle(vertices, normals, uvs, colours, triangles, rockThreshold, c00, c11, c10);
                     }
                     else
                     {
-                        AddTriangle(vertices, normals, uvs, grass, rock, rockThreshold, c00, c01, c10);
-                        AddTriangle(vertices, normals, uvs, grass, rock, rockThreshold, c01, c11, c10);
+                        AddTriangle(vertices, normals, uvs, colours, triangles, rockThreshold, c00, c01, c10);
+                        AddTriangle(vertices, normals, uvs, colours, triangles, rockThreshold, c01, c11, c10);
                     }
                 }
             }
@@ -301,9 +314,9 @@ namespace Horizon.World
             mesh.SetVertices(vertices);
             mesh.SetNormals(normals);
             mesh.SetUVs(0, uvs);
-            mesh.subMeshCount = TileSubmeshCount;
-            mesh.SetTriangles(grass, GrassSubmesh);
-            mesh.SetTriangles(rock, RockSubmesh);
+            mesh.SetColors(colours);
+            mesh.subMeshCount = 1;
+            mesh.SetTriangles(triangles, 0);
             mesh.RecalculateBounds();
             return mesh;
         }
@@ -331,8 +344,8 @@ namespace Horizon.World
             List<Vector3> vertices,
             List<Vector3> normals,
             List<Vector2> uvs,
-            List<int> grass,
-            List<int> rock,
+            List<Color32> colours,
+            List<int> triangles,
             float rockThreshold,
             Vector3 a,
             Vector3 b,
@@ -365,10 +378,18 @@ namespace Horizon.World
             uvs.Add(new Vector2(b.x, b.z) * 0.05f);
             uvs.Add(new Vector2(c.x, c.z) * 0.05f);
 
-            List<int> target = normal.y < rockThreshold ? rock : grass;
-            target.Add(baseIndex);
-            target.Add(baseIndex + 1);
-            target.Add(baseIndex + 2);
+            // Grass or rock as a colour rather than as a submesh. Every tile in the world used to pay
+            // two material slots for this whether or not it had a steep face on it — the one place
+            // MergeTinted's lesson had not been applied, and the only per-tile cost that grows with the
+            // size of the world rather than with the size of a town.
+            Color32 tint = normal.y < rockThreshold ? RockTint : GrassTint;
+            colours.Add(tint);
+            colours.Add(tint);
+            colours.Add(tint);
+
+            triangles.Add(baseIndex);
+            triangles.Add(baseIndex + 1);
+            triangles.Add(baseIndex + 2);
         }
     }
 }
