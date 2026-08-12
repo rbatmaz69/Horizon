@@ -32,10 +32,10 @@ namespace Horizon.World
         /// <summary>
         /// How far out from the median the link road runs where it meets the motorway.
         ///
-        /// <para>27 m puts the link's shoulder just <i>touching</i> the carriageway's, overlapping by
-        /// 0.25 m — the same <c>RibbonOverlap</c> the town's junction pads use where two paved surfaces
-        /// meet, and for the same reason: abutting exactly leaves a seam a raycast wheel can drop
-        /// through, while overlapping properly puts one mesh collider inside another.</para>
+        /// <para>25.75 m overlaps the carriageway's shoulder by 1.5 m. It was 27, which overlapped by
+        /// the town's <c>RibbonOverlap</c> of 0.25 — enough to stop a raycast wheel dropping through the
+        /// seam, which was all it was chosen for, and not enough to <i>read</i> as a join. A slip road
+        /// that merely touches the road it feeds looks like a slip road that stops next to it.</para>
         ///
         /// <para>It was 15 m, which laid the link's ribbon straight over the outer half of the
         /// carriageway. That reads as a merge in a screenshot and is two mesh colliders a few
@@ -55,10 +55,20 @@ namespace Horizon.World
         /// nearside carriageway. <c>StreetJunctionBuilder.AppendTrunkMouth</c> is the nearest existing
         /// model for building it properly.</para>
         /// </summary>
-        private const float MergeOffset = -27f;
+        private const float MergeOffset = -25.75f;
 
         /// <summary>Straight track before a tunnel portal, so the portal never sits in a curve.</summary>
         private const float PortalApproach = 90f;
+
+        /// <summary>
+        /// The motorway's grade where the link leaves it, percent.
+        ///
+        /// <para>Must match the first instruction of <see cref="AppendEastLeg"/>. The two are the same
+        /// number written twice, which is a thing to keep in step — but the alternative is the link
+        /// interrogating a course it is part of building, and a 0.45 m step between two touching ribbons
+        /// is easier to see in a diff than in a constructor.</para>
+        /// </summary>
+        private const float MotorwayGradeAtJunction = 0.3f;
 
         private static readonly Vector3 LinkOffset;
         private static readonly float LinkTurn;
@@ -175,12 +185,20 @@ namespace Horizon.World
         {
             // The taper: straight, parallel to the carriageway it is leaving, and <b>level</b>.
             //
-            // Level because of the terrain rather than because of how a slip road drives. For its whole
-            // length this runs 27 m from a road it is not yet clear of, and the ground between two roads
-            // that close is a blend of both their heights — so any climb here is a climb of the
-            // motorway's own verge with it. At 3 % over 130 m it stood 0.6 m proud of the carriageway.
-            // The climb belongs in the curve, once there is distance to absorb it.
-            builder.Straight(150f, 0f);
+            // On the motorway's own grade, not level and not the climb.
+            //
+            // Level was wrong in a way that is obvious once seen: the motorway rises at 0.3 % through
+            // the interchange and a level taper beside it is 0.45 m below the carriageway by the end of
+            // its 150 m. The two ribbons stopped touching, and a slip road that ends in a step is not
+            // connected to anything.
+            //
+            // It is not the *climb* either, and that is what the level version was protecting. This runs
+            // 26 m from a road it is not yet clear of, and the ground between two roads that close is a
+            // blend of both their heights — so a real climb here lifts the motorway's own verge with it,
+            // and at 3 % it stood 0.6 m proud of the carriageway. Matching the road it is leaving costs
+            // 0.45 m over the whole taper, which is a twentieth of that. The climb belongs in the curve,
+            // once there is distance to absorb it.
+            builder.Straight(150f, MotorwayGradeAtJunction);
 
             builder.Turn(220f, -100f, 3.6f);
             builder.Straight(180f, 2.6f);
