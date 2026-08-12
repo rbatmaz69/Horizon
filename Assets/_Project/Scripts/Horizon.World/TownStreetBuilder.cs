@@ -142,6 +142,24 @@ namespace Horizon.World
                     shape.HalfWidth = 4.4f;
                     shape.FootwayWidth = 2.8f;
                     break;
+
+                // Two lanes each way and a footway you could put café tables on. Note what this costs
+                // at a junction: HalfOuter is 12.5 m against the high street's 8.6, and ResolveTrims
+                // scales the third of its three terms with it, so a boulevard meeting anything at a
+                // shallow angle pulls its trim back a long way. The city's grid is squared up for that
+                // reason — a 90° crossing is the cheapest junction there is.
+                case TownStreetKind.Boulevard:
+                    shape.HalfWidth = 8.0f;
+                    shape.FootwayWidth = 4.5f;
+                    shape.KerbHeight = 0.17f;
+                    shape.Crown = 0.09f;
+                    break;
+
+                case TownStreetKind.CityStreet:
+                    shape.HalfWidth = 6.0f;
+                    shape.FootwayWidth = 3.0f;
+                    shape.KerbHeight = 0.16f;
+                    break;
             }
 
             return shape;

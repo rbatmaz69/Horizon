@@ -31,6 +31,12 @@ namespace Horizon.World
 
         Barn = 2,
         Sawmill = 3,
+
+        /// <summary>A city tower. What the skyline is made of.</summary>
+        Tower = 9,
+
+        /// <summary>A city perimeter block: a continuous street wall rather than a free-standing house.</summary>
+        Block = 10,
     }
 
     /// <summary>
@@ -125,7 +131,9 @@ namespace Horizon.World
             /// overlapped into one continuous bare strip down every street. A wall needs 8 m of clearance;
             /// a lawn needs none.
             /// </summary>
-            public float BuildingRadius => Kind == TownPlotKind.Mosque ? 16f
+            public float BuildingRadius => Kind == TownPlotKind.Tower ? 20f
+                : Kind == TownPlotKind.Block ? 13f
+                : Kind == TownPlotKind.Mosque ? 16f
                 : Kind == TownPlotKind.TownHall ? 15f
                 : Kind == TownPlotKind.Windmill ? 11f
                 : Kind == TownPlotKind.Barn ? 9f
@@ -301,6 +309,12 @@ namespace Horizon.World
         public int Windmills;
         public int Barns;
         public int Sawmills;
+
+        /// <summary>City towers, and what the skyline is counted in.</summary>
+        public int Towers;
+
+        /// <summary>City perimeter blocks.</summary>
+        public int Blocks;
         public int Fences;
         public int Lamps;
 
@@ -347,6 +361,8 @@ namespace Horizon.World
             Windmills += other.Windmills;
             Barns += other.Barns;
             Sawmills += other.Sawmills;
+            Towers += other.Towers;
+            Blocks += other.Blocks;
             Fences += other.Fences;
             Lamps += other.Lamps;
             Pools += other.Pools;
@@ -452,6 +468,19 @@ namespace Horizon.World
                     case TownQuarter.Green:
                         return new QuarterStyle(11f, 26f, 20f, 0.55f, 0.30f);
 
+                    // A tower needs a footprint several times a house's, and this is where it gets one:
+                    // 44 m of frontage and 40 m of depth against the old town's 12 by 16. The vacancy is
+                    // low because a gap in a skyline reads as a demolition rather than as a garden, and
+                    // the lit fraction is the highest in the world — an office block at night is the one
+                    // building that is more than half awake.
+                    case TownQuarter.Downtown:
+                        return new QuarterStyle(6f, 44f, 40f, 0.08f, 0.62f);
+
+                    // Perimeter blocks: shallow setback so the buildings make a continuous street wall,
+                    // and spacing close to their own width so the wall has no gaps in it.
+                    case TownQuarter.Commercial:
+                        return new QuarterStyle(2.5f, 26f, 22f, 0.05f, 0.50f);
+
                     default:
                         return new QuarterStyle(9f, 18f, 20f, 0.20f, 0.35f);
                 }
@@ -460,7 +489,10 @@ namespace Horizon.World
             /// <summary>True where the streets are lit at the closer of the two spacings.</summary>
             public static bool IsCore(TownQuarter quarter)
             {
-                return quarter == TownQuarter.OldTown || quarter == TownQuarter.Market;
+                return quarter == TownQuarter.OldTown
+                       || quarter == TownQuarter.Market
+                       || quarter == TownQuarter.Downtown
+                       || quarter == TownQuarter.Commercial;
             }
         }
 
@@ -528,11 +560,12 @@ namespace Horizon.World
 
                     QuarterStyle style = QuarterStyle.For(quarter);
 
-                    bool allowMill = !millPlaced && left && edge.Quarter == TownQuarter.Industry;
+                    bool allowMill = shape.Landmarks && !millPlaced && left
+                                     && edge.Quarter == TownQuarter.Industry;
 
                     int before = plots.Count;
                     AddFrontage(
-                        plots, edge, field, terrainShape, shape, style, from, to,
+                        plots, edge, field, terrainShape, shape, style, quarter, from, to,
                         i * 2 + s, left, allowMill);
 
                     for (int p = before; !millPlaced && p < plots.Count; p++)
@@ -544,7 +577,10 @@ namespace Horizon.World
                 AddStreetLamps(lamps, lampPools, edge, shape, i);
             }
 
-            AddMosque(plots, trunk, index, field, terrainShape, shape);
+            if (shape.Landmarks)
+            {
+                AddMosque(plots, trunk, index, field, terrainShape, shape);
+            }
 
             for (int i = 0; i < network.Squares.Count; i++)
             {
@@ -554,13 +590,15 @@ namespace Horizon.World
 
             // Lamps down the trunk road through the town, on the town side only. Poolless — see
             // TownLamp — because the pass is textured asphalt and a flat day colour cannot vanish into it.
-            for (float along = shape.AlongStart; along <= shape.AlongEnd; along += shape.LampSpacing)
+            for (float along = shape.AlongStart;
+                 shape.TrunkLamps && along <= shape.AlongEnd;
+                 along += shape.LampSpacing)
             {
                 float clamped = Mathf.Clamp(along, 0f, trunk.Length);
                 Vector3 centre = trunk.GetPositionAtDistance(clamped);
                 Vector3 right = trunk.GetRightAtDistance(clamped);
 
-                Vector3 at = centre + right * (RoadShape.Default.OuterHalfWidth + 1.6f) * side;
+                Vector3 at = centre + right * (shape.TrunkHalfWidth + 1.6f) * side;
                 TerrainTileBuilder.SampleSurface(field, terrainShape, at.x, at.z,
                     out Vector3 point, out Vector3 _);
 
@@ -947,7 +985,7 @@ namespace Horizon.World
         private static void ClearStreets(
             List<TownPlan.Plot> plots, StreetIndex index, IRoadPath trunk, in TownShape shape)
         {
-            float trunkClearance = RoadShape.Default.OuterHalfWidth + 6f;
+            float trunkClearance = shape.TrunkHalfWidth + 6f;
 
             for (int i = plots.Count - 1; i >= 0; i--)
             {
@@ -993,6 +1031,7 @@ namespace Horizon.World
             in TerrainShape terrainShape,
             in TownShape shape,
             in QuarterStyle style,
+            TownQuarter quarter,
             float from,
             float to,
             int frontageId,
@@ -1026,10 +1065,21 @@ namespace Horizon.World
                     continue;
                 }
 
+                // What stands on the plot follows from the quarter, not from the town. That is what lets
+                // one planner build a village and a city: a downtown frontage is the same code with a
+                // different QuarterStyle in front of it and a different recipe behind it.
                 var kind = TownPlotKind.House;
                 if (mill)
                 {
                     kind = TownPlotKind.Windmill;
+                }
+                else if (quarter == TownQuarter.Downtown)
+                {
+                    kind = TownPlotKind.Tower;
+                }
+                else if (quarter == TownQuarter.Commercial)
+                {
+                    kind = TownPlotKind.Block;
                 }
                 else if (random.Chance(shape.WorkingBuildingChance))
                 {
@@ -1039,6 +1089,8 @@ namespace Horizon.World
                     kind = random.Chance(0.6f) ? TownPlotKind.Barn : TownPlotKind.Sawmill;
                 }
 
+                // Towers and blocks hold their line: a skyline whose feet wander looks like subsidence,
+                // and a perimeter block with a gap in it is not a perimeter block.
                 bool landmark = kind != TownPlotKind.House;
                 float jitter = landmark ? 0f : random.Range(-1.5f, 1.5f);
 
@@ -1135,6 +1187,18 @@ namespace Horizon.World
                     case TownPlotKind.Sawmill:
                         MillMeshes.AddSawmill(buffer, place);
                         stats.Sawmills++;
+                        continue;
+
+                    // No garden and no parked car for either of these — a tower stands on its plot to
+                    // the kerb, and the fence-and-lawn treatment below is what a cottage has.
+                    case TownPlotKind.Tower:
+                        BuildingMeshes.AddTower(buffer, place, plot.LitChance);
+                        stats.Towers++;
+                        continue;
+
+                    case TownPlotKind.Block:
+                        BuildingMeshes.AddPerimeterBlock(buffer, place, plot.LitChance);
+                        stats.Blocks++;
                         continue;
                 }
 

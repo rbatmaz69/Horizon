@@ -191,6 +191,227 @@ namespace Horizon.World
         /// <summary>How deep a window sits back into the wall. This is what gives a façade a shadow.</summary>
         private const float Reveal = 0.16f;
 
+        /// <summary>Floor-to-floor height in the city, metres.</summary>
+        private const float Storey = 3.4f;
+
+        /// <summary>
+        /// A city tower: podium, shaft with a setback or two, parapet, and a band of glass per storey.
+        ///
+        /// <para><b>Why a tower is not a scaled-up house.</b> <see cref="AddHouse"/> is a gable-roofed
+        /// recipe with a door and a window grid — enlarging it gives a very big cottage. What reads as a
+        /// tower from a car is three things: a flat top with a parapet, horizontal banding rather than
+        /// punched openings, and a silhouette that steps back as it rises. That is all this builds.</para>
+        ///
+        /// <para><b>The bands must be glass submeshes.</b> Each band rolls
+        /// <see cref="GlassSubmesh"/> independently per face per storey, which is what gives a night
+        /// skyline its chequer — and it only works because those two submeshes are the ones
+        /// <see cref="OpaqueTints"/> leaves out of the tinted merge, so <c>TownLights</c> can still swap
+        /// their material at dusk. Put a band anywhere else and the tower is dark all night.</para>
+        ///
+        /// <para>Roughly 200 triangles at twenty storeys, and no draw call of its own: it lands in the
+        /// same three the town already pays.</para>
+        /// </summary>
+        public static void AddTower(VegetationMeshBuffer buffer, in PlantPlacement place, float litChance)
+        {
+            var random = new PlantRandom(place.Seed);
+
+            int wall = WallSubmesh((int)(place.Seed % WallVariants));
+
+            float halfWidth = random.Range(9f, 13f);
+            float halfDepth = random.Range(8f, 11f);
+
+            // Height carries the skyline, so it is drawn over a wide range and skewed tall — squaring a
+            // 0..1 roll and reading it upwards makes most towers middling and a few genuinely dominant,
+            // which is the shape of a real skyline. A uniform roll gives a row of near-identical slabs.
+            float tall = random.Range(0f, 1f);
+            int storeys = Mathf.RoundToInt(Mathf.Lerp(7f, 23f, 1f - tall * tall));
+
+            // Podium: full footprint, taller floors, and it is what the street actually sees.
+            const int podiumStoreys = 2;
+            float podiumHeight = podiumStoreys * Storey * 1.25f;
+
+            AddBox(buffer, place, wall, 0f, 0f, 0f, halfWidth, podiumHeight, halfDepth);
+            AddGlassBands(buffer, place, 0f, 0f, halfWidth, halfDepth,
+                podiumStoreys, Storey * 1.25f, litChance, ref random);
+
+            // A lip over the podium, so the shaft does not simply continue out of it.
+            AddBox(buffer, place, TrimSubmesh, 0f, podiumHeight, 0f,
+                halfWidth + 0.25f, 0.35f, halfDepth + 0.25f);
+
+            float baseY = podiumHeight + 0.35f;
+            int remaining = storeys;
+            int setbacks = random.Chance(0.55f) ? 2 : 1;
+
+            for (int stage = 0; stage < setbacks && remaining > 0; stage++)
+            {
+                bool last = stage == setbacks - 1;
+                int stageStoreys = last ? remaining : Mathf.Max(2, remaining / 2);
+                remaining -= stageStoreys;
+
+                float shrink = stage == 0 ? 0.86f : 0.74f;
+                float stageHalfWidth = halfWidth * shrink;
+                float stageHalfDepth = halfDepth * shrink;
+                float stageHeight = stageStoreys * Storey;
+
+                AddBox(buffer, place, wall, 0f, baseY, 0f,
+                    stageHalfWidth, stageHeight, stageHalfDepth);
+
+                AddGlassBands(buffer, place, baseY, 0f, stageHalfWidth, stageHalfDepth,
+                    stageStoreys, Storey, litChance, ref random);
+
+                baseY += stageHeight;
+
+                // Parapet on the last stage only; the others are hidden by the stage above.
+                if (last)
+                {
+                    AddBox(buffer, place, TrimSubmesh, 0f, baseY, 0f,
+                        stageHalfWidth + 0.2f, 0.9f, stageHalfDepth + 0.2f);
+                    AddRoofPlant(buffer, place, baseY, stageHalfWidth, stageHalfDepth, ref random);
+                }
+            }
+        }
+
+        /// <summary>
+        /// A perimeter block: a continuous street wall with a shopfront at the bottom and a flat top.
+        ///
+        /// <para>Wide and shallow rather than square, because what it is for is to stand shoulder to
+        /// shoulder with its neighbours and make a street out of them. The <c>Commercial</c> quarter's
+        /// spacing is barely wider than this, which is what closes the wall up.</para>
+        /// </summary>
+        public static void AddPerimeterBlock(
+            VegetationMeshBuffer buffer, in PlantPlacement place, float litChance)
+        {
+            var random = new PlantRandom(place.Seed);
+
+            int wall = WallSubmesh((int)(place.Seed % WallVariants));
+
+            float halfWidth = random.Range(11f, 13.5f);
+            float halfDepth = random.Range(7f, 9.5f);
+            int storeys = random.Range(0f, 1f) < 0.35f ? 6 : random.Range(0f, 1f) < 0.6f ? 5 : 4;
+
+            const float groundHeight = 4.4f;
+            float upperHeight = (storeys - 1) * Storey;
+
+            // The shopfront: its own band, mostly glass, and set slightly proud so the storeys above
+            // read as sitting on it rather than as starting at the pavement.
+            AddBox(buffer, place, TrimSubmesh, 0f, 0f, 0f,
+                halfWidth + 0.2f, groundHeight, halfDepth + 0.2f);
+            AddGlassBands(buffer, place, 0f, 0.25f, halfWidth + 0.2f, halfDepth + 0.2f,
+                1, groundHeight, litChance, ref random);
+
+            AddBox(buffer, place, wall, 0f, groundHeight, 0f, halfWidth, upperHeight, halfDepth);
+            AddGlassBands(buffer, place, groundHeight, 0f, halfWidth, halfDepth,
+                storeys - 1, Storey, litChance, ref random);
+
+            // Cornice and parapet. Two thin boxes are what stop a flat-topped block reading as an
+            // extruded rectangle, and they cost twenty triangles.
+            AddBox(buffer, place, AccentSubmesh, 0f, groundHeight + upperHeight, 0f,
+                halfWidth + 0.35f, 0.4f, halfDepth + 0.35f);
+            AddBox(buffer, place, TrimSubmesh, 0f, groundHeight + upperHeight + 0.4f, 0f,
+                halfWidth + 0.1f, 0.7f, halfDepth + 0.1f);
+        }
+
+        /// <summary>
+        /// One horizontal band of glass per storey, on all four faces, each rolled for lit or dark
+        /// independently.
+        ///
+        /// <para>Standing 4 cm proud of the wall rather than inset. A recess would be truer to a real
+        /// façade and would need its own reveal geometry on every band — four extra quads a storey for a
+        /// shadow line nobody resolves from a moving car. Proud is one quad and never z-fights.</para>
+        /// </summary>
+        private static void AddGlassBands(
+            VegetationMeshBuffer buffer,
+            in PlantPlacement place,
+            float baseY,
+            float inset,
+            float halfWidth,
+            float halfDepth,
+            int storeys,
+            float storeyHeight,
+            float litChance,
+            ref PlantRandom random)
+        {
+            const float proud = 0.04f;
+            float bandHeight = storeyHeight * 0.55f;
+
+            float x = halfWidth - inset + proud;
+            float z = halfDepth - inset + proud;
+
+            for (int i = 0; i < storeys; i++)
+            {
+                float y0 = baseY + i * storeyHeight + storeyHeight * 0.28f;
+                float y1 = y0 + bandHeight;
+
+                AddBandFace(buffer, place, GlassSubmesh(ref random, litChance),
+                    -halfWidth * 0.86f, halfWidth * 0.86f, y0, y1, z, true);
+                AddBandFace(buffer, place, GlassSubmesh(ref random, litChance),
+                    -halfWidth * 0.86f, halfWidth * 0.86f, y0, y1, -z, false);
+                AddBandFace(buffer, place, GlassSubmesh(ref random, litChance),
+                    -halfDepth * 0.86f, halfDepth * 0.86f, y0, y1, x, true, sideways: true);
+                AddBandFace(buffer, place, GlassSubmesh(ref random, litChance),
+                    -halfDepth * 0.86f, halfDepth * 0.86f, y0, y1, -x, false, sideways: true);
+            }
+        }
+
+        private static void AddBandFace(
+            VegetationMeshBuffer buffer,
+            in PlantPlacement place,
+            int submesh,
+            float from,
+            float to,
+            float y0,
+            float y1,
+            float offset,
+            bool positive,
+            bool sideways = false)
+        {
+            Vector3 a, b, c, d;
+
+            if (sideways)
+            {
+                a = place.ToWorld(offset, y0, from);
+                b = place.ToWorld(offset, y0, to);
+                c = place.ToWorld(offset, y1, to);
+                d = place.ToWorld(offset, y1, from);
+            }
+            else
+            {
+                a = place.ToWorld(from, y0, offset);
+                b = place.ToWorld(to, y0, offset);
+                c = place.ToWorld(to, y1, offset);
+                d = place.ToWorld(from, y1, offset);
+            }
+
+            Vector3 outward = sideways
+                ? (positive ? place.Right : -place.Right)
+                : (positive ? place.Forward : -place.Forward);
+
+            buffer.AddQuadFacing(submesh, a, b, c, d, outward);
+        }
+
+        /// <summary>Lift housing and a mast. The thing that stops every tower ending in the same flat line.</summary>
+        private static void AddRoofPlant(
+            VegetationMeshBuffer buffer,
+            in PlantPlacement place,
+            float baseY,
+            float halfWidth,
+            float halfDepth,
+            ref PlantRandom random)
+        {
+            float boxHalfWidth = halfWidth * random.Range(0.3f, 0.5f);
+            float boxHalfDepth = halfDepth * random.Range(0.3f, 0.5f);
+            float offsetX = random.Range(-halfWidth * 0.3f, halfWidth * 0.3f);
+
+            AddBox(buffer, place, TrimSubmesh, offsetX, baseY, 0f,
+                boxHalfWidth, random.Range(2.2f, 3.6f), boxHalfDepth);
+
+            if (random.Chance(0.45f))
+            {
+                AddBox(buffer, place, AccentSubmesh, offsetX, baseY + 3.6f, 0f,
+                    0.18f, random.Range(5f, 11f), 0.18f);
+            }
+        }
+
         /// <summary>
         /// A detached house: plinth, walls, a pitched roof with eaves, a door and a grid of windows.
         /// About 70 triangles.

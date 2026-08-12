@@ -101,7 +101,23 @@ namespace Horizon.World
             MainStartHeading = LinkStartHeading - WestTurn;
             MainStart = JunctionPoint - Quaternion.Euler(0f, MainStartHeading, 0f) * WestOffset;
             JunctionDistance = walkedWest.PlannedLength;
+
+            // Where the road runs out, measured rather than looked up, so whatever HochstadtCourse
+            // grafts onto it stays attached when either leg is retuned.
+            var full = new RoadCourseBuilder(MainStart, MainStartHeading);
+            AppendWestLeg(full);
+            AppendEastLeg(full);
+
+            RoadCourse walked = full.Build();
+            EndPoint = walked.ControlPoints[walked.ControlPoints.Count - 1];
+            EndHeading = full.HeadingDegrees;
         }
+
+        /// <summary>The far end of the motorway, on the median line — where the city begins.</summary>
+        public static Vector3 EndPoint { get; }
+
+        /// <summary>Heading there. 0 faces +Z, increasing turns towards +X.</summary>
+        public static float EndHeading { get; }
 
         /// <summary>Where the link road meets the motorway, on the median line.</summary>
         public static Vector3 JunctionPoint { get; }

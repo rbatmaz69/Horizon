@@ -159,6 +159,104 @@ namespace Horizon.World
             // 2.5 m around a wall, not 15 m around a whole plot. The old pair sterilised the place.
             PlotClearance = 2.5f,
             TreeKeepOut = 4f,
+
+            TrunkHalfWidth = RoadShape.Default.OuterHalfWidth,
+            TrunkLamps = true,
+            Landmarks = true,
+        };
+
+        /// <summary>
+        /// Half-width of the trunk road this town hangs on, shoulders included.
+        ///
+        /// <para>Was <c>RoadShape.Default.OuterHalfWidth</c> read straight out of the two places that
+        /// needed it, which is correct for exactly one road. A town on a motorway measures its plot
+        /// clearance and its lamp line against a carriageway twice as wide, and reading the pass's figure
+        /// there puts buildings on the hard shoulder.</para>
+        /// </summary>
+        public float TrunkHalfWidth;
+
+        /// <summary>
+        /// Whether to line the trunk road through the town with street lamps.
+        ///
+        /// <para>True for a village the road runs through, false for a town hung off a motorway — the
+        /// lamp loop is unconditional and would otherwise stand a row of village lanterns down the hard
+        /// shoulder of a dual carriageway.</para>
+        /// </summary>
+        public bool TrunkLamps;
+
+        /// <summary>
+        /// Whether this town gets Talheim's set-piece buildings: the mosque on the high ground and the
+        /// windmill on the first industrial frontage.
+        ///
+        /// <para>They are placed by rules written for a village — <c>AddMosque</c> searches a one-sided
+        /// band of the basin for the highest ground — and a city wants its own landmarks rather than
+        /// these ones dropped into it.</para>
+        /// </summary>
+        public bool Landmarks;
+
+        /// <summary>
+        /// Hochstadt: a city on both sides of a straight arterial.
+        ///
+        /// <para><b>Both sides, and that is the interesting difference.</b> Talheim sits entirely on one
+        /// side of the pass because a village on a mountain road does, and because <c>TownSide</c> made
+        /// that cheap. A city has the road through the middle of it — so the across range runs negative
+        /// to positive, and <c>TownSide</c> is +1 only because the sign has to be something.</para>
+        ///
+        /// <para>Everything here that would fold on a bend is safe because
+        /// <see cref="HochstadtCourse"/> is dead straight: <c>LimitAcross</c> caps a town at
+        /// <c>0.65·R</c>, and on a straight <c>R</c> is infinite. That one property is what makes a
+        /// kilometre-wide town possible at all, and it is why the city has its own arterial instead of
+        /// hanging off the motorway.</para>
+        /// </summary>
+        public static TownShape Hochstadt => new TownShape
+        {
+            AlongStart = HochstadtCourse.CityStart,
+            AlongEnd = HochstadtCourse.CityEnd,
+
+            TownSide = 1f,
+            AcrossInner = -HochstadtCourse.HalfWidth,
+            AcrossOuter = HochstadtCourse.HalfWidth,
+
+            SamplePitch = 28f,
+
+            // Flatter than the village, and much flatter far out. A city floor that rose 4.5 m at its
+            // edge the way Talheim's does would climb 13 m over a kilometre, and a grid of straight
+            // streets on that reads as a fault line rather than as a hill.
+            CrossFallNear = 0.006f,
+            CrossFallFar = 0.004f,
+            CrossFallBreak = 200f,
+
+            // Half the village's dish over twice the wavelength: enough that the ground is not a table,
+            // little enough that a straight boulevard stays straight.
+            DishAmplitude = 0.4f,
+            DishWavelength = 600f,
+
+            SkirtFirstRise = 3f,
+            SkirtSecondRise = 9f,
+
+            CorridorMargin = 60f,
+            MaxTrianglesPerTile = 30000,
+
+            PlotSetback = 16f,
+            ParkedCarChance = 0.35f,
+
+            LampSpacing = 42f,
+            LampSpacingCore = 30f,
+            LampSpacingOuter = 45f,
+
+            // No barns and no sawmills in a city centre.
+            WorkingBuildingChance = 0f,
+
+            PlotClearance = 2.5f,
+            TreeKeepOut = 4f,
+
+            // The arterial is a motorway-width boulevard, not a country road.
+            TrunkHalfWidth = RoadShape.Autobahn.OuterHalfWidth,
+
+            // Its own street lamps come from the street network; the arterial does not want a row of
+            // village lanterns down it, and the city has no set-piece mosque or windmill.
+            TrunkLamps = false,
+            Landmarks = false,
         };
 
         /// <summary>Which way the town lies from the trunk road, as a clean ±1.</summary>

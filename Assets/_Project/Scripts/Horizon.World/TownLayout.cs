@@ -48,6 +48,18 @@ namespace Horizon.World
 
         /// <summary>An edge of the market square. Paved to the building line.</summary>
         SquareEdge = 4,
+
+        /// <summary>
+        /// A city boulevard: two lanes each way with a broad footway. The widest thing here.
+        ///
+        /// <para>Wider than <see cref="HighStreet"/> by enough to read as a different order of road
+        /// rather than as a generous version of the same one — which is what tells you, from the car,
+        /// that you have arrived somewhere bigger than Talheim.</para>
+        /// </summary>
+        Boulevard = 5,
+
+        /// <summary>A city through street. Between a boulevard and an avenue.</summary>
+        CityStreet = 6,
     }
 
     /// <summary>
@@ -63,6 +75,18 @@ namespace Horizon.World
         Industry = 2,
         Market = 3,
         Green = 4,
+
+        /// <summary>
+        /// The city core: towers on deep plots, set well back from a wide street.
+        ///
+        /// <para>The plot geometry is what makes this a different kind of place, not the building
+        /// recipe. <c>QuarterStyle</c> hands out the frontage, and a tower needs a footprint several
+        /// times a house's — so a quarter is where "this is downtown" is actually decided.</para>
+        /// </summary>
+        Downtown = 5,
+
+        /// <summary>The city's perimeter-block belt: continuous street walls, shallow setback.</summary>
+        Commercial = 6,
     }
 
     /// <summary>One junction or dead end in the layout table.</summary>
