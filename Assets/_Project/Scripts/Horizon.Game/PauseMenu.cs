@@ -1,3 +1,4 @@
+using Horizon.Atmosphere;
 using Horizon.Input;
 using Horizon.Vehicle;
 using UnityEngine;
@@ -22,12 +23,27 @@ namespace Horizon.Game
         [Header("Panels")]
         [SerializeField] private GameObject menuPanel;
         [SerializeField] private GameObject settingsPanel;
+        [SerializeField] private GameObject startPanel;
         [SerializeField] private GameObject pauseButton;
 
         [Header("Settings widgets")]
         [SerializeField] private Text schemeLabel;
         [SerializeField] private Slider sensitivitySlider;
         [SerializeField] private GameObject recalibrateButton;
+
+        [Header("Start widgets")]
+        [SerializeField] private Slider timeSlider;
+        [SerializeField] private Text timeLabel;
+
+        /// <summary>
+        /// Where the player may choose to begin, worked out at build time from the courses themselves.
+        ///
+        /// <para>Baked rather than found at run time because only the setup tool knows where anything
+        /// is: a summit is a distance along a course, a city gateway is a node in a layout table, and
+        /// neither is discoverable from a finished scene without re-deriving the thing that placed it.
+        /// The same reason the spawn point itself has always been computed there.</para>
+        /// </summary>
+        [SerializeField] private SpawnPoint[] spawnPoints = new SpawnPoint[0];
 
         private const string SensitivityKey = "Horizon.SteerSensitivity";
 
@@ -40,6 +56,7 @@ namespace Horizon.Game
         private const string LegacyTiltRangeKey = "Horizon.TiltRangeDegrees";
 
         private VehicleController vehicle;
+        private TimeOfDayController timeOfDay;
         private Vector3 spawnPosition;
         private Quaternion spawnRotation;
         private bool spawnCaptured;
@@ -99,6 +116,11 @@ namespace Horizon.Game
                 settingsPanel.SetActive(false);
             }
 
+            if (startPanel != null && !value)
+            {
+                startPanel.SetActive(false);
+            }
+
             if (pauseButton != null)
             {
                 pauseButton.SetActive(!value);
@@ -147,6 +169,121 @@ namespace Horizon.Game
             {
                 menuPanel.SetActive(true);
             }
+        }
+
+        /// <summary>Shows the start panel, hiding the pause menu behind it. See <see cref="OpenSettings"/>.</summary>
+        public void OpenStart()
+        {
+            if (menuPanel != null)
+            {
+                menuPanel.SetActive(false);
+            }
+
+            if (startPanel != null)
+            {
+                startPanel.SetActive(true);
+            }
+
+            RefreshStart();
+        }
+
+        /// <summary>Back to the pause menu.</summary>
+        public void CloseStart()
+        {
+            if (startPanel != null)
+            {
+                startPanel.SetActive(false);
+            }
+
+            if (menuPanel != null && IsPaused)
+            {
+                menuPanel.SetActive(true);
+            }
+        }
+
+        /// <summary>
+        /// Puts the car at one of the chosen starting places and resumes.
+        ///
+        /// <para>Wired to each button with the index baked into the event, so one method serves all of
+        /// them and adding a fifth place is a row in the table rather than a method here.</para>
+        /// </summary>
+        public void StartAt(int index)
+        {
+            if (vehicle == null || spawnPoints == null
+                || index < 0 || index >= spawnPoints.Length)
+            {
+                return;
+            }
+
+            SpawnPoint point = spawnPoints[index];
+
+            // Through the vehicle rather than the transform: Teleport clears the momentum and resets the
+            // suspension, and a car dropped somewhere else still carrying 200 km/h of it arrives
+            // sideways. It is also what the respawn button has always used.
+            vehicle.Teleport(point.Position, point.Rotation);
+
+            // The new place becomes what the respawn button means, or "put the car back" would send you
+            // to a village you left twenty kilometres ago.
+            spawnPosition = point.Position;
+            spawnRotation = point.Rotation;
+
+            Resume();
+        }
+
+        /// <summary>
+        /// Sets the hour of the day.
+        ///
+        /// <para>The clock keeps running from wherever it is put — this is a way to see the place at
+        /// dusk, not a pause button for the sun. <c>TimeOfDayController.DayLengthMinutes</c> is what
+        /// decides how long it stays there.</para>
+        /// </summary>
+        public void OnTimeOfDayChanged(float hours)
+        {
+            if (timeOfDay == null)
+            {
+                timeOfDay = FindFirstObjectByType<TimeOfDayController>();
+            }
+
+            if (timeOfDay == null)
+            {
+                return;
+            }
+
+            timeOfDay.TimeOfDayHours = Mathf.Repeat(hours, 24f);
+            timeOfDay.Apply();
+
+            ShowTime(timeOfDay.TimeOfDayHours);
+        }
+
+        private void RefreshStart()
+        {
+            if (timeOfDay == null)
+            {
+                timeOfDay = FindFirstObjectByType<TimeOfDayController>();
+            }
+
+            if (timeOfDay == null)
+            {
+                return;
+            }
+
+            // Without notify: the clock has moved on since the panel was last open, and writing the
+            // slider back would otherwise fire the listener and re-set the time to itself.
+            timeSlider?.SetValueWithoutNotify(timeOfDay.TimeOfDayHours);
+            ShowTime(timeOfDay.TimeOfDayHours);
+        }
+
+        private void ShowTime(float hours)
+        {
+            if (timeLabel == null)
+            {
+                return;
+            }
+
+            int hour = Mathf.FloorToInt(hours) % 24;
+            int minute = Mathf.FloorToInt((hours - Mathf.Floor(hours)) * 60f);
+
+            timeLabel.text = $"{hour:00}:{minute:00}";
         }
 
         /// <summary>Steps through the steering methods. Wired to one button rather than four.</summary>

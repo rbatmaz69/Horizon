@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Horizon.Game;
 using Horizon.Input;
 using UnityEditor;
@@ -77,7 +78,7 @@ namespace Horizon.EditorTools
         /// <summary>
         /// Creates the canvas, the driving controls and the menu, and wires them to the router.
         /// </summary>
-        public static void Build(GameObject root, DriveInputRouter router)
+        public static void Build(GameObject root, DriveInputRouter router, IReadOnlyList<string> spawnNames)
         {
             EnsureEventSystem(root);
 
@@ -107,10 +108,7 @@ namespace Horizon.EditorTools
 
             // --- Menu.
             GameObject pauseButton = BuildPauseButton(safe, box);
-            GameObject menuPanel = BuildMenuPanel(safe, box, out GameObject settingsPanel,
-                out Text schemeLabel, out Slider sensitivity, out GameObject recalibrate,
-                out Button resume, out Button openSettings, out Button closeSettings,
-                out Button cycleSteering, out Button cyclePedals, out Button respawn);
+            MenuParts parts = BuildMenuPanel(safe, box, spawnNames);
 
             TouchControlsHud hud = canvas.gameObject.AddComponent<TouchControlsHud>();
             PauseMenu menu = canvas.gameObject.AddComponent<PauseMenu>();
@@ -130,31 +128,50 @@ namespace Horizon.EditorTools
             {
                 serialized.FindProperty("router").objectReferenceValue = router;
                 serialized.FindProperty("hud").objectReferenceValue = hud;
-                serialized.FindProperty("menuPanel").objectReferenceValue = menuPanel;
-                serialized.FindProperty("settingsPanel").objectReferenceValue = settingsPanel;
+                serialized.FindProperty("menuPanel").objectReferenceValue = parts.MenuPanel;
+                serialized.FindProperty("settingsPanel").objectReferenceValue = parts.SettingsPanel;
+                serialized.FindProperty("startPanel").objectReferenceValue = parts.StartPanel;
                 serialized.FindProperty("pauseButton").objectReferenceValue = pauseButton;
-                serialized.FindProperty("schemeLabel").objectReferenceValue = schemeLabel;
-                serialized.FindProperty("sensitivitySlider").objectReferenceValue = sensitivity;
-                serialized.FindProperty("recalibrateButton").objectReferenceValue = recalibrate;
+                serialized.FindProperty("schemeLabel").objectReferenceValue = parts.SchemeLabel;
+                serialized.FindProperty("sensitivitySlider").objectReferenceValue = parts.Sensitivity;
+                serialized.FindProperty("recalibrateButton").objectReferenceValue = parts.Recalibrate;
+                serialized.FindProperty("timeSlider").objectReferenceValue = parts.TimeSlider;
+                serialized.FindProperty("timeLabel").objectReferenceValue = parts.TimeLabel;
             });
 
             // Persistent listeners, so the wiring is saved into the scene rather than being rebuilt at
             // run time — the same reason everything else here goes through SerializedObject.
             Bind(pauseButton.GetComponent<Button>(), menu, nameof(PauseMenu.Toggle));
-            Bind(resume, menu, nameof(PauseMenu.Resume));
-            Bind(openSettings, menu, nameof(PauseMenu.OpenSettings));
-            Bind(closeSettings, menu, nameof(PauseMenu.CloseSettings));
-            Bind(cycleSteering, menu, nameof(PauseMenu.CycleSteering));
-            Bind(cyclePedals, menu, nameof(PauseMenu.CyclePedals));
-            Bind(recalibrate.GetComponent<Button>(), menu, nameof(PauseMenu.RecalibrateTilt));
-            Bind(respawn, menu, nameof(PauseMenu.Respawn));
+            Bind(parts.Resume, menu, nameof(PauseMenu.Resume));
+            Bind(parts.OpenSettings, menu, nameof(PauseMenu.OpenSettings));
+            Bind(parts.CloseSettings, menu, nameof(PauseMenu.CloseSettings));
+            Bind(parts.OpenStart, menu, nameof(PauseMenu.OpenStart));
+            Bind(parts.CloseStart, menu, nameof(PauseMenu.CloseStart));
+            Bind(parts.CycleSteering, menu, nameof(PauseMenu.CycleSteering));
+            Bind(parts.CyclePedals, menu, nameof(PauseMenu.CyclePedals));
+            Bind(parts.Recalibrate.GetComponent<Button>(), menu, nameof(PauseMenu.RecalibrateTilt));
+            Bind(parts.Respawn, menu, nameof(PauseMenu.Respawn));
 
             UnityEditor.Events.UnityEventTools.AddPersistentListener(
-                sensitivity.onValueChanged,
+                parts.Sensitivity.onValueChanged,
                 new UnityEngine.Events.UnityAction<float>(menu.OnSteerSensitivityChanged));
 
-            menuPanel.SetActive(false);
-            settingsPanel.SetActive(false);
+            UnityEditor.Events.UnityEventTools.AddPersistentListener(
+                parts.TimeSlider.onValueChanged,
+                new UnityEngine.Events.UnityAction<float>(menu.OnTimeOfDayChanged));
+
+            // The index is baked into the saved event, so one method on PauseMenu serves every place and
+            // adding a fifth is a row in the spawn table rather than a method here.
+            for (int i = 0; i < parts.StartButtons.Count; i++)
+            {
+                UnityEditor.Events.UnityEventTools.AddIntPersistentListener(
+                    parts.StartButtons[i].onClick,
+                    new UnityEngine.Events.UnityAction<int>(menu.StartAt), i);
+            }
+
+            parts.MenuPanel.SetActive(false);
+            parts.SettingsPanel.SetActive(false);
+            parts.StartPanel.SetActive(false);
         }
 
         private static void Bind(Button button, PauseMenu menu, string method)
@@ -373,49 +390,120 @@ namespace Horizon.EditorTools
         /// group and a content-size fitter make the height a consequence of the rows instead of a fourth
         /// number to keep in step, so hiding a row closes its gap and the panel shrinks to fit.</para>
         /// </summary>
-        private static GameObject BuildMenuPanel(
-            RectTransform parent,
-            Sprite box,
-            out GameObject settingsPanel,
-            out Text schemeLabel,
-            out Slider sensitivity,
-            out GameObject recalibrate,
-            out Button resume,
-            out Button openSettings,
-            out Button closeSettings,
-            out Button cycleSteering,
-            out Button cyclePedals,
-            out Button respawn)
+        /// <summary>
+        /// Everything the menu build produces that has to be wired afterwards.
+        ///
+        /// <para>A record rather than a dozen <c>out</c> parameters, which is what this was. A signature
+        /// with twelve of them is one nobody can add a thirteenth to without counting, and the start
+        /// panel needed six more.</para>
+        /// </summary>
+        private sealed class MenuParts
         {
+            public GameObject MenuPanel;
+            public GameObject SettingsPanel;
+            public GameObject StartPanel;
+
+            public Text SchemeLabel;
+            public Slider Sensitivity;
+            public GameObject Recalibrate;
+
+            public Slider TimeSlider;
+            public Text TimeLabel;
+
+            public Button Resume;
+            public Button OpenSettings;
+            public Button CloseSettings;
+            public Button OpenStart;
+            public Button CloseStart;
+            public Button CycleSteering;
+            public Button CyclePedals;
+            public Button Respawn;
+
+            public readonly List<Button> StartButtons = new List<Button>(6);
+        }
+
+        /// <summary>
+        /// The pause menu and the two panels behind it.
+        ///
+        /// <para>All three are siblings at the same depth, which is why opening one has to hide the
+        /// others — see <c>PauseMenu.OpenSettings</c>. Leaving two up draws two lots of translucent
+        /// panel and two sets of buttons through each other and neither can be read.</para>
+        /// </summary>
+        private static MenuParts BuildMenuPanel(
+            RectTransform parent, Sprite box, IReadOnlyList<string> spawnNames)
+        {
+            var parts = new MenuParts();
+
             RectTransform panel = StackPanel(parent, "PauseMenu", box, 720f);
 
             MenuLabel(panel, "PAUSED", 48, 66f);
 
-            resume = MenuButton(panel, "Resume", box, "Resume");
-            openSettings = MenuButton(panel, "Controls", box, "Controls");
-            respawn = MenuButton(panel, "Respawn", box, "Put the car back");
+            parts.Resume = MenuButton(panel, "Resume", box, "Resume");
+            parts.OpenStart = MenuButton(panel, "Start", box, "Start somewhere else");
+            parts.OpenSettings = MenuButton(panel, "Controls", box, "Controls");
+            parts.Respawn = MenuButton(panel, "Respawn", box, "Put the car back");
 
             // --- Settings, a second panel over the first.
             RectTransform settings = StackPanel(parent, "SettingsPanel", box, 860f);
 
             MenuLabel(settings, "CONTROLS", 44, 60f);
-            schemeLabel = MenuLabel(settings, "—", 30, 42f);
+            parts.SchemeLabel = MenuLabel(settings, "—", 30, 42f);
 
-            cycleSteering = MenuButton(settings, "Steering", box, "Steering: change");
-            cyclePedals = MenuButton(settings, "Throttle", box, "Throttle: change");
+            parts.CycleSteering = MenuButton(settings, "Steering", box, "Steering: change");
+            parts.CyclePedals = MenuButton(settings, "Throttle", box, "Throttle: change");
 
             // Hidden outside the tilt scheme, and the only row that is — everything below applies to
             // whatever the player is steering with. The layout group closes the gap when it goes.
             Button recalibrateButton = MenuButton(settings, "Recalibrate", box, "Recalibrate tilt");
-            recalibrate = recalibrateButton.gameObject;
+            parts.Recalibrate = recalibrateButton.gameObject;
 
             MenuLabel(settings, "Steering sensitivity", 26, 38f);
-            sensitivity = BuildSensitivitySlider(settings, box);
+            parts.Sensitivity = BuildSensitivitySlider(settings, box);
 
-            closeSettings = MenuButton(settings, "Back", box, "Back");
+            parts.CloseSettings = MenuButton(settings, "Back", box, "Back");
 
-            settingsPanel = settings.gameObject;
-            return panel.gameObject;
+            // --- Where to start, and when.
+            RectTransform startPanel = StackPanel(parent, "StartPanel", box, 860f);
+
+            MenuLabel(startPanel, "START", 44, 60f);
+
+            for (int i = 0; i < spawnNames.Count; i++)
+            {
+                parts.StartButtons.Add(
+                    MenuButton(startPanel, $"Start{i}", box, spawnNames[i]));
+            }
+
+            MenuLabel(startPanel, "Time of day", 26, 38f);
+            parts.TimeLabel = MenuLabel(startPanel, "--:--", 34, 44f);
+            parts.TimeSlider = BuildTimeSlider(startPanel, box);
+
+            parts.CloseStart = MenuButton(startPanel, "Back", box, "Back");
+
+            parts.MenuPanel = panel.gameObject;
+            parts.SettingsPanel = settings.gameObject;
+            parts.StartPanel = startPanel.gameObject;
+
+            return parts;
+        }
+
+        /// <summary>
+        /// The hour of the day, 0 to 24.
+        ///
+        /// <para>Whole hours rather than continuous: the interesting values are dawn, noon, dusk and
+        /// night, and a slider that lands exactly on 18:00 is easier to use with a thumb than one that
+        /// lands on 17:47. <c>TimeOfDayController</c> runs on from wherever it is put, so this is where
+        /// to look from rather than a clock to stop.</para>
+        /// </summary>
+        private static Slider BuildTimeSlider(RectTransform parent, Sprite box)
+        {
+            Slider slider = BuildTrackedSlider(parent, box, "TimeOfDay");
+
+            slider.minValue = 0f;
+            slider.maxValue = 24f;
+            slider.wholeNumbers = true;
+            slider.value = 18f;
+
+            return slider;
         }
 
         /// <summary>
@@ -454,12 +542,27 @@ namespace Horizon.EditorTools
         /// </summary>
         private static Slider BuildSensitivitySlider(RectTransform parent, Sprite box)
         {
-            RectTransform rect = Panel(parent, "Sensitivity", box, ControlTint,
+            Slider slider = BuildTrackedSlider(parent, box, "Sensitivity");
+
+            slider.minValue = 0f;
+            slider.maxValue = 1f;
+            slider.value = TouchControlState.DefaultSensitivity;
+
+            return slider;
+        }
+
+        /// <summary>
+        /// A slider as a menu row: track, fill and handle, with no opinion about what it measures.
+        ///
+        /// <para>Everything inside is stretched rather than sized, because the layout group decides the
+        /// row's width — a fixed width here is right at one panel width and wrong at every other.</para>
+        /// </summary>
+        private static Slider BuildTrackedSlider(RectTransform parent, Sprite box, string name)
+        {
+            RectTransform rect = Panel(parent, name, box, ControlTint,
                 new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(520f, 50f), Vector2.zero);
             Row(rect.gameObject, 50f);
 
-            // Stretched rather than sized: the layout group decides the slider's width, so anything
-            // inside it with a fixed width would be right at one panel width and wrong at every other.
             RectTransform fillArea = StretchChild(rect, "Fill Area", 25f, 10f);
             RectTransform fill = Panel(fillArea, "Fill", box, AccentTint,
                 new Vector2(0f, 0f), new Vector2(1f, 1f), Vector2.zero, Vector2.zero);
@@ -474,10 +577,6 @@ namespace Horizon.EditorTools
             slider.fillRect = fill;
             slider.handleRect = handle;
             slider.targetGraphic = handle.GetComponent<Image>();
-
-            slider.minValue = 0f;
-            slider.maxValue = 1f;
-            slider.value = TouchControlState.DefaultSensitivity;
 
             return slider;
         }

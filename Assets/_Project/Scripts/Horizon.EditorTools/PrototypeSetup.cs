@@ -64,8 +64,8 @@ namespace Horizon.EditorTools
                 return;
             }
 
-            BuildWorldScene(vehiclePrefab);
-            BuildBootstrapScene();
+            List<SpawnPoint> spawns = BuildWorldScene(vehiclePrefab);
+            BuildBootstrapScene(spawns);
             RegisterScenesInBuildSettings();
 
             AssetDatabase.SaveAssets();
@@ -593,7 +593,7 @@ namespace Horizon.EditorTools
             return prefab;
         }
 
-        private static void BuildWorldScene(GameObject vehiclePrefab)
+        private static List<SpawnPoint> BuildWorldScene(GameObject vehiclePrefab)
         {
             // Four lines, and they are how you find out which loop bit. Three things here scale badly
             // with the town — clearing parcels off streets, the plant scatter's occupancy query, and
@@ -896,10 +896,86 @@ namespace Horizon.EditorTools
             // the temporary camera never ends up in the saved scene.
             CoursePreviewRenderer.Render(path);
 
+            // Where the player may choose to begin. Worked out here, where the paths are, and handed to
+            // the Bootstrap scene — the menu that offers them lives there and has no way to ask a road
+            // anything.
+            List<SpawnPoint> spawns = BuildSpawnTable(
+                path, roadShape, motorwayPath, motorwayShape, arterialPath, rideHeight);
+
             EditorSceneManager.SaveScene(scene, WorldScenePath);
+            return spawns;
         }
 
-        private static void BuildBootstrapScene()
+        /// <summary>
+        /// The places the start menu offers, each measured off the road it stands on.
+        ///
+        /// <para>Every one is a distance along a course rather than a coordinate, so they follow the
+        /// roads when those are retuned — the same reason the spawn point itself has always been
+        /// computed rather than typed. A place that drifted into a hillside because a bend was opened
+        /// out would be a bug nobody would look for here.</para>
+        /// </summary>
+        private static List<SpawnPoint> BuildSpawnTable(
+            RoadPath pass,
+            in RoadShape passShape,
+            RoadPath motorway,
+            in RoadShape motorwayShape,
+            RoadPath arterial,
+            float rideHeight)
+        {
+            var spawns = new List<SpawnPoint>(4);
+
+            void Add(string name, IRoadPath path, float distance, float across, float lift)
+            {
+                float at = Mathf.Clamp(distance, 0f, path.Length);
+
+                Vector3 forward = path.GetDirectionAtDistance(at);
+                Vector3 position = path.GetPositionAtDistance(at)
+                                   + path.GetRightAtDistance(at) * across
+                                   + Vector3.up * lift;
+
+                spawns.Add(new SpawnPoint(name, position, Quaternion.LookRotation(forward, Vector3.up)));
+            }
+
+            // In the right-hand lane in each case, not astride the centre line.
+            float passLane = passShape.HalfWidth * 0.5f;
+
+            Add("Talheim", pass, MountainPassCourse.TownStartDistance + 45f, passLane, rideHeight);
+
+            // The summit, found by walking the course for its highest point rather than by a distance
+            // somebody counted — the switchback stack is retuned often enough that a literal would rot.
+            Add("Passhöhe", pass, HighestDistance(pass), passLane, rideHeight);
+
+            // On the eastbound carriageway at the interchange, pointing at the city.
+            Add("Autobahn", motorway, AutobahnCourse.JunctionDistance,
+                AutobahnCourse.CarriagewayOffset + motorwayShape.HalfWidth * 0.5f, rideHeight);
+
+            // On the boulevard, a little inside the city gate so the skyline is ahead rather than
+            // overhead.
+            Add("Hochstadt", arterial, 120f, 4f, rideHeight);
+
+            return spawns;
+        }
+
+        /// <summary>Distance along a path of its highest point, sampled every 10 m.</summary>
+        private static float HighestDistance(IRoadPath path)
+        {
+            float best = 0f;
+            float highest = float.MinValue;
+
+            for (float at = 0f; at <= path.Length; at += 10f)
+            {
+                float y = path.GetPositionAtDistance(at).y;
+                if (y > highest)
+                {
+                    highest = y;
+                    best = at;
+                }
+            }
+
+            return best;
+        }
+
+        private static void BuildBootstrapScene(IReadOnlyList<SpawnPoint> spawns)
         {
             Scene scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
 
@@ -925,7 +1001,32 @@ namespace Horizon.EditorTools
 
             // The controls the player actually sees. On the Bootstrap object rather than in the world
             // scene, so they survive the additive load and exist before there is anything to drive.
-            TouchUiSetup.Build(root, router);
+            var spawnNames = new string[spawns.Count];
+            for (int i = 0; i < spawns.Count; i++)
+            {
+                spawnNames[i] = spawns[i].Name;
+            }
+
+            TouchUiSetup.Build(root, router, spawnNames);
+
+            // The table itself goes onto the PauseMenu the line above just created.
+            PauseMenu menu = root.GetComponentInChildren<PauseMenu>(true);
+            if (menu != null)
+            {
+                HorizonAssetUtility.Configure(menu, serialized =>
+                {
+                    SerializedProperty array = serialized.FindProperty("spawnPoints");
+                    array.arraySize = spawns.Count;
+
+                    for (int i = 0; i < spawns.Count; i++)
+                    {
+                        SerializedProperty element = array.GetArrayElementAtIndex(i);
+                        element.FindPropertyRelative("Name").stringValue = spawns[i].Name;
+                        element.FindPropertyRelative("Position").vector3Value = spawns[i].Position;
+                        element.FindPropertyRelative("Rotation").quaternionValue = spawns[i].Rotation;
+                    }
+                });
+            }
 
             EditorSceneManager.SaveScene(scene, BootstrapScenePath);
         }
