@@ -329,8 +329,8 @@ namespace Horizon.World
         }
 
         /// <summary>
-        /// Speed limit of each motorway lane, nearside first, metres per second — 86, 108, 130 and
-        /// 158 km/h.
+        /// Speed limit of each motorway lane, nearside first, metres per second — 72, 90, 108 and
+        /// 126 km/h.
         ///
         /// <para><b>This table is the entire traffic model on the motorway, and that is deliberate.</b>
         /// Every car in a lane drives at exactly that lane's limit, so nobody ever closes on anybody:
@@ -340,10 +340,20 @@ namespace Horizon.World
         /// sounds livelier and requires lane changing to be built the same afternoon, because without it
         /// the first slow car turns its lane into a permanent stationary queue.</para>
         ///
-        /// <para>The spread matters more than the values. Nearside to offside is 86 to 158 km/h, so a
-        /// player sitting on the limit passes two lanes and is passed by one.</para>
+        /// <para><b>Calibrated against the speed you travel at, not the one the car can reach.</b> These
+        /// were 86 to 158 km/h, chosen so that a player at the top of fourth was passed by the offside
+        /// lane — which read well on paper and was wrong in the car. The car tops out at 235 km/h, but
+        /// nobody threading through traffic is doing that; the speed you are actually carrying is
+        /// somewhere near 170, and against a 158 km/h lane that is a closing speed of twelve. Overtaking
+        /// stopped being overtaking and became a slow drift past, which is the least interesting thing a
+        /// motorway can offer.</para>
+        ///
+        /// <para>At 170 the offside lane now closes at 44 km/h and the nearside at 98, so every lane is
+        /// something you go past and the four of them are visibly different speeds. The spread still
+        /// matters more than the values: 54 km/h between the outside and inside lanes is what makes the
+        /// field move against itself rather than drift along as a block.</para>
         /// </summary>
-        private static readonly float[] HighwayLaneSpeeds = { 24f, 30f, 36f, 44f };
+        private static readonly float[] HighwayLaneSpeeds = { 20f, 25f, 30f, 35f };
 
         /// <summary>Width of one motorway lane, metres. Four of these make RoadShape.Autobahn.</summary>
         private const float HighwayLaneWidth = 3.75f;
