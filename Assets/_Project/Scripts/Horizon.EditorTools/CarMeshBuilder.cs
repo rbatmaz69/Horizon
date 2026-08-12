@@ -574,10 +574,24 @@ namespace Horizon.EditorTools
         /// <para>Key stations only, rather than the interpolated fine grid: the table's own entries are
         /// where the shape actually changes, and everything between them is a straight loft.</para>
         /// </summary>
-        public static Mesh BuildTrafficBody(in CarProfile profile)
+        /// <param name="usedSubmeshes">
+        /// Filled with the submesh constants that survived, in the order they ended up in the mesh.
+        ///
+        /// <para>Traffic bodies are compacted and the player's car is not, so a traffic car's slot 1 is
+        /// no longer <see cref="GlassSubmesh"/> and its lamps are no longer at 2 and 3. Anything wiring
+        /// materials or the day/night swap onto one has to look its slots up in here rather than know
+        /// them — which is what the town's buildings have always done, for exactly this reason.</para>
+        /// </param>
+        public static Mesh BuildTrafficBody(in CarProfile profile, List<int> usedSubmeshes)
         {
             var stations = new List<Station>(profile.Stations);
-            return BuildShell(profile, stations, 1, false, $"TrafficCarMesh_{profile.Name}");
+
+            // Glass folded into the body, and the empty slot dropped. A traffic car is seen in motion at
+            // fifty metres and up, where a separate glass material buys a reflection nobody resolves —
+            // and at ninety-six cars it was buying ninety-six draw calls of it. The player's own car
+            // keeps its glass: that one sits in the chase camera.
+            return BuildShell(profile, stations, 1, false, $"TrafficCarMesh_{profile.Name}",
+                mergeGlass: true, usedSubmeshes: usedSubmeshes);
         }
 
         /// <summary>
@@ -593,7 +607,9 @@ namespace Horizon.EditorTools
             List<Station> stations,
             int ringSubdivisions,
             bool details,
-            string meshName)
+            string meshName,
+            bool mergeGlass = false,
+            List<int> usedSubmeshes = null)
         {
             int ringVertexCount = KeyPointCount * ringSubdivisions;
 
@@ -683,13 +699,43 @@ namespace Horizon.EditorTools
                 AddTrafficLamps(profile, vertices, submeshTriangles);
             }
 
+            if (mergeGlass)
+            {
+                submeshTriangles[BodySubmesh].AddRange(submeshTriangles[GlassSubmesh]);
+                submeshTriangles[GlassSubmesh].Clear();
+            }
+
             var mesh = new Mesh { name = meshName };
             mesh.indexFormat = vertices.Count > 65000 ? IndexFormat.UInt32 : IndexFormat.UInt16;
             mesh.SetVertices(vertices);
-            mesh.subMeshCount = BodySubmeshCount;
-            for (int i = 0; i < BodySubmeshCount; i++)
+
+            if (usedSubmeshes == null)
             {
-                mesh.SetTriangles(submeshTriangles[i], i);
+                // Uncompacted, which is what the player's car wants: its submesh constants are read
+                // directly by everything that dresses it, and an empty slot costs one draw call on one
+                // object.
+                mesh.subMeshCount = BodySubmeshCount;
+                for (int i = 0; i < BodySubmeshCount; i++)
+                {
+                    mesh.SetTriangles(submeshTriangles[i], i);
+                }
+            }
+            else
+            {
+                usedSubmeshes.Clear();
+                for (int i = 0; i < BodySubmeshCount; i++)
+                {
+                    if (submeshTriangles[i].Count > 0)
+                    {
+                        usedSubmeshes.Add(i);
+                    }
+                }
+
+                mesh.subMeshCount = usedSubmeshes.Count;
+                for (int slot = 0; slot < usedSubmeshes.Count; slot++)
+                {
+                    mesh.SetTriangles(submeshTriangles[usedSubmeshes[slot]], slot);
+                }
             }
 
             mesh.RecalculateNormals();

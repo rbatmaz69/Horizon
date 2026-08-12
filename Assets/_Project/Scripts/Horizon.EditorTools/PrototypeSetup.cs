@@ -2033,9 +2033,15 @@ namespace Horizon.EditorTools
             var bodies = new Mesh[profiles.Length];
             var bodyTriangles = new int[profiles.Length];
 
+            // Which submesh constants each body actually kept. Traffic bodies fold their glass into the
+            // paint and drop the empty slot, so nothing below may assume where a lamp ended up.
+            var bodySlots = new List<int>[profiles.Length];
+
             for (int i = 0; i < profiles.Length; i++)
             {
-                Mesh shape = CarMeshBuilder.BuildTrafficBody(profiles[i]);
+                bodySlots[i] = new List<int>(CarMeshBuilder.BodySubmeshCount);
+
+                Mesh shape = CarMeshBuilder.BuildTrafficBody(profiles[i], bodySlots[i]);
                 bodyTriangles[i] = shape.triangles.Length / 3;
                 bodies[i] = HorizonAssetUtility.ReplaceAsset(
                     shape, $"{GeneratedFolder}/TrafficCarMesh_{profiles[i].Name}.asset");
@@ -2058,18 +2064,11 @@ namespace Horizon.EditorTools
 
                 carObject.AddComponent<MeshFilter>().sharedMesh = body;
 
+                List<int> slots = bodySlots[i % bodies.Length];
+
                 MeshRenderer renderer = carObject.AddComponent<MeshRenderer>();
-                // Chrome takes the tyre material rather than the rim's: the reduced body puts its wheels
-                // in that submesh, which the detail pass would otherwise have filled with exhausts. Four
-                // wheels for no extra draw call, because the slot was being submitted regardless.
-                renderer.sharedMaterials = new[]
-                {
-                    materials.TrafficBodies[i % materials.TrafficBodies.Length],
-                    materials.CarGlass,
-                    materials.WindowDay,
-                    materials.WindowDay,
-                    materials.Tyre,
-                };
+                renderer.sharedMaterials = TrafficMaterials(
+                    materials, slots, materials.TrafficBodies[i % materials.TrafficBodies.Length]);
 
                 // Shadows off. Fourteen extra shadow casters is a second pass over the whole town for
                 // silhouettes that are under a car's own body anyway at the angle the sun sits at here.
@@ -2096,14 +2095,32 @@ namespace Horizon.EditorTools
 
                 PlaceOnRoute(routes, carObject.transform, i);
 
-                // Slots 2 and 3 are the lamp submeshes, and the traffic body always emits both, so
-                // these are fixed rather than looked up the way a town tile's are.
-                litRenderers.Add(renderer);
-                litSlots.Add(CarMeshBuilder.HeadlightSubmesh);
-                litSlotGroups.Add((int)LitGroup.Headlights);
-                litSlots.Add(CarMeshBuilder.TaillightSubmesh);
-                litSlotGroups.Add((int)LitGroup.Taillights);
-                litSlotStart.Add(litSlots.Count);
+                // Looked up, not assumed. These were the literals 2 and 3, which was true while the body
+                // kept all five of its submeshes — and folding the glass away moves every slot behind it
+                // down one, so the fixed version would light the taillights as headlights and the wheels
+                // as taillights. Nothing would have said so: a build log cannot see a car that is wrong
+                // after dark.
+                int headlight = slots.IndexOf(CarMeshBuilder.HeadlightSubmesh);
+                int taillight = slots.IndexOf(CarMeshBuilder.TaillightSubmesh);
+
+                if (headlight >= 0 || taillight >= 0)
+                {
+                    litRenderers.Add(renderer);
+
+                    if (headlight >= 0)
+                    {
+                        litSlots.Add(headlight);
+                        litSlotGroups.Add((int)LitGroup.Headlights);
+                    }
+
+                    if (taillight >= 0)
+                    {
+                        litSlots.Add(taillight);
+                        litSlotGroups.Add((int)LitGroup.Taillights);
+                    }
+
+                    litSlotStart.Add(litSlots.Count);
+                }
             }
 
             // A camera station behind the first car, looking the way it faces. Aimed at an agent rather
@@ -2135,6 +2152,44 @@ namespace Horizon.EditorTools
             HorizonAssetUtility.AssertReferenceAssigned(director, "network");
 
             ReportTraffic(routes, profiles, bodies, bodyTriangles);
+        }
+
+        /// <summary>
+        /// The materials for one traffic car, in the order its submeshes survived compaction.
+        ///
+        /// <para>Chrome takes the tyre material rather than the rim's: the reduced body puts its wheels
+        /// in that submesh, which the detail pass would otherwise have filled with exhausts. Four wheels
+        /// for no extra draw call, because the slot is submitted regardless.</para>
+        /// </summary>
+        private static Material[] TrafficMaterials(
+            PrototypeMaterials materials, List<int> slots, Material body)
+        {
+            var result = new Material[slots.Count];
+
+            for (int i = 0; i < slots.Count; i++)
+            {
+                switch (slots[i])
+                {
+                    case CarMeshBuilder.HeadlightSubmesh:
+                    case CarMeshBuilder.TaillightSubmesh:
+                        result[i] = materials.WindowDay;
+                        break;
+
+                    case CarMeshBuilder.ChromeSubmesh:
+                        result[i] = materials.Tyre;
+                        break;
+
+                    case CarMeshBuilder.GlassSubmesh:
+                        result[i] = materials.CarGlass;
+                        break;
+
+                    default:
+                        result[i] = body;
+                        break;
+                }
+            }
+
+            return result;
         }
 
         /// <summary>

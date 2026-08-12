@@ -103,7 +103,7 @@ namespace Horizon.EditorTools
             {
                 foreach (CarMeshBuilder.CarProfile profile in CarMeshBuilder.TrafficProfiles)
                 {
-                    Mesh mesh = CarMeshBuilder.BuildTrafficBody(profile);
+                    Mesh mesh = CarMeshBuilder.BuildTrafficBody(profile, new System.Collections.Generic.List<int>());
                     var stand = new GameObject($"Preview_{profile.Name}");
 
                     try
