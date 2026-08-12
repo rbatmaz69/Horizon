@@ -80,16 +80,25 @@ namespace Horizon.World
         /// nothing else to do</b>, which is the case at a dead end and at both ends of the trunk road,
         /// where the alternative is a car parked forever on the last lane it reached.</para>
         /// </summary>
+        /// <param name="highway">
+        /// The motorway's <b>median</b> line, or null. Never itself paved — the carriageways are offsets
+        /// off it, and so are the lanes.
+        /// </param>
         public static TrafficNetwork Build(
-            StreetNetwork network, IRoadPath trunk, in RoadShape trunkShape)
+            StreetNetwork network,
+            IRoadPath trunk,
+            in RoadShape trunkShape,
+            IRoadPath highway = null,
+            RoadShape highwayShape = default,
+            float carriagewayOffset = 0f)
         {
             var lanes = new LaneBuffer();
 
             // Two synthetic junctions past the end of the street graph, one for each end of the trunk
-            // road. They carry no geometry — they exist so the road's two open ends are places where a
-            // lane ends and a connector begins, like every other junction here, rather than a case the
-            // exit table has to special-case.
-            int nodeCount = network.Nodes.Count + 2;
+            // road, and two more for the motorway. They carry no geometry — they exist so a road's open
+            // ends are places where a lane ends and a connector begins, like every other junction here,
+            // rather than a case the exit table has to special-case.
+            int nodeCount = network.Nodes.Count + 4;
             var nodeAt = new Vector3[nodeCount];
 
             for (int i = 0; i < network.Nodes.Count; i++)
@@ -99,11 +108,19 @@ namespace Horizon.World
 
             int roadStartNode = network.Nodes.Count;
             int roadEndNode = network.Nodes.Count + 1;
+            int highwayWestNode = network.Nodes.Count + 2;
+            int highwayEastNode = network.Nodes.Count + 3;
 
             if (trunk != null)
             {
                 nodeAt[roadStartNode] = trunk.GetPositionAtDistance(0f);
                 nodeAt[roadEndNode] = trunk.GetPositionAtDistance(trunk.Length);
+            }
+
+            if (highway != null)
+            {
+                nodeAt[highwayWestNode] = highway.GetPositionAtDistance(0f);
+                nodeAt[highwayEastNode] = highway.GetPositionAtDistance(highway.Length);
             }
 
             var entryNode = new List<int>(network.Edges.Count * 2 + 32);
@@ -112,6 +129,12 @@ namespace Horizon.World
             AddStreetLanes(network, lanes, entryNode, exitNode);
             AddTrunkLanes(network, trunk, trunkShape, roadStartNode, roadEndNode,
                 lanes, entryNode, exitNode);
+
+            if (highway != null)
+            {
+                AddHighwayLanes(highway, highwayShape, carriagewayOffset,
+                    highwayWestNode, highwayEastNode, lanes, entryNode, exitNode);
+            }
 
             int drivenLanes = lanes.Count;
             AddConnectors(lanes, entryNode, exitNode, nodeAt, drivenLanes,
@@ -261,6 +284,113 @@ namespace Horizon.World
             }
         }
 
+        /// <summary>
+        /// Speed limit of each motorway lane, nearside first, metres per second — 86, 108, 130 and
+        /// 158 km/h.
+        ///
+        /// <para><b>This table is the entire traffic model on the motorway, and that is deliberate.</b>
+        /// Every car in a lane drives at exactly that lane's limit, so nobody ever closes on anybody:
+        /// there are no queues to form, no overtaking to arbitrate, and no lane changes to get wrong. The
+        /// field still moves against itself, because the lanes move at different speeds — which is what
+        /// weaving through it means from the driver's seat. The alternative, per-car speed variation,
+        /// sounds livelier and requires lane changing to be built the same afternoon, because without it
+        /// the first slow car turns its lane into a permanent stationary queue.</para>
+        ///
+        /// <para>The spread matters more than the values. Nearside to offside is 86 to 158 km/h, so a
+        /// player sitting on the limit passes two lanes and is passed by one.</para>
+        /// </summary>
+        private static readonly float[] HighwayLaneSpeeds = { 24f, 30f, 36f, 44f };
+
+        /// <summary>Width of one motorway lane, metres. Four of these make RoadShape.Autobahn.</summary>
+        private const float HighwayLaneWidth = 3.75f;
+
+        /// <summary>
+        /// Both carriageways of the motorway, four lanes each, run end to end.
+        ///
+        /// <para><b>Not cut at the interchange, and the link road carries no ambient traffic at all.</b>
+        /// That is a stated limitation rather than an oversight. Joining a slip road into this graph
+        /// properly means a diverge from the nearside lane and a merge back into it, on one carriageway
+        /// only, with the other three lanes running through uninterrupted — and a lane graph whose only
+        /// topology is "what may I do at the end of this lane" cannot express a merge without inventing
+        /// one. The player uses the link; the traffic stays on the motorway. Adding it later is a matter
+        /// of cutting the nearside lane at the junction and giving the link its own node.</para>
+        ///
+        /// <para>Emitted strictly as forward/backward pairs, because <see cref="AddConnectors"/> finds a
+        /// lane's reverse with <c>lane ^ 1</c> and that arithmetic is load-bearing for the U-turn rule.
+        /// At each end of the road the U-turn is the only thing to do, so traffic turns round there — the
+        /// same behaviour the trunk road already has at its own two ends.</para>
+        /// </summary>
+        private static void AddHighwayLanes(
+            IRoadPath centre,
+            in RoadShape shape,
+            float carriagewayOffset,
+            int westNode,
+            int eastNode,
+            LaneBuffer lanes,
+            List<int> entryNode,
+            List<int> exitNode)
+        {
+            if (centre == null || centre.Length < MinimumTrunkLane)
+            {
+                return;
+            }
+
+            for (int ordinal = 0; ordinal < HighwayLaneSpeeds.Length; ordinal++)
+            {
+                // Ordinal 0 is the nearside lane, furthest from the median; the offside lane is nearest
+                // it. Measured out from the median line so both carriageways are described by one number
+                // and the pair stays symmetric.
+                float fromCentre = (1.5f - ordinal) * HighwayLaneWidth;
+                float across = carriagewayOffset + fromCentre;
+                float speed = HighwayLaneSpeeds[ordinal];
+
+                AddHighwayLane(centre, shape, carriagewayOffset, across, true, speed, lanes);
+                entryNode.Add(westNode);
+                exitNode.Add(eastNode);
+
+                AddHighwayLane(centre, shape, -carriagewayOffset, -across, false, speed, lanes);
+                entryNode.Add(eastNode);
+                exitNode.Add(westNode);
+            }
+        }
+
+        /// <summary>
+        /// One motorway lane, offset from the <i>median</i> line rather than from a carriageway.
+        ///
+        /// <para>The offset is in metres and absolute, not a fraction of a half-width, because the
+        /// centreline this is measured from is not paved: it is the middle of the median, and the
+        /// carriageway it belongs to is itself an <see cref="OffsetRoadPath"/> off it. Converting to the
+        /// fraction <see cref="LanePoint"/> wants is done here, once, against that carriageway.</para>
+        /// </summary>
+        private static void AddHighwayLane(
+            IRoadPath centre,
+            in RoadShape shape,
+            float carriagewayOffset,
+            float acrossFromMedian,
+            bool forward,
+            float speed,
+            LaneBuffer lanes)
+        {
+            // Rebased onto the carriageway this lane belongs to, so the camber and banking below are
+            // measured across the asphalt the car is actually on rather than across the median.
+            var carriageway = new OffsetRoadPath(centre, carriagewayOffset);
+            float fraction = (acrossFromMedian - carriagewayOffset) / Mathf.Max(0.001f, shape.HalfWidth);
+
+            float length = centre.Length;
+            int count = Mathf.Max(2, Mathf.CeilToInt(length / SampleSpacing) + 1);
+
+            for (int i = 0; i < count; i++)
+            {
+                // Backwards lanes are walked from the far end, so a lane's points always run in the
+                // direction its cars travel.
+                float t = i / (float)(count - 1);
+                float at = forward ? length * t : length * (1f - t);
+                lanes.Points.Add(LanePoint(carriageway, shape, at, fraction));
+            }
+
+            lanes.Close(length, count, -1, TrafficLaneKind.Highway, speed);
+        }
+
         /// <summary>How far a bell-mouth reaches along the trunk road either side of its junction.</summary>
         private static float MouthHalf(StreetNetwork network, StreetNode node)
         {
@@ -303,13 +433,27 @@ namespace Horizon.World
         private static Vector3 TrunkLanePoint(
             IRoadPath trunk, in RoadShape shape, float along, float side)
         {
-            float at = Mathf.Clamp(along, 0f, trunk.Length);
+            return LanePoint(trunk, shape, along, LaneOffset * side);
+        }
 
-            Vector3 centre = trunk.GetPositionAtDistance(at);
-            Vector3 right = trunk.GetBankedRightAtDistance(
+        /// <summary>
+        /// A point on a lane at an arbitrary fraction of the carriageway's half-width.
+        ///
+        /// <para><paramref name="acrossFraction"/> is signed and runs -1 to 1 across the asphalt, so the
+        /// two-lane trunk road passes ±0.5 and the motorway's four lanes pass ±0.25 and ±0.75. It was a
+        /// constant until there was a road with more than one lane each way; everything else about this
+        /// calculation is unchanged, including the reason it exists.</para>
+        /// </summary>
+        private static Vector3 LanePoint(
+            IRoadPath road, in RoadShape shape, float along, float acrossFraction)
+        {
+            float at = Mathf.Clamp(along, 0f, road.Length);
+
+            Vector3 centre = road.GetPositionAtDistance(at);
+            Vector3 right = road.GetBankedRightAtDistance(
                 at, shape.MaxBankDegrees, shape.FullBankRadius);
 
-            Vector3 up = Vector3.Cross(trunk.GetDirectionAtDistance(at), right).normalized;
+            Vector3 up = Vector3.Cross(road.GetDirectionAtDistance(at), right).normalized;
             if (up.y < 0f)
             {
                 up = -up;
@@ -318,11 +462,11 @@ namespace Horizon.World
             // The camber is a parabola across the carriageway, so at half the half-width it has given up a
             // quarter of its rise. Written as the offset squared rather than as 0.75 so the two cannot
             // drift apart if the lane ever moves off the quarter point.
-            float crown = shape.Crown * (1f - LaneOffset * LaneOffset);
+            float crown = shape.Crown * (1f - acrossFraction * acrossFraction);
 
             return centre
                    + up * (shape.SurfaceLift + crown + SurfaceClearance)
-                   + right * (shape.HalfWidth * LaneOffset * side);
+                   + right * (shape.HalfWidth * acrossFraction);
         }
 
         /// <summary>

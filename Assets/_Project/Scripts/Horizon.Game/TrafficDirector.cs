@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+using Horizon.Vehicle;
 using Horizon.World;
 using UnityEngine;
 
@@ -102,6 +104,35 @@ namespace Horizon.Game
 
         private Transform viewer;
 
+        /// <summary>
+        /// Where each agent was put this frame, so <see cref="GapAhead"/> never touches a Transform.
+        ///
+        /// <para>The position is computed in <see cref="Advance"/> anyway and then written to the
+        /// transform; reading it back out of the transform for every pair of agents was buying nothing
+        /// and costing a managed-to-native call each time. The loop is still O(N²), and deliberately so —
+        /// at sixty-four cars that is four thousand vector subtractions, which is nothing, while a
+        /// spatial index would be real bookkeeping to maintain against agents that teleport. This is the
+        /// change that makes the constant small enough for the quadratic not to matter.</para>
+        ///
+        /// <para>One frame stale for agents later in the array, which is correct rather than a tolerated
+        /// error: an agent should see the world as it was when it started moving, not a mixture of before
+        /// and after depending on its index.</para>
+        /// </summary>
+        private Vector3[] agentAt;
+
+        /// <summary>
+        /// Cumulative length of the driven lanes, for picking one in proportion to its size.
+        ///
+        /// <para>Uniform over lane <i>indices</i> was the old rule, and it put as many cars on a forty
+        /// metre alley as on five kilometres of pass — with eighty-odd town streets and two trunk lanes,
+        /// almost the whole pool ended up in Talheim. Weighting by length makes "pick a lane" mean "pick
+        /// a place on the road network", which is what every caller wanted it to mean.</para>
+        /// </summary>
+        private float[] laneWeight;
+
+        /// <summary>Which lane each entry of <see cref="laneWeight"/> refers to.</summary>
+        private int[] drivenLane;
+
         private void Awake()
         {
             if (network == null || cars == null || cars.Length == 0 || network.LaneCount == 0)
@@ -111,7 +142,10 @@ namespace Horizon.Game
             }
 
             agents = new Agent[cars.Length];
+            agentAt = new Vector3[cars.Length];
             nodeToken = new int[Mathf.Max(1, network.NodeCount)];
+
+            BuildLaneWeights();
 
             for (int i = 0; i < nodeToken.Length; i++)
             {
@@ -195,6 +229,7 @@ namespace Horizon.Game
             position.y += rideHeight;
 
             cars[index].SetPositionAndRotation(position, Quaternion.LookRotation(forward, Vector3.up));
+            agentAt[index] = position;
 
             Recycle(index, position, eye);
         }
@@ -220,7 +255,7 @@ namespace Horizon.Game
                     continue;
                 }
 
-                nearest = Mathf.Min(nearest, Ahead(position, forward, cars[other].position));
+                nearest = Mathf.Min(nearest, Ahead(position, forward, agentAt[other]));
             }
 
             if (viewer != null)
@@ -344,23 +379,98 @@ namespace Horizon.Game
                 return;
             }
 
-            // Rejected rather than searched, and given a good many tries: most of the lane list is now the
-            // six kilometres of pass rather than the town, so a uniform pick lands near the viewer only
-            // about one time in ten. Twenty-four tries makes that near-certain, it allocates nothing, and
-            // a run that finds nothing simply leaves the car where it was for another frame — the search
-            // runs again next frame and the car is out of sight either way.
-            for (int attempt = 0; attempt < 24; attempt++)
+            // Eight tries, each one a lane picked in proportion to its length and then *searched* for the
+            // point on it nearest the viewer.
+            //
+            // The old rule tested a candidate lane at its own midpoint, which worked while every lane was
+            // a town street forty metres long and failed completely once they were not: the pass is one
+            // 5 km polyline whose midpoint is within range only when the player happens to be halfway up
+            // the mountain, so recycling onto the road the player was actually driving on almost never
+            // fired. Motorway lanes are eight kilometres and would never have fired at all.
+            for (int attempt = 0; attempt < 8; attempt++)
             {
                 int lane = DrivenLane(ref agents[index].Random);
-                network.GetLane(lane, network.LengthOf(lane) * 0.5f, out Vector3 at, out Vector3 _);
+                float nearest = NearestDistanceOnLane(lane, eye);
+                float length = network.LengthOf(lane);
 
-                if (Vector3.Distance(at, eye) < loadRadius * 0.8f)
+                // Behind or ahead of that point, far enough out to be invisible when it lands but inside
+                // the radius that would recycle it straight back. Both directions are tried because near
+                // an end of a lane only one of them exists.
+                float reach = (loadRadius * 1.05f + recycleRadius * 0.95f) * 0.5f;
+                float side = NextFloat(ref agents[index].Random) < 0.5f ? -1f : 1f;
+
+                for (int flip = 0; flip < 2; flip++)
                 {
-                    ReleaseToken(index);
-                    PlaceOnLane(index, lane, NextFloat(ref agents[index].Random));
-                    return;
+                    float at = nearest + side * reach;
+                    side = -side;
+
+                    if (at < 0f || at > length)
+                    {
+                        continue;
+                    }
+
+                    network.GetLane(lane, at, out Vector3 candidate, out Vector3 _);
+                    float range = Vector3.Distance(candidate, eye);
+
+                    // The straight-line distance can be much shorter than the distance along a road that
+                    // doubles back — a switchback stack puts two points 400 m apart on the tarmac
+                    // forty metres apart in the air — so the result is checked rather than assumed.
+                    if (range > loadRadius * 1.02f && range < recycleRadius * 0.95f)
+                    {
+                        ReleaseToken(index);
+                        PlaceOnLane(index, lane, at / Mathf.Max(1f, length));
+                        return;
+                    }
                 }
             }
+        }
+
+        /// <summary>
+        /// Distance along a lane of the point closest to <paramref name="target"/>.
+        ///
+        /// <para>Coarse sweep then a local refinement, rather than every sample: an eight-kilometre lane
+        /// holds three thousand of them, and this runs for a handful of cars a second at most. The coarse
+        /// step is under the load radius, so the true nearest point cannot hide between two probes.</para>
+        /// </summary>
+        private float NearestDistanceOnLane(int lane, Vector3 target)
+        {
+            float length = network.LengthOf(lane);
+            float coarse = Mathf.Max(25f, loadRadius * 0.5f);
+            int steps = Mathf.Max(1, Mathf.CeilToInt(length / coarse));
+
+            float bestAt = 0f;
+            float bestSqr = float.MaxValue;
+
+            for (int i = 0; i <= steps; i++)
+            {
+                float at = length * i / steps;
+                network.GetLane(lane, at, out Vector3 point, out Vector3 _);
+
+                float sqr = (point - target).sqrMagnitude;
+                if (sqr < bestSqr)
+                {
+                    bestSqr = sqr;
+                    bestAt = at;
+                }
+            }
+
+            for (float window = coarse * 0.5f; window > 4f; window *= 0.5f)
+            {
+                for (int side = -1; side <= 1; side += 2)
+                {
+                    float at = Mathf.Clamp(bestAt + window * side, 0f, length);
+                    network.GetLane(lane, at, out Vector3 point, out Vector3 _);
+
+                    float sqr = (point - target).sqrMagnitude;
+                    if (sqr < bestSqr)
+                    {
+                        bestSqr = sqr;
+                        bestAt = at;
+                    }
+                }
+            }
+
+            return bestAt;
         }
 
         private void PlaceOnLane(int index, int lane, float fraction)
@@ -393,16 +503,63 @@ namespace Horizon.Game
         /// </summary>
         private int DrivenLane(ref uint state)
         {
-            for (int attempt = 0; attempt < 16; attempt++)
+            if (laneWeight == null || laneWeight.Length == 0)
             {
-                int lane = (int)(NextFloat(ref state) * network.LaneCount) % network.LaneCount;
-                if (network.NodeOf(lane) < 0 && network.LengthOf(lane) > 1f)
+                return 0;
+            }
+
+            float total = laneWeight[laneWeight.Length - 1];
+            if (total <= 0f)
+            {
+                return 0;
+            }
+
+            float pick = NextFloat(ref state) * total;
+
+            // Binary search over the cumulative lengths. Uniform over metres of road, which is what
+            // makes the pool spread across the world in proportion to how much road is there.
+            int low = 0;
+            int high = laneWeight.Length - 1;
+
+            while (low < high)
+            {
+                int middle = (low + high) >> 1;
+                if (laneWeight[middle] < pick)
                 {
-                    return lane;
+                    low = middle + 1;
+                }
+                else
+                {
+                    high = middle;
                 }
             }
 
-            return 0;
+            return drivenLane[low];
+        }
+
+        /// <summary>Cumulative lengths and the lanes they belong to. See <see cref="laneWeight"/>.</summary>
+        private void BuildLaneWeights()
+        {
+            var lanes = new List<int>(network.LaneCount);
+            var weights = new List<float>(network.LaneCount);
+            float running = 0f;
+
+            for (int lane = 0; lane < network.LaneCount; lane++)
+            {
+                // Connectors excluded: starting or recycling a car inside a junction would have it claim
+                // a token it never took through the handover, and hold it until it happened to leave.
+                if (network.NodeOf(lane) >= 0 || network.LengthOf(lane) <= 1f)
+                {
+                    continue;
+                }
+
+                running += network.LengthOf(lane);
+                lanes.Add(lane);
+                weights.Add(running);
+            }
+
+            drivenLane = lanes.ToArray();
+            laneWeight = weights.ToArray();
         }
 
         /// <summary>
@@ -423,10 +580,32 @@ namespace Horizon.Game
             return (state >> 8) * (1f / 16777216f);
         }
 
+        /// <summary>
+        /// What the traffic drives around, and what it is kept near.
+        ///
+        /// <para>The player's <b>car</b>, not the camera, and the distinction is not pedantry. This
+        /// transform is used for two things: deciding which cars to move somewhere useful, where either
+        /// would do, and as an obstacle in <see cref="GapAhead"/>, where they are metres apart.
+        /// <c>ChaseCamera</c> trails the car by 6.5 m, so traffic ahead of the player was braking 6.5 m
+        /// later than it should, and traffic behind was braking for a point in mid-air that no car was
+        /// occupying. On a motorway where the whole game is threading between moving cars, that is the
+        /// difference between traffic that reacts to you and traffic that reacts to where you were.</para>
+        ///
+        /// <para>Falls back to the camera, because the world scene opened on its own has no vehicle in
+        /// it and traffic that piles up at the origin is a worse debugging experience than traffic that
+        /// follows the editor camera.</para>
+        /// </summary>
         private void ResolveViewer()
         {
             if (viewer != null)
             {
+                return;
+            }
+
+            VehicleController vehicle = FindFirstObjectByType<VehicleController>();
+            if (vehicle != null)
+            {
+                viewer = vehicle.transform;
                 return;
             }
 

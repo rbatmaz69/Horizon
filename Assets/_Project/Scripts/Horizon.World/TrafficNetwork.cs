@@ -21,6 +21,17 @@ namespace Horizon.World
 
         /// <summary>A turn through a junction, joining two of the above.</summary>
         Connector = 2,
+
+        /// <summary>
+        /// One of the four lanes of one carriageway of the motorway.
+        ///
+        /// <para>Distinct from <see cref="Trunk"/> for the same reason <see cref="Trunk"/> is distinct
+        /// from <see cref="Street"/>: the validator measures a lane against the road it is supposed to
+        /// be on, and a motorway lane is up to 5.6 m off its carriageway's centreline and 16 m off the
+        /// median line the course was authored as. Measured against either of those as if it were a
+        /// trunk lane, every metre of correct motorway reports as a car in a field.</para>
+        /// </summary>
+        Highway = 3,
     }
 
     /// <summary>

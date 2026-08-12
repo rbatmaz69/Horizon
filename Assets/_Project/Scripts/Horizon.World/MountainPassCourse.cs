@@ -80,6 +80,21 @@ namespace Horizon.World
         public static float ApproachLength => ArrivalSpan;
 
         /// <summary>
+        /// Where the course begins, and which way it faces there — the same solve <see cref="Build"/>
+        /// does, exposed so nothing else has to keep a copy of the answer.
+        ///
+        /// <para>Exists for <see cref="AutobahnCourse"/>, which anchors its link road to this point.
+        /// Writing the coordinates into that file instead would be two places holding one number, and
+        /// the number moves whenever <see cref="AppendArrival"/> is retuned — which is the whole
+        /// purpose of that method being a table.</para>
+        /// </summary>
+        public static Vector3 StartPoint =>
+            PassStart - Quaternion.Euler(0f, -ArrivalTurn, 0f) * ArrivalOffset;
+
+        /// <summary>Heading at <see cref="StartPoint"/>. 0 faces +Z, increasing turns towards +X.</summary>
+        public static float StartHeading => -ArrivalTurn;
+
+        /// <summary>
         /// Length of the pass's own first straight, and therefore how far past the arrival road the town
         /// may reach.
         ///
@@ -135,9 +150,7 @@ namespace Horizon.World
             // and the only thing that moves is where along the course each of them falls, by
             // ApproachLength. Re-deriving a hand-tuned switchback stack to make room for a town would be
             // a poor trade for a rigid transform.
-            Vector3 start = PassStart - Quaternion.Euler(0f, -ArrivalTurn, 0f) * ArrivalOffset;
-
-            var builder = new RoadCourseBuilder(start, -ArrivalTurn);
+            var builder = new RoadCourseBuilder(StartPoint, StartHeading);
             AppendArrival(builder);
 
             // --- Valley approach, and the town that sits on it. This and the run-out are the only two

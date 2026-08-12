@@ -34,6 +34,27 @@ namespace Horizon.World
     /// </summary>
     public sealed class MountainField
     {
+        /// <summary>
+        /// One carriageway handed to the field, and the course it came from if it has bridges.
+        ///
+        /// <para>The course is optional and is read for one thing only: which stretches are carried on
+        /// piers rather than laid on the ground. A road without one is a road the terrain rises to meet
+        /// everywhere, which is what every road in the world was until there was a motorway.</para>
+        /// </summary>
+        public readonly struct FieldRoad
+        {
+            public readonly IRoadPath Path;
+
+            /// <summary>May be null. Only <c>IsBridged</c> is read from it.</summary>
+            public readonly RoadCourse Course;
+
+            public FieldRoad(IRoadPath path, RoadCourse course = null)
+            {
+                Path = path;
+                Course = course;
+            }
+        }
+
         /// <summary>Samples further away than this contribute nothing to the shelf.</summary>
         private const float InfluenceRadius = 80f;
 
@@ -56,6 +77,25 @@ namespace Horizon.World
         private readonly TerrainShape shape;
 
         /// <summary>
+        /// Which samples pull the ground up to meet them. False only for road on a bridge.
+        ///
+        /// <para>This is the whole of what makes a bridge a bridge rather than an embankment. The shelf
+        /// follows the nearest carriageway everywhere, so a road taken across a valley would simply
+        /// carry the valley floor up with it and there would be nothing to span. A bridge sample stays
+        /// in <see cref="DistanceToRoad"/> — the tiles, the vegetation falloff and the rails all still
+        /// need to know there is a road overhead — but contributes nothing to the shelf, so the terrain
+        /// beneath it is whatever the mountain was going to be.</para>
+        ///
+        /// <para>It also has to be excluded from the shelf's <i>nearest</i> distance, not only from its
+        /// weighted average. That distance is what <see cref="HeightAt"/> blends on: if a bridge sample
+        /// still answered "the road is nought metres away", the point under the deck would sit on the
+        /// flat shelf regardless of the weights, and the valley would come back as a mesa. Excluding it
+        /// from both is why the abutments fair in on their own — the nearest shelf-carrying sample there
+        /// is the road on solid ground at each end.</para>
+        /// </summary>
+        private readonly bool[] carriesShelf;
+
+        /// <summary>
         /// How many of <see cref="samples"/> are the road's own, stored first.
         ///
         /// The split matters. The shelf has to treat a level sample exactly like a piece of road — that is
@@ -68,12 +108,37 @@ namespace Horizon.World
         /// </summary>
         private readonly int roadSampleCount;
 
+        /// <summary>The lattice over everything that forms the shelf. See <see cref="carriesShelf"/>.</summary>
         private readonly int[] cellStart;
         private readonly int[] cellItems;
 
-        /// <summary>The same lattice, holding the road samples alone.</summary>
+        /// <summary>The same lattice, holding the road samples alone — bridges included.</summary>
         private readonly int[] roadCellStart;
         private readonly int[] roadCellItems;
+
+        /// <summary>The same lattice again, holding only the bridge samples. See <see cref="HeightAt"/>.</summary>
+        private readonly int[] bridgeCellStart;
+        private readonly int[] bridgeCellItems;
+
+        /// <summary>
+        /// Headroom a bridge span guarantees itself, metres — how far the ground is pushed down under a
+        /// deck that would otherwise stand in it.
+        ///
+        /// <para>Needed because of where this world's terrain comes from. The mountain is not a landscape
+        /// the road was laid across; it is derived <i>from</i> the road, as its own elevation seen from
+        /// far away plus noise of ±31 m. So there is no pre-existing valley to bridge, and a span
+        /// authored at a chosen distance has about an even chance of being sunk in a hillside — which is
+        /// precisely what the first two viaducts were, at 85 and 224 blocked points of carriageway.</para>
+        ///
+        /// <para>Rather than hunting for a dip that may not exist, a bridge declares one. Under the deck
+        /// the ground is capped at this far below it and left free to fall further wherever the mountain
+        /// was going that way anyway — so the span is always a real gap, and its depth is still the
+        /// terrain's to decide.</para>
+        /// </summary>
+        private const float BridgeHeadroom = 9f;
+
+        /// <summary>How far either side of a bridge's centreline that cap applies, metres.</summary>
+        private const float BridgeCorridor = 46f;
 
         private readonly Vector2 gridOrigin;
         private readonly int columns;
@@ -100,24 +165,62 @@ namespace Horizon.World
             in TerrainShape terrainShape,
             float sampleSpacing = 4f,
             IReadOnlyList<Vector3> levelSamples = null)
+            : this(new[] { new FieldRoad(path) }, terrainShape, sampleSpacing, levelSamples)
+        {
+        }
+
+        /// <param name="roads">
+        /// Every carriageway in the world, and optionally the course each was built from so its bridges
+        /// can be found. One field for all of them rather than one field each, and that is not an
+        /// optimisation — two fields would each carve a mountain out of their own road and disagree
+        /// wherever the two came near, leaving a step down the seam between them. The terrain lattice is
+        /// global world space for the same reason.
+        /// </param>
+        public MountainField(
+            IReadOnlyList<FieldRoad> roads,
+            in TerrainShape terrainShape,
+            float sampleSpacing = 4f,
+            IReadOnlyList<Vector3> levelSamples = null)
         {
             shape = terrainShape;
 
-            float length = path.Length;
-            int count = Mathf.Max(2, Mathf.CeilToInt(length / Mathf.Max(1f, sampleSpacing)) + 1);
+            int roadCount = roads != null ? roads.Count : 0;
             int extra = levelSamples != null ? levelSamples.Count : 0;
 
+            // Counted before anything is written, so the arrays are exact and the road samples land in
+            // one block at the front — DistanceToRoad depends on that split.
+            int count = 0;
+            for (int r = 0; r < roadCount; r++)
+            {
+                count += SampleCountFor(roads[r].Path, sampleSpacing);
+            }
+
             samples = new Vector3[count + extra];
+            carriesShelf = new bool[count + extra];
             roadSampleCount = count;
 
-            for (int i = 0; i < count; i++)
+            int cursor = 0;
+            for (int r = 0; r < roadCount; r++)
             {
-                samples[i] = path.GetPositionAtDistance(length * i / (count - 1));
+                FieldRoad road = roads[r];
+                float length = road.Path.Length;
+                int steps = SampleCountFor(road.Path, sampleSpacing);
+
+                for (int i = 0; i < steps; i++)
+                {
+                    float distance = length * i / (steps - 1);
+                    samples[cursor] = road.Path.GetPositionAtDistance(distance);
+
+                    // A bridge deck is road, but it is road the ground does not reach.
+                    carriesShelf[cursor] = road.Course == null || !road.Course.IsBridged(distance);
+                    cursor++;
+                }
             }
 
             for (int i = 0; i < extra; i++)
             {
                 samples[count + i] = levelSamples[i];
+                carriesShelf[count + i] = true;
             }
 
             // The grid has to be described before the buckets can be filled, because filling them uses
@@ -127,13 +230,26 @@ namespace Horizon.World
             columns = Mathf.Max(1, Mathf.CeilToInt((bounds.size.x + InfluenceRadius * 2f) / BucketSize));
             rows = Mathf.Max(1, Mathf.CeilToInt((bounds.size.z + InfluenceRadius * 2f) / BucketSize));
 
-            BuildBuckets(samples.Length, out cellStart, out cellItems);
-            BuildBuckets(roadSampleCount, out roadCellStart, out roadCellItems);
+            BuildBuckets(samples.Length, carriesShelf, out cellStart, out cellItems);
+            BuildBuckets(roadSampleCount, null, out roadCellStart, out roadCellItems);
+
+            var onBridge = new bool[samples.Length];
+            for (int i = 0; i < roadSampleCount; i++)
+            {
+                onBridge[i] = !carriesShelf[i];
+            }
+
+            BuildBuckets(roadSampleCount, onBridge, out bridgeCellStart, out bridgeCellItems);
 
             coarseOrigin = new Vector2(bounds.min.x - CoarseMargin, bounds.min.z - CoarseMargin);
             coarseColumns = Mathf.Max(2, Mathf.CeilToInt((bounds.size.x + CoarseMargin * 2f) / CoarseCellSize) + 1);
             coarseRows = Mathf.Max(2, Mathf.CeilToInt((bounds.size.z + CoarseMargin * 2f) / CoarseCellSize) + 1);
             coarseHeights = BuildCoarseField();
+        }
+
+        private static int SampleCountFor(IRoadPath path, float sampleSpacing)
+        {
+            return Mathf.Max(2, Mathf.CeilToInt(path.Length / Mathf.Max(1f, sampleSpacing)) + 1);
         }
 
         /// <summary>Bounds of the road in plan, without any margin.</summary>
@@ -160,13 +276,88 @@ namespace Horizon.World
             float shelf = RoadFieldAt(x, z, out float nearest) - shape.RoadShelfDrop;
 
             float away = nearest - Verge;
-            if (away <= 0f)
+            float height = away <= 0f
+                ? shelf
+                : Mathf.Lerp(
+                    shelf,
+                    MountainAt(x, z),
+                    Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(away / Mathf.Max(1f, shape.BlendDistance))));
+
+            return UnderBridges(x, z, height);
+        }
+
+        /// <summary>
+        /// Pushes the ground down under a bridge deck, and only ever down.
+        ///
+        /// <para>See <see cref="BridgeHeadroom"/> for why a span has to make its own gap rather than
+        /// find one. The cap eases out to nothing at <see cref="BridgeCorridor"/>, so the abutments
+        /// fair into the hillside instead of standing at the end of a rectangular trench, and it is a
+        /// minimum against the natural height — where the mountain was already falling away, it keeps
+        /// falling and the viaduct gets the deep valley it was drawn for.</para>
+        /// </summary>
+        private float UnderBridges(float x, float z, float height)
+        {
+            if (bridgeCellItems.Length == 0)
             {
-                return shelf;
+                return height;
             }
 
-            float carve = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(away / Mathf.Max(1f, shape.BlendDistance)));
-            return Mathf.Lerp(shelf, MountainAt(x, z), carve);
+            int nearest = NearestWithin(bridgeCellStart, bridgeCellItems, x, z, BridgeCorridor,
+                out float distance);
+
+            if (nearest < 0)
+            {
+                return height;
+            }
+
+            float ceiling = samples[nearest].y - BridgeHeadroom;
+            float ease = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(distance / BridgeCorridor));
+
+            return Mathf.Min(height, Mathf.Lerp(ceiling, height, ease));
+        }
+
+        /// <summary>
+        /// Nearest sample in a lattice within <paramref name="radius"/>, or -1.
+        ///
+        /// <para>A bounded cell walk rather than the widening ring of <see cref="NearestInLattice"/>,
+        /// because this one runs per terrain vertex and per plant. The ring search is right when the
+        /// answer must exist however far away it is; here anything past the radius is not an answer at
+        /// all, so searching for it is work thrown away.</para>
+        /// </summary>
+        private int NearestWithin(
+            int[] starts, int[] items, float x, float z, float radius, out float distance)
+        {
+            float bestSqr = radius * radius;
+            int best = -1;
+
+            int minColumn = Mathf.Max(0, ColumnOf(x - radius));
+            int maxColumn = Mathf.Min(columns - 1, ColumnOf(x + radius));
+            int minRow = Mathf.Max(0, RowOf(z - radius));
+            int maxRow = Mathf.Min(rows - 1, RowOf(z + radius));
+
+            for (int row = minRow; row <= maxRow; row++)
+            {
+                for (int column = minColumn; column <= maxColumn; column++)
+                {
+                    int cell = row * columns + column;
+                    for (int slot = starts[cell]; slot < starts[cell + 1]; slot++)
+                    {
+                        int index = items[slot];
+                        float dx = samples[index].x - x;
+                        float dz = samples[index].z - z;
+                        float sqr = dx * dx + dz * dz;
+
+                        if (sqr < bestSqr)
+                        {
+                            bestSqr = sqr;
+                            best = index;
+                        }
+                    }
+                }
+            }
+
+            distance = best >= 0 ? Mathf.Sqrt(bestSqr) : float.MaxValue;
+            return best;
         }
 
         /// <summary>
@@ -187,32 +378,59 @@ namespace Horizon.World
                 return float.MaxValue;
             }
 
+            NearestInLattice(roadCellStart, roadCellItems, x, z, out float bestSqr);
+            return Mathf.Sqrt(bestSqr);
+        }
+
+        /// <summary>
+        /// Index of the nearest sample held by a lattice, or -1 if it holds none.
+        ///
+        /// A widening ring search rather than a fixed neighbourhood, because unlike the shelf this has no
+        /// influence radius to stop at: a point out on the open mountain is legitimately three hundred
+        /// metres from the nearest road and still has to get a real answer.
+        /// </summary>
+        private int NearestInLattice(int[] starts, int[] items, float x, float z, out float bestSqr)
+        {
+            bestSqr = float.MaxValue;
+            int best = -1;
+
+            if (items.Length == 0)
+            {
+                return -1;
+            }
+
             int centreColumn = Mathf.Clamp(ColumnOf(x), 0, columns - 1);
             int centreRow = Mathf.Clamp(RowOf(z), 0, rows - 1);
-
-            float bestSqr = float.MaxValue;
             int maxRing = Mathf.Max(columns, rows);
 
             for (int ring = 0; ring <= maxRing; ring++)
             {
-                ScanRoadRing(centreColumn, centreRow, ring, x, z, ref bestSqr);
+                ScanRing(starts, items, centreColumn, centreRow, ring, x, z, ref bestSqr, ref best);
 
                 // One found is not one nearest: a sample two rings out can still beat one in the corner of
                 // this one. Stop only once the nearest cell of the *next* ring is further than what is in
                 // hand.
                 float reach = ring * BucketSize;
-                if (bestSqr < float.MaxValue && reach * reach >= bestSqr)
+                if (best >= 0 && reach * reach >= bestSqr)
                 {
                     break;
                 }
             }
 
-            return Mathf.Sqrt(bestSqr);
+            return best;
         }
 
-        /// <summary>Tests every road sample in the cells at Chebyshev distance <paramref name="ring"/>.</summary>
-        private void ScanRoadRing(
-            int centreColumn, int centreRow, int ring, float x, float z, ref float bestSqr)
+        /// <summary>Tests every sample in the cells at Chebyshev distance <paramref name="ring"/>.</summary>
+        private void ScanRing(
+            int[] starts,
+            int[] items,
+            int centreColumn,
+            int centreRow,
+            int ring,
+            float x,
+            float z,
+            ref float bestSqr,
+            ref int best)
         {
             int minColumn = centreColumn - ring;
             int maxColumn = centreColumn + ring;
@@ -237,9 +455,9 @@ namespace Horizon.World
                     }
 
                     int cell = row * columns + column;
-                    for (int slot = roadCellStart[cell]; slot < roadCellStart[cell + 1]; slot++)
+                    for (int slot = starts[cell]; slot < starts[cell + 1]; slot++)
                     {
-                        int index = roadCellItems[slot];
+                        int index = items[slot];
                         float dx = samples[index].x - x;
                         float dz = samples[index].z - z;
                         float distanceSqr = dx * dx + dz * dz;
@@ -247,6 +465,7 @@ namespace Horizon.World
                         if (distanceSqr < bestSqr)
                         {
                             bestSqr = distanceSqr;
+                            best = index;
                         }
                     }
                 }
@@ -280,12 +499,17 @@ namespace Horizon.World
         /// Deriving the shape from the road rather than inventing a cone means the two cannot disagree: the
         /// road climbs this mountain, so the mountain is whatever shape the road climbed.
         ///
-        /// <para><b>This is the one un-bucketed loop left in the field</b> — every coarse cell against every
-        /// sample, about 6 million checks today. It survives because the sample count is dominated by the
-        /// road itself and grows slowly. The town's basin adds a few hundred; a second town, or a street
-        /// network sampled at 8 m, would not. Past roughly 5000 samples this needs the same treatment
-        /// <see cref="BuildBuckets"/> gives the shelf: counts, prefix offsets, items, and a cell walk
-        /// bounded by <see cref="CoarseReach"/> instead of the whole array.</para>
+        /// <para><b>This used to be the one un-bucketed loop left in the field</b> — every coarse cell
+        /// against every sample — and it was left that way with a note saying it would need the same
+        /// treatment <see cref="BuildBuckets"/> gives the shelf past roughly 5000 samples. A motorway is
+        /// what crossed that line, and by more than the sample count alone suggests: it stretched the
+        /// world from about 930 × 1480 m to 8000 × 1900 m, so the coarse grid grew from some 1400 cells
+        /// to some 11 400 at the same time as the samples went from ~1500 to ~5500. The product is what
+        /// matters, and it went from 6 million checks to 63 million.</para>
+        ///
+        /// <para>So it now walks the shelf lattice out to <see cref="CoarseReach"/> instead of the whole
+        /// array — 17 × 17 cells of 32 m rather than 5500 samples, and it is the same lattice the shelf
+        /// already built, so this costs no extra memory.</para>
         /// </summary>
         private float[] BuildCoarseField()
         {
@@ -301,35 +525,50 @@ namespace Horizon.World
 
                     float weightSum = 0f;
                     float valueSum = 0f;
-                    float nearestSqr = float.MaxValue;
-                    int nearest = 0;
 
-                    for (int i = 0; i < samples.Length; i++)
+                    int minColumn = Mathf.Max(0, ColumnOf(x - CoarseReach));
+                    int maxColumn = Mathf.Min(columns - 1, ColumnOf(x + CoarseReach));
+                    int minRow = Mathf.Max(0, RowOf(z - CoarseReach));
+                    int maxRow = Mathf.Min(rows - 1, RowOf(z + CoarseReach));
+
+                    for (int cellRow = minRow; cellRow <= maxRow; cellRow++)
                     {
-                        float dx = samples[i].x - x;
-                        float dz = samples[i].z - z;
-                        float distanceSqr = dx * dx + dz * dz;
-
-                        if (distanceSqr < nearestSqr)
+                        for (int cellColumn = minColumn; cellColumn <= maxColumn; cellColumn++)
                         {
-                            nearestSqr = distanceSqr;
-                            nearest = i;
-                        }
+                            int cell = cellRow * columns + cellColumn;
+                            for (int slot = cellStart[cell]; slot < cellStart[cell + 1]; slot++)
+                            {
+                                int index = cellItems[slot];
+                                float dx = samples[index].x - x;
+                                float dz = samples[index].z - z;
+                                float distanceSqr = dx * dx + dz * dz;
 
-                        if (distanceSqr > reachSqr)
-                        {
-                            continue;
-                        }
+                                if (distanceSqr > reachSqr)
+                                {
+                                    continue;
+                                }
 
-                        // The constant in the denominator is what keeps this gentle: without it the nearest
-                        // sample would dominate and the mountain would follow every leg.
-                        float weight = 1f / (Mathf.Sqrt(distanceSqr) + 40f);
-                        weightSum += weight;
-                        valueSum += weight * samples[i].y;
+                                // The constant in the denominator is what keeps this gentle: without it the
+                                // nearest sample would dominate and the mountain would follow every leg.
+                                float weight = 1f / (Mathf.Sqrt(distanceSqr) + 40f);
+                                weightSum += weight;
+                                valueSum += weight * samples[index].y;
+                            }
+                        }
                     }
 
-                    heights[row * coarseColumns + column] =
-                        weightSum > 0f ? valueSum / weightSum : samples[nearest].y;
+                    // Out past the reach — the coarse grid covers CoarseMargin beyond the road, which is
+                    // wider than CoarseReach on purpose, so the outermost ring of cells legitimately finds
+                    // nothing. A widening ring search rather than a scan of the whole array, for the same
+                    // reason as everything above.
+                    if (weightSum <= 0f)
+                    {
+                        int nearest = NearestInLattice(cellStart, cellItems, x, z, out float _);
+                        heights[row * coarseColumns + column] = nearest >= 0 ? samples[nearest].y : 0f;
+                        continue;
+                    }
+
+                    heights[row * coarseColumns + column] = valueSum / weightSum;
                 }
             }
 
@@ -381,6 +620,10 @@ namespace Horizon.World
         /// <summary>
         /// Inverse-distance weighted road level at a position, and the distance to the nearest sample. Falls
         /// back to a plain nearest-sample search when nothing is in range, so the field is defined everywhere.
+        ///
+        /// <para>Both numbers come from the shelf lattice, which holds only the samples the ground is
+        /// meant to rise to — see <see cref="carriesShelf"/>. A bridge deck is therefore invisible here
+        /// in both the average and the distance, which is what leaves the valley under it.</para>
         /// </summary>
         private float RoadFieldAt(float x, float z, out float nearestDistance)
         {
@@ -431,33 +674,13 @@ namespace Horizon.World
 
             if (weightSum <= 0f)
             {
-                int nearest = NearestByBruteForce(x, z, out nearestSqr);
+                int nearest = NearestInLattice(cellStart, cellItems, x, z, out nearestSqr);
                 nearestDistance = Mathf.Sqrt(nearestSqr);
-                return samples[nearest].y;
+                return nearest >= 0 ? samples[nearest].y : 0f;
             }
 
             nearestDistance = Mathf.Sqrt(nearestSqr);
             return valueSum / weightSum;
-        }
-
-        private int NearestByBruteForce(float x, float z, out float nearestSqr)
-        {
-            nearestSqr = float.MaxValue;
-            int nearest = 0;
-
-            for (int i = 0; i < samples.Length; i++)
-            {
-                float dx = samples[i].x - x;
-                float dz = samples[i].z - z;
-                float distanceSqr = dx * dx + dz * dz;
-                if (distanceSqr < nearestSqr)
-                {
-                    nearestSqr = distanceSqr;
-                    nearest = i;
-                }
-            }
-
-            return nearest;
         }
 
         /// <summary>
@@ -465,14 +688,27 @@ namespace Horizon.World
         /// height lookup is every grid point against every road sample — about 24 million distance checks for
         /// a pass this size, and it gets worse as the world grows.
         /// </summary>
-        private void BuildBuckets(int sampleCount, out int[] starts, out int[] items)
+        /// <param name="include">
+        /// Optional mask over the first <paramref name="sampleCount"/> samples. Null takes all of them.
+        /// It exists because the shelf lattice is no longer a plain prefix of the array: a bridge sample
+        /// is road for <see cref="DistanceToRoad"/> and not road for the shelf, and the two sets are
+        /// interleaved rather than nested.
+        /// </param>
+        private void BuildBuckets(int sampleCount, bool[] include, out int[] starts, out int[] items)
         {
             int cellCount = columns * rows;
             var counts = new int[cellCount + 1];
+            int included = 0;
 
             for (int i = 0; i < sampleCount; i++)
             {
+                if (include != null && !include[i])
+                {
+                    continue;
+                }
+
                 counts[CellOf(samples[i].x, samples[i].z) + 1]++;
+                included++;
             }
 
             for (int cell = 0; cell < cellCount; cell++)
@@ -481,11 +717,16 @@ namespace Horizon.World
             }
 
             starts = counts;
-            items = new int[sampleCount];
+            items = new int[included];
             var cursor = new int[cellCount];
 
             for (int i = 0; i < sampleCount; i++)
             {
+                if (include != null && !include[i])
+                {
+                    continue;
+                }
+
                 int cell = CellOf(samples[i].x, samples[i].z);
                 items[starts[cell] + cursor[cell]] = i;
                 cursor[cell]++;

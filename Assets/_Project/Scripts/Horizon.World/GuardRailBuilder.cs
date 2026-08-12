@@ -36,6 +36,13 @@ namespace Horizon.World
         private const float PortalClearance = 30f;
 
         /// <summary>
+        /// How far either side of a bridge to leave to the parapet, metres. Shorter than
+        /// <see cref="PortalClearance"/> because an abutment is a much more local disturbance than a
+        /// tunnel mouth — the ground is back to normal within a few posts.
+        /// </summary>
+        private const float BridgeClearance = 8f;
+
+        /// <summary>
         /// Builds every rail on the course as one mesh. Returns null when nothing is exposed enough to
         /// need one.
         ///
@@ -83,7 +90,15 @@ namespace Horizon.World
                 // Nothing inside a bore or near its mouth. Inside there is no drop to fall down and the
                 // posts would foul the wall; at the mouth the ground has been cut away for the slot, so a
                 // plain drop test reads a large drop and leaves a post standing in mid-air.
-                bool covered = course != null && course.IsCoveredOrNear(distance, PortalClearance);
+                //
+                // Nothing on a bridge either, for a different reason: the drop is real and very much
+                // wants a barrier, but the bridge builds its own parapet along that exact line and two
+                // structures in one place is one too many. The margin covers the abutments, where the
+                // ground is still climbing to meet the deck and a post placed by the drop test lands in
+                // the gap between them.
+                bool covered = course != null
+                               && (course.IsCoveredOrNear(distance, PortalClearance)
+                                   || course.IsBridged(distance, BridgeClearance));
 
                 for (int side = 0; side < 2; side++)
                 {
@@ -125,6 +140,99 @@ namespace Horizon.World
                         AddBeam(anchor, anchors[step + 1, side], up, ups[step + 1],
                             vertices, normals, uvs, triangles);
                     }
+                }
+            }
+
+            if (triangles.Count == 0)
+            {
+                return null;
+            }
+
+            var mesh = new Mesh { name = meshName };
+            mesh.indexFormat = vertices.Count > 65000 ? IndexFormat.UInt32 : IndexFormat.UInt16;
+            mesh.SetVertices(vertices);
+            mesh.SetNormals(normals);
+            mesh.SetUVs(0, uvs);
+            mesh.SetTriangles(triangles, 0);
+            mesh.RecalculateBounds();
+            return mesh;
+        }
+
+        /// <summary>
+        /// The barrier down the middle of a divided road: one continuous run along the median line, with
+        /// no drop test at all.
+        ///
+        /// <para>Separate from <see cref="Build"/> rather than a flag on it, because the two answer
+        /// opposite questions. A verge rail exists where the ground falls away and is absent where it
+        /// does not, which is what makes it read as a response to the terrain. A median barrier exists
+        /// because there is oncoming traffic on the other side of it, and that is true for every metre of
+        /// the road regardless of what the ground is doing — a median that came and went with the
+        /// embankment would be a bug wearing the costume of a feature.</para>
+        ///
+        /// <para>Runs along the centreline the two carriageways were offset from, so it needs no width of
+        /// its own: the gap it stands in is whatever those offsets left.</para>
+        /// </summary>
+        /// <summary>
+        /// Post spacing down the median, metres.
+        ///
+        /// <para>Three times <see cref="PostSpacing"/>, and the reason is arithmetic rather than taste. A
+        /// verge rail exists in short runs on the exposed outside of a corner, so four-metre posts cost a
+        /// couple of hundred triangles over a whole pass. A median runs the entire length of the road
+        /// without a break — at four metres that was 2129 posts and 32 000 triangles of always-resident
+        /// mesh, more than the entire town's street network, for a barrier seen edge-on at 130 km/h. At
+        /// twelve it is a third of that and reads identically from a car.</para>
+        /// </summary>
+        private const float MedianPostSpacing = 12f;
+
+        public static Mesh BuildMedian(
+            IRoadPath centre,
+            in RoadShape roadShape,
+            RoadCourse course,
+            string meshName = "MedianBarrierMesh")
+        {
+            float length = centre.Length;
+            int steps = Mathf.Max(2, Mathf.CeilToInt(length / MedianPostSpacing) + 1);
+
+            var vertices = new List<Vector3>(4096);
+            var normals = new List<Vector3>(4096);
+            var uvs = new List<Vector2>(4096);
+            var triangles = new List<int>(8192);
+
+            var present = new bool[steps];
+            var anchors = new Vector3[steps];
+            var ups = new Vector3[steps];
+
+            for (int step = 0; step < steps; step++)
+            {
+                float distance = length * step / (steps - 1);
+
+                Vector3 right = centre.GetBankedRightAtDistance(
+                    distance, roadShape.MaxBankDegrees, roadShape.FullBankRadius);
+
+                Vector3 up = Vector3.Cross(centre.GetDirectionAtDistance(distance), right).normalized;
+                ups[step] = up.y < 0f ? -up : up;
+
+                anchors[step] = centre.GetPositionAtDistance(distance) - ups[step] * roadShape.ShoulderDrop;
+
+                // Nothing breaks the run, tunnels included. The motorway's bores are single spans over
+                // both carriageways rather than one each, so inside one there is still oncoming traffic
+                // a few metres away and still a reason for a barrier between it and you.
+                present[step] = true;
+            }
+
+            for (int step = 0; step < steps; step++)
+            {
+                if (!present[step])
+                {
+                    continue;
+                }
+
+                AddPost(anchors[step], ups[step], vertices, normals, uvs, triangles);
+
+                if (step + 1 < steps && present[step + 1])
+                {
+                    AddBeam(anchors[step], anchors[step + 1], ups[step], ups[step + 1],
+                        vertices, normals, uvs, triangles);
                 }
             }
 

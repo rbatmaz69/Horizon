@@ -33,7 +33,17 @@ namespace Horizon.EditorTools
         public const float VariantWidth = 0.5f;
 
         /// <summary>Builds the two-variant road surface texture.</summary>
-        public static Texture2D BuildSurface(in RoadShape shape)
+        /// <param name="laneCount">
+        /// How many lanes the asphalt carries, which decides how many lines are painted between its
+        /// edges — <c>laneCount - 1</c> of them, evenly spaced.
+        ///
+        /// <para>Two is the two-way road this started as, where the single interior line is the centre
+        /// line and goes solid through a corner. Four is one carriageway of the motorway, where the three
+        /// interior lines are lane dividers and are always dashed: a one-way carriageway has no
+        /// overtaking prohibition to express, so the solid variant is painted identically and
+        /// <c>RoadShape.Autobahn</c> keeps the mesh off it anyway.</para>
+        /// </param>
+        public static Texture2D BuildSurface(in RoadShape shape, int laneCount = 2)
         {
             int width = VariantPixels * 2;
             var texture = new Texture2D(width, LengthPixels, TextureFormat.RGBA32, true);
@@ -64,7 +74,7 @@ namespace Horizon.EditorTools
 
                     Color colour = SampleAsphalt(across, alongFraction, shape);
                     float paint = PaintCoverage(
-                        across, alongMetres, shape, solidVariant, acrossSoftness, alongSoftness);
+                        across, alongMetres, shape, solidVariant, acrossSoftness, alongSoftness, laneCount);
 
                     if (paint > 0f)
                     {
@@ -135,7 +145,8 @@ namespace Horizon.EditorTools
             in RoadShape shape,
             bool solidVariant,
             float acrossSoftness,
-            float alongSoftness)
+            float alongSoftness,
+            int laneCount)
         {
             RoadMarkings markings = shape.Markings;
 
@@ -145,24 +156,39 @@ namespace Horizon.EditorTools
             float inner = outer - markings.EdgeLineWidth;
             float distanceFromCentre = Mathf.Abs(across);
 
-            float edge = Band(distanceFromCentre, inner, outer, acrossSoftness);
+            float coverage = Band(distanceFromCentre, inner, outer, acrossSoftness);
 
-            // --- Centre line. One-sided: the measurement is already a distance from the middle, so
-            // softening a lower bound at zero would leave the centre of the line half-covered.
-            float centre = Inside(distanceFromCentre, markings.CentreLineWidth * 0.5f, acrossSoftness);
+            // The dash is centred within the cycle rather than started at zero. Starting it at zero
+            // would put its leading edge exactly on the texture's wrap seam, where it would be clipped
+            // and half-faded.
+            float dashHalf = markings.DashLength * 0.5f;
+            float cycleMiddle = markings.CycleLength * 0.5f;
+            float dash = Band(alongMetres, cycleMiddle - dashHalf, cycleMiddle + dashHalf, alongSoftness);
 
-            if (!solidVariant)
+            // --- Interior lines: one fewer than there are lanes, evenly spaced across the asphalt.
+            int lines = Mathf.Max(1, laneCount) - 1;
+            float laneWidth = shape.HalfWidth * 2f / Mathf.Max(1, laneCount);
+
+            for (int i = 1; i <= lines; i++)
             {
-                // The dash is centred within the cycle rather than started at zero. Starting it at zero
-                // would put its leading edge exactly on the texture's wrap seam, where it would be
-                // clipped and half-faded.
-                float dashHalf = markings.DashLength * 0.5f;
-                float cycleMiddle = markings.CycleLength * 0.5f;
+                float at = -shape.HalfWidth + i * laneWidth;
 
-                centre *= Band(alongMetres, cycleMiddle - dashHalf, cycleMiddle + dashHalf, alongSoftness);
+                float line = Inside(
+                    Mathf.Abs(across - at), markings.CentreLineWidth * 0.5f, acrossSoftness);
+
+                // A two-lane road's single interior line is a centre line, and the solid variant is what
+                // says "do not overtake here". Everything else is a lane divider, which is dashed on
+                // every road there is.
+                bool alwaysDashed = laneCount != 2;
+                if (alwaysDashed || !solidVariant)
+                {
+                    line *= dash;
+                }
+
+                coverage = Mathf.Max(coverage, line);
             }
 
-            return Mathf.Clamp01(Mathf.Max(edge, centre));
+            return Mathf.Clamp01(coverage);
         }
 
         /// <summary>Soft-edged membership of the range <paramref name="low"/>..<paramref name="high"/>.</summary>

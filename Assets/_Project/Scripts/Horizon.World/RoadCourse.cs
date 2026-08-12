@@ -25,6 +25,23 @@ namespace Horizon.World
         /// stands there comes from <c>TownPlan</c>.
         /// </summary>
         Village = 3,
+
+        /// <summary>
+        /// A stretch carried across a valley on piers rather than laid on the ground.
+        ///
+        /// <para>The visible half of a bridge is the deck and the piers, and that is the easy half. The
+        /// half that makes it a bridge is that the ground underneath must be left alone: the terrain
+        /// takes its height from the nearest carriageway everywhere, so without this the road would
+        /// simply carry a 40 m embankment across the valley and there would be nothing to build a bridge
+        /// over. <see cref="MountainField"/> reads this span and drops those samples from the shelf
+        /// while keeping them for <c>DistanceToRoad</c>, so the valley stays and the tiles, vegetation
+        /// and rails still know there is a road above it.</para>
+        ///
+        /// <para>Deliberately <b>not</b> counted by <see cref="RoadCourse.IsCovered"/>, which exists to
+        /// suppress guard rails and clearance checks under a roof. A bridge has no roof, wants its
+        /// parapet, and is exactly where running off the edge matters most.</para>
+        /// </summary>
+        Bridge = 4,
     }
 
     /// <summary>A stretch of the course that something is built on or into.</summary>
@@ -130,6 +147,35 @@ namespace Horizon.World
                 bool covers = feature.Kind == RoadFeatureKind.Tunnel || feature.Kind == RoadFeatureKind.Gallery;
 
                 if (covers
+                    && distance >= feature.StartDistance - margin
+                    && distance <= feature.EndDistance + margin)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// True if <paramref name="distance"/> falls on a bridge, optionally widened by
+        /// <paramref name="margin"/> at each end.
+        ///
+        /// <para>Separate from <see cref="IsCovered"/> rather than folded into it, because the two
+        /// questions have opposite answers for the same callers. A tunnel says "there is a roof, put no
+        /// rail here and do not check the sky for clearance"; a bridge says "there is a drop, the
+        /// parapet is mine to build and the ground below is not mine at all". The margin is used the
+        /// same way <see cref="IsCoveredOrNear"/> uses its own: at the abutment the terrain is still
+        /// climbing to meet the deck, and a rail post placed there by a plain drop test lands in the
+        /// gap between the two.</para>
+        /// </summary>
+        public bool IsBridged(float distance, float margin = 0f)
+        {
+            for (int i = 0; i < features.Count; i++)
+            {
+                RoadFeature feature = features[i];
+
+                if (feature.Kind == RoadFeatureKind.Bridge
                     && distance >= feature.StartDistance - margin
                     && distance <= feature.EndDistance + margin)
                 {

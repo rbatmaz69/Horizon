@@ -117,6 +117,9 @@ namespace Horizon.EditorTools
         {
             public readonly Material RoadSurface;
             public readonly Material RoadShoulder;
+
+            /// <summary>Four-lane markings for one carriageway of the motorway.</summary>
+            public readonly Material MotorwaySurface;
             public readonly Material Concrete;
             public readonly Material GuardRail;
             public readonly Material Grass;
@@ -178,6 +181,21 @@ namespace Horizon.EditorTools
                 RoadSurface = HorizonAssetUtility.LoadOrCreateMaterial(
                     MaterialsFolder + "/M_RoadSurface.mat", "M_RoadSurface", Color.white, 0.34f, 0f,
                     surfaceTexture);
+
+                // A second atlas rather than a wider road wearing the first. The markings are painted in
+                // normalised coordinates across the asphalt, so stretching the two-lane texture over a
+                // 15 m carriageway would give four lanes' worth of road with one lane line down the
+                // middle of it — correct-looking geometry that says the wrong thing.
+                RoadShape motorwayShape = RoadShape.Autobahn;
+
+                Texture2D motorwayTexture = HorizonAssetUtility.LoadOrCreateTexture(
+                    ProjectRoot + "/Art/T_MotorwaySurface.png",
+                    () => RoadTextureBuilder.BuildSurface(motorwayShape, 4),
+                    anisoLevel: 8);
+
+                MotorwaySurface = HorizonAssetUtility.LoadOrCreateMaterial(
+                    MaterialsFolder + "/M_MotorwaySurface.mat", "M_MotorwaySurface", Color.white, 0.34f, 0f,
+                    motorwayTexture);
 
                 RoadShoulder = HorizonAssetUtility.LoadOrCreateMaterial(
                     MaterialsFolder + "/M_RoadShoulder.mat", "M_RoadShoulder", Color.white, 0.12f, 0f,
@@ -609,6 +627,42 @@ namespace Horizon.EditorTools
             WorldChunk roadChunk = roadObject.AddComponent<WorldChunk>();
             roadChunk.RecalculateBounds();
             roadChunk.SetBounds(roadChunk.Center, 100000f);
+
+            // --- The motorway. One authored median line, two carriageways offset from it, and a link
+            // road down to the foot of the pass. The centreline is never paved.
+            RoadShape motorwayShape = RoadShape.Autobahn;
+
+            var motorwayPathObject = new GameObject("MotorwayPath");
+            motorwayPathObject.transform.SetParent(worldRoot.transform, false);
+            RoadPath motorwayPath = motorwayPathObject.AddComponent<RoadPath>();
+
+            RoadCourse motorwayCourse = AutobahnCourse.Build();
+            motorwayPath.SetControlPoints(motorwayCourse.ControlPoints);
+            ReportCourse(motorwayCourse, motorwayPath, "Motorway");
+
+            var linkPathObject = new GameObject("MotorwayLinkPath");
+            linkPathObject.transform.SetParent(worldRoot.transform, false);
+            RoadPath linkPath = linkPathObject.AddComponent<RoadPath>();
+
+            RoadCourse linkCourse = AutobahnCourse.BuildLink();
+            linkPath.SetControlPoints(linkCourse.ControlPoints);
+
+            var westbound = new OffsetRoadPath(motorwayPath, -AutobahnCourse.CarriagewayOffset);
+            var eastbound = new OffsetRoadPath(motorwayPath, AutobahnCourse.CarriagewayOffset);
+
+            BuildCarriageway(worldRoot.transform, "CarriagewayWest", westbound, motorwayShape, materials);
+            BuildCarriageway(worldRoot.transform, "CarriagewayEast", eastbound, motorwayShape, materials);
+
+            Mesh linkMesh = RoadMeshBuilder.BuildRoad(linkPath, roadShape, "MotorwayLinkMesh");
+            linkMesh = HorizonAssetUtility.ReplaceAsset(
+                linkMesh, GeneratedFolder + "/MotorwayLinkMesh.asset");
+
+            GameObject linkObject = CreateMeshObject(worldRoot.transform, "MotorwayLink", linkMesh,
+                new[] { materials.RoadSurface, materials.RoadShoulder });
+
+            WorldChunk linkChunk = linkObject.AddComponent<WorldChunk>();
+            linkChunk.RecalculateBounds();
+            linkChunk.SetBounds(linkChunk.Center, 100000f);
             EditorUtility.SetDirty(roadChunk);
 
             // --- The town's street network.
@@ -673,7 +727,21 @@ namespace Horizon.EditorTools
             // anything having to be built first.
             Bounds townFootprint = TownShape.Footprint(levelSamples, townShape.CorridorMargin);
 
-            var field = new MountainField(path, terrainShape, 4f, levelSamples);
+            // Every carriageway in the world, in one field. Two fields would each carve a mountain from
+            // their own road and disagree where the two came near, leaving a step down the seam.
+            //
+            // The motorway's carriageways are handed their course as well as their path, which is what
+            // lets the field leave a valley standing under a viaduct instead of filling it in — see
+            // MountainField.carriesShelf. The pass and the link have no bridges and pass none.
+            var roads = new[]
+            {
+                new MountainField.FieldRoad(path),
+                new MountainField.FieldRoad(westbound, motorwayCourse),
+                new MountainField.FieldRoad(eastbound, motorwayCourse),
+                new MountainField.FieldRoad(linkPath),
+            };
+
+            var field = new MountainField(roads, terrainShape, 4f, levelSamples);
             Phase(clock, $"height field ({levelSamples.Count} level samples)");
 
             // The street meshes come *after* the field, unlike the network itself. Their verges run down
@@ -684,6 +752,9 @@ namespace Horizon.EditorTools
             Phase(clock, "street meshes");
 
             ValidateRoadClearance(path, roadShape, field, course);
+            ValidateRoadClearance(westbound, motorwayShape, field, motorwayCourse, "Westbound");
+            ValidateRoadClearance(eastbound, motorwayShape, field, motorwayCourse, "Eastbound");
+            ValidateBridges(westbound, field, motorwayCourse);
             ValidateStreetClearance(network, field, terrainShape);
             ReportPadWinding(network);
             ReportTownGround(field, path, terrainShape, townShape);
@@ -716,8 +787,39 @@ namespace Horizon.EditorTools
             BuildCoveredSections(worldRoot.transform, path, roadShape, course, field, materials);
             BuildGuardRails(worldRoot.transform, path, roadShape, field, course, materials);
 
+            // --- Motorway structures. Per carriageway, because a divided road has two of everything:
+            // two bores through a spur, two decks over a valley, two sets of verge rails. Only the
+            // barrier down the middle is single, and it runs on the median line the carriageways were
+            // offset from.
+            // One bore over the whole road rather than one per carriageway, and the driveable-corridor
+            // check is what settled it. TunnelBuilder sweeps a massif 80 m across around whatever path
+            // it is given, and the two carriageways are 21 m apart — so a bore built on each buried the
+            // other one in rock, at 92 sampled points of the westbound carriageway. Real motorway
+            // tunnels are twin bores because they are driven through rock from either end; this one is
+            // a single span wide enough to cover both, which is the shape the tool can actually build.
+            RoadShape boreShape = motorwayShape;
+            boreShape.HalfWidth = AutobahnCourse.CarriagewayOffset + motorwayShape.OuterHalfWidth;
+
+            BuildCoveredSections(worldRoot.transform, motorwayPath, boreShape, motorwayCourse, field,
+                materials, "Motorway");
+
+            BuildBridges(worldRoot.transform, westbound, motorwayShape, field, motorwayCourse,
+                materials, "West");
+            BuildBridges(worldRoot.transform, eastbound, motorwayShape, field, motorwayCourse,
+                materials, "East");
+
+            BuildGuardRails(worldRoot.transform, westbound, motorwayShape, field, motorwayCourse,
+                materials, "MotorwayWest");
+            BuildGuardRails(worldRoot.transform, eastbound, motorwayShape, field, motorwayCourse,
+                materials, "MotorwayEast");
+            BuildMedianBarrier(worldRoot.transform, motorwayPath, motorwayShape, motorwayCourse, materials);
+
+            BuildGuardRails(worldRoot.transform, linkPath, roadShape, field, linkCourse,
+                materials, "MotorwayLink");
+
             BuildTraffic(worldRoot.transform, network, path, roadShape, materials,
-                litRenderers, litSlotStart, litSlots, litSlotGroups);
+                litRenderers, litSlotStart, litSlots, litSlotGroups,
+                motorwayPath, motorwayShape, AutobahnCourse.CarriagewayOffset);
 
             // After both, so one component carries the town's windows and the traffic's lamps.
             WireTownLights(worldRoot.transform, litRenderers, litSlotStart, litSlots, litSlotGroups,
@@ -725,6 +827,9 @@ namespace Horizon.EditorTools
 
             // After every builder and before the car exists — otherwise the car is the obstruction.
             ValidateDriveableCorridor(path, "the pass", 1.3f, 4f);
+            ValidateDriveableCorridor(westbound, "the westbound carriageway", 1.3f, 4f);
+            ValidateDriveableCorridor(eastbound, "the eastbound carriageway", 1.3f, 4f);
+            ValidateDriveableCorridor(linkPath, "the motorway link", 1.3f, 4f);
             Phase(clock, "validation");
             int worstJunction = ValidateStreetNetwork(network, path, roadShape);
             MarkWorstJunction(worldRoot.transform, network, worstJunction);
@@ -739,7 +844,7 @@ namespace Horizon.EditorTools
             // Counted after every builder and before the car, at the streamer's own radius and again at
             // the first pressure valve, so the question "would 450 m help, and by how much" is answered
             // in the log rather than by trying it.
-            List<Vector3> stations = DrawCallStations(path);
+            List<Vector3> stations = DrawCallStations(path, motorwayPath);
             ReportDrawCallBudget(worldRoot.transform, stations, streamer.LoadRadius);
             ReportDrawCallBudget(worldRoot.transform, stations, 450f);
 
@@ -848,6 +953,33 @@ namespace Horizon.EditorTools
             EditorSceneManager.SaveScene(scene, BootstrapScenePath);
         }
 
+        /// <summary>
+        /// One carriageway of the motorway: the ordinary road ribbon, built off an offset path and
+        /// wearing the four-lane atlas.
+        ///
+        /// <para>Nothing here is motorway-specific except which two assets it is handed, which is the
+        /// point — <see cref="RoadMeshBuilder"/> needed no changes at all to build a divided road.</para>
+        /// </summary>
+        private static void BuildCarriageway(
+            Transform parent,
+            string name,
+            IRoadPath path,
+            in RoadShape shape,
+            PrototypeMaterials materials)
+        {
+            Mesh mesh = RoadMeshBuilder.BuildRoad(path, shape, name + "Mesh");
+            mesh = HorizonAssetUtility.ReplaceAsset(mesh, $"{GeneratedFolder}/{name}Mesh.asset");
+
+            GameObject carriageway = CreateMeshObject(parent, name, mesh,
+                new[] { materials.MotorwaySurface, materials.RoadShoulder });
+
+            // Never unloads, for the same reason the pass road does not: it is a thin ribbon, and the
+            // car is by definition standing on one of them.
+            WorldChunk chunk = carriageway.AddComponent<WorldChunk>();
+            chunk.RecalculateBounds();
+            chunk.SetBounds(chunk.Center, 100000f);
+        }
+
         private static void RegisterScenesInBuildSettings()
         {
             EditorBuildSettings.scenes = new[]
@@ -865,7 +997,7 @@ namespace Horizon.EditorTools
         /// radius are numbers, and getting them wrong is the likeliest reason driving would feel bad.
         /// Checking them here means a bad profile table is caught before anyone drives it.
         /// </summary>
-        private static void ReportCourse(RoadCourse course, RoadPath path)
+        private static void ReportCourse(RoadCourse course, RoadPath path, string what = "Pass")
         {
             float length = path.Length;
             const float step = 5f;
@@ -910,7 +1042,7 @@ namespace Horizon.EditorTools
             float elevationGain = course.Summit.y - course.LowestElevation;
 
             Debug.Log(
-                $"[Horizon] Pass course: {length:0} m long, {elevationGain:0} m of elevation, "
+                $"[Horizon] {what} course: {length:0} m long, {elevationGain:0} m of elevation, "
                 + $"summit at {course.Summit.y:0} m. Steepest {steepest:0.0}% at {steepestAt:0} m, "
                 + $"tightest radius {tightestRadius:0.0} m at {tightestAt:0} m. "
                 + $"{course.Features.Count} features.");
@@ -1637,7 +1769,10 @@ namespace Horizon.EditorTools
             List<MeshRenderer> litRenderers,
             List<int> litSlotStart,
             List<int> litSlots,
-            List<int> litSlotGroups)
+            List<int> litSlotGroups,
+            IRoadPath highway,
+            RoadShape highwayShape,
+            float carriagewayOffset)
         {
             if (network.Edges.Count == 0)
             {
@@ -1647,7 +1782,8 @@ namespace Horizon.EditorTools
             // Generated, not Settings. It is a ScriptableObject like VehicleConfig, but it is derived
             // output rather than something anyone tunes — regenerate it and every edit is gone — so it
             // belongs where the meshes are and under the orphan report that watches them.
-            TrafficNetwork routes = TrafficNetworkBuilder.Build(network, trunk, trunkShape);
+            TrafficNetwork routes = TrafficNetworkBuilder.Build(
+                network, trunk, trunkShape, highway, highwayShape, carriagewayOffset);
             routes = HorizonAssetUtility.ReplaceAsset(routes, GeneratedFolder + "/TrafficNetwork.asset");
 
             CarMeshBuilder.CarProfile[] profiles = CarMeshBuilder.TrafficProfiles;
@@ -1762,19 +1898,29 @@ namespace Horizon.EditorTools
         /// <summary>
         /// How many ambient cars there are. Fixed at build; the director never changes it.
         ///
-        /// Twenty-four, up from fourteen. The routes now cover six kilometres of pass as well as three of
-        /// town, and fourteen cars spread over that is a world where you meet one every other hairpin.
-        /// The director disables the renderers past its load radius and recycles what falls behind, so
-        /// what is actually submitted is bounded by what is on screen rather than by the count.
+        /// Sixty-four, up from twenty-four, because of the motorway: eight lanes over eight kilometres is
+        /// four times the road the pass and the town have between them, and the whole point of it is
+        /// traffic dense enough to thread through. Twenty-four cars spread over the new network is one
+        /// car every kilometre and a half.
+        ///
+        /// <para>What makes that affordable is not this number but where the cars are. The director
+        /// weights its lane choice by length and now searches a candidate lane for the point nearest the
+        /// player, so nearly the whole pool sits inside the load radius rather than scattered over
+        /// twenty kilometres of empty road. Sixty-four cars near you is dense; sixty-four cars spread
+        /// evenly would be invisible.</para>
         ///
         /// <para>The draw-call report does not know that, and should not: it counts every material slot
-        /// on a renderer no <c>WorldChunk</c> owns, which is all five of each car's, and calls the total
-        /// an upper bound. So the pool shows up there as 120 always-resident slots against the old 70.
-        /// That is the honest number for the state the report describes; it is not the state the game is
-        /// ever in. If the always-resident figure has to come down, this constant is the cheapest lever
-        /// on it — and the one that costs the most in how populated the world feels.</para>
+        /// on a renderer no <c>WorldChunk</c> owns and calls the total an upper bound. At five slots a
+        /// car the pool is 320 always-resident slots against the old 120 — a real increase, and the
+        /// number to watch, but still under the 400 the report warns at.</para>
+        ///
+        /// <para>If it does start warning, the cheapest lever is not this constant: it is the glass
+        /// submesh in <c>CarMeshBuilder.BuildTrafficBody</c>. A traffic car is seen in motion at a
+        /// distance, where a separate glass material buys a highlight nobody resolves, and folding it
+        /// into the body would take the pool to 256 without removing a single car. That is deliberately
+        /// not done yet — it is a mesh change made to fix a number that has not gone wrong.</para>
         /// </summary>
-        private const int TrafficPoolSize = 24;
+        private const int TrafficPoolSize = 64;
 
         /// <summary>
         /// Stands one car on the routes, spread evenly over every lane that is a road rather than a turn.
@@ -1827,10 +1973,12 @@ namespace Horizon.EditorTools
         {
             int streets = 0;
             int trunkLanes = 0;
+            int highwayLanes = 0;
             int connectors = 0;
             int deadEnds = 0;
             float total = 0f;
             float trunkTotal = 0f;
+            float highwayTotal = 0f;
 
             for (int lane = 0; lane < routes.LaneCount; lane++)
             {
@@ -1845,6 +1993,11 @@ namespace Horizon.EditorTools
                     case TrafficLaneKind.Trunk:
                         trunkLanes++;
                         trunkTotal += routes.LengthOf(lane);
+                        break;
+
+                    case TrafficLaneKind.Highway:
+                        highwayLanes++;
+                        highwayTotal += routes.LengthOf(lane);
                         break;
 
                     default:
@@ -1867,7 +2020,8 @@ namespace Horizon.EditorTools
             }
 
             Debug.Log($"[Horizon] Traffic: {streets} street lanes, {trunkLanes} trunk lanes "
-                      + $"({trunkTotal:0} m) and {connectors} turn connectors, {total:0} m of route, "
+                      + $"({trunkTotal:0} m), {highwayLanes} motorway lanes ({highwayTotal:0} m) and "
+                      + $"{connectors} turn connectors, {total:0} m of route, "
                       + $"{TrafficPoolSize} cars over {profiles.Length} body types "
                       + $"({poolTriangles} triangles in total).");
 
@@ -2053,12 +2207,18 @@ namespace Horizon.EditorTools
         /// through the town.
         ///
         /// The same five as <see cref="WorldPreviewRenderer"/> deliberately — the shots and the numbers
-        /// should be about the same places — and three more in the town, because the town is the only
-        /// part of this world where the answer is in any doubt.
+        /// should be about the same places — three more in the town, because the town is where the
+        /// answer is in most doubt, and three on the motorway.
+        ///
+        /// <para>The motorway ones were added with the road itself and are not optional. The worst
+        /// station in this world is in the town, so the report was answering "how bad does it get"
+        /// correctly and saying nothing at all about a road carrying most of the traffic pool — which
+        /// is a different question with a different answer, since out there the resident count is the
+        /// cars and almost nothing else.</para>
         /// </summary>
-        private static List<Vector3> DrawCallStations(RoadPath path)
+        private static List<Vector3> DrawCallStations(RoadPath path, RoadPath motorway)
         {
-            var stations = new List<Vector3>(8);
+            var stations = new List<Vector3>(11);
 
             float[] fractions = { 0.06f, 0.30f, 0.55f, 0.78f, 0.95f };
             for (int i = 0; i < fractions.Length; i++)
@@ -2071,6 +2231,15 @@ namespace Horizon.EditorTools
             stations.Add(path.GetPositionAtDistance(Mathf.Min(start, path.Length)));
             stations.Add(path.GetPositionAtDistance(Mathf.Min((start + end) * 0.5f, path.Length)));
             stations.Add(path.GetPositionAtDistance(Mathf.Min(end, path.Length)));
+
+            if (motorway != null)
+            {
+                // The interchange, and open road well clear of it in both directions.
+                stations.Add(motorway.GetPositionAtDistance(
+                    Mathf.Min(AutobahnCourse.JunctionDistance, motorway.Length)));
+                stations.Add(motorway.GetPositionAtDistance(motorway.Length * 0.15f));
+                stations.Add(motorway.GetPositionAtDistance(motorway.Length * 0.85f));
+            }
 
             return stations;
         }
@@ -3344,13 +3513,14 @@ namespace Horizon.EditorTools
         /// </summary>
         private static void BuildCoveredSections(
             Transform parent,
-            RoadPath path,
+            IRoadPath path,
             in RoadShape roadShape,
             RoadCourse course,
             MountainField field,
-            PrototypeMaterials materials)
+            PrototypeMaterials materials,
+            string label = "")
         {
-            var root = new GameObject("CoveredSections");
+            var root = new GameObject("CoveredSections" + label);
             root.transform.SetParent(parent, false);
 
             int built = 0;
@@ -3364,7 +3534,7 @@ namespace Horizon.EditorTools
                     continue;
                 }
 
-                string name = $"{feature.Kind}_{feature.Name}";
+                string name = $"{feature.Kind}_{feature.Name}{label}";
                 Mesh mesh = TunnelBuilder.Build(path, roadShape, feature, field, name);
                 if (mesh == null)
                 {
@@ -3389,7 +3559,7 @@ namespace Horizon.EditorTools
                 built++;
             }
 
-            Debug.Log($"[Horizon] Built {built} covered section(s).");
+            Debug.Log($"[Horizon] Built {built} covered section(s) on {Where(label)}.");
         }
 
         /// <summary>
@@ -3427,9 +3597,16 @@ namespace Horizon.EditorTools
             // mean no collider was registered and the check never ran at all. Those look identical in a log,
             // so ask a question the answer to which must be "yes": a box sunk into the carriageway has to hit
             // the road.
+            //
+            // Centred on the path and 1.5 m tall either way rather than sunk half a metre: the original
+            // box spanned -1.1 to +0.1 about the centreline, which straddled the pass's asphalt and its
+            // shelf by a few centimetres and missed the motorway's entirely — a wider carriageway has a
+            // higher crown and a deeper shoulder, and the box fell through the gap between them. A
+            // canary that reports "no answer" because the road is shaped differently is worse than no
+            // canary, because it is indistinguishable from the failure it exists to catch.
             Vector3 canaryAt = path.GetPositionAtDistance(length * 0.5f);
             int canary = Physics.OverlapBoxNonAlloc(
-                canaryAt + Vector3.down * 0.5f, new Vector3(halfWidth, 0.6f, 1f), hits,
+                canaryAt, new Vector3(halfWidth, 1.5f, 1f), hits,
                 Quaternion.identity, ~0, QueryTriggerInteraction.Ignore);
 
             if (canary == 0)
@@ -3459,7 +3636,20 @@ namespace Horizon.EditorTools
                 int count = Physics.OverlapBoxNonAlloc(
                     boxCenter, halfExtents, hits, rotation, ~0, QueryTriggerInteraction.Ignore);
 
-                if (count == 0)
+                // Ambient cars are parked on their lanes at edit time and are of course standing in the
+                // road — that is where cars go. The street check already exempts them; this one did not,
+                // and only got away with it while there were few enough that none happened to be sitting
+                // on the stretch being measured.
+                Collider blocker = null;
+                for (int i = 0; i < count && blocker == null; i++)
+                {
+                    if (hits[i] != null && !IsTraffic(hits[i]))
+                    {
+                        blocker = hits[i];
+                    }
+                }
+
+                if (blocker == null)
                 {
                     continue;
                 }
@@ -3468,7 +3658,7 @@ namespace Horizon.EditorTools
                 if (firstBy == null)
                 {
                     firstAt = distance;
-                    firstBy = hits[0] != null ? hits[0].gameObject.name : "unknown";
+                    firstBy = blocker.gameObject.name;
                 }
             }
 
@@ -3648,11 +3838,59 @@ namespace Horizon.EditorTools
                 + "interpolating; the clearance has to exceed the error.");
         }
 
+        /// <summary>
+        /// Measures the air under every viaduct and says so.
+        ///
+        /// <para>The one thing about a bridge that no other check can see. <see cref="ValidateRoadClearance"/>
+        /// asks whether the ground is below the road, and a span built straight onto an embankment passes
+        /// it perfectly — the ground is below the road, by nothing at all. Piers a metre tall on a solid
+        /// floor is the failure this catches, and it is the failure the first two viaducts had before
+        /// <c>MountainField.BridgeHeadroom</c> existed.</para>
+        /// </summary>
+        private static void ValidateBridges(IRoadPath path, MountainField field, RoadCourse course)
+        {
+            for (int i = 0; i < course.Features.Count; i++)
+            {
+                RoadFeature feature = course.Features[i];
+                if (feature.Kind != RoadFeatureKind.Bridge)
+                {
+                    continue;
+                }
+
+                float deepest = 0f;
+                float shallowest = float.MaxValue;
+                const float step = 8f;
+
+                for (float at = feature.StartDistance; at <= feature.EndDistance; at += step)
+                {
+                    Vector3 deck = path.GetPositionAtDistance(at);
+                    float drop = deck.y - field.HeightAt(deck.x, deck.z);
+
+                    deepest = Mathf.Max(deepest, drop);
+                    shallowest = Mathf.Min(shallowest, drop);
+                }
+
+                Debug.Log($"[Horizon] Bridge '{feature.Name}': {feature.Length:0} m span, "
+                          + $"{shallowest:0.0} m to {deepest:0.0} m above the ground under it.");
+
+                // Below this the piers are stubs and the structure reads as a wall along the road.
+                if (deepest < 6f)
+                {
+                    Debug.LogWarning(
+                        $"[Horizon] Bridge '{feature.Name}' is at most {deepest:0.0} m above the ground, "
+                        + "so it is an embankment with a parapet rather than a viaduct. Either the span "
+                        + "is somewhere the terrain was never going to fall away, or "
+                        + "MountainField.BridgeHeadroom is not reaching it.");
+                }
+            }
+        }
+
         private static void ValidateRoadClearance(
-            RoadPath path,
+            IRoadPath path,
             in RoadShape roadShape,
             MountainField field,
-            RoadCourse course)
+            RoadCourse course,
+            string what = "Road")
         {
             const float step = 2f;
             float length = path.Length;
@@ -3703,12 +3941,12 @@ namespace Horizon.EditorTools
 
             if (breaches == 0)
             {
-                Debug.Log("[Horizon] Road clearance: the terrain is below the carriageway everywhere.");
+                Debug.Log($"[Horizon] {what} clearance: the terrain is below the carriageway everywhere.");
                 return;
             }
 
             Debug.LogWarning(
-                $"[Horizon] Road clearance: terrain stands above the asphalt at {breaches} sampled points. "
+                $"[Horizon] {what} clearance: terrain stands above the asphalt at {breaches} sampled points. "
                 + $"Worst is {worst:0.00} m at {worstAt:0} m along the course, {worstAcross:0.0} m across "
                 + "from the centreline.");
         }
@@ -3720,29 +3958,103 @@ namespace Horizon.EditorTools
         /// </summary>
         private static void BuildGuardRails(
             Transform parent,
-            RoadPath path,
+            IRoadPath path,
             in RoadShape roadShape,
             MountainField field,
             RoadCourse course,
-            PrototypeMaterials materials)
+            PrototypeMaterials materials,
+            string label = "")
         {
             Mesh mesh = GuardRailBuilder.Build(path, roadShape, field, course);
             if (mesh == null)
             {
-                Debug.Log("[Horizon] No guard rails needed — nothing on the course is exposed enough.");
+                Debug.Log($"[Horizon] No guard rails needed on {Where(label)} — nothing is exposed enough.");
                 return;
             }
 
             int triangles = mesh.triangles.Length / 3;
-            mesh = HorizonAssetUtility.ReplaceAsset(mesh, GeneratedFolder + "/GuardRailMesh.asset");
+            mesh = HorizonAssetUtility.ReplaceAsset(
+                mesh, $"{GeneratedFolder}/GuardRail{label}Mesh.asset");
 
             // No collider: the rails are visual. Hitting one should not be a wall the car can lean on
             // until the vehicle has a proper collision response, and a concave mesh collider here would
             // catch the car in ways that feel arbitrary.
-            CreateMeshObject(parent, "GuardRails", mesh, new[] { materials.GuardRail },
+            CreateMeshObject(parent, "GuardRails" + label, mesh, new[] { materials.GuardRail },
                 addCollider: false, markStatic: true);
 
-            Debug.Log($"[Horizon] Guard rails: {triangles} triangles.");
+            Debug.Log($"[Horizon] Guard rails on {Where(label)}: {triangles} triangles.");
+        }
+
+        /// <summary>
+        /// The barrier down the middle of the motorway. Unlike the verge rails this is unconditional, so
+        /// there is no "nothing was exposed enough" case to report.
+        /// </summary>
+        private static void BuildMedianBarrier(
+            Transform parent,
+            IRoadPath centre,
+            in RoadShape roadShape,
+            RoadCourse course,
+            PrototypeMaterials materials)
+        {
+            Mesh mesh = GuardRailBuilder.BuildMedian(centre, roadShape, course);
+            if (mesh == null)
+            {
+                return;
+            }
+
+            int triangles = mesh.triangles.Length / 3;
+            mesh = HorizonAssetUtility.ReplaceAsset(mesh, GeneratedFolder + "/MedianBarrierMesh.asset");
+
+            CreateMeshObject(parent, "MedianBarrier", mesh, new[] { materials.GuardRail },
+                addCollider: false, markStatic: true);
+
+            Debug.Log($"[Horizon] Median barrier: {triangles} triangles.");
+        }
+
+        /// <summary>
+        /// Every viaduct on a course, as one mesh per carriageway.
+        ///
+        /// <para>The parapet gets a collider and the rest does not. A car that leaves the deck should
+        /// hit something rather than fall through the world, but a concave collider wrapped round piers
+        /// forty metres below is a large amount of geometry nothing can ever reach.</para>
+        /// </summary>
+        private static void BuildBridges(
+            Transform parent,
+            IRoadPath path,
+            in RoadShape roadShape,
+            MountainField field,
+            RoadCourse course,
+            PrototypeMaterials materials,
+            string label)
+        {
+            var used = new List<int>();
+            Mesh mesh = BridgeBuilder.Build(path, roadShape, field, course, used, "Bridge" + label);
+
+            if (mesh == null)
+            {
+                return;
+            }
+
+            int triangles = mesh.triangles.Length / 3;
+            mesh = HorizonAssetUtility.ReplaceAsset(mesh, $"{GeneratedFolder}/Bridge{label}Mesh.asset");
+
+            var slots = new Material[used.Count];
+            for (int i = 0; i < used.Count; i++)
+            {
+                slots[i] = used[i] == BridgeBuilder.ParapetSubmesh
+                    ? materials.GuardRail
+                    : materials.Concrete;
+            }
+
+            CreateMeshObject(parent, "Bridges" + label, mesh, slots,
+                addCollider: false, markStatic: true);
+
+            Debug.Log($"[Horizon] Bridges on {Where(label)}: {triangles} triangles.");
+        }
+
+        private static string Where(string label)
+        {
+            return string.IsNullOrEmpty(label) ? "the pass" : label;
         }
 
         private static GameObject CreateMeshObject(

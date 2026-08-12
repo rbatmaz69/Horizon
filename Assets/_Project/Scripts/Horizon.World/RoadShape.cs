@@ -119,6 +119,61 @@ namespace Horizon.World
             SolidLineBelowRadius = 60f,
             DashedLineAboveRadius = 90f,
         };
+
+        /// <summary>
+        /// One carriageway of the motorway: four lanes running the same way, with a hard shoulder.
+        ///
+        /// <para>Only ever used through <see cref="OffsetRoadPath"/>, twice — once either side of a
+        /// centreline that is itself never paved. The median between them is the gap left by the two
+        /// offsets, so the number that decides how far apart the carriageways sit lives in
+        /// <c>AutobahnCourse</c>, not here.</para>
+        ///
+        /// <para>Note what is <i>not</i> different from <see cref="Default"/>: the ring
+        /// <see cref="RoadMeshBuilder"/> extrudes and the way it lays out marking UVs are unchanged, and
+        /// they do not need to be. That builder normalises u across the asphalt, so four lanes are a
+        /// wider ribbon with a different atlas painted on it rather than different geometry. The lane
+        /// lines come from <c>RoadTextureBuilder</c>.</para>
+        /// </summary>
+        public static RoadShape Autobahn => new RoadShape
+        {
+            // Four 3.75 m lanes.
+            HalfWidth = 7.5f,
+
+            // A hard shoulder, not a verge — wide enough to read as somewhere you could stop.
+            ShoulderWidth = 2.5f,
+
+            // Deeper than Default's 0.5, and required rather than chosen. Read the note on that field:
+            // the camber drops the inner edge by HalfWidth × sin(bank), and HalfWidth here is half again
+            // as large. At 3° that is 0.39 m against Default's 0.37 — so the shelf has to fall further
+            // to keep the same clearance over a carriageway this wide.
+            ShoulderDrop = 0.7f,
+
+            // 8 m rather than 2.5. StepLength is set by the tightest radius a shape is used on, and
+            // Default's 2.5 is set by 20 m hairpins. Nothing here is under 700 m, where 8 m steps are
+            // 0.65° apart and invisible — and at 8 km × two carriageways the difference is about 1000
+            // rings instead of 3200 each.
+            StepLength = 8f,
+            SurfaceLift = 0.08f,
+
+            // Same ~2% cross-fall as Default, over a wider carriageway.
+            Crown = 0.12f,
+
+            Markings = RoadMarkings.Default,
+
+            // Gentler than the pass and reaching much further out, because it is answering a different
+            // question. On a hairpin the camber is what stops the car washing wide; here it is what
+            // stops a 160 km/h sweeper feeling flat, and the radii are twenty times longer — at
+            // Default's FullBankRadius of 30 m a 700 m bend would get essentially no bank at all.
+            MaxBankDegrees = 3f,
+            FullBankRadius = 400f,
+
+            // Effectively never solid. On a one-way carriageway the interior lines are lane dividers,
+            // not a centre line, and "no overtaking" is not a thing they can express — the atlas paints
+            // them dashed in both variants, so these thresholds only matter to
+            // RoadMeshBuilder.ResolveLineVariants, which must be kept off the solid variant entirely.
+            SolidLineBelowRadius = 0f,
+            DashedLineAboveRadius = 1f,
+        };
     }
 
     /// <summary>
