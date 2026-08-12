@@ -365,6 +365,20 @@ namespace Horizon.World
             bool positive,
             bool sideways = false)
         {
+            // Which way round the corners go depends on both the face and the axis, and the two
+            // interact: a quad wound the same way on opposite sides of a box faces outward on one and
+            // inward on the other, and the X faces are the mirror of the Z faces again. Handling only
+            // the first of those swapped which half was wrong and left the flip count identical, which
+            // is the tell that a correction has cancelled itself out.
+            //
+            // AddQuadFacing turns a bad face round regardless, so the mesh is right either way — this
+            // exists so TownStats.Flips stays at zero and keeps working as a tripwire for the next
+            // helper.
+            if (positive == sideways)
+            {
+                (from, to) = (to, from);
+            }
+
             Vector3 a, b, c, d;
 
             if (sideways)

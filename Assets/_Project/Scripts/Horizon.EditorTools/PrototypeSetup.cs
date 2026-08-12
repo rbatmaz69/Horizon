@@ -665,68 +665,39 @@ namespace Horizon.EditorTools
             linkChunk.SetBounds(linkChunk.Center, 100000f);
             EditorUtility.SetDirty(roadChunk);
 
-            // --- The town's street network.
+            // --- The city's arterial. Never paved: it is a coordinate axis and a height datum, which is
+            // all a town's trunk road has to be. What the player drives on through Hochstadt is the
+            // boulevard in its layout table, sitting on this line.
+            var arterialObject = new GameObject("ArterialPath");
+            arterialObject.transform.SetParent(worldRoot.transform, false);
+            RoadPath arterialPath = arterialObject.AddComponent<RoadPath>();
+
+            RoadCourse arterialCourse = HochstadtCourse.Build();
+            arterialPath.SetControlPoints(arterialCourse.ControlPoints);
+
+            // --- The settlements. Talheim on the pass, Hochstadt on the motorway's arterial.
             //
-            // The order below is the whole of the town's build and it is not free to change. The network
-            // has to exist before MountainField, because its centrelines are what the ground is levelled
-            // to; the plots have to come after, because they are seated on the finished terrain mesh.
-            // The street *meshes* sit in between quite happily, and that is the point of
-            // TownShape.FloorHeight — a street takes its height from the same function the level samples
-            // do, so neither has to wait for the other.
-            TownNetworkSpec layout = TalheimLayout.Build();
+            // Both are prepared here and planned after the height field, and that split is not a style
+            // choice — see TownBuild. Their street centrelines are what their ground is levelled to, so
+            // every one of them has to exist before the field; their plots are seated on the finished
+            // terrain mesh, so none of them can be planned until after it.
+            var levelSamples = new List<Vector3>();
 
-            // Sized to the layout before anything is validated against it. The basin's extent used to be
-            // a hand-set number that the table was trusted to stay inside of, and it did not: the green's
-            // crescent and the lane out to it were authored past the levelled floor, so their paving stood
-            // over hillside. See TownShape.CoverLayout.
-            TownShape townShape = TownShape.CoverLayout(
-                TownShape.Default, layout, terrainShape.RoadShelfDrop);
+            TownBuild talheim = PrepareTown(
+                "Talheim", TalheimLayout.Build(), path, TownShape.Default,
+                worldRoot.transform, roadShape, terrainShape, levelSamples);
 
-            ValidateTownMapping(path, townShape);
+            TownBuild hochstadt = PrepareTown(
+                "Hochstadt", HochstadtLayout.Build(), arterialPath, TownShape.Hochstadt,
+                worldRoot.transform, motorwayShape, terrainShape, levelSamples);
 
-            var streetsRoot = new GameObject("TownStreets");
-            streetsRoot.transform.SetParent(worldRoot.transform, false);
-
-            StreetNetwork network = StreetNetwork.Build(
-                path, townShape, layout, streetsRoot.transform,
-                terrainShape.RoadShelfDrop);
-
-            StreetJunctionBuilder.ResolveTrims(network, roadShape.OuterHalfWidth);
-
-            // After the trims and before anything is built: a square's paved edge runs from one trim
-            // point to the other, because between the trim point and the node the ground belongs to the
-            // junction pad.
-            network.BuildSquareInteriors();
-            Phase(clock, "road and street network");
+            var towns = new[] { talheim, hochstadt };
+            Phase(clock, "roads and street networks");
 
             // One field, shared: the terrain is built from it, the guard rails ask it where the ground falls
             // away, and the tunnel bodies use it to bury their feet. Building a second would be slow and
             // could disagree with the first.
             //
-            // The town's floor is levelled by handing the field a grid of level samples over the whole
-            // basin. The streets alone will not do it — a road levels a 24 m ribbon either side and leaves
-            // the ground between them untouched, which measured 22 m of relief on the village that was
-            // here before. See TownShape.BuildLevelSamples.
-            List<Vector3> levelSamples = TownShape.BuildLevelSamples(path, townShape);
-            for (int i = 0; i < network.Edges.Count; i++)
-            {
-                // Every street centreline, on top of the basin grid. The basin's heights come from
-                // FloorHeight and so do the streets', so this is belt and braces rather than a
-                // correction — but it is what makes the shelf follow a street exactly rather than to
-                // within half a sample pitch.
-                TownPlanner.AddPathSamples(network.Edges[i].Path, 8f, levelSamples);
-            }
-
-            for (int i = 0; i < network.Nodes.Count; i++)
-            {
-                levelSamples.Add(network.Nodes[i].Position);
-            }
-
-            // Known before the field exists, and deliberately so: it depends on the basin's extent alone,
-            // never on where plots ended up, so the terrain corridor can be widened locally without
-            // anything having to be built first.
-            Bounds townFootprint = TownShape.Footprint(levelSamples, townShape.CorridorMargin);
-
             // Every carriageway in the world, in one field. Two fields would each carve a mountain from
             // their own road and disagree where the two came near, leaving a step down the seam.
             //
@@ -744,29 +715,21 @@ namespace Horizon.EditorTools
             var field = new MountainField(roads, terrainShape, 4f, levelSamples);
             Phase(clock, $"height field ({levelSamples.Count} level samples)");
 
-            // The street meshes come *after* the field, unlike the network itself. Their verges run down
-            // onto the terrain mesh and have to ask it where it is; only the centrelines are needed
-            // beforehand, and those are what the field was given.
-            BuildStreetMeshes(streetsRoot.transform, network, path, roadShape, townShape,
-                field, terrainShape, materials);
-            Phase(clock, "street meshes");
 
             ValidateRoadClearance(path, roadShape, field, course);
             ValidateRoadClearance(westbound, motorwayShape, field, motorwayCourse, "Westbound");
             ValidateRoadClearance(eastbound, motorwayShape, field, motorwayCourse, "Eastbound");
             ValidateBridges(westbound, field, motorwayCourse);
-            ValidateStreetClearance(network, field, terrainShape);
-            ReportPadWinding(network);
-            ReportTownGround(field, path, terrainShape, townShape);
+            // The second half of every town: street meshes onto the finished terrain, then blocks and
+            // plots seated on it.
+            int plots = 0;
+            for (int i = 0; i < towns.Length; i++)
+            {
+                PlanTown(towns[i], field, terrainShape, materials);
+                plots += towns[i].Plan.Plots.Count;
+            }
 
-            // Planned after the field exists, because the plots are seated on the finished terrain.
-            var streetIndex = new StreetIndex(network);
-            List<TownBlock> blocks = network.FindBlocks(out int[] blockOfHalfEdge);
-            ReportBlocks(blocks);
-
-            TownPlan townPlan = TownPlanner.Plan(
-                network, streetIndex, field, terrainShape, townShape, path, blocks, blockOfHalfEdge);
-            Phase(clock, $"blocks and parcels ({townPlan.Plots.Count} plots)");
+            Phase(clock, $"street meshes, blocks and parcels ({plots} plots)");
 
             // The counts-to-offsets shape TownLights reads: one start per renderer plus a terminator,
             // and a flat run of (slot, group) pairs behind it. The town tiles fill it first and the
@@ -778,10 +741,9 @@ namespace Horizon.EditorTools
             var litSlotGroups = new List<int>();
 
             BuildTerrainTiles(worldRoot.transform, path, roadShape, course, field, terrainShape,
-                townShape, townFootprint, network, townPlan, materials,
-                litRenderers, litSlotStart, litSlots, litSlotGroups);
-            ValidateLandmarks(field, course, path, townPlan);
-            MarkTownLandmarks(worldRoot.transform, network, townPlan);
+                towns, materials, litRenderers, litSlotStart, litSlots, litSlotGroups);
+            ValidateLandmarks(field, course, path, talheim.Plan);
+            MarkTownLandmarks(worldRoot.transform, talheim.Network, talheim.Plan);
             Phase(clock, "terrain, vegetation and buildings");
 
             BuildCoveredSections(worldRoot.transform, path, roadShape, course, field, materials);
@@ -817,7 +779,7 @@ namespace Horizon.EditorTools
             BuildGuardRails(worldRoot.transform, linkPath, roadShape, field, linkCourse,
                 materials, "MotorwayLink");
 
-            BuildTraffic(worldRoot.transform, network, path, roadShape, materials,
+            BuildTraffic(worldRoot.transform, towns, path, roadShape, materials,
                 litRenderers, litSlotStart, litSlots, litSlotGroups,
                 motorwayPath, motorwayShape, AutobahnCourse.CarriagewayOffset);
 
@@ -831,8 +793,9 @@ namespace Horizon.EditorTools
             ValidateDriveableCorridor(eastbound, "the eastbound carriageway", 1.3f, 4f);
             ValidateDriveableCorridor(linkPath, "the motorway link", 1.3f, 4f);
             Phase(clock, "validation");
-            int worstJunction = ValidateStreetNetwork(network, path, roadShape);
-            MarkWorstJunction(worldRoot.transform, network, worstJunction);
+            int worstJunction = ValidateStreetNetwork(talheim.Network, path, roadShape);
+            MarkWorstJunction(worldRoot.transform, talheim.Network, worstJunction);
+            ValidateStreetNetwork(hochstadt.Network, arterialPath, motorwayShape);
 
             // --- Streaming.
             var streamingObject = new GameObject("Streaming");
@@ -978,6 +941,127 @@ namespace Horizon.EditorTools
             WorldChunk chunk = carriageway.AddComponent<WorldChunk>();
             chunk.RecalculateBounds();
             chunk.SetBounds(chunk.Center, 100000f);
+        }
+
+        /// <summary>
+        /// One settlement, carried across the build in the two halves it has to be built in.
+        ///
+        /// <para>The world cannot simply build one town and then the next, and the reason is
+        /// <see cref="MountainField"/>. A town's street centrelines are what its ground is levelled to,
+        /// so every town's centrelines have to exist <i>before</i> the field is made; but a town's plots
+        /// are seated on the finished terrain mesh, so they have to be planned <i>after</i> it. One field
+        /// for the world is not an optimisation — two would each carve a mountain from their own roads
+        /// and disagree along the seam between them.</para>
+        ///
+        /// <para>So a town is prepared, the field is built from all of them at once, and then each is
+        /// planned. This is what holds the first half's answers until the second half needs them.</para>
+        /// </summary>
+        private sealed class TownBuild
+        {
+            public string Name;
+            public IRoadPath Trunk;
+            public TownShape Shape;
+            public StreetNetwork Network;
+            public Transform StreetsRoot;
+            public Bounds Footprint;
+
+            // Filled by PlanTown, after the field exists.
+            public StreetIndex Index;
+            public List<TownBlock> Blocks;
+            public TownPlan Plan;
+        }
+
+        /// <summary>
+        /// Everything about a town that has to happen before the height field: the graph, its trims, and
+        /// the level samples the ground will be flattened to.
+        /// </summary>
+        private static TownBuild PrepareTown(
+            string name,
+            TownNetworkSpec layout,
+            IRoadPath trunk,
+            in TownShape preset,
+            Transform worldRoot,
+            in RoadShape trunkShape,
+            in TerrainShape terrainShape,
+            List<Vector3> levelSamples)
+        {
+            // Sized to the layout before anything is validated against it. The basin's extent used to be
+            // a hand-set number that the table was trusted to stay inside of, and it did not: Talheim's
+            // crescent and the lane out to it were authored past the levelled floor, so their paving
+            // stood over hillside. See TownShape.CoverLayout.
+            TownShape shape = TownShape.CoverLayout(preset, layout, terrainShape.RoadShelfDrop);
+
+            ValidateTownMapping(trunk, shape, name);
+
+            var streetsRoot = new GameObject(name + "Streets");
+            streetsRoot.transform.SetParent(worldRoot, false);
+
+            StreetNetwork network = StreetNetwork.Build(
+                trunk, shape, layout, streetsRoot.transform, terrainShape.RoadShelfDrop);
+
+            StreetJunctionBuilder.ResolveTrims(network, trunkShape.OuterHalfWidth);
+
+            // After the trims and before anything is built: a square's paved edge runs from one trim
+            // point to the other, because between the trim point and the node the ground belongs to the
+            // junction pad.
+            network.BuildSquareInteriors();
+
+            // The town's floor is levelled by handing the field a grid of level samples over the whole
+            // basin. The streets alone will not do it — a road levels a 24 m ribbon either side and
+            // leaves the ground between them untouched, which measured 22 m of relief on the village
+            // that was here before.
+            int before = levelSamples.Count;
+            levelSamples.AddRange(TownShape.BuildLevelSamples(trunk, shape));
+
+            for (int i = 0; i < network.Edges.Count; i++)
+            {
+                // Every street centreline, on top of the basin grid. Belt and braces rather than a
+                // correction — both come from FloorHeight — but it is what makes the shelf follow a
+                // street exactly rather than to within half a sample pitch.
+                TownPlanner.AddPathSamples(network.Edges[i].Path, 8f, levelSamples);
+            }
+
+            for (int i = 0; i < network.Nodes.Count; i++)
+            {
+                levelSamples.Add(network.Nodes[i].Position);
+            }
+
+            // From this town's own samples only, so two towns do not share one enormous footprint with
+            // the empty country between them inside it.
+            var mine = levelSamples.GetRange(before, levelSamples.Count - before);
+
+            return new TownBuild
+            {
+                Name = name,
+                Trunk = trunk,
+                Shape = shape,
+                Network = network,
+                StreetsRoot = streetsRoot.transform,
+                Footprint = TownShape.Footprint(mine, shape.CorridorMargin),
+            };
+        }
+
+        /// <summary>Everything that needs the finished terrain: blocks, quarters and plots.</summary>
+        private static void PlanTown(
+            TownBuild town,
+            MountainField field,
+            in TerrainShape terrainShape,
+            PrototypeMaterials materials)
+        {
+            BuildStreetMeshes(town.StreetsRoot, town.Network, town.Trunk, RoadShape.Default,
+                town.Shape, field, terrainShape, materials, town.Name);
+
+            ValidateStreetClearance(town.Network, field, terrainShape);
+            ReportPadWinding(town.Network);
+            ReportTownGround(field, town.Trunk, terrainShape, town.Shape, town.Name);
+
+            town.Index = new StreetIndex(town.Network);
+            town.Blocks = town.Network.FindBlocks(out int[] blockOfHalfEdge);
+            ReportBlocks(town.Blocks, town.Name);
+
+            town.Plan = TownPlanner.Plan(
+                town.Network, town.Index, field, terrainShape, town.Shape, town.Trunk,
+                town.Blocks, blockOfHalfEdge);
         }
 
         private static void RegisterScenesInBuildSettings()
@@ -1298,16 +1382,17 @@ namespace Horizon.EditorTools
         private static void BuildStreetMeshes(
             Transform parent,
             StreetNetwork network,
-            RoadPath trunk,
+            IRoadPath trunk,
             in RoadShape trunkShape,
             in TownShape townShape,
             MountainField field,
             in TerrainShape terrainShape,
-            PrototypeMaterials materials)
+            PrototypeMaterials materials,
+            string what)
         {
             if (network.Edges.Count == 0)
             {
-                Debug.LogWarning("[Horizon] Town streets: the layout table produced no streets at all.");
+                Debug.LogWarning($"[Horizon] {what} streets: the layout table produced no streets at all.");
                 return;
             }
 
@@ -1377,13 +1462,13 @@ namespace Horizon.EditorTools
             int squareFlips = buffer.FlipCount - ribbonFlips - padFlips - mouthFlips;
 
             var used = new List<int>(TownStreetBuilder.StreetSubmeshCount);
-            Mesh mesh = buffer.ToMesh("TownStreetsMesh", used);
+            Mesh mesh = buffer.ToMesh(what + "StreetsMesh", used);
             if (mesh == null)
             {
                 return;
             }
 
-            mesh = HorizonAssetUtility.ReplaceAsset(mesh, GeneratedFolder + "/TownStreetsMesh.asset");
+            mesh = HorizonAssetUtility.ReplaceAsset(mesh, $"{GeneratedFolder}/{what}StreetsMesh.asset");
 
             GameObject streetObject = CreateMeshObject(
                 parent, "Streets", mesh, StreetMaterials(materials, used));
@@ -1393,7 +1478,7 @@ namespace Horizon.EditorTools
             chunk.SetBounds(chunk.Center, 100000f);
             EditorUtility.SetDirty(chunk);
 
-            Debug.Log($"[Horizon] Town streets: {network.Nodes.Count} nodes, {network.Edges.Count} "
+            Debug.Log($"[Horizon] {what} streets: {network.Nodes.Count} nodes, {network.Edges.Count} "
                       + $"streets, {network.TotalLength:0} m, {pads} junction pads and {mouths} trunk "
                       + $"mouths — {mesh.triangles.Length / 3} triangles in {used.Count} draw calls.");
 
@@ -1452,7 +1537,7 @@ namespace Horizon.EditorTools
         /// curvature lookup per sample and it is the difference between that being a rule someone
         /// remembers and a rule that holds.</para>
         /// </summary>
-        private static void ValidateTownMapping(RoadPath path, in TownShape shape)
+        private static void ValidateTownMapping(IRoadPath path, in TownShape shape, string what)
         {
             float minimumScale = TownShape.MinimumMappingScale;
 
@@ -1481,13 +1566,13 @@ namespace Horizon.EditorTools
 
             if (worst >= minimumScale)
             {
-                Debug.Log($"[Horizon] Town mapping: town-local coordinates hold, tightest scale "
+                Debug.Log($"[Horizon] {what} mapping: town-local coordinates hold, tightest scale "
                           + $"{worst:0.00} at {worstAlong:0} m along.");
                 return;
             }
 
             Debug.LogWarning(
-                $"[Horizon] Town mapping folds: the along-axis is squeezed to {worst:0.00} of its length "
+                $"[Horizon] {what} mapping folds: the along-axis is squeezed to {worst:0.00} of its length "
                 + $"at {worstAlong:0} m along, against a floor of {minimumScale:0.00}. The trunk road "
                 + "bends towards the town more tightly than the town is wide, so streets authored a "
                 + "hundred metres apart will arrive on top of one another. Either move the town's extent "
@@ -1513,9 +1598,10 @@ namespace Horizon.EditorTools
         /// </summary>
         private static void ReportTownGround(
             MountainField field,
-            RoadPath path,
+            IRoadPath path,
             in TerrainShape terrainShape,
-            in TownShape shape)
+            in TownShape shape,
+            string what)
         {
             // The cell size, so the steepness measured is the steepness the mesh actually has. Sampling
             // finer than the terrain grid measures the interpolation, not the ground.
@@ -1575,7 +1661,7 @@ namespace Horizon.EditorTools
 
             float steepFraction = steep / (float)samples;
 
-            Debug.Log($"[Horizon] Town ground: {samples} samples over "
+            Debug.Log($"[Horizon] {what} ground: {samples} samples over "
                       + $"{shape.AlongEnd - shape.AlongStart:0} x {shape.AcrossSpan:0} m, "
                       + $"{lowest:0.0} m to {highest:0.0} m off the planned floor, steepest "
                       + $"{steepest * 100f:0} % at {steepestAlong:0} m along / {steepestAcross:0} m across, "
@@ -1607,17 +1693,22 @@ namespace Horizon.EditorTools
             RoadCourse course,
             MountainField field,
             in TerrainShape terrainShape,
-            in TownShape townShape,
-            Bounds townFootprint,
-            StreetNetwork network,
-            TownPlan townPlan,
+            IReadOnlyList<TownBuild> towns,
             PrototypeMaterials materials,
             List<MeshRenderer> townRenderers,
             List<int> townSlotStart,
             List<int> townSlots,
             List<int> townSlotGroups)
         {
-            var extraRegions = new[] { townFootprint };
+            // One region per settlement rather than one big box round the lot: the corridor is widened
+            // where a town is, and a rectangle spanning both would drag in every tile of open country
+            // between them.
+            var extraRegions = new Bounds[towns.Count];
+            for (int i = 0; i < towns.Count; i++)
+            {
+                extraRegions[i] = towns[i].Footprint;
+            }
+
             List<TerrainTileKey> tiles = TerrainTileBuilder.ListTiles(
                 field, terrainShape, terrainShape.CorridorWidth, extraRegions);
 
@@ -1628,14 +1719,26 @@ namespace Horizon.EditorTools
             int totalTriangles = 0;
 
             VegetationShape vegetationShape = VegetationShape.Default;
+
+            var settlements = new VegetationContext.TownSource[towns.Count];
+            for (int i = 0; i < towns.Count; i++)
+            {
+                settlements[i] = new VegetationContext.TownSource(
+                    towns[i].Plan, towns[i].Network,
+                    towns[i].Shape.PlotClearance, towns[i].Shape.TreeKeepOut);
+            }
+
             var vegetationContext = new VegetationContext(
-                path, course, vegetationShape, townPlan,
-                townShape.PlotClearance, townShape.TreeKeepOut, network);
+                path, course, vegetationShape, settlements);
             var vegetationTotal = new VegetationStats();
             int heaviestTile = 0;
             string heaviestTileName = "none";
 
-            var townTotal = new TownStats();
+            var townTotals = new TownStats[towns.Count];
+            for (int i = 0; i < towns.Count; i++)
+            {
+                townTotals[i] = new TownStats();
+            }
 
             for (int i = 0; i < tiles.Count; i++)
             {
@@ -1675,55 +1778,63 @@ namespace Horizon.EditorTools
                     }
                 }
 
-                Mesh buildings = TownPlanner.BuildTile(
-                    key, terrainShape, townShape, townPlan, name + "_Town",
-                    out TownStats townStats);
-
-                if (buildings != null)
+                // Every settlement gets its own mesh on this tile. Two towns never share one,
+                // even where their tiles would overlap: the merged submesh layout is per town
+                // and TownLights looks its lit slots up in that layout.
+                for (int s = 0; s < towns.Count; s++)
                 {
-                    buildings = HorizonAssetUtility.ReplaceAsset(
-                        buildings, $"{GeneratedFolder}/{name}_Town.asset");
+                    TownBuild town = towns[s];
 
-                    // Houses keep OccluderStatic, unlike the trees. A town street is the one place in
-                    // this world where occlusion culling has something solid to work with.
-                    //
-                    // No MeshCollider on the merged mesh: it would be a large concave collider full of
-                    // window ledges and fence rails for the car to snag on, the same reason the tunnel
-                    // skin was taken out of collision. Each plot gets a box below instead.
-                    GameObject townObject = CreateMeshObject(
-                        tileObject.transform, name + "_Town", buildings,
-                        TownMaterials(materials, townStats),
-                        addCollider: false, markStatic: true,
-                        staticFlags: StaticEditorFlags.BatchingStatic
-                                     | StaticEditorFlags.OccluderStatic
-                                     | StaticEditorFlags.OccludeeStatic);
+                    Mesh buildings = TownPlanner.BuildTile(
+                        key, terrainShape, town.Shape, town.Plan, $"{name}_{town.Name}",
+                        out TownStats townStats);
 
-                    // Looked up rather than assumed, because empty submeshes are dropped when the tile
-                    // mesh is built: the lit glass is not in slot 7 on a tile that has no ochre walls.
-                    int litSlot = townStats.Submeshes.IndexOf(BuildingMeshes.WindowLitSubmesh);
-                    int lampSlot = townStats.Submeshes.IndexOf(BuildingMeshes.LampLitSubmesh);
-
-                    if (litSlot >= 0 || lampSlot >= 0)
+                    if (buildings != null)
                     {
-                        townRenderers.Add(townObject.GetComponent<MeshRenderer>());
+                        buildings = HorizonAssetUtility.ReplaceAsset(
+                            buildings, $"{GeneratedFolder}/{name}_{town.Name}.asset");
 
-                        if (litSlot >= 0)
+                        // Houses keep OccluderStatic, unlike the trees. A town street is the one place in
+                        // this world where occlusion culling has something solid to work with.
+                        //
+                        // No MeshCollider on the merged mesh: it would be a large concave collider full of
+                        // window ledges and fence rails for the car to snag on, the same reason the tunnel
+                        // skin was taken out of collision. Each plot gets a box below instead.
+                        GameObject townObject = CreateMeshObject(
+                            tileObject.transform, $"{name}_{town.Name}", buildings,
+                            TownMaterials(materials, townStats),
+                            addCollider: false, markStatic: true,
+                            staticFlags: StaticEditorFlags.BatchingStatic
+                                         | StaticEditorFlags.OccluderStatic
+                                         | StaticEditorFlags.OccludeeStatic);
+
+                        // Looked up rather than assumed, because empty submeshes are dropped when the tile
+                        // mesh is built: the lit glass is not in slot 7 on a tile that has no ochre walls.
+                        int litSlot = townStats.Submeshes.IndexOf(BuildingMeshes.WindowLitSubmesh);
+                        int lampSlot = townStats.Submeshes.IndexOf(BuildingMeshes.LampLitSubmesh);
+
+                        if (litSlot >= 0 || lampSlot >= 0)
                         {
-                            townSlots.Add(litSlot);
-                            townSlotGroups.Add((int)LitGroup.Windows);
+                            townRenderers.Add(townObject.GetComponent<MeshRenderer>());
+
+                            if (litSlot >= 0)
+                            {
+                                townSlots.Add(litSlot);
+                                townSlotGroups.Add((int)LitGroup.Windows);
+                            }
+
+                            if (lampSlot >= 0)
+                            {
+                                townSlots.Add(lampSlot);
+                                townSlotGroups.Add((int)LitGroup.Lamps);
+                            }
+
+                            townSlotStart.Add(townSlots.Count);
                         }
 
-                        if (lampSlot >= 0)
-                        {
-                            townSlots.Add(lampSlot);
-                            townSlotGroups.Add((int)LitGroup.Lamps);
-                        }
-
-                        townSlotStart.Add(townSlots.Count);
+                        AddPlotColliders(townObject.transform, key, terrainShape, town.Plan);
+                        townTotals[s].Add(townStats);
                     }
-
-                    AddPlotColliders(townObject.transform, key, terrainShape, townPlan);
-                    townTotal.Add(townStats);
                 }
 
                 // After the plants and the houses, never before: the chunk takes its radius from the
@@ -1745,7 +1856,10 @@ namespace Horizon.EditorTools
             ReportVegetation(vegetationTotal, vegetationShape, roadShape, vegetationContext,
                 heaviestTile, heaviestTileName);
 
-            ReportTown(townTotal, townShape, townPlan);
+            for (int i = 0; i < towns.Count; i++)
+            {
+                ReportTown(townTotals[i], towns[i].Shape, towns[i].Plan, towns[i].Name);
+            }
         }
 
         /// <summary>
@@ -1762,7 +1876,7 @@ namespace Horizon.EditorTools
         /// </summary>
         private static void BuildTraffic(
             Transform parent,
-            StreetNetwork network,
+            IReadOnlyList<TownBuild> towns,
             RoadPath trunk,
             in RoadShape trunkShape,
             PrototypeMaterials materials,
@@ -1774,7 +1888,13 @@ namespace Horizon.EditorTools
             RoadShape highwayShape,
             float carriagewayOffset)
         {
-            if (network.Edges.Count == 0)
+            var networks = new StreetNetwork[towns.Count];
+            for (int i = 0; i < towns.Count; i++)
+            {
+                networks[i] = towns[i].Network;
+            }
+
+            if (networks.Length == 0 || networks[0].Edges.Count == 0)
             {
                 return;
             }
@@ -1783,7 +1903,7 @@ namespace Horizon.EditorTools
             // output rather than something anyone tunes — regenerate it and every edit is gone — so it
             // belongs where the meshes are and under the orphan report that watches them.
             TrafficNetwork routes = TrafficNetworkBuilder.Build(
-                network, trunk, trunkShape, highway, highwayShape, carriagewayOffset);
+                networks, trunk, trunkShape, highway, highwayShape, carriagewayOffset);
             routes = HorizonAssetUtility.ReplaceAsset(routes, GeneratedFolder + "/TrafficNetwork.asset");
 
             CarMeshBuilder.CarProfile[] profiles = CarMeshBuilder.TrafficProfiles;
@@ -2116,16 +2236,17 @@ namespace Horizon.EditorTools
             }
         }
 
-        private static void ReportTown(TownStats stats, in TownShape shape, TownPlan plan)
+        private static void ReportTown(TownStats stats, in TownShape shape, TownPlan plan, string what)
         {
             if (plan == null || stats.Houses + stats.Windmills == 0)
             {
-                Debug.LogWarning("[Horizon] Town: nothing was built. Check TownShape's extent against "
+                Debug.LogWarning($"[Horizon] {what}: nothing was built. Check TownShape's extent against "
                                  + "the course, and that the plots landed inside terrain tiles.");
                 return;
             }
 
-            Debug.Log($"[Horizon] Town: {stats.Houses} houses, {stats.Mosques} mosque, "
+            Debug.Log($"[Horizon] {what}: {stats.Houses} houses, {stats.Towers} towers, "
+                      + $"{stats.Blocks} blocks, {stats.Mosques} mosque, "
                       + $"{stats.TownHalls} town hall, {stats.Fountains} fountain, "
                       + $"{stats.Stalls} market stalls, {stats.Windmills} windmill, "
                       + $"{stats.Barns} barns, {stats.Sawmills} sawmills, {stats.Fences} fences, "
@@ -2135,7 +2256,7 @@ namespace Horizon.EditorTools
 
             if (stats.Triangles > shape.MaxTrianglesPerTile * 4)
             {
-                Debug.LogWarning($"[Horizon] Town: {stats.Triangles} triangles is heavier than expected. "
+                Debug.LogWarning($"[Horizon] {what}: {stats.Triangles} triangles is heavier than expected. "
                                  + "Open out the spacing in TownPlanner's quarter table, or raise its "
                                  + "vacancy.");
             }
@@ -3067,17 +3188,17 @@ namespace Horizon.EditorTools
         /// streets crossed by five should produce about eight blocks; anything far off that means a
         /// street the table thinks joins something it does not, and no picture would say so.
         /// </summary>
-        private static void ReportBlocks(IReadOnlyList<TownBlock> blocks)
+        private static void ReportBlocks(IReadOnlyList<TownBlock> blocks, string what)
         {
             if (blocks.Count == 0)
             {
-                Debug.LogWarning("[Horizon] Town blocks: the face walk found none. Either the layout "
+                Debug.LogWarning($"[Horizon] {what} blocks: the face walk found none. Either the layout "
                                  + "table is a tree with no closed rings in it, or the bearings the walk "
                                  + "turns on are not sorted.");
                 return;
             }
 
-            var byQuarter = new int[5];
+            var byQuarter = new int[System.Enum.GetValues(typeof(TownQuarter)).Length];
             float total = 0f;
             float largest = 0f;
 
@@ -3088,12 +3209,14 @@ namespace Horizon.EditorTools
                 largest = Mathf.Max(largest, blocks[i].Area);
             }
 
-            Debug.Log($"[Horizon] Town blocks: {blocks.Count} enclosing {total / 10000f:0.0} ha, largest "
+            Debug.Log($"[Horizon] {what} blocks: {blocks.Count} enclosing {total / 10000f:0.0} ha, largest "
                       + $"{largest / 10000f:0.00} ha — {byQuarter[(int)TownQuarter.OldTown]} old town, "
                       + $"{byQuarter[(int)TownQuarter.Housing]} housing, "
                       + $"{byQuarter[(int)TownQuarter.Market]} market, "
                       + $"{byQuarter[(int)TownQuarter.Industry]} industry, "
-                      + $"{byQuarter[(int)TownQuarter.Green]} green.");
+                      + $"{byQuarter[(int)TownQuarter.Green]} green, "
+                      + $"{byQuarter[(int)TownQuarter.Downtown]} downtown, "
+                      + $"{byQuarter[(int)TownQuarter.Commercial]} commercial.");
         }
 
         /// <summary>

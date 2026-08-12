@@ -48,7 +48,7 @@ namespace Horizon.World
         /// over and no cross street should meet that; at the far end because <c>TownShape</c>'s basin
         /// and its skirt rings reach past the last street and need arterial to sit against.</para>
         /// </summary>
-        public const float CityStart = 140f;
+        public const float CityStart = 0f;
 
         /// <summary>See <see cref="CityStart"/>.</summary>
         public const float CityEnd = 1180f;

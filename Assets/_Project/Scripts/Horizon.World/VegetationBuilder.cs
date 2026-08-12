@@ -82,26 +82,16 @@ namespace Horizon.World
         private readonly float blockerRadius;
         private readonly float viewpointRadius;
 
-        private readonly TownPlan town;
-        private readonly float plotClearance;
-        private readonly float townTreeKeepOut;
-
         /// <summary>
-        /// The town's streets, so nothing grows on one.
+        /// Every settlement in the world, each with its own streets, squares and plots.
         ///
-        /// <para>Needed because <see cref="MountainField.DistanceToRoad"/> answers for the <i>trunk
-        /// road</i> and nothing else — which is right, and which leaves every street in the town with no
-        /// keep-out at all. Trees and bushes came up through the carriageway, and none of the checks
-        /// noticed: the corridor sweep asks physics, and a plant has no collider.</para>
+        /// <para>An array rather than a single town because the keep-outs are the one thing a second
+        /// settlement cannot share. The scatter runs per terrain tile over the whole world, and a
+        /// context that knew about one town would grow a forest through the other one — silently, since
+        /// nothing else in the build looks at where a tree ended up.</para>
         /// </summary>
-        private readonly StreetIndex streets;
+        private readonly TownKeepOut[] towns;
 
-        private readonly IReadOnlyList<StreetEdge> streetEdges;
-
-        /// <summary>Junction centres and how far their pads reach, since a pad is wider than its streets.</summary>
-        private readonly Vector3[] junctions;
-
-        private readonly float[] junctionRadius;
 
         /// <summary>
         /// The squares' paved outlines, so nothing grows out of the market place.
@@ -112,12 +102,6 @@ namespace Horizon.World
         /// measures distance to the nearest centreline, and the middle of a square is twenty metres from
         /// every street that bounds it — which is to say, as far from a street as a back garden is.</para>
         /// </summary>
-        private readonly Vector3[][] squareOutlines;
-
-        private readonly Bounds[] squareBounds;
-
-        private Bounds townBounds;
-        private readonly bool hasStreets;
 
         // Not readonly: Encapsulate widens them, and a readonly field cannot be assigned from a helper.
         private float minX;
@@ -127,26 +111,96 @@ namespace Horizon.World
 
         private readonly bool hasBlockers;
 
+        /// <summary>One settlement handed to the scatter: what stands in it and what it is paved with.</summary>
+        public readonly struct TownSource
+        {
+            public readonly TownPlan Plan;
+            public readonly StreetNetwork Network;
+            public readonly float PlotClearance;
+            public readonly float TreeKeepOut;
+
+            public TownSource(TownPlan plan, StreetNetwork network, float plotClearance, float treeKeepOut)
+            {
+                Plan = plan;
+                Network = network;
+                PlotClearance = plotClearance;
+                TreeKeepOut = treeKeepOut;
+            }
+        }
+
+        /// <summary>One settlement's keep-outs, worked out once and then asked per plant candidate.</summary>
+        private sealed class TownKeepOut
+        {
+            public TownPlan Plan;
+            public float PlotClearance;
+            public float TreeKeepOut;
+
+            /// <summary>
+            /// The streets, so nothing grows on one.
+            ///
+            /// <para>Needed because <see cref="MountainField.DistanceToRoad"/> answers for the <i>trunk
+            /// road</i> and nothing else — which is right, and which leaves every street in a town with
+            /// no keep-out at all. Trees and bushes came up through the carriageway, and none of the
+            /// checks noticed: the corridor sweep asks physics, and a plant has no collider.</para>
+            /// </summary>
+            public StreetIndex Streets;
+
+            public IReadOnlyList<StreetEdge> Edges;
+
+            /// <summary>Junction centres and their pads' reach, since a pad is wider than its streets.</summary>
+            public Vector3[] Junctions;
+
+            public float[] JunctionRadius;
+
+            /// <summary>
+            /// The squares' paved outlines, so nothing grows out of the market place.
+            ///
+            /// <para>A polygon rather than a centre and a radius, unlike the junctions, because a square
+            /// is eighty metres by forty and a circle would either leave trees on the flagstones or clear
+            /// a disc out of the buildings around it. And it cannot be left to the street keep-out: that
+            /// measures distance to the nearest centreline, and the middle of a square is as far from a
+            /// street as a back garden is.</para>
+            /// </summary>
+            public Vector3[][] SquareOutlines;
+
+            public Bounds[] SquareBounds;
+            public Bounds Bounds;
+            public bool HasStreets;
+        }
+
         public VegetationContext(
             IRoadPath path,
             RoadCourse course,
             in VegetationShape shape,
-            TownPlan town = null,
-            float plotClearance = 0f,
-            float townTreeKeepOut = 0f,
-            StreetNetwork network = null)
+            IReadOnlyList<TownSource> settlements = null)
         {
             blockerRadius = shape.TunnelExclusion;
             viewpointRadius = shape.ViewpointClearing;
 
-            this.town = town;
-            this.plotClearance = plotClearance;
-            this.townTreeKeepOut = townTreeKeepOut;
+            int count = settlements != null ? settlements.Count : 0;
+            towns = new TownKeepOut[count];
 
-            if (network != null && network.Edges.Count > 0)
+            for (int s = 0; s < count; s++)
             {
-                streets = new StreetIndex(network, 4f, 16f);
-                streetEdges = network.Edges;
+                TownSource source = settlements[s];
+                StreetNetwork network = source.Network;
+
+                var keep = new TownKeepOut
+                {
+                    Plan = source.Plan,
+                    PlotClearance = source.PlotClearance,
+                    TreeKeepOut = source.TreeKeepOut,
+                };
+
+                towns[s] = keep;
+
+                if (network == null || network.Edges.Count == 0)
+                {
+                    continue;
+                }
+
+                keep.Streets = new StreetIndex(network, 4f, 16f);
+                keep.Edges = network.Edges;
 
                 var centres = new List<Vector3>(network.Nodes.Count);
                 var radii = new List<float>(network.Nodes.Count);
@@ -164,9 +218,9 @@ namespace Horizon.World
                     // back, and a fixed radius would either leave shrubs on the tarmac or clear a hole
                     // in the grass twenty metres across.
                     float reach = 0f;
-                    for (int p = 0; p < node.PadOutline.Length; p++)
+                    for (int q = 0; q < node.PadOutline.Length; q++)
                     {
-                        Vector3 offset = node.PadOutline[p] - node.Position;
+                        Vector3 offset = node.PadOutline[q] - node.Position;
                         offset.y = 0f;
                         reach = Mathf.Max(reach, offset.magnitude);
                     }
@@ -175,8 +229,8 @@ namespace Horizon.World
                     radii.Add(reach);
                 }
 
-                junctions = centres.ToArray();
-                junctionRadius = radii.ToArray();
+                keep.Junctions = centres.ToArray();
+                keep.JunctionRadius = radii.ToArray();
 
                 var outlines = new List<Vector3[]>(network.Squares.Count);
                 var squareBoxes = new List<Bounds>(network.Squares.Count);
@@ -190,21 +244,21 @@ namespace Horizon.World
                     }
 
                     var box = new Bounds(interior[0], Vector3.zero);
-                    for (int p = 1; p < interior.Length; p++)
+                    for (int q = 1; q < interior.Length; q++)
                     {
-                        box.Encapsulate(interior[p]);
+                        box.Encapsulate(interior[q]);
                     }
 
                     outlines.Add(interior);
                     squareBoxes.Add(box);
                 }
 
-                squareOutlines = outlines.ToArray();
-                squareBounds = squareBoxes.ToArray();
+                keep.SquareOutlines = outlines.ToArray();
+                keep.SquareBounds = squareBoxes.ToArray();
 
-                townBounds = network.Footprint;
-                townBounds.Expand(new Vector3(60f, 0f, 60f));
-                hasStreets = true;
+                keep.Bounds = network.Footprint;
+                keep.Bounds.Expand(new Vector3(60f, 0f, 60f));
+                keep.HasStreets = true;
             }
 
             var covered = new List<Vector3>(128);
@@ -274,47 +328,62 @@ namespace Horizon.World
         /// </summary>
         public float PavedMargin(float x, float z)
         {
-            if (!hasStreets || x < townBounds.min.x || x > townBounds.max.x
-                || z < townBounds.min.z || z > townBounds.max.z)
+            float margin = float.MaxValue;
+
+            for (int s = 0; s < towns.Length; s++)
             {
-                return float.MaxValue;
+                TownKeepOut town = towns[s];
+
+                if (!town.HasStreets || x < town.Bounds.min.x || x > town.Bounds.max.x
+                    || z < town.Bounds.min.z || z > town.Bounds.max.z)
+                {
+                    continue;
+                }
+
+                float toStreet = town.Streets.DistanceTo(x, z, out int edgeIndex);
+                if (edgeIndex >= 0)
+                {
+                    margin = Mathf.Min(margin, toStreet - town.Edges[edgeIndex].HalfOuter);
+                }
+
+                for (int i = 0; i < town.Junctions.Length; i++)
+                {
+                    float dx = town.Junctions[i].x - x;
+                    float dz = town.Junctions[i].z - z;
+                    margin = Mathf.Min(margin, Mathf.Sqrt(dx * dx + dz * dz) - town.JunctionRadius[i]);
+                }
+
+                // Standing on a square is standing on paving, and that is all this needs to say. How far
+                // *into* the square it is would cost a distance-to-polygon and is a number about a plant
+                // that is not there — IsBlocked keeps them all out.
+                if (IsOnPaving(town, x, z))
+                {
+                    margin = Mathf.Min(margin, -1f);
+                }
             }
 
-            float toStreet = streets.DistanceTo(x, z, out int edgeIndex);
-            float margin = edgeIndex >= 0 ? toStreet - streetEdges[edgeIndex].HalfOuter : float.MaxValue;
-
-            for (int i = 0; i < junctions.Length; i++)
-            {
-                float dx = junctions[i].x - x;
-                float dz = junctions[i].z - z;
-                margin = Mathf.Min(margin, Mathf.Sqrt(dx * dx + dz * dz) - junctionRadius[i]);
-            }
-
-            // Standing on a square is standing on paving, and that is all this needs to say. How far
-            // *into* the square it is would cost a distance-to-polygon and is a number about a plant that
-            // is not there — IsBlocked keeps them all out.
-            return IsOnPaving(x, z) ? Mathf.Min(margin, -1f) : margin;
+            return margin;
         }
 
         /// <summary>Whether a point falls inside any square's paved outline.</summary>
-        private bool IsOnPaving(float x, float z)
+        private static bool IsOnPaving(TownKeepOut town, float x, float z)
         {
-            if (squareOutlines == null)
+            if (town.SquareOutlines == null)
             {
                 return false;
             }
 
             var at = new Vector3(x, 0f, z);
 
-            for (int i = 0; i < squareOutlines.Length; i++)
+            for (int i = 0; i < town.SquareOutlines.Length; i++)
             {
-                if (x < squareBounds[i].min.x || x > squareBounds[i].max.x
-                    || z < squareBounds[i].min.z || z > squareBounds[i].max.z)
+                if (x < town.SquareBounds[i].min.x || x > town.SquareBounds[i].max.x
+                    || z < town.SquareBounds[i].min.z || z > town.SquareBounds[i].max.z)
                 {
                     continue;
                 }
 
-                if (StreetNetwork.Contains(squareOutlines[i], at))
+                if (StreetNetwork.Contains(town.SquareOutlines[i], at))
                 {
                     return true;
                 }
@@ -337,52 +406,59 @@ namespace Horizon.World
         /// </param>
         public bool IsBlocked(float x, float z, bool tallOnly)
         {
-            if (hasStreets && x >= townBounds.min.x && x <= townBounds.max.x
-                && z >= townBounds.min.z && z <= townBounds.max.z)
+            for (int s = 0; s < towns.Length; s++)
             {
-                // Clear of the paved surface for everything, and a little further for anything with a
-                // canopy — a spruce whose trunk is beside the kerb still has its branches over the
-                // carriageway.
-                float margin = tallOnly ? 2.5f : 0.5f;
+                TownKeepOut town = towns[s];
 
-                float toStreet = streets.DistanceTo(x, z, out int edgeIndex);
-                if (edgeIndex >= 0 && toStreet < streetEdges[edgeIndex].HalfOuter + margin)
+                if (town.HasStreets && x >= town.Bounds.min.x && x <= town.Bounds.max.x
+                    && z >= town.Bounds.min.z && z <= town.Bounds.max.z)
                 {
-                    return true;
-                }
+                    // Clear of the paved surface for everything, and a little further for anything with
+                    // a canopy — a spruce whose trunk is beside the kerb still has its branches over the
+                    // carriageway.
+                    float margin = tallOnly ? 2.5f : 0.5f;
 
-                if (IsOnPaving(x, z))
-                {
-                    return true;
-                }
-
-                for (int i = 0; i < junctions.Length; i++)
-                {
-                    float dx = junctions[i].x - x;
-                    float dz = junctions[i].z - z;
-                    float reach = junctionRadius[i] + margin;
-
-                    if (dx * dx + dz * dz < reach * reach)
+                    float toStreet = town.Streets.DistanceTo(x, z, out int edgeIndex);
+                    if (edgeIndex >= 0 && toStreet < town.Edges[edgeIndex].HalfOuter + margin)
                     {
                         return true;
                     }
-                }
-            }
 
-            if (town != null)
-            {
+                    if (IsOnPaving(town, x, z))
+                    {
+                        return true;
+                    }
+
+                    for (int i = 0; i < town.Junctions.Length; i++)
+                    {
+                        float dx = town.Junctions[i].x - x;
+                        float dz = town.Junctions[i].z - z;
+                        float reach = town.JunctionRadius[i] + margin;
+
+                        if (dx * dx + dz * dz < reach * reach)
+                        {
+                            return true;
+                        }
+                    }
+                }
+
+                if (town.Plan == null)
+                {
+                    continue;
+                }
+
                 // Nothing wild grows through a wall — but only the wall. Testing the whole plot radius
-                // here was what left the town on bare earth: 14.9 m per plot at 26 m spacing merges
-                // into one continuous dead strip down every street, grass included.
-                if (town.IsBuiltOn(x, z, plotClearance))
+                // here was what left the town on bare earth: 14.9 m per plot at 26 m spacing merges into
+                // one continuous dead strip down every street, grass included.
+                if (town.Plan.IsBuiltOn(x, z, town.PlotClearance))
                 {
                     return true;
                 }
 
-                // Tall things keep off the gardens and off the streets, so a spruce cannot come up through
-                // someone's washing line. Grass and shrubs carry on right up to the houses, which is most
-                // of what makes a town look lived in rather than abandoned.
-                if (tallOnly && town.IsOccupied(x, z, townTreeKeepOut))
+                // Tall things keep off the gardens and off the streets, so a spruce cannot come up
+                // through someone's washing line. Grass and shrubs carry on right up to the houses,
+                // which is most of what makes a town look lived in rather than abandoned.
+                if (tallOnly && town.Plan.IsOccupied(x, z, town.TreeKeepOut))
                 {
                     return true;
                 }

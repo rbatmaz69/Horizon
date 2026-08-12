@@ -736,7 +736,10 @@ namespace Horizon.World
         /// </summary>
         private TownQuarter QuarterOf(TownBlock block)
         {
-            var weight = new float[5];
+            // Sized from the enum rather than written as a literal. It was a literal 5, which was right
+            // until the city added two quarters — and the failure was an IndexOutOfRange from inside the
+            // face walk, several files from the enum that had grown.
+            var weight = new float[System.Enum.GetValues(typeof(TownQuarter)).Length];
 
             for (int i = 0; i < block.BoundaryEdges.Length; i++)
             {

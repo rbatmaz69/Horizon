@@ -85,7 +85,7 @@ namespace Horizon.World
         /// off it, and so are the lanes.
         /// </param>
         public static TrafficNetwork Build(
-            StreetNetwork network,
+            IReadOnlyList<StreetNetwork> networks,
             IRoadPath trunk,
             in RoadShape trunkShape,
             IRoadPath highway = null,
@@ -94,22 +94,38 @@ namespace Horizon.World
         {
             var lanes = new LaneBuffer();
 
-            // Two synthetic junctions past the end of the street graph, one for each end of the trunk
-            // road, and two more for the motorway. They carry no geometry — they exist so a road's open
-            // ends are places where a lane ends and a connector begins, like every other junction here,
-            // rather than a case the exit table has to special-case.
-            int nodeCount = network.Nodes.Count + 4;
-            var nodeAt = new Vector3[nodeCount];
+            // Node indices run through every settlement in turn, so a street's own FromNode/ToNode has to
+            // be shifted by however many nodes came before its town. Everything downstream — connectors,
+            // give-way tokens, the exit table — sees one flat numbering and needs to know nothing about
+            // which town a junction belongs to.
+            var nodeOffset = new int[networks.Count];
+            int nodeCount = 0;
 
-            for (int i = 0; i < network.Nodes.Count; i++)
+            for (int i = 0; i < networks.Count; i++)
             {
-                nodeAt[i] = network.Nodes[i].Position;
+                nodeOffset[i] = nodeCount;
+                nodeCount += networks[i].Nodes.Count;
             }
 
-            int roadStartNode = network.Nodes.Count;
-            int roadEndNode = network.Nodes.Count + 1;
-            int highwayWestNode = network.Nodes.Count + 2;
-            int highwayEastNode = network.Nodes.Count + 3;
+            // Four synthetic junctions past the end of the street graphs: one for each end of the trunk
+            // road, and two for the motorway. They carry no geometry — they exist so a road's open ends
+            // are places where a lane ends and a connector begins, like every other junction here, rather
+            // than a case the exit table has to special-case.
+            int roadStartNode = nodeCount;
+            int roadEndNode = nodeCount + 1;
+            int highwayWestNode = nodeCount + 2;
+            int highwayEastNode = nodeCount + 3;
+            nodeCount += 4;
+
+            var nodeAt = new Vector3[nodeCount];
+
+            for (int i = 0; i < networks.Count; i++)
+            {
+                for (int n = 0; n < networks[i].Nodes.Count; n++)
+                {
+                    nodeAt[nodeOffset[i] + n] = networks[i].Nodes[n].Position;
+                }
+            }
 
             if (trunk != null)
             {
@@ -123,11 +139,15 @@ namespace Horizon.World
                 nodeAt[highwayEastNode] = highway.GetPositionAtDistance(highway.Length);
             }
 
-            var entryNode = new List<int>(network.Edges.Count * 2 + 32);
-            var exitNode = new List<int>(network.Edges.Count * 2 + 32);
+            var entryNode = new List<int>(256);
+            var exitNode = new List<int>(256);
 
-            AddStreetLanes(network, lanes, entryNode, exitNode);
-            AddTrunkLanes(network, trunk, trunkShape, roadStartNode, roadEndNode,
+            for (int i = 0; i < networks.Count; i++)
+            {
+                AddStreetLanes(networks[i], nodeOffset[i], lanes, entryNode, exitNode);
+            }
+
+            AddTrunkLanes(networks[0], trunk, trunkShape, roadStartNode, roadEndNode,
                 lanes, entryNode, exitNode);
 
             if (highway != null)
@@ -160,19 +180,20 @@ namespace Horizon.World
         /// and the validator do.
         /// </summary>
         private static void AddStreetLanes(
-            StreetNetwork network, LaneBuffer lanes, List<int> entryNode, List<int> exitNode)
+            StreetNetwork network, int nodeOffset, LaneBuffer lanes,
+            List<int> entryNode, List<int> exitNode)
         {
             for (int i = 0; i < network.Edges.Count; i++)
             {
                 StreetEdge edge = network.Edges[i];
 
                 AddStreetLane(edge, true, lanes);
-                entryNode.Add(edge.FromNode);
-                exitNode.Add(edge.ToNode);
+                entryNode.Add(nodeOffset + edge.FromNode);
+                exitNode.Add(nodeOffset + edge.ToNode);
 
                 AddStreetLane(edge, false, lanes);
-                entryNode.Add(edge.ToNode);
-                exitNode.Add(edge.FromNode);
+                entryNode.Add(nodeOffset + edge.ToNode);
+                exitNode.Add(nodeOffset + edge.FromNode);
             }
         }
 
