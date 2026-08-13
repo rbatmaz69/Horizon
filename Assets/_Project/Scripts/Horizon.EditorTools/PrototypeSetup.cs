@@ -164,6 +164,9 @@ namespace Horizon.EditorTools
             /// </summary>
             public readonly Material FoliageTint;
 
+            /// <summary>Vertex-tinted, at the road's smoothness. For paving that carries no atlas.</summary>
+            public readonly Material RoadTint;
+
             /// <summary>
             /// The eight paints the player picks between, in <see cref="CarPaintPalette"/> order. Slot 0
             /// is <see cref="CarBody"/> — the same asset, not a copy, so the default car is unchanged.
@@ -227,6 +230,12 @@ namespace Horizon.EditorTools
                     MaterialsFolder + "/M_Grass.mat", "M_Grass", new Color(0.36f, 0.48f, 0.26f), 0.08f);
                 TerrainTint = HorizonAssetUtility.LoadOrCreateTintMaterial(
                     MaterialsFolder + "/M_TerrainTint.mat", "M_TerrainTint", 0.08f);
+
+                // The same vertex-tinted shader at the road's smoothness rather than the terrain's.
+                // Asphalt at 0.08 is asphalt that does not catch the low sun this game is mostly lit
+                // by, and next to a carriageway at 0.34 it reads as a patch of something else.
+                RoadTint = HorizonAssetUtility.LoadOrCreateTintMaterial(
+                    MaterialsFolder + "/M_RoadTint.mat", "M_RoadTint", 0.34f);
                 Rock = HorizonAssetUtility.LoadOrCreateMaterial(
                     MaterialsFolder + "/M_Rock.mat", "M_Rock", new Color(0.44f, 0.39f, 0.34f), 0.12f);
 
@@ -848,6 +857,9 @@ namespace Horizon.EditorTools
             WorldChunk linkChunk = linkObject.AddComponent<WorldChunk>();
             linkChunk.RecalculateBounds();
             linkChunk.SetBounds(linkChunk.Center, 100000f);
+
+            BuildMotorwayMerge(worldRoot.transform, motorwayPath, westbound, motorwayShape, roadShape,
+                linkPath, materials);
             EditorUtility.SetDirty(roadChunk);
 
             // --- The city's arterial. Never paved: it is a coordinate axis and a height datum, which is
@@ -1261,6 +1273,220 @@ namespace Horizon.EditorTools
                 Set((int)QualityPreset.High, "High",
                     820f, 1000f, 260f, TrafficPoolSize, 800f, 1050f, true, true, 60);
             });
+        }
+
+        /// <summary>
+        /// The acceleration lane that carries the link road onto the motorway.
+        ///
+        /// <para>Everything about where it goes is <b>measured off the two roads</b> rather than written
+        /// down here: which side the link lies on, which way a driver coming off it is pointing, where
+        /// along the carriageway its end cap falls, and how far out its paving reaches. Every one of
+        /// those is derivable, every one of them moves when either course is retuned, and a literal for
+        /// any of them is a wedge that quietly ends up on the wrong side or three hundred metres up the
+        /// road the next time somebody changes a radius.</para>
+        /// </summary>
+        private static void BuildMotorwayMerge(
+            Transform parent,
+            IRoadPath motorwayPath,
+            IRoadPath carriageway,
+            in RoadShape motorwayShape,
+            in RoadShape linkShape,
+            IRoadPath linkPath,
+            PrototypeMaterials materials)
+        {
+            // The link's end cap, found on the carriageway rather than assumed to be at JunctionDistance.
+            // That distance is measured along the *median* line, and an offset path through a curve has a
+            // different arc length — using it directly would put the wedge tens of metres off through the
+            // interchange's bend.
+            Vector3 cap = linkPath.GetPositionAtDistance(0f);
+            float atDistance = NearestDistanceOn(carriageway, cap);
+
+            Vector3 right = carriageway.GetRightAtDistance(atDistance);
+            Vector3 forward = carriageway.GetDirectionAtDistance(atDistance);
+
+            Vector3 toLink = cap - carriageway.GetPositionAtDistance(atDistance);
+            toLink.y = 0f;
+
+            float side = Mathf.Sign(Vector3.Dot(toLink, right));
+
+            // A driver reaches the cap travelling *down* the link — from the pass towards the motorway —
+            // so their heading there is the reverse of the course's own tangent at distance zero.
+            Vector3 arriving = -linkPath.GetDirectionAtDistance(0f);
+            float travelSign = Mathf.Sign(Vector3.Dot(arriving, forward));
+
+            // Out to the link's far paved edge, so the wedge covers the ramp's full width and the strip
+            // of gravel between the two roads with it. That strip is the whole complaint.
+            float lateral = Mathf.Abs(Vector3.Dot(toLink, right));
+            float mouthWidth = lateral + linkShape.HalfWidth - motorwayShape.HalfWidth;
+
+            var buffer = new VegetationMeshBuffer(MotorwayMergeBuilder.MergeSubmeshCount);
+
+            MotorwayMergeBuilder.Append(
+                carriageway, motorwayShape, atDistance, mouthWidth, side, travelSign, buffer);
+
+            buffer.MergeTinted(MotorwayMergeBuilder.SurfaceTints());
+
+            var used = new List<int>(MotorwayMergeBuilder.MergeSubmeshCount);
+            Mesh mesh = buffer.ToMesh("MotorwayMergeMesh", used);
+            if (mesh == null)
+            {
+                Debug.LogWarning("[Horizon] The motorway merge came out empty.");
+                return;
+            }
+
+            mesh = HorizonAssetUtility.ReplaceAsset(mesh, GeneratedFolder + "/MotorwayMergeMesh.asset");
+
+            var meshMaterials = new Material[used.Count];
+            for (int i = 0; i < used.Count; i++)
+            {
+                meshMaterials[i] = materials.RoadTint;
+            }
+
+            GameObject merge = CreateMeshObject(parent, "MotorwayMerge", mesh, meshMaterials);
+
+            WorldChunk chunk = merge.AddComponent<WorldChunk>();
+            chunk.RecalculateBounds();
+            chunk.SetBounds(chunk.Center, 100000f);
+
+            ValidateMergeSeam(carriageway, motorwayShape, linkPath, linkShape, atDistance, side, mouthWidth);
+
+            Debug.Log($"[Horizon] Motorway merge: {MotorwayMergeBuilder.TotalLength:0} m of acceleration "
+                      + $"lane on the {(side < 0f ? "left" : "right")} of the carriageway, opening "
+                      + $"{mouthWidth:0.0} m wide at the link's cap and closing to nothing. The ramp's "
+                      + $"paving and the {lateral - motorwayShape.HalfWidth - linkShape.HalfWidth:0.0} m "
+                      + "of gravel between the two roads are both under it now.");
+        }
+
+        /// <summary>
+        /// Measures the step a wheel crosses where the ramp's paving meets the merge.
+        ///
+        /// <para><b>This is the one seam in the interchange that nothing else can check.</b> The wedge's
+        /// inner edge is exact by construction — it is built in the carriageway's own frame, so it
+        /// cannot disagree with the road it joins. Its outer edge at the cap is a different matter: that
+        /// is where two separately graded courses meet, and the whole reason the previous fix in this
+        /// area existed was that they were 0.45 m apart in height without anything noticing. A step there
+        /// is a raycast wheel dropping at whatever speed the ramp delivers.</para>
+        ///
+        /// <para>Sampled across the ramp's paved width rather than at its centre, because the two roads
+        /// meet along a line and a difference in cross-fall shows at the edges and nowhere else.</para>
+        /// </summary>
+        private static void ValidateMergeSeam(
+            IRoadPath carriageway,
+            in RoadShape motorwayShape,
+            IRoadPath linkPath,
+            in RoadShape linkShape,
+            float atDistance,
+            float side,
+            float mouthWidth)
+        {
+            Vector3 capCenter = linkPath.GetPositionAtDistance(0f);
+            Vector3 capRight = linkPath.GetRightAtDistance(0f);
+
+            Vector3 wayCenter = carriageway.GetPositionAtDistance(atDistance);
+            Vector3 wayRight = carriageway.GetBankedRightAtDistance(
+                atDistance, motorwayShape.MaxBankDegrees, motorwayShape.FullBankRadius);
+
+            Vector3 up = Vector3.Cross(carriageway.GetDirectionAtDistance(atDistance), wayRight).normalized;
+            if (up.y < 0f)
+            {
+                up = -up;
+            }
+
+            float worst = 0f;
+            float worstAcross = 0f;
+
+            const int samples = 17;
+            for (int i = 0; i < samples; i++)
+            {
+                // Across the ramp's paving, from one edge to the other.
+                float across = Mathf.Lerp(-linkShape.HalfWidth, linkShape.HalfWidth, i / (float)(samples - 1));
+
+                // The ramp's own surface there. Its rings carry a crown, but the seam is about the two
+                // surfaces' base planes, which is what the edges of both sit on.
+                Vector3 onLink = capCenter + capRight * across + Vector3.up * linkShape.SurfaceLift;
+
+                // The wedge at the same point, measured out from the carriageway's paved edge along its
+                // own banked frame.
+                float outward = Mathf.Abs(Vector3.Dot(onLink - wayCenter, wayRight));
+                float width = outward - motorwayShape.HalfWidth;
+
+                if (width < 0f || width > mouthWidth)
+                {
+                    continue;
+                }
+
+                Vector3 onWedge = wayCenter
+                                  + wayRight * (side * (motorwayShape.HalfWidth + width))
+                                  + up * (motorwayShape.SurfaceLift + MotorwayMergeBuilder.Lift);
+
+                float step = Mathf.Abs(onWedge.y - onLink.y);
+                if (step > worst)
+                {
+                    worst = step;
+                    worstAcross = across;
+                }
+            }
+
+            // A tenth of the tyre's radius. Below that a raycast wheel rides over it as a bump; above it
+            // the suspension takes the whole step in one physics tick.
+            const float tolerable = 0.04f;
+
+            if (worst > tolerable)
+            {
+                Debug.LogWarning(
+                    $"[Horizon] The ramp meets the merge with a {worst * 100f:0} cm step, worst "
+                    + $"{worstAcross:0.0} m across its width. A wheel crosses that at ramp speed. The two "
+                    + "roads are graded by different courses — see AutobahnCourse.MotorwayGradeAtJunction, "
+                    + "which is what keeps them level with each other.");
+                return;
+            }
+
+            Debug.Log($"[Horizon] Merge seam: the ramp meets the acceleration lane within "
+                      + $"{worst * 1000f:0} mm across its whole width.");
+        }
+
+        /// <summary>
+        /// Distance along a path of the point nearest <paramref name="to"/>. Coarse sweep, then halving
+        /// windows — the same shape as <c>PauseMenu.TryNearestRoad</c>, and for the same reason: this
+        /// runs once at build time, so a few thousand distance checks cost nothing, and sampling every
+        /// metre of eight kilometres would be a hundred thousand.
+        /// </summary>
+        private static float NearestDistanceOn(IRoadPath path, Vector3 to)
+        {
+            const float coarse = 20f;
+
+            float best = 0f;
+            float bestSqr = float.MaxValue;
+
+            int steps = Mathf.Max(1, Mathf.CeilToInt(path.Length / coarse));
+            for (int i = 0; i <= steps; i++)
+            {
+                float at = path.Length * i / steps;
+                float sqr = (path.GetPositionAtDistance(at) - to).sqrMagnitude;
+
+                if (sqr < bestSqr)
+                {
+                    bestSqr = sqr;
+                    best = at;
+                }
+            }
+
+            for (float window = coarse * 0.5f; window > 0.05f; window *= 0.5f)
+            {
+                for (int sign = -1; sign <= 1; sign += 2)
+                {
+                    float at = Mathf.Clamp(best + window * sign, 0f, path.Length);
+                    float sqr = (path.GetPositionAtDistance(at) - to).sqrMagnitude;
+
+                    if (sqr < bestSqr)
+                    {
+                        bestSqr = sqr;
+                        best = at;
+                    }
+                }
+            }
+
+            return best;
         }
 
         /// <summary>
