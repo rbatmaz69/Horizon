@@ -65,12 +65,16 @@ namespace Horizon.EditorTools
         /// </summary>
         public const float TrafficRideHeight = 0.74f;
 
-        /// <summary>Local position of each tailpipe mouth, for hanging the smoke emitters on.</summary>
-        public static readonly Vector3[] ExhaustOutlets =
-        {
-            new Vector3(0.42f, -0.44f, -2.52f),
-            new Vector3(-0.42f, -0.44f, -2.52f),
-        };
+        /// <summary>
+        /// How far apart the tailpipes and the headlight beams sit either side of the centre line.
+        ///
+        /// <para>Shared rather than per profile, and that is not laziness: every one of these bodies is
+        /// built around the same track, so their flanks all land within a few centimetres of each other.
+        /// A pipe spacing that varied would vary by less than the pipe is wide.</para>
+        /// </summary>
+        private const float ExhaustHalfSpacing = 0.42f;
+
+        private const float HeadlightHalfSpacing = 0.47f;
 
         /// <summary>
         /// Top of the wheel arch openings. Sized so the wheel nearly fills the opening — an arch much
@@ -526,6 +530,104 @@ namespace Horizon.EditorTools
         /// </summary>
         public static readonly CarProfile[] TrafficProfiles = { Fastback, Estate, Van, Pickup, Hatchback };
 
+        /// <summary>
+        /// Every shape the player may drive. The same five, and deliberately the same array contents as
+        /// <see cref="TrafficProfiles"/>: a car the player can pick is a car they should also meet coming
+        /// the other way, and two lists would drift.
+        /// </summary>
+        public static readonly CarProfile[] PlayerProfiles = TrafficProfiles;
+
+        /// <summary>
+        /// The box that encloses the bodywork, for the collider.
+        ///
+        /// <para><b>From the station table, not from <c>mesh.bounds</c>.</b> The finished mesh carries
+        /// the detail pass as well as the shell — tailpipe mouths 3 cm behind the tail cap, a lamp bar
+        /// 2 cm behind that, a grille 2 cm ahead of the nose — so a box fitted to it is some 8 cm longer
+        /// than the car and catches on scenery the bodywork never touched. Worse, it would be a box that
+        /// changes when somebody moves a lamp. The stations are the bodywork; the trim is not.</para>
+        ///
+        /// <para>The four numbers come from the same expressions <see cref="BuildRing"/> builds the ring
+        /// out of, so the box tracks the shell by construction rather than by somebody re-deriving it
+        /// after a reshape. For the fastback it produces centre (0, 0.05, −0.11) and size
+        /// (2.26, 1.28, 4.74), which are exactly the literals it replaces —
+        /// <c>PrototypeSetup.ReportBodies</c> checks that every rebuild.</para>
+        /// </summary>
+        public static Bounds HullBounds(in CarProfile profile)
+        {
+            Station[] stations = profile.Stations;
+
+            float minZ = stations[0].Z;
+            float maxZ = stations[stations.Length - 1].Z;
+
+            float halfX = 0f;
+            float minY = float.MaxValue;
+            float maxY = float.MinValue;
+
+            for (int i = 0; i < stations.Length; i++)
+            {
+                Station station = stations[i];
+
+                // The flare is added at every station rather than only over the axles: it is a maximum,
+                // and a box has to hold the widest part of the car wherever that falls.
+                halfX = Mathf.Max(halfX, station.HalfWidth + FlareWidth);
+
+                // Both clamps BuildRing applies to the underside, so an arch that pushes the floor up
+                // cannot make the box shallower than the body actually is.
+                minY = Mathf.Min(minY, Mathf.Min(station.SillY, station.BeltY - 0.08f));
+
+                // The crowned apex, not the flat top: the roof bulges above TopY by a fraction of its
+                // own width, and a box cut at TopY clips it.
+                float top = Mathf.Max(station.TopY, station.BeltY + 0.05f);
+                maxY = Mathf.Max(maxY, top + station.TopHalfWidth * CrownFraction);
+            }
+
+            return new Bounds(
+                new Vector3(0f, (maxY + minY) * 0.5f, (maxZ + minZ) * 0.5f),
+                new Vector3(halfX * 2f, maxY - minY, maxZ - minZ));
+        }
+
+        /// <summary>
+        /// Where the two headlight beams are emitted from — the <see cref="Light"/> objects, not the
+        /// lamp lenses in the mesh.
+        ///
+        /// <para>Set back a hand's width behind the nose and a hand's width above the lens, which is
+        /// where the existing pair sat as literals: for the fastback this returns
+        /// (±0.47, 0.20, 2.05) unchanged. It is deliberately not the lens position. A spot cone starting
+        /// exactly on the lens clips its own bodywork on the first bump, and the beam the player sees is
+        /// the pool of light on the road rather than the source.</para>
+        /// </summary>
+        public static Vector3[] HeadlightSeats(in CarProfile profile)
+        {
+            float z = profile.NoseZ - 0.22f;
+            float y = LampHeight(profile, profile.NoseZ) + 0.18f;
+
+            return new[]
+            {
+                new Vector3(HeadlightHalfSpacing, y, z),
+                new Vector3(-HeadlightHalfSpacing, y, z),
+            };
+        }
+
+        /// <summary>
+        /// Local position of each tailpipe mouth, for hanging the smoke emitters on and for drawing the
+        /// pipes themselves.
+        ///
+        /// <para>Just clear of the tail cap and just above the sill at that end. For the fastback that
+        /// is (±0.42, −0.44, −2.52), the literals this replaces; for a van, whose tail is 7 cm further
+        /// back and whose floor is elsewhere, it is not — which is the point.</para>
+        /// </summary>
+        public static Vector3[] ExhaustOutletsFor(in CarProfile profile)
+        {
+            float z = profile.TailZ - 0.03f;
+            float y = profile.Stations[0].SillY + 0.03f;
+
+            return new[]
+            {
+                new Vector3(ExhaustHalfSpacing, y, z),
+                new Vector3(-ExhaustHalfSpacing, y, z),
+            };
+        }
+
         /// <summary>Spacing of the interpolated cross-sections.</summary>
         private const float StationStep = 0.13f;
 
@@ -554,10 +656,18 @@ namespace Horizon.EditorTools
         /// </summary>
         private static readonly HashSet<int> FlankKeySegments = new HashSet<int> { 3, 4, 11, 12 };
 
-        /// <summary>Builds the player's car body. Five submeshes — see the Submesh constants for the order.</summary>
-        public static Mesh BuildBody(string meshName = "CarBodyMesh")
+        /// <summary>
+        /// Builds a player car body at full detail. Five submeshes — see the Submesh constants for the
+        /// order.
+        ///
+        /// <para><b>Never pass <c>usedSubmeshes</c> from here.</b> Leaving it null is what keeps the five
+        /// slots uncompacted and in constant order, which is the only reason
+        /// <c>VehicleLights.headlightMaterialIndex</c> and <c>taillightMaterialIndex</c> can stay the
+        /// literal 2 and 3 for every body. Compacting a player body would put the lamps on the wrong
+        /// material, and nothing would say so until dark.</para>
+        /// </summary>
+        public static Mesh BuildBody(in CarProfile profile, string meshName)
         {
-            CarProfile profile = Fastback;
             return BuildShell(profile, BuildFineStations(profile), RingSubdivisions, true, meshName);
         }
 
@@ -682,13 +792,14 @@ namespace Horizon.EditorTools
 
             if (details)
             {
-                AddFrontDetails(vertices, submeshTriangles);
-                AddRearDetails(vertices, submeshTriangles);
+                AddFrontDetails(profile, vertices, submeshTriangles);
+                AddRearDetails(profile, vertices, submeshTriangles);
 
                 // Long enough to run back under the tail rather than poke out of it like a peg.
-                for (int i = 0; i < ExhaustOutlets.Length; i++)
+                Vector3[] outlets = ExhaustOutletsFor(profile);
+                for (int i = 0; i < outlets.Length; i++)
                 {
-                    AddTube(vertices, submeshTriangles[ChromeSubmesh], ExhaustOutlets[i], 0.075f, 0.38f, 12);
+                    AddTube(vertices, submeshTriangles[ChromeSubmesh], outlets[i], 0.075f, 0.38f, 12);
                 }
             }
             else
@@ -945,6 +1056,39 @@ namespace Horizon.EditorTools
         }
 
         /// <summary>
+        /// Half the bodywork's width at a given Z, interpolated between stations the same way
+        /// <see cref="LampHeight"/> interpolates the beltline. Off either end the nearest station
+        /// answers, because that is the cap a grille or a lamp bar is being seated on.
+        ///
+        /// <para>Without the flare: this is used to size panels on the faces, and the flares are over the
+        /// axles, a metre away from both of them.</para>
+        /// </summary>
+        private static float HalfWidthAt(in CarProfile profile, float z)
+        {
+            Station[] stations = profile.Stations;
+
+            if (z <= stations[0].Z)
+            {
+                return stations[0].HalfWidth;
+            }
+
+            for (int i = 1; i < stations.Length; i++)
+            {
+                if (z > stations[i].Z)
+                {
+                    continue;
+                }
+
+                float span = stations[i].Z - stations[i - 1].Z;
+                float t = span > 0.0001f ? (z - stations[i - 1].Z) / span : 0f;
+
+                return Mathf.Lerp(stations[i - 1].HalfWidth, stations[i].HalfWidth, t);
+            }
+
+            return stations[stations.Length - 1].HalfWidth;
+        }
+
+        /// <summary>
         /// One wheel as a closed n-gon prism about the X axis.
         ///
         /// Eight sides, which is two more than a boulder gets and enough that the silhouette reads as
@@ -1158,45 +1302,71 @@ namespace Horizon.EditorTools
         /// <summary>
         /// Wide grille with the headlights set into its outer ends.
         ///
-        /// Sits just *in front of* the nose cap at z 2.44, not at the widest station. A panel placed
-        /// back where the body is widest ends up inside the shell and renders nothing.
+        /// <para>Sits just <i>in front of</i> the nose cap, not at the widest station. A panel placed
+        /// back where the body is widest ends up inside the shell and renders nothing.</para>
+        ///
+        /// <para><b>Every number here is a fraction of the profile's own face</b>, because they used to
+        /// be the fastback's measurements written out. z 2.28 is two centimetres past a fastback's nose
+        /// and two centimetres <i>inside</i> a van's, which seals the grille and both headlights into
+        /// the bodywork — the same failure <see cref="AddTrafficLamps"/> records having had once, and
+        /// one that is invisible until somebody renders the thing at night. Expressed against
+        /// <see cref="NoseZ"/>, <see cref="LampHeight"/> and the local half-width, the front end follows
+        /// whatever shape it is put on. For the fastback this reproduces the old literals exactly:
+        /// z 2.28, grille ±0.62 spanning y −0.22…0.06, lamps 0.34…0.56 spanning −0.18…0.02.</para>
         /// </summary>
-        private static void AddFrontDetails(List<Vector3> vertices, List<int>[] submeshTriangles)
+        private static void AddFrontDetails(
+            in CarProfile profile, List<Vector3> vertices, List<int>[] submeshTriangles)
         {
-            // Two centimetres ahead of the nose cap, which now ends at 2.26 and is ±0.86 wide. A panel
-            // placed back where the body is widest ends up buried inside the shell and renders nothing.
-            //
-            // Wider than it was, because the cap it sits on is wider: the face is upright now instead of
-            // domed, so there is a real panel to put a grille on. A Mustang's grille runs nearly the
-            // full width with the lamps set into its outer ends, and that full-width bar is as much of
-            // the front-end read as the shape of the nose is.
-            const float z = 2.28f;
+            float z = profile.NoseZ + 0.01f;
+            float face = HalfWidthAt(profile, profile.NoseZ);
+
+            // The lamp band's centre. A hand below the beltline is where the lens goes on a reduced body
+            // (see LampHeight); the detailed face carries its lamps a further 10 cm down, tucked into the
+            // top of the grille rather than sitting on the beltline.
+            float lamp = LampHeight(profile, profile.NoseZ) - 0.10f;
 
             // A full-width opening with the lamps set into its outer ends, two centimetres proud of it —
             // which is the front of a Mustang in one sentence, and is why the grille is drawn first and
-            // wide rather than as a slot between the lights. It spans 1.24 m of a 1.80 m face and 0.28 m
-            // of its 0.78 m height; the previous 0.80 by 0.17 read as a letterbox on a blank panel.
-            AddPanel(vertices, submeshTriangles[GlassSubmesh], z, -0.62f, 0.62f, -0.22f, 0.06f, true);
+            // wide rather than as a slot between the lights.
+            const float grilleSpan = 0.689f;
+            const float lampInner = 0.378f;
+            const float lampOuter = 0.622f;
 
-            AddPanel(vertices, submeshTriangles[HeadlightSubmesh], z + 0.02f, 0.34f, 0.56f, -0.18f, 0.02f, true);
-            AddPanel(vertices, submeshTriangles[HeadlightSubmesh], z + 0.02f, -0.56f, -0.34f, -0.18f, 0.02f, true);
+            AddPanel(vertices, submeshTriangles[GlassSubmesh], z,
+                -grilleSpan * face, grilleSpan * face, lamp - 0.14f, lamp + 0.14f, true);
+
+            AddPanel(vertices, submeshTriangles[HeadlightSubmesh], z + 0.02f,
+                lampInner * face, lampOuter * face, lamp - 0.10f, lamp + 0.10f, true);
+            AddPanel(vertices, submeshTriangles[HeadlightSubmesh], z + 0.02f,
+                -lampOuter * face, -lampInner * face, lamp - 0.10f, lamp + 0.10f, true);
         }
 
-        /// <summary>Three vertical bars each side, which is the tail this car is quoting.</summary>
-        private static void AddRearDetails(List<Vector3> vertices, List<int>[] submeshTriangles)
+        /// <summary>
+        /// Three vertical bars each side, which is the tail this car is quoting.
+        ///
+        /// <para>Seated off <see cref="CarProfile.TailZ"/> and the tail's own width for the reason given
+        /// on <see cref="AddFrontDetails"/>. For the fastback: z −2.50, bars at 0.15, 0.32 and 0.49,
+        /// 0.14 wide, spanning y −0.19…0.09.</para>
+        /// </summary>
+        private static void AddRearDetails(
+            in CarProfile profile, List<Vector3> vertices, List<int>[] submeshTriangles)
         {
-            // Two centimetres behind the tail cap, which now ends at -2.48.
-            const float z = -2.50f;
-            var barStarts = new[] { 0.15f, 0.32f, 0.49f };
-            const float barWidth = 0.14f;
+            float z = profile.TailZ - 0.01f;
+            float face = HalfWidthAt(profile, profile.TailZ);
+            float lamp = LampHeight(profile, profile.TailZ) - 0.06f;
+
+            var barStarts = new[] { 0.1786f, 0.3810f, 0.5833f };
+            const float barWidth = 0.1667f;
 
             for (int i = 0; i < barStarts.Length; i++)
             {
-                float x0 = barStarts[i];
-                float x1 = x0 + barWidth;
+                float x0 = barStarts[i] * face;
+                float x1 = x0 + barWidth * face;
 
-                AddPanel(vertices, submeshTriangles[TaillightSubmesh], z, x0, x1, -0.19f, 0.09f, false);
-                AddPanel(vertices, submeshTriangles[TaillightSubmesh], z, -x1, -x0, -0.19f, 0.09f, false);
+                AddPanel(vertices, submeshTriangles[TaillightSubmesh], z, x0, x1,
+                    lamp - 0.14f, lamp + 0.14f, false);
+                AddPanel(vertices, submeshTriangles[TaillightSubmesh], z, -x1, -x0,
+                    lamp - 0.14f, lamp + 0.14f, false);
             }
         }
 

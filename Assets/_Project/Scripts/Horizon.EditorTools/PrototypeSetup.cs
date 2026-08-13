@@ -51,12 +51,18 @@ namespace Horizon.EditorTools
 
             // Make sure the configs exist on disk, but deliberately do not keep the references:
             // see the note on LoadVehicleConfig for why they must be re-loaded after a scene switch.
-            CreateVehicleConfig();
+            CreateVehicleConfigs();
             CreateTimeOfDayProfile();
 
             // Start from a throwaway scene so the temporary objects used to author the prefab never
             // touch whatever the user had open.
             EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+
+            // Before the prefab and well before the Bootstrap scene, because the garage page puts these
+            // sprites into buttons as it builds them. They need no prefab — only CarMeshBuilder — so
+            // here is the earliest they can be made. The debug renders at the end of this method are a
+            // different thing: those are for looking at, and they need the finished car.
+            CarPreviewRenderer.RenderUiThumbnails();
 
             GameObject vehiclePrefab = BuildVehiclePrefab();
             if (vehiclePrefab == null)
@@ -157,6 +163,13 @@ namespace Horizon.EditorTools
             /// different smoothness from plaster.
             /// </summary>
             public readonly Material FoliageTint;
+
+            /// <summary>
+            /// The eight paints the player picks between, in <see cref="CarPaintPalette"/> order. Slot 0
+            /// is <see cref="CarBody"/> — the same asset, not a copy, so the default car is unchanged.
+            /// </summary>
+            public readonly Material[] CarPaints;
+
             public readonly Material CarBody;
             public readonly Material Tyre;
             public readonly Material CarGlass;
@@ -298,8 +311,11 @@ namespace Horizon.EditorTools
 
                 GuardRail = HorizonAssetUtility.LoadOrCreateMaterial(
                     MaterialsFolder + "/M_GuardRail.mat", "M_GuardRail", new Color(0.66f, 0.68f, 0.70f), 0.55f, 0.6f);
-                CarBody = HorizonAssetUtility.LoadOrCreateMaterial(
-                    MaterialsFolder + "/M_CarBody.mat", "M_CarBody", new Color(0.86f, 0.36f, 0.17f), 0.62f, 0.1f);
+                // The palette owns M_CarBody now, as its first entry, so the orange the car has always
+                // worn is created exactly once and by one table. CarBody stays as a named handle to it
+                // because a good deal of code — and the traffic material resolver — reads it that way.
+                CarPaints = CarPaintPalette.LoadOrCreate();
+                CarBody = CarPaints[0];
                 Tyre = HorizonAssetUtility.LoadOrCreateMaterial(
                     MaterialsFolder + "/M_Tyre.mat", "M_Tyre", new Color(0.07f, 0.07f, 0.08f), 0.18f);
 
@@ -332,15 +348,26 @@ namespace Horizon.EditorTools
             }
         }
 
-        private static VehicleConfig CreateVehicleConfig()
+        /// <summary>
+        /// Makes sure a handling asset exists for every body, creating only the missing ones.
+        ///
+        /// <para>A freshly created config carries <c>Version = 0</c>, which counts as stale, so
+        /// <see cref="LoadVehicleConfig"/> stamps it with its profile's preset the first time it is read.
+        /// The four new bodies therefore arrive correctly tuned without this function knowing anything
+        /// about what a van weighs — see <see cref="VehicleConfigPresets"/>.</para>
+        /// </summary>
+        private static void CreateVehicleConfigs()
         {
-            return HorizonAssetUtility.LoadOrCreate(
-                VehicleConfigPath,
-                ScriptableObject.CreateInstance<VehicleConfig>);
+            for (int i = 0; i < VehicleConfigPresets.All.Length; i++)
+            {
+                HorizonAssetUtility.LoadOrCreate(
+                    VehicleConfigPresets.All[i].AssetPath,
+                    ScriptableObject.CreateInstance<VehicleConfig>);
+            }
         }
 
         /// <summary>
-        /// Re-loads the vehicle config from disk.
+        /// Re-loads one body's vehicle config from disk.
         ///
         /// This exists because an asset reference does **not** survive
         /// <c>EditorSceneManager.NewScene(..., Single)</c>: after the scene switch the managed
@@ -349,14 +376,22 @@ namespace Horizon.EditorTools
         /// scenes loads the assets it needs afterwards, by path, rather than receiving them as
         /// arguments from before the switch.
         /// </summary>
-        private static VehicleConfig LoadVehicleConfig()
+        private static VehicleConfig LoadVehicleConfig(string profile)
         {
-            VehicleConfig config = AssetDatabase.LoadAssetAtPath<VehicleConfig>(VehicleConfigPath);
+            string path = VehicleConfigPresets.PathFor(profile);
+            if (path == null)
+            {
+                Debug.LogError($"[Horizon] No vehicle config is registered for body '{profile}'. "
+                               + "Add it to VehicleConfigPresets.All.");
+                return null;
+            }
+
+            VehicleConfig config = AssetDatabase.LoadAssetAtPath<VehicleConfig>(path);
 
             // A rebuild must not silently construct the car from an asset whose numbers were chosen
             // under meanings the code has since changed. VehicleConfigReset owns that judgement — it is
             // a version stamp, not a guess at which values look wrong.
-            VehicleConfigReset.ResetIfStale(config);
+            VehicleConfigReset.ResetIfStale(config, profile, path);
 
             return config;
         }
@@ -404,21 +439,42 @@ namespace Horizon.EditorTools
         }
 
         /// <summary>
-        /// Builds the vehicle: a generated low-poly body and four generated wheels on pivots.
+        /// Builds the vehicle: five generated low-poly bodies on one chassis, and four generated wheels
+        /// on pivots.
         ///
         /// The physics side is untouched by the shape of the art — the raycast wheels work off the
-        /// anchors and the config, so the body mesh can be replaced freely without retuning handling.
+        /// anchors and the config, so a body mesh can be replaced freely without retuning handling.
+        ///
+        /// <para><b>Five bodies, one of everything else.</b> Only the shell, its lamps, its pipes, its
+        /// collider box and its handling asset are per body; the Rigidbody, the wheels, the anchors, the
+        /// audio graph and the cover probe are shared, because every silhouette is drawn around the same
+        /// running gear. <see cref="VehicleBodySet"/> is what swaps between them at run time, and the
+        /// note on that class says why this is one prefab rather than five.</para>
         /// </summary>
         private static GameObject BuildVehiclePrefab()
         {
             // Loaded here, after Rebuild's scene switch, not passed in from before it.
             var materials = new PrototypeMaterials();
-            VehicleConfig config = LoadVehicleConfig();
-            if (config == null)
+
+            CarMeshBuilder.CarProfile[] profiles = CarMeshBuilder.PlayerProfiles;
+
+            var configs = new VehicleConfig[profiles.Length];
+            for (int i = 0; i < profiles.Length; i++)
             {
-                Debug.LogError($"[Horizon] Could not load {VehicleConfigPath}. Aborting prefab build.");
-                return null;
+                configs[i] = LoadVehicleConfig(profiles[i].Name);
+                if (configs[i] == null)
+                {
+                    Debug.LogError($"[Horizon] Could not load the vehicle config for "
+                                   + $"'{profiles[i].Name}'. Aborting prefab build.");
+                    return null;
+                }
             }
+
+            // The fastback, and what the car is until the player says otherwise. Everything shared below
+            // — the Rigidbody's mass, the wheel mesh, the anchor drop — is seeded from it; all five agree
+            // on the suspension numbers, so only the mass is really a choice, and VehicleBodySet.Select
+            // rewrites that the moment another body is picked.
+            VehicleConfig config = configs[0];
 
             var root = new GameObject("Vehicle_Prototype");
 
@@ -428,40 +484,61 @@ namespace Horizon.EditorTools
             // Collider spans the body shell. It only matters for hitting scenery — the wheels are
             // raycasts, so this box has no say in how the car drives.
             //
-            // Every figure here tracks CarMeshBuilder's silhouette and has to be revisited whenever that
-            // changes, or bodywork ends up outside its own collider and clips through scenery.
-            //   X: widest flank is 1.02 + FlareWidth 0.09 = 1.11 over the rear arch.
-            //   Y: sill -0.52 to crowned roof ~0.72.
-            //   Z: tail cap -2.36 to nose cap 2.52, so 4.88 long and biased forward.
+            // Derived from the station table rather than typed out beside it. The four numbers used to be
+            // literals carrying a note to re-derive them whenever the silhouette moved, which is a note
+            // that only works if somebody reads it — and with five silhouettes there is no single set of
+            // literals that could be right anyway. VehicleBodySet rewrites this box on every swap.
             BoxCollider collider = root.AddComponent<BoxCollider>();
-            // Follows the shell: 2.26 m across the arches, a sill at -0.59 and a crowned roof at 0.69,
-            // running from a tail cap at -2.48 to a nose at 2.26. Re-derived every time the station
-            // table moves — a collider left behind after a reshape is the kind of thing nothing
-            // complains about until a tunnel does.
-            collider.center = new Vector3(0f, 0.05f, -0.11f);
-            collider.size = new Vector3(2.26f, 1.28f, 4.74f);
+            Bounds hull = CarMeshBuilder.HullBounds(profiles[0]);
+            collider.center = hull.center;
+            collider.size = hull.size;
 
-            Mesh bodyMesh = HorizonAssetUtility.ReplaceAsset(
-                CarMeshBuilder.BuildBody(), GeneratedFolder + "/CarBodyMesh.asset");
+            // --- The five bodies, all built, one left showing.
+            var bodiesRoot = new GameObject("Bodies");
+            bodiesRoot.transform.SetParent(root.transform, false);
 
-            // Material order must match the Submesh constants in CarMeshBuilder.
-            GameObject bodyObject = CreateMeshObject(
-                root.transform,
-                "Body",
-                bodyMesh,
-                new[]
-                {
-                    materials.CarBody,
-                    materials.CarGlass,
-                    materials.LightFront,
-                    materials.LightRear,
-                    materials.CarRim,
-                },
-                addCollider: false,
-                markStatic: false);
+            var bodyObjects = new GameObject[profiles.Length];
+            var bodyBeams = new Light[profiles.Length][];
+            var bodyBounds = new Bounds[profiles.Length];
 
-            Light[] headlights = CreateHeadlights(root.transform);
-            CreateExhaustEmitters(root.transform, materials);
+            for (int i = 0; i < profiles.Length; i++)
+            {
+                CarMeshBuilder.CarProfile profile = profiles[i];
+
+                Mesh mesh = HorizonAssetUtility.ReplaceAsset(
+                    CarMeshBuilder.BuildBody(profile, $"CarBodyMesh_{profile.Name}"),
+                    $"{GeneratedFolder}/CarBodyMesh_{profile.Name}.asset");
+
+                // Material order must match the Submesh constants in CarMeshBuilder. Slot 0 is the paint
+                // and is the one VehicleBodySet rewrites; the other four are the same on every car.
+                bodyObjects[i] = CreateMeshObject(
+                    bodiesRoot.transform,
+                    $"Body_{profile.Name}",
+                    mesh,
+                    new[]
+                    {
+                        materials.CarBody,
+                        materials.CarGlass,
+                        materials.LightFront,
+                        materials.LightRear,
+                        materials.CarRim,
+                    },
+                    addCollider: false,
+                    markStatic: false);
+
+                // Lamps and pipes parent to the body, not to the chassis, so deactivating a body takes
+                // its beams and its smoke with it. A headlight left behind on the root would keep
+                // shining out of whatever car was showing.
+                bodyBeams[i] = CreateHeadlights(bodyObjects[i].transform, profile);
+                CreateExhaustEmitters(bodyObjects[i].transform, materials, profile);
+
+                bodyBounds[i] = CarMeshBuilder.HullBounds(profile);
+
+                bodyObjects[i].SetActive(i == 0);
+            }
+
+            GameObject bodyObject = bodyObjects[0];
+            Light[] headlights = bodyBeams[0];
 
             AudioSource engineSource = CreateAudioSource(root.transform, "Audio_Engine", 0.25f);
 
@@ -584,13 +661,106 @@ namespace Horizon.EditorTools
             HorizonAssetUtility.Configure(lights, serialized =>
                 serialized.FindProperty("controller").objectReferenceValue = controller);
 
+            // --- The garage. Last, because it needs the collider, the controller and the lights.
+            VehicleBodySet bodySet = root.AddComponent<VehicleBodySet>();
+            HorizonAssetUtility.Configure(bodySet, serialized =>
+            {
+                SerializedProperty array = serialized.FindProperty("bodies");
+                array.arraySize = profiles.Length;
+
+                for (int i = 0; i < profiles.Length; i++)
+                {
+                    SerializedProperty element = array.GetArrayElementAtIndex(i);
+
+                    element.FindPropertyRelative("Name").stringValue = profiles[i].Name;
+                    element.FindPropertyRelative("Root").objectReferenceValue = bodyObjects[i];
+                    element.FindPropertyRelative("Renderer").objectReferenceValue =
+                        bodyObjects[i].GetComponent<MeshRenderer>();
+                    element.FindPropertyRelative("Config").objectReferenceValue = configs[i];
+                    element.FindPropertyRelative("ColliderCenter").vector3Value = bodyBounds[i].center;
+                    element.FindPropertyRelative("ColliderSize").vector3Value = bodyBounds[i].size;
+
+                    SerializedProperty beams = element.FindPropertyRelative("Headlights");
+                    beams.arraySize = bodyBeams[i].Length;
+                    for (int beam = 0; beam < bodyBeams[i].Length; beam++)
+                    {
+                        beams.GetArrayElementAtIndex(beam).objectReferenceValue = bodyBeams[i][beam];
+                    }
+                }
+
+                HorizonAssetUtility.SetObjectArray(serialized, "paints", materials.CarPaints);
+
+                serialized.FindProperty("controller").objectReferenceValue = controller;
+                serialized.FindProperty("lights").objectReferenceValue = lights;
+                serialized.FindProperty("hull").objectReferenceValue = collider;
+            });
+
+            // The three that would fail silently: without the collider the car keeps the fastback's box
+            // whatever it is wearing, and without the controller or the lights a swap changes the shape
+            // and nothing else.
+            HorizonAssetUtility.AssertReferenceAssigned(bodySet, "controller");
+            HorizonAssetUtility.AssertReferenceAssigned(bodySet, "lights");
+            HorizonAssetUtility.AssertReferenceAssigned(bodySet, "hull");
+
             HorizonAssetUtility.EnsureFolder(PrefabsFolder);
             GameObject prefab = PrefabUtility.SaveAsPrefabAsset(root, VehiclePrefabPath);
             Object.DestroyImmediate(root);
 
             // Check the saved asset too, not just the scene instance it was built from.
             HorizonAssetUtility.AssertReferenceAssigned(prefab.GetComponent<VehicleController>(), "config");
+            HorizonAssetUtility.AssertReferenceAssigned(prefab.GetComponent<VehicleBodySet>(), "hull");
+
+            ReportBodies(profiles, configs, bodyBounds, materials.CarPaints.Length);
             return prefab;
+        }
+
+        /// <summary>
+        /// What the garage came out as: one line per body, and a check that the derivation still agrees
+        /// with the car everybody has been driving.
+        ///
+        /// <para>Every other builder in this file reports itself, and for the same reason: a collider
+        /// that does not match its bodywork is not visible anywhere until a car goes through a tunnel
+        /// wall, and by then nobody is looking at the shape of a box. A line in the log is where that
+        /// gets noticed.</para>
+        /// </summary>
+        private static void ReportBodies(
+            CarMeshBuilder.CarProfile[] profiles,
+            VehicleConfig[] configs,
+            Bounds[] bounds,
+            int paintCount)
+        {
+            var report = new System.Text.StringBuilder();
+            report.Append($"[Horizon] {profiles.Length} player bodies in {paintCount} paints:");
+
+            for (int i = 0; i < profiles.Length; i++)
+            {
+                VehicleConfig config = configs[i];
+
+                report.Append($"\n  {profiles[i].Name,-10} {bounds[i].size.z:0.00} x {bounds[i].size.x:0.00} "
+                              + $"x {bounds[i].size.y:0.00} m, collider centre "
+                              + $"({bounds[i].center.x:0.00}, {bounds[i].center.y:0.00}, "
+                              + $"{bounds[i].center.z:0.00}), {config.Mass:0} kg, {config.DrivenAxle} drive, "
+                              + $"{config.MaxTorqueNm:0} Nm, top {config.TopSpeed * 3.6f:0} km/h");
+            }
+
+            Debug.Log(report.ToString());
+
+            // The fastback's box was four literals for the whole life of the project, and every one of
+            // them is reproduced by HullBounds. Checked rather than trusted: if a change to the station
+            // table or to the derivation moves it, this is the line that says so, and the alternative is
+            // finding out from a car that no longer fits its own collider.
+            Bounds fastback = bounds[0];
+            var wasCenter = new Vector3(0f, 0.05f, -0.11f);
+            var wasSize = new Vector3(2.26f, 1.28f, 4.74f);
+
+            if (Vector3.Distance(fastback.center, wasCenter) > 0.01f
+                || Vector3.Distance(fastback.size, wasSize) > 0.01f)
+            {
+                Debug.LogWarning(
+                    $"[Horizon] The fastback's collider has moved: centre {fastback.center} size "
+                    + $"{fastback.size}, against the {wasCenter} / {wasSize} it carried as literals. "
+                    + "That is correct if the station table changed and a bug if it did not.");
+            }
         }
 
         private static List<SpawnPoint> BuildWorldScene(GameObject vehiclePrefab)
@@ -607,7 +777,10 @@ namespace Horizon.EditorTools
             // Everything asset-related is resolved after the scene switch above, never before it.
             var materials = new PrototypeMaterials();
             TimeOfDayProfile timeOfDayProfile = LoadTimeOfDayProfile();
-            VehicleConfig config = LoadVehicleConfig();
+
+            // Any body would do: this is only wanted for the ride height, and wheel radius and suspension
+            // rest length are identical across all five by construction — see VehicleConfigPresets.
+            VehicleConfig config = LoadVehicleConfig("Fastback");
 
             var worldRoot = new GameObject("World");
 
@@ -983,12 +1156,9 @@ namespace Horizon.EditorTools
             GameBootstrap bootstrap = root.AddComponent<GameBootstrap>();
             DriveInputRouter router = root.AddComponent<DriveInputRouter>();
             DriveDebugOverlay overlay = root.AddComponent<DriveDebugOverlay>();
+            QualityDirector quality = root.AddComponent<QualityDirector>();
 
-            HorizonAssetUtility.Configure(bootstrap, serialized =>
-            {
-                serialized.FindProperty("worldSceneName").stringValue = WorldSceneName;
-                serialized.FindProperty("inputRouter").objectReferenceValue = router;
-            });
+            BuildQualityLevels(quality);
 
             HorizonAssetUtility.Configure(overlay, serialized =>
             {
@@ -1007,13 +1177,26 @@ namespace Horizon.EditorTools
                 spawnNames[i] = spawns[i].Name;
             }
 
-            TouchUiSetup.Build(root, router, spawnNames);
+            TouchUiSetup.UiParts ui = TouchUiSetup.Build(root, router, spawnNames);
 
-            // The table itself goes onto the PauseMenu the line above just created.
-            PauseMenu menu = root.GetComponentInChildren<PauseMenu>(true);
-            if (menu != null)
+            // Now that the start screen and the quality director exist, GameBootstrap can be told about
+            // them. Wired explicitly rather than left to the FindFirstObjectByType fallbacks in Awake —
+            // those are there for a scene somebody assembled by hand, not for generated output.
+            HorizonAssetUtility.Configure(bootstrap, serialized =>
             {
-                HorizonAssetUtility.Configure(menu, serialized =>
+                serialized.FindProperty("worldSceneName").stringValue = WorldSceneName;
+                serialized.FindProperty("inputRouter").objectReferenceValue = router;
+                serialized.FindProperty("qualityDirector").objectReferenceValue = quality;
+                serialized.FindProperty("startScreen").objectReferenceValue = ui.StartScreen;
+            });
+
+            HorizonAssetUtility.Configure(ui.StartScreen, serialized =>
+                serialized.FindProperty("quality").objectReferenceValue = quality);
+
+            // The table itself goes onto the PauseMenu the UI build just created.
+            if (ui.Menu != null)
+            {
+                HorizonAssetUtility.Configure(ui.Menu, serialized =>
                 {
                     SerializedProperty array = serialized.FindProperty("spawnPoints");
                     array.arraySize = spawns.Count;
@@ -1029,6 +1212,55 @@ namespace Horizon.EditorTools
             }
 
             EditorSceneManager.SaveScene(scene, BootstrapScenePath);
+        }
+
+        /// <summary>
+        /// The three quality settings, as the numbers they actually move.
+        ///
+        /// <para>Balanced is the game as it has always been — 650/820/220 on the streamer and the full
+        /// pool of 96 traffic cars are the values those components carry as their own defaults, so the
+        /// middle setting changes nothing and the other two are honestly a step either side of it.</para>
+        ///
+        /// <para>Low pulls the streaming radius in first, which the build log already names as the lever
+        /// to reach for, then caps traffic to a quarter, drops the sun's shadow pass and asks for 30 fps.
+        /// Together those are most of the frame budget on a weak phone, and none of them touches the URP
+        /// asset — see <see cref="QualityDirector"/> for why that matters.</para>
+        /// </summary>
+        private static void BuildQualityLevels(QualityDirector quality)
+        {
+            HorizonAssetUtility.Configure(quality, serialized =>
+            {
+                SerializedProperty levels = serialized.FindProperty("levels");
+                levels.arraySize = 3;
+
+                void Set(
+                    int index, string name,
+                    float streamLoad, float streamUnload, float streamMargin,
+                    int trafficBudget, float trafficLoad, float trafficRecycle,
+                    bool shadows, bool exhaust, int frameRate)
+                {
+                    SerializedProperty level = levels.GetArrayElementAtIndex(index);
+                    level.FindPropertyRelative("Name").stringValue = name;
+                    level.FindPropertyRelative("StreamLoadRadius").floatValue = streamLoad;
+                    level.FindPropertyRelative("StreamUnloadRadius").floatValue = streamUnload;
+                    level.FindPropertyRelative("StreamPhysicsMargin").floatValue = streamMargin;
+                    level.FindPropertyRelative("TrafficBudget").intValue = trafficBudget;
+                    level.FindPropertyRelative("TrafficLoadRadius").floatValue = trafficLoad;
+                    level.FindPropertyRelative("TrafficRecycleRadius").floatValue = trafficRecycle;
+                    level.FindPropertyRelative("SunShadows").boolValue = shadows;
+                    level.FindPropertyRelative("ExhaustParticles").boolValue = exhaust;
+                    level.FindPropertyRelative("TargetFrameRate").intValue = frameRate;
+                }
+
+                Set((int)QualityPreset.Low, "Low",
+                    380f, 500f, 140f, 24, 320f, 460f, false, false, 30);
+
+                Set((int)QualityPreset.Balanced, "Balanced",
+                    650f, 820f, 220f, 56, 650f, 900f, true, true, 60);
+
+                Set((int)QualityPreset.High, "High",
+                    820f, 1000f, 260f, TrafficPoolSize, 800f, 1050f, true, true, 60);
+            });
         }
 
         /// <summary>
@@ -1268,13 +1500,11 @@ namespace Horizon.EditorTools
         /// lights are the single most expensive thing this car could ask of a mid-range mobile GPU.
         /// They start disabled — <see cref="VehicleLights"/> switches them on when it gets dark.
         /// </summary>
-        private static Light[] CreateHeadlights(Transform parent)
+        private static Light[] CreateHeadlights(Transform parent, in CarMeshBuilder.CarProfile profile)
         {
-            var offsets = new[]
-            {
-                new Vector3(0.47f, 0.20f, 2.05f),
-                new Vector3(-0.47f, 0.20f, 2.05f),
-            };
+            // Seated off the profile rather than at the fastback's (±0.47, 0.20, 2.05): a van's face is
+            // most of a metre taller, and a beam emitted at a fastback's lamp height starts inside it.
+            Vector3[] offsets = CarMeshBuilder.HeadlightSeats(profile);
 
             var lights = new Light[offsets.Length];
 
@@ -1329,13 +1559,16 @@ namespace Horizon.EditorTools
         }
 
         /// <summary>Smoke emitters at the tailpipe mouths, pointing backwards out of the car.</summary>
-        private static void CreateExhaustEmitters(Transform parent, PrototypeMaterials materials)
+        private static void CreateExhaustEmitters(
+            Transform parent, PrototypeMaterials materials, in CarMeshBuilder.CarProfile profile)
         {
-            for (int i = 0; i < CarMeshBuilder.ExhaustOutlets.Length; i++)
+            Vector3[] outlets = CarMeshBuilder.ExhaustOutletsFor(profile);
+
+            for (int i = 0; i < outlets.Length; i++)
             {
                 var emitterObject = new GameObject(i == 0 ? "Exhaust_R" : "Exhaust_L");
                 emitterObject.transform.SetParent(parent, false);
-                emitterObject.transform.localPosition = CarMeshBuilder.ExhaustOutlets[i];
+                emitterObject.transform.localPosition = outlets[i];
                 emitterObject.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
 
                 ParticleSystem particles = emitterObject.AddComponent<ParticleSystem>();

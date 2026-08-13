@@ -169,7 +169,16 @@ namespace Horizon.EditorTools
             }
         }
 
-        /// <summary>Fills an object-reference array property.</summary>
+        /// <summary>
+        /// Fills an object-reference array property, and complains if the values did not take.
+        ///
+        /// <para><b>The check is not paranoia.</b> <c>objectReferenceValue</c> does not throw when it is
+        /// handed the wrong type — it declines and leaves the element null. Assigning an array of
+        /// <c>Button</c> to a field declared as <c>Image[]</c> therefore produces a fully built scene, a
+        /// silent log, and a menu in which nothing lights up to show what is selected. That happened
+        /// here once already, on the paint swatches, and reading it back out of the scene file is the
+        /// only reason it was found.</para>
+        /// </summary>
         public static void SetObjectArray(
             SerializedObject serialized,
             string propertyName,
@@ -183,9 +192,19 @@ namespace Horizon.EditorTools
             }
 
             property.arraySize = values.Length;
+
             for (int i = 0; i < values.Length; i++)
             {
-                property.GetArrayElementAtIndex(i).objectReferenceValue = values[i];
+                SerializedProperty element = property.GetArrayElementAtIndex(i);
+                element.objectReferenceValue = values[i];
+
+                if (values[i] != null && element.objectReferenceValue == null)
+                {
+                    Debug.LogError(
+                        $"[Horizon] '{propertyName}[{i}]' on {serialized.targetObject.GetType().Name} "
+                        + $"refused a {values[i].GetType().Name} and was left null. The field is declared "
+                        + "as a different type — pass the component the field actually wants.");
+                }
             }
         }
 
@@ -776,6 +795,21 @@ namespace Horizon.EditorTools
         }
 
         /// <summary>Writes a generated texture out as a sprite asset and imports it as one.</summary>
+        /// <summary>
+        /// Writes a texture out as a sprite asset and returns it, ready to assign to an
+        /// <c>Image</c>.
+        ///
+        /// <para>Public so anything that produces a picture — <c>CarPreviewRenderer</c> renders its car
+        /// thumbnails through here — gets the same importer setup as the generated glyphs, including the
+        /// synchronous reimport. Every one of those settings is load-bearing; see the note inside on what
+        /// happens without <c>spriteImportMode</c>, which is a UI of blank rectangles and a build log
+        /// full of successes.</para>
+        /// </summary>
+        public static Sprite SaveSpriteTexture(Texture2D texture, string assetPath)
+        {
+            return SaveSprite(texture, assetPath, Vector4.zero);
+        }
+
         private static Sprite SaveSprite(Texture2D texture, string assetPath, Vector4 border)
         {
             texture.Apply();

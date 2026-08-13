@@ -1,0 +1,162 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2e6c54b425c874741ae73be512ddf6a2, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Horizon.Vehicle::Horizon.Vehicle.VehicleConfig
+  Version: 1
+  Mass: 1950
+  CenterOfMass: {x: 0, y: -0.1, z: 0.1}
+  LinearDamping: 0.06
+  AngularDamping: 0.05
+  RollPitchDamping: 3.4
+  WheelRadius: 0.44
+  SuspensionRestLength: 0.3
+  SuspensionStiffness: 42000
+  SuspensionDamping: 3800
+  AntiRollStiffness: 22000
+  DrivenAxle: 0
+  MaxTorqueNm: 420
+  TorqueByRpm:
+    serializedVersion: 2
+    m_Curve:
+    - serializedVersion: 3
+      time: 0
+      value: 0.7
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    - serializedVersion: 3
+      time: 0.28
+      value: 1
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    - serializedVersion: 3
+      time: 0.6
+      value: 0.88
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    - serializedVersion: 3
+      time: 1
+      value: 0.55
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    m_PreInfinity: 2
+    m_PostInfinity: 2
+    m_RotationOrder: 4
+  IdleRpm: 700
+  RedlineRpm: 4200
+  GearRatios:
+  - 3.9
+  - 2.31
+  - 1.52
+  - 1.12
+  - 0.86
+  ReverseRatio: 2.9
+  FinalDrive: 4.9
+  DrivetrainEfficiency: 0.9
+  UpshiftRpm: 3900
+  DownshiftRpm: 1500
+  ShiftTime: 0.35
+  BrakeForce: 19000
+  ReverseSpeed: 8
+  RollingResistanceN: 46
+  AeroDrag: 0.78
+  MaxSteerAngle: 34
+  SteeringBySpeed:
+    serializedVersion: 2
+    m_Curve:
+    - serializedVersion: 3
+      time: 0
+      value: 1
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    - serializedVersion: 3
+      time: 0.35
+      value: 0.8
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    - serializedVersion: 3
+      time: 1
+      value: 0.5
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    m_PreInfinity: 2
+    m_PostInfinity: 2
+    m_RotationOrder: 4
+  SteerRate: 240
+  LateralGrip:
+    serializedVersion: 2
+    m_Curve:
+    - serializedVersion: 3
+      time: 0
+      value: 1.45
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    - serializedVersion: 3
+      time: 0.5
+      value: 1.3
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    - serializedVersion: 3
+      time: 1
+      value: 1.15
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    m_PreInfinity: 2
+    m_PostInfinity: 2
+    m_RotationOrder: 4
+  HandbrakeGrip: 0.55
+  HandbrakeForceN: 9000
+  DriftSlipAngle: 12
+  DriftYawDamping: 3.2
+  CountersteerAuthority: 0.5
+  TurnInAssist: 2.4
+  Downforce: 1.5

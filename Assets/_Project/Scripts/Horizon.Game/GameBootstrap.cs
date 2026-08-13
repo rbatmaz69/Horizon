@@ -20,8 +20,15 @@ namespace Horizon.Game
         [SerializeField] private string worldSceneName = "World_MountainPass";
         [SerializeField] private DriveInputRouter inputRouter;
 
-        [Tooltip("Frame rate we ask the platform for. 60 is the target on mid-range Android.")]
+        [Tooltip("Frame rate we ask the platform for. 60 is the target on mid-range Android. The quality "
+               + "setting overrides this — Low asks for 30.")]
         [SerializeField] private int targetFrameRate = 60;
+
+        [Tooltip("Owns the quality setting. Found among the children if left empty.")]
+        [SerializeField] private QualityDirector qualityDirector;
+
+        [Tooltip("The start screen, if the scene has one. Told when the world is ready.")]
+        [SerializeField] private StartScreen startScreen;
 
         /// <summary>The vehicle the player is currently driving, once the world has loaded.</summary>
         public VehicleController PlayerVehicle { get; private set; }
@@ -41,6 +48,18 @@ namespace Horizon.Game
             {
                 inputRouter = GetComponentInChildren<DriveInputRouter>();
             }
+
+            // Before the additive load, because the streaming radii have to be right for the streamer's
+            // very first pass — see WorldStreamingDriver.Start — and because the frame rate is a global
+            // that wants setting once rather than being changed under a running game.
+            PlayerChoices.Load();
+
+            if (qualityDirector == null)
+            {
+                qualityDirector = GetComponentInChildren<QualityDirector>();
+            }
+
+            qualityDirector?.Apply(PlayerChoices.Quality);
         }
 
         private IEnumerator Start()
@@ -78,6 +97,14 @@ namespace Horizon.Game
             {
                 Debug.LogWarning("[Horizon] No ChaseCamera in the loaded world.", this);
             }
+
+            // Last, so the start screen finds a bound camera when it puts the car at the chosen place.
+            if (startScreen == null)
+            {
+                startScreen = FindFirstObjectByType<StartScreen>();
+            }
+
+            startScreen?.OnWorldReady(PlayerVehicle);
         }
     }
 }

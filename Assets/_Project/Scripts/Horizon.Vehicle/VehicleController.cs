@@ -221,6 +221,40 @@ namespace Horizon.Vehicle
         }
 
         /// <summary>
+        /// Swaps the handling asset and re-seats everything derived from it.
+        ///
+        /// <para><b>A method rather than a settable property, and that is the whole point.</b> A bare
+        /// setter is a setter somebody assigns without calling <see cref="ApplyConfigToBody"/>, and the
+        /// result is silent: the car wears a van's bodywork while the Rigidbody keeps the fastback's
+        /// 1250 kg and its centre of mass, so it looks wrong to nobody and drives wrong to everybody.
+        /// This reads as an operation with consequences, which it is — mass, damping, centre of mass and
+        /// the suspension rest length all move.</para>
+        ///
+        /// <para><b>Only call this while the physics step is stopped.</b> Changing mass and centre of
+        /// mass recomputes the inertia tensor of a live non-kinematic body; doing it mid-corner is a
+        /// kick nobody asked for. Both callers pause first, and both follow with
+        /// <see cref="Teleport"/> so the suspension is not left carrying the last car's compression.</para>
+        /// </summary>
+        public void SetConfig(VehicleConfig value)
+        {
+            if (value == null || value == config)
+            {
+                return;
+            }
+
+            config = value;
+
+            for (int i = 0; i < WheelCount; i++)
+            {
+                wheels[i].SpringLength = config.SuspensionRestLength;
+                wheels[i].Compression01 = 0f;
+            }
+
+            CacheWheelbase();
+            ApplyConfigToBody();
+        }
+
+        /// <summary>
         /// Overrides the input source. Leave unset and the vehicle follows
         /// <see cref="DriveInput.Current"/>, which the router publishes.
         /// </summary>

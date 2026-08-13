@@ -29,6 +29,15 @@ namespace Horizon.Atmosphere
         [Tooltip("0 clear, 1 fully overcast. Dims the sun and thickens the fog.")]
         [Range(0f, 1f)] public float Overcast;
 
+        [Header("Quality")]
+        [Tooltip("Let the sun cast shadows at all.\n\n"
+               + "The single biggest GPU saving available without touching the render pipeline asset, "
+               + "which is why the quality setting reaches for it. It has to live here rather than being "
+               + "written onto the Light from outside: Apply() rewrites sun.shadows whenever the clock "
+               + "moves, so anything set externally would survive until the next minute of game time and "
+               + "then quietly come back.")]
+        public bool Shadows = true;
+
         /// <summary>Normalized time of day, 0 at midnight and 0.5 at noon.</summary>
         public float NormalizedTime => Mathf.Repeat(TimeOfDayHours, 24f) / 24f;
 
@@ -93,8 +102,9 @@ namespace Horizon.Atmosphere
                 sun.intensity = Mathf.Max(0f, profile.SunIntensity.Evaluate(t)) * sunDim;
 
                 // Shadows off once the sun is below the horizon: they cost a full extra pass for
-                // nothing, and a light at negative elevation produces nonsense shadows anyway.
-                sun.shadows = sun.intensity > 0.02f ? LightShadows.Soft : LightShadows.None;
+                // nothing, and a light at negative elevation produces nonsense shadows anyway. The
+                // quality setting can switch them off in daylight too — see Shadows.
+                sun.shadows = Shadows && sun.intensity > 0.02f ? LightShadows.Soft : LightShadows.None;
                 sun.enabled = sun.intensity > 0.001f;
             }
 

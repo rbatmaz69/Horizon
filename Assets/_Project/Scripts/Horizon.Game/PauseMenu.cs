@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Horizon.Atmosphere;
 using Horizon.Input;
 using Horizon.Vehicle;
@@ -21,10 +22,13 @@ namespace Horizon.Game
         [SerializeField] private TouchControlsHud hud;
 
         [Header("Panels")]
-        [SerializeField] private GameObject menuPanel;
-        [SerializeField] private GameObject settingsPanel;
-        [SerializeField] private GameObject startPanel;
+        [Tooltip("Owns which page is up. See MenuPanels for why that is no longer done here.")]
+        [SerializeField] private MenuPanels panels;
+
         [SerializeField] private GameObject pauseButton;
+
+        [Tooltip("The start screen, if there is one. Null in a scene built without it.")]
+        [SerializeField] private StartScreen startScreen;
 
         [Header("Settings widgets")]
         [SerializeField] private Text schemeLabel;
@@ -57,6 +61,7 @@ namespace Horizon.Game
 
         private VehicleController vehicle;
         private TimeOfDayController timeOfDay;
+        private Horizon.Core.ChaseCamera chaseCamera;
         private Horizon.World.TrafficNetwork routes;
         private Vector3 spawnPosition;
         private Quaternion spawnRotation;
@@ -64,15 +69,31 @@ namespace Horizon.Game
 
         public bool IsPaused { get; private set; }
 
-        private void Update()
+        /// <summary>
+        /// Finds the player's car, if it has arrived.
+        ///
+        /// <para>Called from <see cref="Update"/> and from everything that moves the car, rather than
+        /// only from Update. The start screen puts the car at the chosen place from
+        /// <c>GameBootstrap.WireUpWorld</c>, which runs inside a coroutine that resumes the moment the
+        /// additive load finishes — not necessarily after an Update in which this had already been
+        /// found. Depending on that ordering would mean the very first placement silently doing nothing
+        /// on a fast load, and working on a slow one.</para>
+        /// </summary>
+        private VehicleController ResolveVehicle()
         {
-            // The world arrives a frame or two after Bootstrap, and the spawn has to be captured once
-            // it has — Respawn is otherwise a teleport to the origin, five kilometres under the pass.
             if (vehicle == null)
             {
                 vehicle = FindFirstObjectByType<VehicleController>();
             }
-            else if (!spawnCaptured)
+
+            return vehicle;
+        }
+
+        private void Update()
+        {
+            // The world arrives a frame or two after Bootstrap, and the spawn has to be captured once
+            // it has — Respawn is otherwise a teleport to the origin, five kilometres under the pass.
+            if (ResolveVehicle() != null && !spawnCaptured)
             {
                 spawnPosition = vehicle.transform.position;
                 spawnRotation = vehicle.transform.rotation;
@@ -81,23 +102,58 @@ namespace Horizon.Game
 
             // Escape on desktop, the hardware back button on Android — a phone player reaches for back
             // before they look for a button.
-            if (UnityEngine.InputSystem.Keyboard.current != null
-                && UnityEngine.InputSystem.Keyboard.current.escapeKey.wasPressedThisFrame)
+            if (UnityEngine.InputSystem.Keyboard.current == null
+                || !UnityEngine.InputSystem.Keyboard.current.escapeKey.wasPressedThisFrame)
             {
-                Toggle();
+                return;
             }
+
+            // On the start screen it means "back a page", never "resume". Resuming from there would
+            // unfreeze the world behind the start screen's opaque backdrop, which is still up until the
+            // player presses Drive — so the game would be running underneath a sheet nobody can see
+            // past. Back always lands somewhere now, so this cannot dead-end either.
+            if (startScreen != null && !startScreen.Finished)
+            {
+                panels?.Back();
+                return;
+            }
+
+            Toggle();
         }
 
         public void Toggle()
         {
-            SetPaused(!IsPaused);
+            if (IsPaused)
+            {
+                Resume();
+                return;
+            }
+
+            SetPaused(true);
+
+            // Back's fallback follows whoever is showing pages. Without this, Back from a settings page
+            // reached through pause would try to return to the start screen, which is not on screen and
+            // has no way to leave itself once the game has begun.
+            panels?.SetHome(MenuPage.Paused);
+            panels?.Show(MenuPage.Paused);
         }
 
         public void Resume()
         {
             SetPaused(false);
+            panels?.Hide();
         }
 
+        /// <summary>
+        /// Stops or restarts the world.
+        ///
+        /// <para><b>It no longer decides which panel is up</b>, and that is what lets the start screen
+        /// use it. This used to show the PAUSED panel as an inseparable part of pausing, so anything
+        /// else that wanted the world stopped got the pause menu whether it wanted it or not. Choosing
+        /// the page is the caller's business now — see <see cref="Toggle"/> and
+        /// <see cref="StartScreen"/> — and <see cref="MenuPanels"/> owns making one page mean not the
+        /// others.</para>
+        /// </summary>
         public void SetPaused(bool value)
         {
             IsPaused = value;
@@ -106,21 +162,6 @@ namespace Horizon.Game
             // widgets deliberately run on unscaled time so they keep working while this is zero.
             Time.timeScale = value ? 0f : 1f;
             AudioListener.pause = value;
-
-            if (menuPanel != null)
-            {
-                menuPanel.SetActive(value);
-            }
-
-            if (settingsPanel != null && !value)
-            {
-                settingsPanel.SetActive(false);
-            }
-
-            if (startPanel != null && !value)
-            {
-                startPanel.SetActive(false);
-            }
 
             if (pauseButton != null)
             {
@@ -136,81 +177,39 @@ namespace Horizon.Game
             TouchControlState.Clear();
         }
 
-        /// <summary>
-        /// Shows the settings and <b>hides the pause menu behind it</b>.
-        ///
-        /// The second half is not a detail. Both panels are children of the same canvas at the same
-        /// depth, so leaving the first one up draws two lots of translucent panel and two sets of
-        /// buttons through each other, and neither can be read — which is exactly what it did.
-        /// </summary>
+        /// <summary>Shows the controls page.</summary>
         public void OpenSettings()
         {
-            if (menuPanel != null)
-            {
-                menuPanel.SetActive(false);
-            }
-
-            if (settingsPanel != null)
-            {
-                settingsPanel.SetActive(true);
-            }
-
+            panels?.Show(MenuPage.Controls);
             RefreshSettings();
         }
 
-        /// <summary>Back to the pause menu, which means putting it back as well as taking this away.</summary>
-        public void CloseSettings()
-        {
-            if (settingsPanel != null)
-            {
-                settingsPanel.SetActive(false);
-            }
-
-            if (menuPanel != null && IsPaused)
-            {
-                menuPanel.SetActive(true);
-            }
-        }
-
-        /// <summary>Shows the start panel, hiding the pause menu behind it. See <see cref="OpenSettings"/>.</summary>
+        /// <summary>Shows the page for choosing where to begin, and the hour to begin at.</summary>
         public void OpenStart()
         {
-            if (menuPanel != null)
-            {
-                menuPanel.SetActive(false);
-            }
-
-            if (startPanel != null)
-            {
-                startPanel.SetActive(true);
-            }
-
+            panels?.Show(MenuPage.Place);
             RefreshStart();
         }
 
-        /// <summary>Back to the pause menu.</summary>
-        public void CloseStart()
+        /// <summary>Back one page. Wired to every Back button.</summary>
+        public void CloseSettings()
         {
-            if (startPanel != null)
-            {
-                startPanel.SetActive(false);
-            }
-
-            if (menuPanel != null && IsPaused)
-            {
-                menuPanel.SetActive(true);
-            }
+            panels?.Back();
         }
 
+        /// <summary>The places the setup tool baked in, for anything that needs to list them.</summary>
+        public IReadOnlyList<SpawnPoint> SpawnPoints => spawnPoints;
+
         /// <summary>
-        /// Puts the car at one of the chosen starting places and resumes.
+        /// Puts the car at one of the chosen starting places, without resuming.
         ///
-        /// <para>Wired to each button with the index baked into the event, so one method serves all of
-        /// them and adding a fifth place is a row in the table rather than a method here.</para>
+        /// <para>Split from <see cref="StartAt"/> so the start screen can move the car as the player
+        /// taps through the places and let them look at each one. Resuming there would mean choosing
+        /// where to begin and being sent off before deciding anything else.</para>
         /// </summary>
-        public void StartAt(int index)
+        public void MoveTo(int index)
         {
-            if (vehicle == null || spawnPoints == null
+            if (ResolveVehicle() == null || spawnPoints == null
                 || index < 0 || index >= spawnPoints.Length)
             {
                 return;
@@ -228,7 +227,39 @@ namespace Horizon.Game
             spawnPosition = point.Position;
             spawnRotation = point.Rotation;
 
+            SnapCamera();
+        }
+
+        /// <summary>
+        /// Puts the car at one of the chosen starting places and resumes.
+        ///
+        /// <para>Wired to each button with the index baked into the event, so one method serves all of
+        /// them and adding a fifth place is a row in the table rather than a method here.</para>
+        /// </summary>
+        public void StartAt(int index)
+        {
+            MoveTo(index);
+            PlayerChoices.Spawn = index;
+            PlayerChoices.Save();
             Resume();
+        }
+
+        /// <summary>
+        /// Brings the chase camera with the car.
+        ///
+        /// <para>Necessary because the camera smooths towards its target in <c>LateUpdate</c>, and a
+        /// teleport of several kilometres would otherwise be flown rather than cut — at
+        /// <c>timeScale 0</c> it would not even do that, since the smoothing has no time to work in and
+        /// the camera simply stays where the car used to be, looking at nothing.</para>
+        /// </summary>
+        private void SnapCamera()
+        {
+            if (chaseCamera == null)
+            {
+                chaseCamera = FindFirstObjectByType<Horizon.Core.ChaseCamera>();
+            }
+
+            chaseCamera?.SnapToTarget();
         }
 
         /// <summary>
@@ -253,7 +284,38 @@ namespace Horizon.Game
             timeOfDay.TimeOfDayHours = Mathf.Repeat(hours, 24f);
             timeOfDay.Apply();
 
+            // Remembered, so the world looks the same the next time the game is opened. Saved on every
+            // change rather than on leaving the panel: there is no leaving event on a phone, where the
+            // way out of a game is to stop looking at it.
+            PlayerChoices.Hours = timeOfDay.TimeOfDayHours;
+            PlayerChoices.Save();
+
             ShowTime(timeOfDay.TimeOfDayHours);
+        }
+
+        /// <summary>
+        /// Sets how thick the air is. See <see cref="WeatherPreset"/> for what this does and, more to
+        /// the point, what it does not.
+        /// </summary>
+        public void SetWeather(int preset)
+        {
+            if (timeOfDay == null)
+            {
+                timeOfDay = FindFirstObjectByType<TimeOfDayController>();
+            }
+
+            if (timeOfDay == null)
+            {
+                return;
+            }
+
+            PlayerChoices.Weather = (WeatherPreset)Mathf.Clamp(
+                preset, (int)WeatherPreset.Clear, (int)WeatherPreset.Overcast);
+
+            timeOfDay.Overcast = PlayerChoices.OvercastFor(PlayerChoices.Weather);
+            timeOfDay.Apply();
+
+            PlayerChoices.Save();
         }
 
         private void RefreshStart()
@@ -340,7 +402,7 @@ namespace Horizon.Game
         /// </summary>
         public void Respawn()
         {
-            if (vehicle == null)
+            if (ResolveVehicle() == null)
             {
                 return;
             }
@@ -358,6 +420,7 @@ namespace Horizon.Game
             }
 
             vehicle.Teleport(position, rotation);
+            SnapCamera();
             Resume();
         }
 
@@ -480,7 +543,15 @@ namespace Horizon.Game
 
             LoadSensitivity();
 
-            SetPaused(false);
+            // Unpausing here is only right when nothing else is going to pause. With a start screen in
+            // the scene, that screen has already called SetPaused(true) from its Awake — which always
+            // runs before any Start — and unpausing over the top of it would drop the player straight
+            // into the world with the menu still drawn on it.
+            if (startScreen == null || startScreen.Finished)
+            {
+                SetPaused(false);
+            }
+
             RefreshSettings();
         }
 

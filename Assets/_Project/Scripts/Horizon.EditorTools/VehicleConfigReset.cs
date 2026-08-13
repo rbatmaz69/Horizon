@@ -36,29 +36,40 @@ namespace Horizon.EditorTools
     /// </summary>
     public static class VehicleConfigReset
     {
-        private const string AssetPath = "Assets/_Project/Settings/VehicleConfig_Prototype.asset";
-
-        [MenuItem("Tools/Horizon/Reset Vehicle Config to code defaults")]
+        [MenuItem("Tools/Horizon/Reset Vehicle Configs to code defaults")]
         public static void Reset()
         {
-            var existing = AssetDatabase.LoadAssetAtPath<VehicleConfig>(AssetPath);
-            if (existing == null)
+            for (int i = 0; i < VehicleConfigPresets.All.Length; i++)
             {
-                Debug.LogError($"[Horizon] No vehicle config at {AssetPath}.");
-                return;
-            }
+                (string profile, string path) = VehicleConfigPresets.All[i];
 
-            Overwrite(existing);
+                var existing = AssetDatabase.LoadAssetAtPath<VehicleConfig>(path);
+                if (existing == null)
+                {
+                    Debug.LogError($"[Horizon] No vehicle config at {path}. Run "
+                                   + "Tools > Horizon > Rebuild Prototype Scene to create it.");
+                    continue;
+                }
+
+                Overwrite(existing, profile, path);
+            }
         }
 
         /// <summary>
-        /// Rewrites <paramref name="config"/> from the code defaults if it is stamped below
-        /// <see cref="VehicleConfig.CurrentVersion"/>, and does nothing at all otherwise.
+        /// Rewrites <paramref name="config"/> from the code defaults plus its profile's preset if it is
+        /// stamped below <see cref="VehicleConfig.CurrentVersion"/>, and does nothing at all otherwise.
         ///
         /// <para>Cheap enough to call on every load, and the early return is what keeps tuning: an asset
-        /// already at the current version is never touched.</para>
+        /// already at the current version is never touched. That early return matters more now than it
+        /// did — this runs over five assets on every domain reload rather than one.</para>
+        ///
+        /// <para><b>It is also what stamps a brand new asset.</b> <see cref="VehicleConfig.Version"/> has
+        /// no initialiser on purpose, so a config that <c>LoadOrCreate</c> has just made reads 0, counts
+        /// as stale, and gets its preset applied here on first load. That is why adding four bodies did
+        /// not need <see cref="VehicleConfig.CurrentVersion"/> bumped: bumping it would additionally
+        /// rewrite the fastback and discard its tuning, for nothing.</para>
         /// </summary>
-        public static void ResetIfStale(VehicleConfig config)
+        public static void ResetIfStale(VehicleConfig config, string profile, string path)
         {
             if (config == null || config.Version >= VehicleConfig.CurrentVersion)
             {
@@ -66,16 +77,20 @@ namespace Horizon.EditorTools
             }
 
             int was = config.Version;
-            Overwrite(config);
+            Overwrite(config, profile, path);
 
-            Debug.Log($"[Horizon] Vehicle config was stamped version {was}, below "
+            Debug.Log($"[Horizon] Vehicle config '{profile}' was stamped version {was}, below "
                       + $"{VehicleConfig.CurrentVersion} — its numbers were chosen under meanings the code "
                       + "no longer uses. Rewritten from the code defaults.");
         }
 
-        private static void Overwrite(VehicleConfig existing)
+        private static void Overwrite(VehicleConfig existing, string profile, string path)
         {
             var defaults = ScriptableObject.CreateInstance<VehicleConfig>();
+
+            // Defaults first, then the body's own character on top. The defaults are the fastback, so for
+            // that one the second step deliberately does nothing.
+            VehicleConfigPresets.Apply(defaults, profile);
             defaults.Version = VehicleConfig.CurrentVersion;
 
             // CopySerialized rather than a new asset: it replaces the contents in place, so the GUID the
@@ -85,29 +100,41 @@ namespace Horizon.EditorTools
 
             EditorUtility.SetDirty(existing);
             AssetDatabase.SaveAssets();
-            AssetDatabase.ImportAsset(AssetPath, ImportAssetOptions.ForceSynchronousImport);
+            AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceSynchronousImport);
 
-            Debug.Log($"[Horizon] Vehicle config reset to code defaults: drive {existing.DrivenAxle}, "
+            Debug.Log($"[Horizon] Vehicle config '{profile}' reset to code defaults: "
+                      + $"{existing.Mass:0} kg, drive {existing.DrivenAxle}, "
+                      + $"{existing.MaxTorqueNm:0} Nm to {existing.RedlineRpm:0} rpm, "
+                      + $"top {existing.TopSpeed * 3.6f:0} km/h, "
                       + $"grip {existing.LateralGrip.Evaluate(0f):0.00} falling to "
                       + $"{existing.LateralGrip.Evaluate(1f):0.00}, lock {existing.MaxSteerAngle:0}° at "
-                      + $"{existing.SteerRate:0}°/s, angular damping {existing.AngularDamping:0.00} with "
-                      + $"roll/pitch at {existing.RollPitchDamping:0.0}, turn-in assist "
-                      + $"{existing.TurnInAssist:0.0}.");
+                      + $"{existing.SteerRate:0}°/s, CoM y {existing.CenterOfMass.y:0.00}, anti-roll "
+                      + $"{existing.AntiRollStiffness:0}, turn-in assist {existing.TurnInAssist:0.0}.");
         }
 
         /// <summary>
-        /// Checks the asset on every domain reload, so a pull that changes what a field means brings the
-        /// asset along with it without anyone having to know that it should.
+        /// Checks every config on each domain reload, so a pull that changes what a field means brings the
+        /// assets along with it without anyone having to know that it should.
         ///
         /// <para>Through <c>delayCall</c> rather than inline: the asset database is not reliably
         /// queryable while <c>InitializeOnLoad</c> is still running, and loading an asset from there
         /// returns null or a half-imported object depending on the day.</para>
+        ///
+        /// <para>Missing assets are passed over in silence here, unlike in <see cref="Reset"/>. Before the
+        /// first rebuild only the fastback exists, and a domain reload is not the moment to complain
+        /// about four files nobody has asked for yet.</para>
         /// </summary>
         [InitializeOnLoadMethod]
         private static void HealOnLoad()
         {
             EditorApplication.delayCall += () =>
-                ResetIfStale(AssetDatabase.LoadAssetAtPath<VehicleConfig>(AssetPath));
+            {
+                for (int i = 0; i < VehicleConfigPresets.All.Length; i++)
+                {
+                    (string profile, string path) = VehicleConfigPresets.All[i];
+                    ResetIfStale(AssetDatabase.LoadAssetAtPath<VehicleConfig>(path), profile, path);
+                }
+            };
         }
     }
 }

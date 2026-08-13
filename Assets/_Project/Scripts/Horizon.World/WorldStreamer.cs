@@ -32,6 +32,26 @@ namespace Horizon.World
 
         public float LoadRadius => loadRadius;
 
+        /// <summary>
+        /// Sets how much world is kept up.
+        ///
+        /// <para>The first lever to pull for a weak phone, and the cheapest: a chunk that is not
+        /// rendered costs nothing at all, and pulling the radius in from 650 to 380 roughly halves the
+        /// drawn area. It is bounded below by the fog, not by taste — draw less than the fog hides and
+        /// the world visibly ends, which is worse than a low frame rate.</para>
+        ///
+        /// <para>Taken together rather than as three properties, because the ordering is a rule and not
+        /// a preference. <paramref name="unload"/> below <paramref name="load"/> removes the hysteresis
+        /// the class exists to provide, and a chunk sitting on the boundary would then toggle every
+        /// frame — see the note at the top of this file.</para>
+        /// </summary>
+        public void SetRadii(float load, float unload, float margin)
+        {
+            loadRadius = Mathf.Max(100f, load);
+            unloadRadius = Mathf.Max(loadRadius * 1.15f, unload);
+            physicsMargin = Mathf.Max(0f, margin);
+        }
+
         /// <summary>Number of chunks currently rendered. For the debug overlay.</summary>
         public int LoadedCount { get; private set; }
 

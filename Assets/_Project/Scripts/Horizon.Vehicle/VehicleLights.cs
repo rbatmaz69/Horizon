@@ -126,6 +126,28 @@ namespace Horizon.Vehicle
             // Ease the brake glow so tapping the brake does not strobe.
             smoothedBrake = Mathf.MoveTowards(smoothedBrake, Mathf.Clamp01(brake), 6f * Time.deltaTime);
 
+            PushLampGlow();
+        }
+
+        /// <summary>
+        /// Writes the current lamp brightness onto the body renderer's two lens slots.
+        ///
+        /// <para>Split out of <see cref="Update"/> so <see cref="SetBody"/> can push it the instant a
+        /// body is swapped in. A property block lives on the renderer, not on this component, so a newly
+        /// activated body has never been written to and draws its lenses at the material's flat authored
+        /// colour — one frame of a car whose headlights are off at midnight.</para>
+        /// </summary>
+        private void PushLampGlow()
+        {
+            if (bodyRenderer == null)
+            {
+                return;
+            }
+
+            // Lazily, because SetBody can be called before Awake has run.
+            headlightBlock ??= new MaterialPropertyBlock();
+            taillightBlock ??= new MaterialPropertyBlock();
+
             float tailGlow = Mathf.Lerp(taillightIdleGlow, taillightBrakeGlow, smoothedBrake);
             taillightBlock.SetColor(BaseColorId, taillightColor * tailGlow);
             bodyRenderer.SetPropertyBlock(taillightBlock, taillightMaterialIndex);
@@ -133,6 +155,43 @@ namespace Horizon.Vehicle
             float headGlow = Mathf.Lerp(headlightOffGlow, headlightGlow, headlightAmount);
             headlightBlock.SetColor(BaseColorId, headlightColor * headGlow);
             bodyRenderer.SetPropertyBlock(headlightBlock, headlightMaterialIndex);
+        }
+
+        /// <summary>
+        /// Points the lamps at a different body — the renderer whose lens submeshes to glow, and the
+        /// beams that belong to it.
+        ///
+        /// <para>Called by <c>VehicleBodySet</c> when the player picks another car. The submesh indices
+        /// are deliberately <i>not</i> parameters: every player body is built uncompacted by
+        /// <c>CarMeshBuilder.BuildBody</c>, so the lenses are at 2 and 3 on all five. Only a body built
+        /// through the traffic path would need them looked up, and a player body must never be.</para>
+        ///
+        /// <para>The old beams are switched off on the way past. They belong to a GameObject that is
+        /// about to be deactivated, so they would go dark anyway — but not until the deactivation
+        /// happens, and doing it here means the order of the two does not matter.</para>
+        /// </summary>
+        public void SetBody(Renderer renderer, Light[] beams)
+        {
+            for (int i = 0; i < headlights.Length; i++)
+            {
+                if (headlights[i] != null)
+                {
+                    headlights[i].enabled = false;
+                }
+            }
+
+            bodyRenderer = renderer;
+            headlights = beams ?? new Light[0];
+
+            for (int i = 0; i < headlights.Length; i++)
+            {
+                if (headlights[i] != null)
+                {
+                    headlights[i].enabled = HeadlightsOn;
+                }
+            }
+
+            PushLampGlow();
         }
 
         /// <summary>

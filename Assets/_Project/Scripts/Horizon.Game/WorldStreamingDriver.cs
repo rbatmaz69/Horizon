@@ -35,6 +35,19 @@ namespace Horizon.Game
                 streamer.RegisterExisting();
             }
 
+            // Ask the quality setting for its radii *before* the immediate pass below, not after.
+            //
+            // The director lives on the Bootstrap object and would otherwise reach this streamer from
+            // GameBootstrap's resumed coroutine, which is not ordered against this Start. Losing that
+            // race means the first pass runs at High radii on a phone set to Low — every chunk in the
+            // world brought in and then dropped again a quarter of a second later, which is the one
+            // moment the setting exists to prevent.
+            QualityDirector quality = FindFirstObjectByType<QualityDirector>();
+            if (quality != null)
+            {
+                quality.ApplyToWorld();
+            }
+
             // Run once immediately, or the first few frames render every chunk in the world.
             ResolveViewer();
             if (streamer != null && viewer != null)

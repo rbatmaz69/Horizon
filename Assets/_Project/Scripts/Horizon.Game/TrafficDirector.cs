@@ -100,6 +100,88 @@ namespace Horizon.Game
         /// </summary>
         public TrafficNetwork Network => network;
 
+        /// <summary>
+        /// How many of the pooled agents are actually simulated and drawn.
+        ///
+        /// <para>The pool itself is baked into the scene and cannot shrink — ninety-six GameObjects with
+        /// their meshes and renderers exist whatever this says. What this buys is the per-frame cost:
+        /// the whole of <see cref="Advance"/>, which is the lane sampling, the gap search and the
+        /// junction claim, plus one draw call each. That makes it the largest single lever available for
+        /// a weak phone, and the reason <see cref="QualityDirector"/> reaches for it before anything
+        /// else.</para>
+        ///
+        /// <para>Capping by index thins the traffic evenly rather than emptying one region: agents are
+        /// seeded onto lanes picked in proportion to lane length by <c>Awake</c>, so index carries no
+        /// information about where a car is.</para>
+        /// </summary>
+        /// <para><b>Out-of-budget cars are deactivated whole, not just hidden.</b> Every agent carries a
+        /// <c>BoxCollider</c> — that is what makes traffic something you can run into — and switching off
+        /// only the renderer leaves the collider exactly where the car stopped. Since an agent outside
+        /// the budget is also no longer advanced, it stops dead and stays there: an invisible solid car
+        /// parked on the carriageway, for the rest of the session. At the Balanced setting that is forty
+        /// of them scattered over the map, which is precisely what "invisible walls on the road" is.
+        /// <c>SetActive(false)</c> takes the mesh, the collider and the cost together.</para>
+        public int ActiveBudget
+        {
+            get => activeBudget;
+            set
+            {
+                int count = cars != null ? cars.Length : 0;
+                activeBudget = Mathf.Clamp(value, 0, count);
+
+                for (int i = 0; i < count; i++)
+                {
+                    bool inBudget = i < activeBudget;
+
+                    if (cars[i] != null && cars[i].gameObject.activeSelf != inBudget)
+                    {
+                        cars[i].gameObject.SetActive(inBudget);
+                    }
+
+                    // agents and nodeToken are both built in Awake, and the budget can be applied before
+                    // it — QualityDirector sets this the moment the world scene finishes loading.
+                    if (agents == null || i >= agents.Length || nodeToken == null)
+                    {
+                        continue;
+                    }
+
+                    if (inBudget)
+                    {
+                        // Put the renderer and the bookkeeping back in step on the way in. Advance only
+                        // touches the renderer when the two disagree, so a car returned to the budget
+                        // with a stale flag would keep whatever visibility it was switched off with.
+                        if (renderers != null && i < renderers.Length && renderers[i] != null)
+                        {
+                            renderers[i].enabled = true;
+                        }
+
+                        agents[i].Visible = true;
+                        continue;
+                    }
+
+                    agents[i].Visible = false;
+
+                    // Give up any junction it was holding, or a car parked out of budget in the
+                    // middle of an intersection blocks it for the rest of the session.
+                    ReleaseToken(i);
+                }
+            }
+        }
+
+        private int activeBudget = int.MaxValue;
+
+        /// <summary>
+        /// How far out traffic is drawn and how far out it is recycled.
+        ///
+        /// <para>Kept together because the pair has to stay ordered: recycling inside the draw radius
+        /// teleports cars while the player is looking at them.</para>
+        /// </summary>
+        public void SetRanges(float load, float recycle)
+        {
+            loadRadius = Mathf.Max(50f, load);
+            recycleRadius = Mathf.Max(loadRadius + 50f, recycle);
+        }
+
         private Agent[] agents;
 
         /// <summary>
@@ -185,7 +267,8 @@ namespace Horizon.Game
             float dt = Time.deltaTime;
             Vector3 eye = viewer != null ? viewer.position : Vector3.zero;
 
-            for (int i = 0; i < agents.Length; i++)
+            int count = Mathf.Min(agents.Length, activeBudget);
+            for (int i = 0; i < count; i++)
             {
                 Advance(i, dt, eye);
             }
