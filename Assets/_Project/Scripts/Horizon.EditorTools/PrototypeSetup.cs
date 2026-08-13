@@ -167,6 +167,9 @@ namespace Horizon.EditorTools
             /// <summary>Vertex-tinted, at the road's smoothness. For paving that carries no atlas.</summary>
             public readonly Material RoadTint;
 
+            /// <summary>Vertex-tinted and glossy. Every lake, river and sea shares it.</summary>
+            public readonly Material Water;
+
             /// <summary>
             /// The eight paints the player picks between, in <see cref="CarPaintPalette"/> order. Slot 0
             /// is <see cref="CarBody"/> — the same asset, not a copy, so the default car is unchanged.
@@ -236,6 +239,12 @@ namespace Horizon.EditorTools
                 // by, and next to a carriageway at 0.34 it reads as a patch of something else.
                 RoadTint = HorizonAssetUtility.LoadOrCreateTintMaterial(
                     MaterialsFolder + "/M_RoadTint.mat", "M_RoadTint", 0.34f);
+
+                // Water, on the same vertex-tinted shader and glossier than anything else in the
+                // world. 0.55 is what puts the low sun on it — this game is lit at dusk more often
+                // than not, and still water that does not catch that light reads as a hole.
+                Water = HorizonAssetUtility.LoadOrCreateTintMaterial(
+                    MaterialsFolder + "/M_Water.mat", "M_Water", 0.55f);
                 Rock = HorizonAssetUtility.LoadOrCreateMaterial(
                     MaterialsFolder + "/M_Rock.mat", "M_Rock", new Color(0.44f, 0.39f, 0.34f), 0.12f);
 
@@ -912,6 +921,22 @@ namespace Horizon.EditorTools
             var field = new MountainField(roads, terrainShape, 4f, levelSamples);
             Phase(clock, $"height field ({levelSamples.Count} level samples)");
 
+            // The water, straight after the field and before anything reads a height from it.
+            //
+            // The order is the load-bearing part. Every surface is derived by sampling the rim of its
+            // own basin on the *natural* ground, so the resolve has to happen while the field still
+            // has no basins in it; the moment SetWater returns, every later query — terrain, plants,
+            // town plots, the traffic bake — sees the dug version. A consumer that sampled before this
+            // line would be working from ground that no longer exists, which is a row of trees
+            // standing in a lake.
+            WaterBody[] waters = WaterPlanner.Resolve(
+                WaterShape.Corridor, field, motorwayPath, motorwayCourse, out string waterReport);
+
+            field.SetWater(waters);
+            ValidateWater(waters, field, roads);
+
+            Debug.Log($"[Horizon] Water: {waters.Length} bodies.{waterReport}");
+
 
             ValidateRoadClearance(path, roadShape, field, course);
             ValidateRoadClearance(westbound, motorwayShape, field, motorwayCourse, "Westbound");
@@ -1377,6 +1402,79 @@ namespace Horizon.EditorTools
                       + $"{mouthWidth:0.0} m wide at the link's cap and closing to nothing. The ramp's "
                       + $"paving and the {lateral - motorwayShape.HalfWidth - linkShape.HalfWidth:0.0} m "
                       + "of gravel between the two roads are both under it now.");
+        }
+
+        /// <summary>
+        /// Checks that no body of water reaches a road.
+        ///
+        /// <para><b>The failure this exists for is a drowned carriageway, and it is silent.</b> A
+        /// surface is solved from the rim of its own basin, which says nothing at all about what else
+        /// is nearby; a lake placed a little too close to the pass would come out perfectly level,
+        /// perfectly shaded, and half a metre over the tarmac. Nothing else in the build would object
+        /// — the road mesh is laid from the course, not from the ground.</para>
+        ///
+        /// <para>Sampled along every carriageway rather than at the water's edge: the question is not
+        /// how big the lake is, it is whether any drivable metre of road sits below a surface.</para>
+        /// </summary>
+        private static void ValidateWater(
+            WaterBody[] waters, MountainField field, MountainField.FieldRoad[] roads)
+        {
+            // Three metres of the road standing clear. Less than that and a verge is a beach.
+            const float clearance = 3f;
+
+            float worst = float.MaxValue;
+            string worstWater = null;
+            string worstWhere = null;
+
+            for (int r = 0; r < roads.Length; r++)
+            {
+                IRoadPath road = roads[r].Path;
+                if (road == null)
+                {
+                    continue;
+                }
+
+                for (float at = 0f; at <= road.Length; at += 10f)
+                {
+                    Vector3 on = road.GetPositionAtDistance(at);
+
+                    for (int w = 0; w < waters.Length; w++)
+                    {
+                        WaterBody body = waters[w];
+
+                        if (!body.Near(on.x, on.z) || body.DistanceOutside(on.x, on.z) > body.BankEase)
+                        {
+                            continue;
+                        }
+
+                        float above = on.y - body.SurfaceY;
+                        if (above < worst)
+                        {
+                            worst = above;
+                            worstWater = body.Name;
+                            worstWhere = $"{at:0} m along road {r}";
+                        }
+                    }
+                }
+            }
+
+            if (worstWater == null)
+            {
+                Debug.Log("[Horizon] Water clearance: no body reaches a road at all.");
+                return;
+            }
+
+            if (worst < clearance)
+            {
+                Debug.LogWarning(
+                    $"[Horizon] '{worstWater}' comes within {worst:0.0} m of the carriageway at "
+                    + $"{worstWhere}, and {clearance:0} m is the least a road may stand clear of water. "
+                    + "Move it, shrink it, or deepen the basin it was solved against.");
+                return;
+            }
+
+            Debug.Log($"[Horizon] Water clearance: the nearest road stands {worst:0.0} m above "
+                      + $"'{worstWater}', at {worstWhere}.");
         }
 
         /// <summary>
@@ -2340,6 +2438,9 @@ namespace Horizon.EditorTools
                 townTotals[i] = new TownStats();
             }
 
+            int waterTiles = 0;
+            int waterTriangleTotal = 0;
+
             for (int i = 0; i < tiles.Count; i++)
             {
                 TerrainTileKey key = tiles[i];
@@ -2352,6 +2453,23 @@ namespace Horizon.EditorTools
 
                 GameObject tileObject = CreateMeshObject(
                     terrainRoot.transform, name, mesh, new[] { materials.TerrainTint });
+
+                Mesh water = WaterTileBuilder.BuildTile(
+                    key, field, terrainShape, field.Water, name + "_Water", out int waterTriangles);
+
+                if (water != null)
+                {
+                    water = HorizonAssetUtility.ReplaceAsset(water, $"{GeneratedFolder}/{name}_Water.asset");
+
+                    // No collider. What the car hits is the basin the terrain already carries; the
+                    // surface is something to look at and something WaterHazard tests against by
+                    // height, and a mesh collider on it would be a sheet of glass on every lake.
+                    CreateMeshObject(tileObject.transform, name + "_Water", water,
+                        new[] { materials.Water }, addCollider: false);
+
+                    waterTiles++;
+                    waterTriangleTotal += waterTriangles;
+                }
 
                 Mesh plants = VegetationBuilder.BuildTile(
                     key, field, terrainShape, vegetationShape, vegetationContext,
@@ -2448,6 +2566,19 @@ namespace Horizon.EditorTools
             // The baseline is worth the second pass: the whole argument for a local corridor is that it
             // costs a dozen tiles rather than doubling the pass, and that is a number, not an opinion.
             int baseline = TerrainTileBuilder.ListTiles(field, terrainShape, terrainShape.CorridorWidth).Count;
+
+            if (waterTiles > 0)
+            {
+                Debug.Log($"[Horizon] Water surfaces: {waterTriangleTotal} triangles over {waterTiles} "
+                          + $"of {tiles.Count} tiles, on one shared material. Hung under the tiles they "
+                          + "sit on, so they stream with them.");
+            }
+            else if (field.Water.Count > 0)
+            {
+                Debug.LogWarning("[Horizon] There are bodies of water in the field and not one tile "
+                                 + "carries a surface. Either every basin fell outside the terrain "
+                                 + "corridor, or the surfaces are being solved above their own banks.");
+            }
 
             Debug.Log($"[Horizon] Terrain: {tiles.Count} tiles of {tileSize:0} m, "
                       + $"{totalTriangles} triangles total, corridor {terrainShape.CorridorWidth:0} m "

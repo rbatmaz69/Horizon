@@ -283,7 +283,84 @@ namespace Horizon.World
                     MountainAt(x, z),
                     Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(away / Mathf.Max(1f, shape.BlendDistance))));
 
-            return UnderBridges(x, z, height);
+            return UnderWater(x, z, UnderBridges(x, z, height));
+        }
+
+        /// <summary>
+        /// The bodies of water carved into this field. Empty until <see cref="SetWater"/> is called.
+        /// </summary>
+        private WaterBody[] waters = System.Array.Empty<WaterBody>();
+
+        /// <summary>What is carved into this field, for anything that has to agree with it.</summary>
+        public System.Collections.Generic.IReadOnlyList<WaterBody> Water => waters;
+
+        /// <summary>
+        /// Hands the field its basins, after they have been solved against it.
+        ///
+        /// <para><b>Set afterwards rather than passed to the constructor, and that is the whole
+        /// ordering trick.</b> A body's surface is derived from the ground around it — the rim is
+        /// sampled before anything is dug, so the freeboard is a promise about ground that exists
+        /// rather than about ground somebody expected. That makes the field an input to the water and
+        /// the water an input to the field, which as a constructor argument is a circle. Building the
+        /// field twice would break it too, at the cost of a second 320 ms pass and of every consumer
+        /// having to be handed the right one of two nearly identical objects. One field that gains its
+        /// basins partway through construction is cheaper and leaves nothing to mix up.</para>
+        ///
+        /// <para>Everything that reads heights must therefore be built <i>after</i> this — terrain,
+        /// vegetation, town planning, the traffic bake. A consumer that sampled earlier has natural
+        /// ground, which is trees standing in a lake.</para>
+        /// </summary>
+        public void SetWater(WaterBody[] bodies)
+        {
+            waters = bodies ?? System.Array.Empty<WaterBody>();
+        }
+
+        /// <summary>
+        /// Drops the ground into a basin, and lets the bank climb back out of it.
+        ///
+        /// <para>Same shape as <see cref="UnderBridges"/> and for the same reasons: eased out over a
+        /// bank width so a lake is a dish in the hillside rather than a cylinder punched through it,
+        /// and only ever downwards.</para>
+        ///
+        /// <para><b>A minimum is right inside the water too</b>, which is worth saying because it
+        /// looks as though it should not be. Where the natural ground is already below the bed — the
+        /// Hochfeld hollow reaches −41.8 m, well under any surface a river there could have — the
+        /// minimum keeps the hollow, and the water simply reads deeper over it. That is a pool, not a
+        /// hole: the surface still covers it, and the tile builder shades from the same carved ground,
+        /// so the colour follows. Overriding to the bed profile instead would fill in a valley the
+        /// viaduct was drawn to span.</para>
+        /// </summary>
+        private float UnderWater(float x, float z, float height)
+        {
+            for (int i = 0; i < waters.Length; i++)
+            {
+                WaterBody body = waters[i];
+
+                // The rectangle first. Every terrain corner in the world asks every body, and almost
+                // all of those questions have a cheap no.
+                if (!body.Near(x, z))
+                {
+                    continue;
+                }
+
+                float outside = body.DistanceOutside(x, z);
+                if (outside > body.BankEase)
+                {
+                    continue;
+                }
+
+                if (outside <= 0f)
+                {
+                    height = Mathf.Min(height, body.BedAt(x, z));
+                    continue;
+                }
+
+                // In the bank: start at the waterline and ease up to whatever the ground was.
+                float ease = Mathf.SmoothStep(0f, 1f, outside / Mathf.Max(1f, body.BankEase));
+                height = Mathf.Min(height, Mathf.Lerp(body.SurfaceY, height, ease));
+            }
+
+            return height;
         }
 
         /// <summary>
