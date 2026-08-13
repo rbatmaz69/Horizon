@@ -933,7 +933,7 @@ namespace Horizon.EditorTools
                 WaterShape.Corridor, field, motorwayPath, motorwayCourse, out string waterReport);
 
             field.SetWater(waters);
-            ValidateWater(waters, field, roads);
+            ValidateWater(waters, field, roads, towns);
 
             Debug.Log($"[Horizon] Water: {waters.Length} bodies.{waterReport}");
 
@@ -1417,7 +1417,10 @@ namespace Horizon.EditorTools
         /// how big the lake is, it is whether any drivable metre of road sits below a surface.</para>
         /// </summary>
         private static void ValidateWater(
-            WaterBody[] waters, MountainField field, MountainField.FieldRoad[] roads)
+            WaterBody[] waters,
+            MountainField field,
+            MountainField.FieldRoad[] roads,
+            IReadOnlyList<TownBuild> towns)
         {
             // Three metres of the road standing clear. Less than that and a verge is a beach.
             const float clearance = 3f;
@@ -1426,12 +1429,11 @@ namespace Horizon.EditorTools
             string worstWater = null;
             string worstWhere = null;
 
-            for (int r = 0; r < roads.Length; r++)
+            void Walk(IRoadPath road, string what)
             {
-                IRoadPath road = roads[r].Path;
                 if (road == null)
                 {
-                    continue;
+                    return;
                 }
 
                 for (float at = 0f; at <= road.Length; at += 10f)
@@ -1452,8 +1454,36 @@ namespace Horizon.EditorTools
                         {
                             worst = above;
                             worstWater = body.Name;
-                            worstWhere = $"{at:0} m along road {r}";
+                            worstWhere = $"{at:0} m along {what}";
                         }
+                    }
+                }
+            }
+
+            for (int r = 0; r < roads.Length; r++)
+            {
+                Walk(roads[r].Path, $"trunk road {r}");
+            }
+
+            // And every street in every town.
+            //
+            // Leaving these out is what let a lake drown Talheim: the check walked the four trunk roads,
+            // said nothing, and the build finished with a street and half a dozen houses standing in
+            // water. The towns are where the ground is flattest and therefore where a lake is most
+            // tempting to place, so they are exactly the roads this needs to see.
+            if (towns != null)
+            {
+                for (int t = 0; t < towns.Count; t++)
+                {
+                    StreetNetwork network = towns[t].Network;
+                    if (network == null)
+                    {
+                        continue;
+                    }
+
+                    for (int e = 0; e < network.Edges.Count; e++)
+                    {
+                        Walk(network.Edges[e].Path, $"{towns[t].Name} street {e}");
                     }
                 }
             }
