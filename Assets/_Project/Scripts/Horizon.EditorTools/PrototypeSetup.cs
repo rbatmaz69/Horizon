@@ -929,8 +929,24 @@ namespace Horizon.EditorTools
             // town plots, the traffic bake — sees the dug version. A consumer that sampled before this
             // line would be working from ground that no longer exists, which is a row of trees
             // standing in a lake.
+            // The corridor bodies, plus the one that has to be worked out from a village rather than
+            // written down beside it — see WaterShape.BesideTown for what typing it cost last time.
+            var waterPlans = new List<WaterPlan>(WaterShape.Corridor);
+
+            waterPlans.Add(WaterShape.BesideTown(
+                "Talheimer See",
+                path,
+                (MountainPassCourse.TownStartDistance + MountainPassCourse.TownEndDistance) * 0.5f,
+                TownShape.Default.AcrossInner,
+                // Small, because the room between Talheim's last plot and the edge of the terrain
+                // corridor is about 110 m and the bank has to fit inside it too. A tarn, not a lake.
+                radius: 35f,
+                bankEase: 25f,
+                depth: 4f,
+                freeboard: 4f));
+
             WaterBody[] waters = WaterPlanner.Resolve(
-                WaterShape.Corridor, field, motorwayPath, motorwayCourse, out string waterReport);
+                waterPlans, field, motorwayPath, motorwayCourse, out string waterReport);
 
             field.SetWater(waters);
             ValidateWater(waters, field, roads, towns);

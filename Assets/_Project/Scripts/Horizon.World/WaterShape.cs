@@ -277,6 +277,59 @@ namespace Horizon.World
     public static class WaterShape
     {
         /// <summary>
+        /// A tarn tucked against a village, on the narrow side of it.
+        ///
+        /// <para><b>Derived from the town rather than typed beside it.</b> A hand-picked coordinate
+        /// next to a settlement is only correct until the settlement is re-planned, and the failure is
+        /// not subtle — the first Talheim lake drowned a street and six houses. This takes the town's
+        /// own inner extent, steps a clear margin further out, and puts the water there, so it moves
+        /// when the village does.</para>
+        ///
+        /// <para>The <i>inner</i> side, because these basins are asymmetric: Talheim reaches 260 m one
+        /// way across the road and 90 m the other. The short side is the only one with room between the
+        /// last plot and the edge of the terrain corridor.</para>
+        /// </summary>
+        /// <param name="freeboard">
+        /// How far the surface is set below the rim. Bigger than the 1.5 m a lake normally takes,
+        /// because a village basin is levelled on purpose and its streets sit barely above the ground
+        /// around them — at 1.5 the water came within 1.8 m of the outermost street, and three metres
+        /// is the least a road may stand clear of water.
+        /// </param>
+        /// <param name="acrossInner">
+        /// The town's near edge, signed across the road — negative on the inner side. Comes straight
+        /// from <c>TownShape.AcrossInner</c>.
+        /// </param>
+        public static WaterPlan BesideTown(
+            string name,
+            IRoadPath road,
+            float alongRoad,
+            float acrossInner,
+            float radius,
+            float bankEase,
+            float depth,
+            float freeboard)
+        {
+            // Clear of the bank, not just clear of the water — and that distinction is the whole of
+            // why this needs saying. A flat twenty metres was tried and failed: the bank eases out over
+            // forty, so the ground was still being pulled down under the outermost street and the lake
+            // came within 1.6 m of it. The dry margin has to start where the carving stops.
+            float margin = bankEase + 15f;
+
+            // Written out rather than folded into a signed expression: the lake goes *further out*
+            // than the town edge on whichever side that edge already is, which for a negative inner
+            // edge means more negative still.
+            float across = acrossInner < 0f
+                ? acrossInner - margin - radius
+                : acrossInner + margin + radius;
+
+            Vector3 centre = road.GetPositionAtDistance(alongRoad)
+                             + road.GetRightAtDistance(alongRoad) * across;
+
+            return new WaterPlan(name, WaterKind.Lake, null, new Vector2(centre.x, centre.z),
+                radius, bankEase, 0f, 0f, depth, freeboard);
+        }
+
+        /// <summary>
         /// The four bodies inside the existing road corridor. None of them costs a terrain tile.
         ///
         /// <para>The rivers are the point of the exercise: both viaducts were drawn with 280 and
@@ -298,8 +351,15 @@ namespace Horizon.World
             WaterPlan.River("Hochfelder Bach", "Talbrücke Hochfeld",
                 halfWidth: 18f, bankEase: 55f, reach: 200f, skewDegrees: -12f, depth: 3.5f),
 
-            // A lake at Talheim is still wanted and is not here yet, because the first attempt drowned
-            // the village.
+            // The lake at Talheim is not in this table, and cannot be: see BesideTown below. It is
+            // derived from the village's own extent at build time and appended there.
+            //
+            // The first attempt was in here, as (-250, -480) with a 110 m radius, described as 'just
+            // clear of the town's plots'. It was not clear of them at all — Talheim's streets run
+            // x -256..88 by z -632..-113 and that circle covered a quarter of them, so a street and
+            // half a dozen houses came out standing in water. The build was perfectly happy about it:
+            // the surface solved level, the shading came out right, and the clearance check walked only
+            // the four trunk roads.
             //
             // (-250, -480) with a 110 m radius was described as 'just clear of the town's plots'. It
             // is not clear of them at all: Talheim's streets run x -256..88 by z -632..-113, and that
