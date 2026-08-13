@@ -295,6 +295,35 @@ namespace Horizon.World
         public System.Collections.Generic.IReadOnlyList<WaterBody> Water => waters;
 
         /// <summary>
+        /// True if this point stands under water, or within <paramref name="freeboard"/> of it.
+        ///
+        /// <para><b>Anything that puts an object on the ground has to ask this.</b> Carving a basin
+        /// lowers the ground and nothing else; a scatter that only knows where the ground is will
+        /// happily plant on the bed of a river, and the first render after the water went in had a
+        /// forest growing out of the Wiesen. The freeboard is what keeps a tree from standing with its
+        /// roots at the waterline, which reads as a mistake even when it is not one.</para>
+        /// </summary>
+        public bool IsUnderWater(float x, float z, float y, float freeboard = 0f)
+        {
+            for (int i = 0; i < waters.Length; i++)
+            {
+                WaterBody body = waters[i];
+
+                if (!body.Near(x, z) || y >= body.SurfaceY + freeboard)
+                {
+                    continue;
+                }
+
+                if (body.DistanceOutside(x, z) <= 0f)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
         /// Hands the field its basins, after they have been solved against it.
         ///
         /// <para><b>Set afterwards rather than passed to the constructor, and that is the whole

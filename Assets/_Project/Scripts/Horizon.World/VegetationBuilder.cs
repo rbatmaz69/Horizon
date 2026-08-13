@@ -527,6 +527,15 @@ namespace Horizon.World
         private const int TuftSpecies = 3;
         private const int BoulderSpecies = 4;
 
+        /// <summary>
+        /// How far above a water surface a plant still counts as standing in it, metres.
+        ///
+        /// <para>Half a metre, so the bank is planted right up to the shore and nothing stands with its
+        /// feet in the shallows. Zero would leave a fringe of trees exactly on the waterline, which is
+        /// the one place they read as an error.</para>
+        /// </summary>
+        private const float WaterFreeboard = 0.5f;
+
         /// <summary>How far a plant leans towards the slope it stands on. Fully aligned looks like it fell over.</summary>
         private const float SlopeLean = 0.3f;
 
@@ -616,6 +625,13 @@ namespace Horizon.World
 
                     TerrainTileBuilder.SampleSurface(field, terrainShape, x, z,
                         out Vector3 point, out Vector3 normal);
+
+                    // Nothing grows in a river. The basin was carved into the ground the scatter reads,
+                    // so without this every body of water comes up wooded — see MountainField.IsUnderWater.
+                    if (field.IsUnderWater(x, z, point.y, WaterFreeboard))
+                    {
+                        continue;
+                    }
 
                     if (normal.y < minSlopeCosine)
                     {
@@ -723,6 +739,13 @@ namespace Horizon.World
                     TerrainTileBuilder.SampleSurface(field, terrainShape, x, z,
                         out Vector3 point, out Vector3 normal);
 
+                    // Nothing grows in a river. The basin was carved into the ground the scatter reads,
+                    // so without this every body of water comes up wooded — see MountainField.IsUnderWater.
+                    if (field.IsUnderWater(x, z, point.y, WaterFreeboard))
+                    {
+                        continue;
+                    }
+
                     if (normal.y < minSlopeCosine)
                     {
                         continue;
@@ -804,6 +827,13 @@ namespace Horizon.World
                     TerrainTileBuilder.SampleSurface(field, terrainShape, x, z,
                         out Vector3 point, out Vector3 normal);
 
+                    // Nothing grows in a river. The basin was carved into the ground the scatter reads,
+                    // so without this every body of water comes up wooded — see MountainField.IsUnderWater.
+                    if (field.IsUnderWater(x, z, point.y, WaterFreeboard))
+                    {
+                        continue;
+                    }
+
                     if (normal.y < minSlopeCosine)
                     {
                         continue;
@@ -865,6 +895,13 @@ namespace Horizon.World
 
                     TerrainTileBuilder.SampleSurface(field, terrainShape, x, z,
                         out Vector3 point, out Vector3 normal);
+
+                    // Nothing grows in a river. The basin was carved into the ground the scatter reads,
+                    // so without this every body of water comes up wooded — see MountainField.IsUnderWater.
+                    if (field.IsUnderWater(x, z, point.y, WaterFreeboard))
+                    {
+                        continue;
+                    }
 
                     // Boulders are the answer to the ground vegetation refuses: screes and the bare summit.
                     // Everywhere else they are occasional, so a meadow still gets the odd erratic.
