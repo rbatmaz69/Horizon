@@ -425,101 +425,21 @@ namespace Horizon.Game
         }
 
         /// <summary>
-        /// The nearest point on any driveable road, and which way it faces there.
+        /// The nearest point on any driveable road, resolving the traffic network on first use.
         ///
-        /// <para>Searched in the baked traffic routes rather than against the courses, because that
-        /// asset already <i>is</i> every road in the world as a set of world-space polylines — the pass,
-        /// both carriageways, the slip road and three hundred streets — sampled and ready. Re-deriving
-        /// that from the course tables would be the same search over data that has to be rebuilt first.
-        /// </para>
-        ///
-        /// <para>Coarse sweep then a local refinement. It runs on a button press, not per frame, so the
-        /// cost is a few thousand distance checks once — but a lane can be a kilometre long, and testing
-        /// every sample of every lane would be a hundred thousand.</para>
+        /// <para>The search itself lives in <see cref="RoadRespawn"/>: the water hazard needs the same
+        /// answer, and it is not a thing to have two of.</para>
         /// </summary>
         private bool TryNearestRoad(Vector3 from, out Vector3 position, out Quaternion rotation)
         {
-            position = Vector3.zero;
-            rotation = Quaternion.identity;
-
             if (routes == null)
             {
                 TrafficDirector director = FindFirstObjectByType<TrafficDirector>();
                 routes = director != null ? director.Network : null;
             }
 
-            if (routes == null || routes.LaneCount == 0)
-            {
-                return false;
-            }
-
-            const float coarse = 20f;
-
-            int bestLane = -1;
-            float bestAt = 0f;
-            float bestSqr = float.MaxValue;
-
-            for (int lane = 0; lane < routes.LaneCount; lane++)
-            {
-                // Connectors excluded: they are the turns through a junction, and being put down in the
-                // middle of an intersection facing across it is a worse place to restart than the
-                // straight a few metres away.
-                if (routes.NodeOf(lane) >= 0)
-                {
-                    continue;
-                }
-
-                float length = routes.LengthOf(lane);
-                int steps = Mathf.Max(1, Mathf.CeilToInt(length / coarse));
-
-                for (int i = 0; i <= steps; i++)
-                {
-                    float at = length * i / steps;
-                    routes.GetLane(lane, at, out Vector3 point, out Vector3 _);
-
-                    float sqr = (point - from).sqrMagnitude;
-                    if (sqr < bestSqr)
-                    {
-                        bestSqr = sqr;
-                        bestLane = lane;
-                        bestAt = at;
-                    }
-                }
-            }
-
-            if (bestLane < 0)
-            {
-                return false;
-            }
-
-            float span = routes.LengthOf(bestLane);
-            for (float window = coarse * 0.5f; window > 0.5f; window *= 0.5f)
-            {
-                for (int side = -1; side <= 1; side += 2)
-                {
-                    float at = Mathf.Clamp(bestAt + window * side, 0f, span);
-                    routes.GetLane(bestLane, at, out Vector3 point, out Vector3 _);
-
-                    float sqr = (point - from).sqrMagnitude;
-                    if (sqr < bestSqr)
-                    {
-                        bestSqr = sqr;
-                        bestAt = at;
-                    }
-                }
-            }
-
-            routes.GetLane(bestLane, bestAt, out position, out Vector3 forward);
-
-            // Lifted onto its wheels: a lane polyline lies on the tarmac, and a car dropped with its
-            // origin there starts the frame with its suspension through the road.
-            float ride = vehicle != null && vehicle.Config != null
-                ? vehicle.Config.SuspensionRestLength + vehicle.Config.WheelRadius + 0.05f
-                : 0.75f;
-
-            position += Vector3.up * ride;
-            rotation = Quaternion.LookRotation(forward, Vector3.up);
-            return true;
+            return RoadRespawn.TryNearest(
+                routes, from, RoadRespawn.RideHeight(vehicle), out position, out rotation);
         }
 
         /// <summary>

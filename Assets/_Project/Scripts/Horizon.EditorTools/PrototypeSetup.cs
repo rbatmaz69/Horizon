@@ -961,6 +961,8 @@ namespace Horizon.EditorTools
 
             Debug.Log($"[Horizon] Water: {waters.Length} bodies.{waterReport}");
 
+            BuildWaterHazard(worldRoot.transform, waters);
+
 
             ValidateRoadClearance(path, roadShape, field, course);
             ValidateRoadClearance(westbound, motorwayShape, field, motorwayCourse, "Westbound");
@@ -1426,6 +1428,47 @@ namespace Horizon.EditorTools
                       + $"{mouthWidth:0.0} m wide at the link's cap and closing to nothing. The ramp's "
                       + $"paving and the {lateral - motorwayShape.HalfWidth - linkShape.HalfWidth:0.0} m "
                       + "of gravel between the two roads are both under it now.");
+        }
+
+        /// <summary>
+        /// <summary>
+        /// Bakes the water into something the running game can test a car against.
+        ///
+        /// <para>The runtime cannot ask <see cref="MountainField"/> anything — it is a build-time object
+        /// that takes a fifth of a second to construct and is not in a player build at all — so the two
+        /// numbers that decide whether a car is in the water travel into the scene as plain data.</para>
+        /// </summary>
+        private static void BuildWaterHazard(Transform parent, WaterBody[] waters)
+        {
+            if (waters.Length == 0)
+            {
+                return;
+            }
+
+            var hazardObject = new GameObject("WaterHazard");
+            hazardObject.transform.SetParent(parent, false);
+
+            var patches = new List<WaterHazard.Patch>(waters.Length);
+
+            for (int i = 0; i < waters.Length; i++)
+            {
+                WaterBody body = waters[i];
+
+                patches.Add(new WaterHazard.Patch
+                {
+                    Name = body.Name,
+                    Spine = (Vector2[])body.Spine.Clone(),
+                    HalfWidth = body.HalfWidth,
+                    SurfaceY = body.SurfaceY,
+                });
+            }
+
+            WaterHazard hazard = hazardObject.AddComponent<WaterHazard>();
+            hazard.SetPatches(patches);
+            EditorUtility.SetDirty(hazard);
+
+            Debug.Log($"[Horizon] Water hazard: {patches.Count} bodies baked into the scene. A car under "
+                      + "any of them ploughs, and is put back on the nearest road.");
         }
 
         /// <summary>

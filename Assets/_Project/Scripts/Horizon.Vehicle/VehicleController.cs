@@ -118,6 +118,21 @@ namespace Horizon.Vehicle
         public float RearGrip { get; private set; } = 1f;
 
         /// <summary>
+        /// A scale on every tyre's whole grip budget, 1 on tarmac.
+        ///
+        /// <para>The one hook the world has into the handling model, and it is deliberately a single
+        /// number rather than a surface type. What a car in water needs is not different tyre physics,
+        /// it is the same friction circle with almost nothing in it: drive, braking and cornering all
+        /// go together, which is what ploughing to a halt actually is. Anything that wants gravel or ice
+        /// later sets this too.</para>
+        ///
+        /// <para>Not serialised and not on the config: it is a state the world puts the car into for as
+        /// long as the car is in it, not a property of the vehicle. Whatever sets it owns putting it
+        /// back.</para>
+        /// </summary>
+        public float GripScale { get; set; } = 1f;
+
+        /// <summary>
         /// True when the car is meaningfully sideways *and* the rear tyres are the reason.
         ///
         /// Both halves are needed. Slip angle alone counts a car sliding bodily down a wet camber,
@@ -664,7 +679,7 @@ namespace Horizon.Vehicle
             // brings load sensitivity for free: a wheel gone light over a crest or on the inside of a
             // hairpin loses grip on its own, and the anti-roll bar's load transfer starts to mean
             // something.
-            float mu = config.LateralGrip.Evaluate(speed01);
+            float mu = config.LateralGrip.Evaluate(speed01) * GripScale;
             if (handbrake && !isFront)
             {
                 mu *= config.HandbrakeGrip;
