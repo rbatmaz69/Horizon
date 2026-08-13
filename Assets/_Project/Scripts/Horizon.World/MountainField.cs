@@ -324,6 +324,42 @@ namespace Horizon.World
         }
 
         /// <summary>
+        /// True where the ground is low enough over a body of water to read as its shore.
+        ///
+        /// <para>Wider than <see cref="IsUnderWater"/> on purpose. Everything inside the outline is
+        /// under an opaque surface and therefore invisible, so a beach that stopped at the waterline
+        /// would have no width at all; the band that can actually be seen is the bank climbing out,
+        /// and that is what this tests.</para>
+        ///
+        /// <para><b>Both a height and a reach, and it needs both.</b> The height alone was tried and it
+        /// gives a desert: a bank eases out over forty to seventy metres for a drop of three or four, so
+        /// nearly the whole of it sits within a few metres of the surface and the tarn came out ringed
+        /// by more sand than it has water. The reach is what makes it a shore. The height still earns
+        /// its place on the other side — where the ground climbs away hard, the band has to stop at the
+        /// slope rather than run up it.</para>
+        /// </summary>
+        /// <param name="reach">How far out from the open water the shore may run, in metres.</param>
+        public bool IsShore(float x, float z, float y, float freeboard, float reach)
+        {
+            for (int i = 0; i < waters.Length; i++)
+            {
+                WaterBody body = waters[i];
+
+                if (!body.Near(x, z) || y >= body.SurfaceY + freeboard)
+                {
+                    continue;
+                }
+
+                if (body.DistanceOutside(x, z) <= Mathf.Min(reach, body.BankEase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
         /// Hands the field its basins, after they have been solved against it.
         ///
         /// <para><b>Set afterwards rather than passed to the constructor, and that is the whole

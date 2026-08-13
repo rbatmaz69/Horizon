@@ -2478,6 +2478,29 @@ namespace Horizon.EditorTools
             int heaviestTile = 0;
             string heaviestTileName = "none";
 
+            // How much of a tile came out as shore, read back off the finished mesh rather than counted
+            // while it was built. The tint is one line inside the tile builder's own colour choice and
+            // it would be a poor trade to grow that method's signature by an out-parameter to say so.
+            static int CountShore(Mesh mesh)
+            {
+                Color32[] colours = mesh.colors32;
+                int sand = 0;
+
+                for (int i = 0; i < colours.Length; i += 3)
+                {
+                    Color32 colour = colours[i];
+
+                    if (colour.r == TerrainTileBuilder.SandTint.r
+                        && colour.g == TerrainTileBuilder.SandTint.g
+                        && colour.b == TerrainTileBuilder.SandTint.b)
+                    {
+                        sand++;
+                    }
+                }
+
+                return sand;
+            }
+
             var townTotals = new TownStats[towns.Count];
             for (int i = 0; i < towns.Count; i++)
             {
@@ -2486,6 +2509,7 @@ namespace Horizon.EditorTools
 
             int waterTiles = 0;
             int waterTriangleTotal = 0;
+            int shoreTriangles = 0;
 
             for (int i = 0; i < tiles.Count; i++)
             {
@@ -2494,6 +2518,7 @@ namespace Horizon.EditorTools
 
                 Mesh mesh = TerrainTileBuilder.BuildTile(key, field, terrainShape, name);
                 totalTriangles += mesh.triangles.Length / 3;
+                shoreTriangles += CountShore(mesh);
 
                 mesh = HorizonAssetUtility.ReplaceAsset(mesh, $"{GeneratedFolder}/{name}.asset");
 
@@ -2618,6 +2643,19 @@ namespace Horizon.EditorTools
                 Debug.Log($"[Horizon] Water surfaces: {waterTriangleTotal} triangles over {waterTiles} "
                           + $"of {tiles.Count} tiles, on one shared material. Hung under the tiles they "
                           + "sit on, so they stream with them.");
+
+                if (shoreTriangles > 0)
+                {
+                    Debug.Log($"[Horizon] Shoreline: {shoreTriangles} terrain triangles tinted sand, "
+                              + $"{shoreTriangles * 100f / Mathf.Max(1, totalTriangles):0.0} % of the "
+                              + "terrain — no extra draw call, no extra material.");
+                }
+                else
+                {
+                    Debug.LogWarning("[Horizon] Every body of water meets grass directly: not one terrain "
+                                     + "triangle came out sand. Either the shore band is thinner than a "
+                                     + "cell, or the banks are steeper than the height it reaches.");
+                }
             }
             else if (field.Water.Count > 0)
             {

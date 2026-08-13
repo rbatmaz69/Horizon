@@ -594,6 +594,186 @@ namespace Horizon.EditorTools
             }
         }
 
+        /// <summary>
+        /// Every body of water, twice: from above it and from its own bank.
+        ///
+        /// <para>Its own command because water is the one thing in this world that cannot be judged from
+        /// the road. The rivers are under viaducts the driver crosses at 130 km/h, the tarn is off the
+        /// pass entirely, and the two questions worth asking about any of them — does the surface float
+        /// over a hole it does not cover, and does the shore meet the ground or stop in mid-air — are
+        /// invisible from every station the day pass already shoots.</para>
+        ///
+        /// <para>The bodies are found by walking the scene for the surfaces themselves rather than by
+        /// rebuilding <c>WaterShape</c>: a surface mesh only exists where the tile builder actually laid
+        /// one, so what this frames is what shipped, not what was planned. Tiles are clustered because a
+        /// body spans several of them and one shot per tile would be sixteen pictures of the same river.</para>
+        /// </summary>
+        [MenuItem("Tools/Horizon/Render Water Preview", priority = 43)]
+        public static void RenderWater()
+        {
+            Scene scene = SceneManager.GetSceneByPath(WorldScenePath);
+            bool openedHere = !scene.isLoaded;
+
+            if (openedHere)
+            {
+                scene = EditorSceneManager.OpenScene(WorldScenePath, OpenSceneMode.Additive);
+            }
+
+            var bodies = new System.Collections.Generic.List<Bounds>();
+            Renderer[] renderers = Object.FindObjectsByType<Renderer>(FindObjectsSortMode.None);
+
+            for (int i = 0; i < renderers.Length; i++)
+            {
+                if (!renderers[i].name.EndsWith("_Water"))
+                {
+                    continue;
+                }
+
+                Bounds tile = renderers[i].bounds;
+                int joined = -1;
+
+                // Grown one tile at a time, and a tile that bridges two clusters merges them — otherwise a
+                // river that reaches its neighbours in the wrong order comes out as two rivers.
+                for (int b = 0; b < bodies.Count; b++)
+                {
+                    Bounds grown = bodies[b];
+                    grown.Expand(new Vector3(60f, 400f, 60f));
+
+                    if (!grown.Intersects(tile))
+                    {
+                        continue;
+                    }
+
+                    if (joined < 0)
+                    {
+                        Bounds merged = bodies[b];
+                        merged.Encapsulate(tile);
+                        bodies[b] = merged;
+                        joined = b;
+                    }
+                    else
+                    {
+                        Bounds merged = bodies[joined];
+                        merged.Encapsulate(bodies[b]);
+                        bodies[joined] = merged;
+                        bodies.RemoveAt(b);
+                        b--;
+                    }
+                }
+
+                if (joined < 0)
+                {
+                    bodies.Add(tile);
+                }
+            }
+
+            if (bodies.Count == 0)
+            {
+                Debug.LogWarning("[Horizon] No water surfaces in the world scene. Run Rebuild Prototype "
+                                 + "Scene first, or there is genuinely no water in the world.");
+                return;
+            }
+
+            var cameraObject = new GameObject("WaterPreviewCamera");
+            bool fogWasOn = RenderSettings.fog;
+
+            // Held at mid-morning, and this one is not a nicety. The scene comes out of a rebuild at a
+            // low sun, which lays half a hillside in shadow and turns everything else orange — and the
+            // three things worth checking here are all colours: sand against grass, shallow against
+            // deep, foam against bank. Under a sunset none of them can be told apart.
+            var clock = Object.FindFirstObjectByType<TimeOfDayController>();
+            float hoursWere = clock != null ? clock.TimeOfDayHours : 0f;
+            bool runningWas = clock != null && clock.Running;
+
+            try
+            {
+                if (clock != null)
+                {
+                    clock.Running = false;
+                    clock.TimeOfDayHours = DaylightHours;
+                    clock.Apply();
+                }
+
+                Camera camera = cameraObject.AddComponent<Camera>();
+                camera.clearFlags = CameraClearFlags.Skybox;
+                camera.nearClipPlane = 0.3f;
+                camera.enabled = false;
+
+                string directory = Directory.GetParent(Application.dataPath).FullName;
+
+                for (int i = 0; i < bodies.Count; i++)
+                {
+                    Bounds body = bodies[i];
+                    float span = Mathf.Max(60f, Mathf.Max(body.size.x, body.size.z));
+                    string label = $"{i + 1}_at{body.center.x:0}_{body.center.z:0}";
+
+                    // Fog off from above for the same reason the overview turns it off: it is tuned to the
+                    // draw distance of a car, and from four hundred metres up it is the only thing in shot.
+                    // Steeply from above rather than obliquely: the question this shot answers is the
+                    // plan one — whether the surface covers its own basin and where the sand runs — and
+                    // at a low angle a body two hundred metres across is a sliver behind whatever
+                    // hillside stands between it and the camera.
+                    RenderSettings.fog = false;
+                    camera.farClipPlane = span * 6f;
+                    camera.fieldOfView = 45f;
+                    camera.transform.position = body.center
+                                                + new Vector3(0.22f, 1f, -0.22f).normalized * span * 1.15f;
+                    camera.transform.rotation = Quaternion.LookRotation(
+                        body.center - camera.transform.position, Vector3.up);
+                    Capture(camera, Path.Combine(directory, $"WorldPreview_Water_{label}_Above.png"));
+
+                    // And from the bank, at about the height of a driver standing on it — the only view
+                    // that shows whether the sand band reads as a shore or as a stripe.
+                    //
+                    // Stood off the *narrow* side, and that is the whole trick to framing a river. Both
+                    // of these bodies are four hundred metres long and forty across; stepping back by a
+                    // share of the longer dimension puts the camera in the woods beyond the far bank,
+                    // looking at trees. Across the channel it is a shoreline seen from a shoreline.
+                    RenderSettings.fog = fogWasOn;
+                    bool narrowIsX = body.size.x <= body.size.z;
+                    float back = Mathf.Min(body.size.x, body.size.z) * 0.5f + 25f;
+
+                    Vector3 station = body.center - (narrowIsX ? Vector3.right : Vector3.forward) * back;
+
+                    if (Physics.Raycast(station + Vector3.up * 600f, Vector3.down,
+                            out RaycastHit hit, 1200f))
+                    {
+                        station.y = hit.point.y;
+                    }
+
+                    camera.farClipPlane = 900f;
+                    camera.fieldOfView = 55f;
+                    camera.transform.position = station + Vector3.up * 8f;
+                    camera.transform.rotation = Quaternion.LookRotation(
+                        body.center - camera.transform.position, Vector3.up);
+                    Capture(camera, Path.Combine(directory, $"WorldPreview_Water_{label}_Shore.png"));
+                }
+
+                Debug.Log($"[Horizon] Water preview: {bodies.Count} bodies written to "
+                          + $"{directory}/WorldPreview_Water_*.png");
+            }
+            finally
+            {
+                RenderSettings.fog = fogWasOn;
+                Object.DestroyImmediate(cameraObject);
+
+                if (clock != null)
+                {
+                    clock.TimeOfDayHours = hoursWere;
+                    clock.Running = runningWas;
+                    clock.Apply();
+                }
+
+                if (openedHere)
+                {
+                    EditorSceneManager.CloseScene(scene, true);
+                }
+            }
+        }
+
+        /// <summary>Hour to hold the clock at for the water shots. High sun, flat light, true colours.</summary>
+        private const float DaylightHours = 10.5f;
+
         /// <summary>Everything the world renders, so the overview frames the pass rather than the origin.</summary>
         private static Bounds WorldBounds()
         {

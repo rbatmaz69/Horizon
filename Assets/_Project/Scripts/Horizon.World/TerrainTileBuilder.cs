@@ -42,6 +42,36 @@ namespace Horizon.World
         /// <summary>See <see cref="GrassTint"/>.</summary>
         public static readonly Color32 RockTint = new Color(0.44f, 0.39f, 0.34f);
 
+        /// <summary>
+        /// Ground near enough above water to be its shore.
+        ///
+        /// <para>Free, in the sense that matters: it is a third choice inside a comparison the tile
+        /// builder was making anyway, so every beach in the world draws in the same call as the grass
+        /// behind it. Without it a lake is a colour change with no edge — meadow green running to a
+        /// waterline — and the bank the field carved does not read as a bank.</para>
+        /// </summary>
+        public static readonly Color32 SandTint = new Color(0.76f, 0.70f, 0.55f);
+
+        /// <summary>
+        /// How far above a water surface the sand reaches.
+        ///
+        /// <para>Three metres, and it is the second of the two limits rather than the only one — see
+        /// <see cref="ShoreReach"/>. What it does here is stop the sand climbing a steep bank: where the
+        /// ground rises fast out of the water, the band ends at the slope instead of running up
+        /// it.</para>
+        /// </summary>
+        private const float ShoreHeight = 3f;
+
+        /// <summary>
+        /// And how far out from the waterline it reaches.
+        ///
+        /// <para>Eighteen metres, which is one to two triangles of this terrain — chunky, faceted, and
+        /// exactly the register the rest of the world is drawn in. The height limit alone gave a band
+        /// half again as large as the water itself, because the banks are carved to ease out over forty
+        /// to seventy metres and almost all of that lies within three metres of the surface.</para>
+        /// </summary>
+        private const float ShoreReach = 18f;
+
         public const int GrassSubmesh = 0;
 
         /// <summary>Submesh for steep faces, meant for rock.</summary>
@@ -285,6 +315,11 @@ namespace Horizon.World
 
             float rockThreshold = Mathf.Cos(shape.RockSlopeThreshold * Mathf.Deg2Rad);
 
+            // Whether this tile is near water at all, asked once rather than per triangle. Four tiles
+            // in five are nowhere near a body, and the shore test is the only thing in this loop that
+            // walks a list.
+            bool nearWater = TouchesWater(field, originX, originZ, tileSize);
+
             for (int row = 0; row < cells; row++)
             {
                 for (int column = 0; column < cells; column++)
@@ -298,13 +333,17 @@ namespace Horizon.World
 
                     if (splitForward)
                     {
-                        AddTriangle(vertices, normals, uvs, colours, triangles, rockThreshold, c00, c01, c11);
-                        AddTriangle(vertices, normals, uvs, colours, triangles, rockThreshold, c00, c11, c10);
+                        AddTriangle(vertices, normals, uvs, colours, triangles, rockThreshold,
+                            field, nearWater, c00, c01, c11);
+                        AddTriangle(vertices, normals, uvs, colours, triangles, rockThreshold,
+                            field, nearWater, c00, c11, c10);
                     }
                     else
                     {
-                        AddTriangle(vertices, normals, uvs, colours, triangles, rockThreshold, c00, c01, c10);
-                        AddTriangle(vertices, normals, uvs, colours, triangles, rockThreshold, c01, c11, c10);
+                        AddTriangle(vertices, normals, uvs, colours, triangles, rockThreshold,
+                            field, nearWater, c00, c01, c10);
+                        AddTriangle(vertices, normals, uvs, colours, triangles, rockThreshold,
+                            field, nearWater, c01, c11, c10);
                     }
                 }
             }
@@ -319,6 +358,25 @@ namespace Horizon.World
             mesh.SetTriangles(triangles, 0);
             mesh.RecalculateBounds();
             return mesh;
+        }
+
+        /// <summary>Whether any body of water's plan extent overlaps this tile.</summary>
+        private static bool TouchesWater(MountainField field, float originX, float originZ, float tileSize)
+        {
+            IReadOnlyList<WaterBody> waters = field.Water;
+
+            for (int i = 0; i < waters.Count; i++)
+            {
+                Bounds plan = waters[i].Plan;
+
+                if (originX + tileSize >= plan.min.x && originX <= plan.max.x
+                    && originZ + tileSize >= plan.min.z && originZ <= plan.max.z)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static Vector3 Corner(
@@ -347,6 +405,8 @@ namespace Horizon.World
             List<Color32> colours,
             List<int> triangles,
             float rockThreshold,
+            MountainField field,
+            bool nearWater,
             Vector3 a,
             Vector3 b,
             Vector3 c)
@@ -382,7 +442,26 @@ namespace Horizon.World
             // two material slots for this whether or not it had a steep face on it — the one place
             // MergeTinted's lesson had not been applied, and the only per-tile cost that grows with the
             // size of the world rather than with the size of a town.
+            //
+            // Sand goes over both, steep faces included. A bank the field has carved is a shallow
+            // thing by construction — the ease runs forty to seventy metres for a drop of a few — so a
+            // face at the water that does read as steep is a spit or a cut, and grey rock there breaks
+            // the shoreline into pieces rather than describing it.
             Color32 tint = normal.y < rockThreshold ? RockTint : GrassTint;
+
+            if (nearWater)
+            {
+                // The centroid, not a corner: this is one flat-shaded triangle with one colour, and
+                // asking at a corner makes the tint depend on which corner the winding happened to put
+                // first, which is how you get single triangles of beach out in a meadow.
+                Vector3 centre = (a + b + c) * (1f / 3f);
+
+                if (field.IsShore(centre.x, centre.z, centre.y, ShoreHeight, ShoreReach))
+                {
+                    tint = SandTint;
+                }
+            }
+
             colours.Add(tint);
             colours.Add(tint);
             colours.Add(tint);
