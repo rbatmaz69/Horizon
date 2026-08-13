@@ -222,6 +222,22 @@ namespace Horizon.World
         /// </summary>
         public readonly float Freeboard;
 
+        /// <summary>
+        /// A surface height that does not come from the rim, and the one kind of body that needs one.
+        ///
+        /// <para>Rim-and-freeboard is right for anything held in a hollow: sample the edge of the basin,
+        /// sit below the lowest point of it, and the water cannot leak out. A sea has no rim. Its ring
+        /// runs six hundred metres out through ground no tile is ever built on, so the lowest sample
+        /// around it is a number about open hillside and has nothing to do with where the coast is. What
+        /// a sea has to agree with is the road that arrives at it, so its level is derived from the end
+        /// of that road instead — still derived, still moves when the road is retuned, just measured
+        /// against the thing that matters.</para>
+        /// </summary>
+        public readonly bool HasFixedSurface;
+
+        /// <summary>See <see cref="HasFixedSurface"/>.</summary>
+        public readonly float FixedSurface;
+
         public WaterPlan(
             string name,
             WaterKind kind,
@@ -232,7 +248,9 @@ namespace Horizon.World
             float reach,
             float skewDegrees,
             float depth,
-            float freeboard)
+            float freeboard,
+            bool hasFixedSurface = false,
+            float fixedSurface = 0f)
         {
             Name = name;
             Kind = kind;
@@ -244,6 +262,8 @@ namespace Horizon.World
             SkewDegrees = skewDegrees;
             Depth = depth;
             Freeboard = freeboard;
+            HasFixedSurface = hasFixedSurface;
+            FixedSurface = fixedSurface;
         }
 
         /// <summary>A river under a named bridge, crossing the road it spans.</summary>
@@ -261,6 +281,21 @@ namespace Horizon.World
         {
             return new WaterPlan(name, WaterKind.Lake, null, centre,
                 radius, bankEase, 0f, 0f, depth, 1.5f);
+        }
+
+        /// <summary>
+        /// The sea, as a disc large enough that its far side is past the fog.
+        ///
+        /// <para>A circle rather than a coastline, and the reason is that nobody can tell. The water is
+        /// opaque, the camera's far plane is 600 m and the fog wall stands well inside that — what a
+        /// player sees is the arc of shore in front of them and water running out into haze. A drawn
+        /// coastline would be geometry built to be invisible.</para>
+        /// </summary>
+        public static WaterPlan Sea(
+            string name, Vector2 centre, float radius, float bankEase, float depth, float surfaceY)
+        {
+            return new WaterPlan(name, WaterKind.Sea, null, centre,
+                radius, bankEase, 0f, 0f, depth, 0f, hasFixedSurface: true, fixedSurface: surfaceY);
         }
     }
 

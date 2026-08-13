@@ -867,6 +867,26 @@ namespace Horizon.EditorTools
             linkChunk.RecalculateBounds();
             linkChunk.SetBounds(linkChunk.Center, 100000f);
 
+            // --- The coast road, carrying on where the motorway runs out at its western tip.
+            var coastPathObject = new GameObject("CoastRoadPath");
+            coastPathObject.transform.SetParent(worldRoot.transform, false);
+            RoadPath coastPath = coastPathObject.AddComponent<RoadPath>();
+
+            RoadCourse coastCourse = CoastCourse.Build();
+            coastPath.SetControlPoints(coastCourse.ControlPoints);
+            ReportCourse(coastCourse, coastPath, "Coast road");
+
+            Mesh coastMesh = RoadMeshBuilder.BuildRoad(coastPath, roadShape, "CoastRoadMesh");
+            coastMesh = HorizonAssetUtility.ReplaceAsset(
+                coastMesh, GeneratedFolder + "/CoastRoadMesh.asset");
+
+            GameObject coastObject = CreateMeshObject(worldRoot.transform, "CoastRoad", coastMesh,
+                new[] { materials.RoadSurface, materials.RoadShoulder });
+
+            WorldChunk coastChunk = coastObject.AddComponent<WorldChunk>();
+            coastChunk.RecalculateBounds();
+            coastChunk.SetBounds(coastChunk.Center, 100000f);
+
             BuildMotorwayMerge(worldRoot.transform, out float rampCapOnMedian, out float rampMergeOnMedian,
                 motorwayPath, westbound, motorwayShape, roadShape, linkPath, materials);
             EditorUtility.SetDirty(roadChunk);
@@ -916,6 +936,12 @@ namespace Horizon.EditorTools
                 new MountainField.FieldRoad(westbound, motorwayCourse),
                 new MountainField.FieldRoad(eastbound, motorwayCourse),
                 new MountainField.FieldRoad(linkPath),
+
+                // The coast road is in here for the terrain as much as for the shelf: tiles are listed
+                // around whatever the field calls a road, so the corridor out to the water — and the
+                // ground the sea will be dug into — arrives with the road rather than as a region
+                // somebody has to remember to add.
+                new MountainField.FieldRoad(coastPath),
             };
 
             var field = new MountainField(roads, terrainShape, 4f, levelSamples);
@@ -953,6 +979,33 @@ namespace Horizon.EditorTools
 
             Debug.Log($"[Horizon] Water siting: {lakeSite}");
 
+            // And the sea, hung off the end of the coast road.
+            //
+            // Everything about it is measured from where that road runs out: the shoreline sits a few
+            // metres past the last of the paving, and the level is the height of that paving less the
+            // drop below. Both have to be, because the whole point of the road is that it arrives at
+            // the water — a sea at a typed height would be either a cliff or a flood the first time the
+            // road's grade was touched.
+            float coastEnd = coastPath.Length;
+            Vector3 apron = coastPath.GetPositionAtDistance(coastEnd);
+            Vector3 seaward = coastPath.GetDirectionAtDistance(coastEnd);
+
+            const float seaRadius = 700f;
+
+            waterPlans.Add(WaterPlan.Sea(
+                "Westmeer",
+                new Vector2(apron.x + seaward.x * (seaRadius + 25f),
+                    apron.z + seaward.z * (seaRadius + 25f)),
+                radius: seaRadius,
+                // Wide, because this bank is the beach — the one shore in the world meant to be driven
+                // down rather than looked at.
+                bankEase: 70f,
+                depth: 8f,
+                // Three and a half metres under the apron. Two would read better and is what the plan
+                // asked for, but three is the least a road may stand clear of water anywhere in this
+                // build, and a rule that the newest road is exempt from is not a rule.
+                surfaceY: apron.y - 3.5f));
+
             WaterBody[] waters = WaterPlanner.Resolve(
                 waterPlans, field, motorwayPath, motorwayCourse, out string waterReport);
 
@@ -988,8 +1041,20 @@ namespace Horizon.EditorTools
             var litSlots = new List<int>();
             var litSlotGroups = new List<int>();
 
+            // The sea's own share of terrain, out past the corridor the coast road brings with it.
+            //
+            // Nothing here is about ground: it is about how far the water reaches, and the water only
+            // exists where a tile does. With the corridor alone the sea ran out about 320 m from the
+            // beach — inside the fog, inside the 600 m far plane, and therefore a visible dark edge with
+            // the sky behind it. A square box rather than a band because Bounds are axis-aligned and the
+            // shore runs at whatever angle the road arrives at; the corners cost a few tiles that are
+            // then skipped for being under deep water.
+            var seaBand = new Bounds(
+                new Vector3(apron.x + seaward.x * 400f, apron.y, apron.z + seaward.z * 400f),
+                new Vector3(1000f, 200f, 1000f));
+
             BuildTerrainTiles(worldRoot.transform, path, roadShape, course, field, terrainShape,
-                towns, materials, litRenderers, litSlotStart, litSlots, litSlotGroups);
+                towns, materials, litRenderers, litSlotStart, litSlots, litSlotGroups, seaBand);
             ValidateLandmarks(field, course, path, talheim.Plan);
             MarkTownLandmarks(worldRoot.transform, talheim.Network, talheim.Plan);
             Phase(clock, "terrain, vegetation and buildings");
@@ -1042,6 +1107,7 @@ namespace Horizon.EditorTools
             ValidateDriveableCorridor(westbound, "the westbound carriageway", 1.3f, 4f);
             ValidateDriveableCorridor(eastbound, "the eastbound carriageway", 1.3f, 4f);
             ValidateDriveableCorridor(linkPath, "the motorway link", 1.3f, 4f);
+            ValidateDriveableCorridor(coastPath, "the coast road", 1.3f, 4f);
             Phase(clock, "validation");
             int worstJunction = ValidateStreetNetwork(talheim.Network, path, roadShape);
             MarkWorstJunction(worldRoot.transform, talheim.Network, worstJunction);
@@ -2525,16 +2591,19 @@ namespace Horizon.EditorTools
             List<MeshRenderer> townRenderers,
             List<int> townSlotStart,
             List<int> townSlots,
-            List<int> townSlotGroups)
+            List<int> townSlotGroups,
+            Bounds seaBand)
         {
             // One region per settlement rather than one big box round the lot: the corridor is widened
             // where a town is, and a rectangle spanning both would drag in every tile of open country
-            // between them.
-            var extraRegions = new Bounds[towns.Count];
+            // between them. The sea's band is one more of the same.
+            var extraRegions = new Bounds[towns.Count + 1];
             for (int i = 0; i < towns.Count; i++)
             {
                 extraRegions[i] = towns[i].Footprint;
             }
+
+            extraRegions[towns.Count] = seaBand;
 
             List<TerrainTileKey> tiles = TerrainTileBuilder.ListTiles(
                 field, terrainShape, terrainShape.CorridorWidth, extraRegions);
@@ -2593,20 +2662,35 @@ namespace Horizon.EditorTools
             int waterTiles = 0;
             int waterTriangleTotal = 0;
             int shoreTriangles = 0;
+            int drownedTiles = 0;
 
             for (int i = 0; i < tiles.Count; i++)
             {
                 TerrainTileKey key = tiles[i];
                 string name = $"Terrain_{key.Column}_{key.Row}";
 
-                Mesh mesh = TerrainTileBuilder.BuildTile(key, field, terrainShape, name);
-                totalTriangles += mesh.triangles.Length / 3;
-                shoreTriangles += CountShore(mesh);
+                GameObject tileObject;
 
-                mesh = HorizonAssetUtility.ReplaceAsset(mesh, $"{GeneratedFolder}/{name}.asset");
+                if (TerrainTileBuilder.IsDrowned(field, terrainShape, key))
+                {
+                    // Water only. The bed here is under eight metres of opaque surface, so the ground,
+                    // its collider and everything that would have been scattered on it are all work
+                    // done for a view nobody has. See TerrainTileBuilder.IsDrowned.
+                    tileObject = new GameObject(name);
+                    tileObject.transform.SetParent(terrainRoot.transform, false);
+                    drownedTiles++;
+                }
+                else
+                {
+                    Mesh mesh = TerrainTileBuilder.BuildTile(key, field, terrainShape, name);
+                    totalTriangles += mesh.triangles.Length / 3;
+                    shoreTriangles += CountShore(mesh);
 
-                GameObject tileObject = CreateMeshObject(
-                    terrainRoot.transform, name, mesh, new[] { materials.TerrainTint });
+                    mesh = HorizonAssetUtility.ReplaceAsset(mesh, $"{GeneratedFolder}/{name}.asset");
+
+                    tileObject = CreateMeshObject(
+                        terrainRoot.transform, name, mesh, new[] { materials.TerrainTint });
+                }
 
                 Mesh water = WaterTileBuilder.BuildTile(
                     key, field, terrainShape, field.Water, name + "_Water", out int waterTriangles);
@@ -2749,7 +2833,8 @@ namespace Horizon.EditorTools
 
             Debug.Log($"[Horizon] Terrain: {tiles.Count} tiles of {tileSize:0} m, "
                       + $"{totalTriangles} triangles total, corridor {terrainShape.CorridorWidth:0} m "
-                      + $"plus {tiles.Count - baseline} for the town basin.");
+                      + $"plus {tiles.Count - baseline} for the town basins and the sea band. "
+                      + $"{drownedTiles} of them carry water and no ground.");
 
             ReportVegetation(vegetationTotal, vegetationShape, roadShape, vegetationContext,
                 heaviestTile, heaviestTileName);

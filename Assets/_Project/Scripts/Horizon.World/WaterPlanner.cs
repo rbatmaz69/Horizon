@@ -52,7 +52,7 @@ namespace Horizon.World
                 }
 
                 float rim = LowestRim(field, spine, plan.HalfWidth);
-                float surface = rim - plan.Freeboard;
+                float surface = plan.HasFixedSurface ? plan.FixedSurface : rim - plan.Freeboard;
 
                 bodies.Add(new WaterBody(
                     plan.Name, plan.Kind, spine, plan.HalfWidth, plan.BankEase, surface, plan.Depth));

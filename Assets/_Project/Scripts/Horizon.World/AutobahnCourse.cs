@@ -144,6 +144,19 @@ namespace Horizon.World
         /// <summary>Length of the link road, metres.</summary>
         public static float LinkSpan { get; }
 
+        /// <summary>
+        /// Where the motorway begins, on the median line — the western edge of the built world.
+        ///
+        /// <para>Public for the same reason <see cref="EndPoint"/> is: something is grafted onto it.
+        /// The city hangs off the east end and the coast road off this one, and both have to follow
+        /// their end of the motorway whenever it is retuned rather than being typed beside it.</para>
+        /// </summary>
+        public static Vector3 WestEndPoint => MainStart;
+
+        /// <summary>Heading there, <b>facing east</b> — the way the traffic arrives. See
+        /// <see cref="WestEndPoint"/>.</summary>
+        public static float WestEndHeading => MainStartHeading;
+
         private static Vector3 MainStart { get; }
 
         private static float MainStartHeading { get; }

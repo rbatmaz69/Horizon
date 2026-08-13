@@ -360,6 +360,56 @@ namespace Horizon.World
             return mesh;
         }
 
+        /// <summary>
+        /// Whether this tile lies entirely under deep water, and can therefore be left unbuilt.
+        ///
+        /// <para>The sea bed is the one piece of terrain in the world nobody can ever see: the surface
+        /// over it is opaque. Skipping those tiles is what makes a sea affordable — pushing the water out
+        /// far enough that its far edge falls behind the fog costs about forty tiles of ground, each
+        /// carrying four hundred triangles and a mesh collider for a view nobody has.</para>
+        ///
+        /// <para>A depth rather than mere submersion, and four metres rather than none, because the
+        /// collider is worth keeping where a car can still reach it. The shallows are where somebody
+        /// drives in; past four metres they are being fished out by <c>WaterHazard</c> either way. The
+        /// water's own shading does not depend on this — it is sampled from the height field, not from
+        /// the mesh — so a missing tile costs nothing but the ground.</para>
+        ///
+        /// <para>Sampled on a grid rather than at the four corners, because a tile can have all four
+        /// corners deep and a sandbank in the middle of it.</para>
+        /// </summary>
+        public static bool IsDrowned(MountainField field, in TerrainShape shape, TerrainTileKey key)
+        {
+            IReadOnlyList<WaterBody> waters = field.Water;
+            if (waters.Count == 0)
+            {
+                return false;
+            }
+
+            const float outOfSight = 4f;
+
+            float tileSize = TileSize(shape);
+            float originX = key.Column * tileSize;
+            float originZ = key.Row * tileSize;
+
+            const int steps = 6;
+
+            for (int row = 0; row <= steps; row++)
+            {
+                for (int column = 0; column <= steps; column++)
+                {
+                    float x = originX + tileSize * column / steps;
+                    float z = originZ + tileSize * row / steps;
+
+                    if (!field.IsUnderWater(x, z, field.HeightAt(x, z) + outOfSight))
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            return true;
+        }
+
         /// <summary>Whether any body of water's plan extent overlaps this tile.</summary>
         private static bool TouchesWater(MountainField field, float originX, float originZ, float tileSize)
         {

@@ -416,7 +416,22 @@ namespace Horizon.World
 
                 if (outside <= 0f)
                 {
-                    height = Mathf.Min(height, body.BedAt(x, z));
+                    float bed = body.BedAt(x, z);
+
+                    // A sea <b>sets</b> the ground; everything else only caps it.
+                    //
+                    // For a river or a tarn the cap is right, and deliberately so: where the natural
+                    // ground already lies below the bed — the Hochfeld hollow reaches −41.8 m — the
+                    // minimum keeps the hollow and the water simply reads deeper over it. Overriding
+                    // there would fill in a valley the viaduct was drawn to span.
+                    //
+                    // A sea is the other case. Most of the ground under it is already well below its
+                    // surface — the west of the world sits at −72 m — so the cap does nearly all of the
+                    // work on its own, and the handful of rises that poked through were a handful. They
+                    // still have to go: an island in the middle of the only stretch of water meant to
+                    // read as open sea is the one thing that would give away that it is a disc dug into
+                    // a hillside.
+                    height = body.Kind == WaterKind.Sea ? bed : Mathf.Min(height, bed);
                     continue;
                 }
 

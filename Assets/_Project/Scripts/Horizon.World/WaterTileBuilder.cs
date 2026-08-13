@@ -93,9 +93,6 @@ namespace Horizon.World
             float originX = key.Column * tileSize;
             float originZ = key.Row * tileSize;
 
-            float cell = shape.CellSize / Refinement;
-            int cells = Mathf.Max(1, Mathf.RoundToInt(tileSize / cell));
-
             var vertices = new List<Vector3>(256);
             var colours = new List<Color32>(256);
             var triangles = new List<int>(384);
@@ -111,6 +108,16 @@ namespace Horizon.World
                 {
                     continue;
                 }
+
+                // The sea keeps the terrain's own step. The refinement exists to give a small body a
+                // shore worth the name, and the sea is a kilometre and a half across — refining it
+                // would spend four times the triangles on open water where every vertex is the same
+                // colour as the one beside it.
+                float cell = body.Kind == WaterKind.Sea
+                    ? shape.CellSize
+                    : shape.CellSize / Refinement;
+
+                int cells = Mathf.Max(1, Mathf.RoundToInt(tileSize / cell));
 
                 AppendBody(body, field, shape, originX, originZ, cell, cells,
                     vertices, colours, triangles);

@@ -729,16 +729,35 @@ namespace Horizon.EditorTools
                     // of these bodies are four hundred metres long and forty across; stepping back by a
                     // share of the longer dimension puts the camera in the woods beyond the far bank,
                     // looking at trees. Across the channel it is a shoreline seen from a shoreline.
+                    // On dry land, whichever way that turns out to be. Stepping back along the body's
+                    // narrow axis frames a river, and put the sea's camera six hundred metres offshore
+                    // looking back at the coast from outside the world — the ground is what says which
+                    // side is a shore, so the ground is asked.
                     RenderSettings.fog = fogWasOn;
-                    bool narrowIsX = body.size.x <= body.size.z;
                     float back = Mathf.Min(body.size.x, body.size.z) * 0.5f + 25f;
+                    Vector3 station = body.center;
 
-                    Vector3 station = body.center - (narrowIsX ? Vector3.right : Vector3.forward) * back;
-
-                    if (Physics.Raycast(station + Vector3.up * 600f, Vector3.down,
-                            out RaycastHit hit, 1200f))
+                    for (int step = 0; step < 8; step++)
                     {
-                        station.y = hit.point.y;
+                        float angle = step / 8f * Mathf.PI * 2f;
+                        Vector3 candidate = body.center
+                                            + new Vector3(Mathf.Sin(angle), 0f, Mathf.Cos(angle)) * back;
+
+                        if (!Physics.Raycast(candidate + Vector3.up * 600f, Vector3.down,
+                                out RaycastHit ground, 1200f))
+                        {
+                            continue;
+                        }
+
+                        candidate.y = ground.point.y;
+                        station = candidate;
+
+                        // Above the surface is a bank; below it is the bed, and standing on the bed is
+                        // how the last of these shots came back looking out of the side of the world.
+                        if (ground.point.y > body.center.y)
+                        {
+                            break;
+                        }
                     }
 
                     camera.farClipPlane = 900f;
