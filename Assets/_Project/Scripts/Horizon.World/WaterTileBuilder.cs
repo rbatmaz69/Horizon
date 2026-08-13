@@ -57,6 +57,21 @@ namespace Horizon.World
         private const float FoamDepth = 0.55f;
 
         /// <summary>
+        /// How much finer than the terrain the water is meshed.
+        ///
+        /// <para>Half a terrain cell, because the shore is drawn at the resolution of this grid and the
+        /// terrain's twelve metres are far too coarse for it. Every quad with one corner in the water is
+        /// emitted whole, so a body gets a dry skirt a full cell wide with the waterline's colour on it
+        /// — on a tarn seventy metres across that skirt was two thirds of what you saw, and the lake
+        /// read as a white diamond with a blue middle. At six metres the outline rounds off, the foam
+        /// goes back to being a line at the bank, and the depth ramp has somewhere to happen.</para>
+        ///
+        /// <para>It costs four times the triangles of a grid nobody would have accepted anyway: under
+        /// four thousand over the whole world, against two and a quarter million of foliage.</para>
+        /// </summary>
+        private const int Refinement = 2;
+
+        /// <summary>
         /// Builds one tile's worth of water, or null if no body reaches it.
         /// </summary>
         public static Mesh BuildTile(
@@ -78,7 +93,7 @@ namespace Horizon.World
             float originX = key.Column * tileSize;
             float originZ = key.Row * tileSize;
 
-            float cell = shape.CellSize;
+            float cell = shape.CellSize / Refinement;
             int cells = Mathf.Max(1, Mathf.RoundToInt(tileSize / cell));
 
             var vertices = new List<Vector3>(256);

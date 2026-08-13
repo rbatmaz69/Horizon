@@ -935,6 +935,8 @@ namespace Horizon.EditorTools
 
             waterPlans.Add(WaterShape.BesideTown(
                 "Talheimer See",
+                talheim.Network,
+                talheim.Footprint,
                 path,
                 (MountainPassCourse.TownStartDistance + MountainPassCourse.TownEndDistance) * 0.5f,
                 TownShape.Default.AcrossInner,
@@ -943,7 +945,13 @@ namespace Horizon.EditorTools
                 radius: 35f,
                 bankEase: 25f,
                 depth: 4f,
-                freeboard: 4f));
+                freeboard: 4f,
+                // Plot depth plus its garden plus the fence line — the outermost thing Talheim ever
+                // puts down beside a street is about thirty metres from the kerb.
+                plotReach: 32f,
+                out string lakeSite));
+
+            Debug.Log($"[Horizon] Water siting: {lakeSite}");
 
             WaterBody[] waters = WaterPlanner.Resolve(
                 waterPlans, field, motorwayPath, motorwayCourse, out string waterReport);
@@ -1445,7 +1453,10 @@ namespace Horizon.EditorTools
             string worstWater = null;
             string worstWhere = null;
 
-            void Walk(IRoadPath road, string what)
+            string overWater = null;
+            string overWhere = null;
+
+            void Walk(IRoadPath road, string what, RoadCourse course = null)
             {
                 if (road == null)
                 {
@@ -1454,6 +1465,13 @@ namespace Horizon.EditorTools
 
                 for (float at = 0f; at <= road.Length; at += 10f)
                 {
+                    // A span is allowed to cross water, and both rivers exist precisely because one
+                    // does. What is checked below is the road that is *on the ground*.
+                    if (course != null && course.IsBridged(at))
+                    {
+                        continue;
+                    }
+
                     Vector3 on = road.GetPositionAtDistance(at);
 
                     for (int w = 0; w < waters.Length; w++)
@@ -1463,6 +1481,20 @@ namespace Horizon.EditorTools
                         if (!body.Near(on.x, on.z) || body.DistanceOutside(on.x, on.z) > body.BankEase)
                         {
                             continue;
+                        }
+
+                        // Standing over open water, at any height at all.
+                        //
+                        // <b>Height clearance does not cover this and the difference is not academic.</b>
+                        // The first Talheimer See passed the check below at 4.3 m and came out with a
+                        // street and six houses on a plinth in the middle of it: the basin was dug out
+                        // from under the village, the paving stayed where the layout put it, and every
+                        // number in the build was healthy. A viaduct is allowed to cross water. A village
+                        // street is not, because nothing built it a deck.
+                        if (overWater == null && body.DistanceOutside(on.x, on.z) <= 0f)
+                        {
+                            overWater = body.Name;
+                            overWhere = $"{at:0} m along {what}";
                         }
 
                         float above = on.y - body.SurfaceY;
@@ -1478,7 +1510,7 @@ namespace Horizon.EditorTools
 
             for (int r = 0; r < roads.Length; r++)
             {
-                Walk(roads[r].Path, $"trunk road {r}");
+                Walk(roads[r].Path, $"trunk road {r}", roads[r].Course);
             }
 
             // And every street in every town.
@@ -1502,6 +1534,14 @@ namespace Horizon.EditorTools
                         Walk(network.Edges[e].Path, $"{towns[t].Name} street {e}");
                     }
                 }
+            }
+
+            if (overWater != null)
+            {
+                Debug.LogWarning(
+                    $"[Horizon] '{overWater}' has open water under the carriageway at {overWhere}. "
+                    + "The road is standing over a basin that was dug out from beneath it, whatever "
+                    + "height it is standing at. Move the body clear of the road in plan.");
             }
 
             if (worstWater == null)

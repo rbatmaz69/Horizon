@@ -57,9 +57,14 @@ namespace Horizon.World
                 bodies.Add(new WaterBody(
                     plan.Name, plan.Kind, spine, plan.HalfWidth, plan.BankEase, surface, plan.Depth));
 
+                // The centre is in the line because a body that comes out somewhere unintended is the
+                // failure this whole file is written to avoid, and 'surface -3.8 m' reads perfectly
+                // reasonable whether the tarn is beside the village or on top of it.
+                Vector2 middle = spine[spine.Length / 2];
+
                 lines.Append($"\n  {plan.Name,-16} {plan.Kind,-5} surface {surface,7:0.0} m, "
                              + $"bed {surface - plan.Depth,7:0.0} m, rim {rim,7:0.0} m, "
-                             + $"{plan.HalfWidth * 2f:0} m across");
+                             + $"{plan.HalfWidth * 2f:0} m across, centred ({middle.x:0}, {middle.y:0})");
             }
 
             report = lines.ToString();

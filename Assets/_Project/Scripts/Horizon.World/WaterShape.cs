@@ -277,17 +277,34 @@ namespace Horizon.World
     public static class WaterShape
     {
         /// <summary>
-        /// A tarn tucked against a village, on the narrow side of it.
+        /// A tarn tucked against a village, on the narrow side of it — placed by walking out until
+        /// nothing built is in the way.
         ///
         /// <para><b>Derived from the town rather than typed beside it.</b> A hand-picked coordinate
         /// next to a settlement is only correct until the settlement is re-planned, and the failure is
-        /// not subtle — the first Talheim lake drowned a street and six houses. This takes the town's
-        /// own inner extent, steps a clear margin further out, and puts the water there, so it moves
-        /// when the village does.</para>
+        /// not subtle — the first Talheim lake drowned a street and six houses. The <i>inner</i> side,
+        /// because these basins are asymmetric: Talheim reaches 260 m one way across the road and 90 m
+        /// the other, and the short side is the only one with room between the last plot and the edge
+        /// of the terrain corridor.</para>
         ///
-        /// <para>The <i>inner</i> side, because these basins are asymmetric: Talheim reaches 260 m one
-        /// way across the road and 90 m the other. The short side is the only one with room between the
-        /// last plot and the edge of the terrain corridor.</para>
+        /// <para><b>Why an offset in the road's frame is not enough, which cost a second attempt.</b>
+        /// Stepping a clear margin past <c>TownShape.AcrossInner</c> is exact in the frame at one
+        /// station and worthless anywhere else: Talheim is laid along a bend tight enough that its own
+        /// mapping reports a scale of 0.40 at its far end, so on the inside of that bend the plots
+        /// belonging to other stations swing straight through the offset the middle station computes.
+        /// The lake solved level, shaded correctly, cleared every street by 4.3 m of height — and sat
+        /// among the houses with its basin dug out from under them.</para>
+        ///
+        /// <para>So the frame gives a first guess and the town itself decides. The site walks directly
+        /// away from the village until every street is clear of the bank, which is a question about
+        /// world positions and therefore immune to whatever the road is doing.</para>
+        ///
+        /// <para><b>Streets, not plots, and not by preference.</b> Plots are ranged along the streets
+        /// once the ground exists, and the ground cannot exist until the basins are carved into it — so
+        /// at the moment a lake needs siting there is nothing to ask about houses. What there is, is
+        /// the street graph, which was laid before the field and which every plot hangs off at a known
+        /// setback. <paramref name="plotReach"/> is that setback: clear the paving by it and the
+        /// gardens are clear too.</para>
         /// </summary>
         /// <param name="freeboard">
         /// How far the surface is set below the rim. Bigger than the 1.5 m a lake normally takes,
@@ -299,15 +316,24 @@ namespace Horizon.World
         /// The town's near edge, signed across the road — negative on the inner side. Comes straight
         /// from <c>TownShape.AcrossInner</c>.
         /// </param>
+        /// <param name="plotReach">
+        /// How far a plot reaches from the street it stands on, garden included. Everything the town
+        /// builds later lives inside this of some kerb.
+        /// </param>
+        /// <param name="report">A line saying where it ended up and what it cleared by.</param>
         public static WaterPlan BesideTown(
             string name,
+            StreetNetwork streets,
+            Bounds footprint,
             IRoadPath road,
             float alongRoad,
             float acrossInner,
             float radius,
             float bankEase,
             float depth,
-            float freeboard)
+            float freeboard,
+            float plotReach,
+            out string report)
         {
             // Clear of the bank, not just clear of the water — and that distinction is the whole of
             // why this needs saying. A flat twenty metres was tried and failed: the bank eases out over
@@ -322,11 +348,75 @@ namespace Horizon.World
                 ? acrossInner - margin - radius
                 : acrossInner + margin + radius;
 
-            Vector3 centre = road.GetPositionAtDistance(alongRoad)
-                             + road.GetRightAtDistance(alongRoad) * across;
+            Vector3 guess = road.GetPositionAtDistance(alongRoad)
+                            + road.GetRightAtDistance(alongRoad) * across;
 
-            return new WaterPlan(name, WaterKind.Lake, null, new Vector2(centre.x, centre.z),
+            var from = new Vector2(guess.x, guess.z);
+            Vector2 centre = from;
+
+            if (streets != null)
+            {
+                var town = new Vector2(footprint.center.x, footprint.center.z);
+
+                Vector2 away = from - town;
+                away = away.sqrMagnitude > 1f
+                    ? away.normalized
+                    : new Vector2(road.GetRightAtDistance(alongRoad).x,
+                        road.GetRightAtDistance(alongRoad).z).normalized;
+
+                float clear = radius + bankEase + plotReach;
+                float pushed = 0f;
+                float nearest = NearestStreet(streets, centre);
+
+                // Ten metres a step, and it gives up rather than walking to the horizon: past a couple
+                // of hundred metres the site is outside the terrain corridor, and a lake on ground that
+                // does not exist is a worse answer than no lake.
+                while (nearest < clear && pushed < 260f)
+                {
+                    pushed += 10f;
+                    centre = from + away * pushed;
+                    nearest = NearestStreet(streets, centre);
+                }
+
+                report = nearest < clear
+                    ? $"{name} found nowhere within 260 m of the village edge that clears its streets "
+                      + $"by {clear:0} m — the best is {nearest:0} m, at ({centre.x:0}, {centre.y:0})."
+                    : $"{name} sits {pushed:0} m beyond the frame offset, at ({centre.x:0}, "
+                      + $"{centre.y:0}), {nearest:0} m of dry ground from the nearest kerb.";
+            }
+            else
+            {
+                report = $"{name} placed from the road frame alone — no street graph to check against.";
+            }
+
+            return new WaterPlan(name, WaterKind.Lake, null, centre,
                 radius, bankEase, 0f, 0f, depth, freeboard);
+        }
+
+        /// <summary>How far the nearest kerb is from a point, measured off the paved half-width.</summary>
+        private static float NearestStreet(StreetNetwork streets, Vector2 at)
+        {
+            float nearest = float.MaxValue;
+
+            for (int e = 0; e < streets.Edges.Count; e++)
+            {
+                StreetEdge edge = streets.Edges[e];
+                if (edge.Path == null)
+                {
+                    continue;
+                }
+
+                // Sampled rather than measured against the polyline: these are ten to eighty metres
+                // long and the step is finer than the margin, so nothing hides between two samples.
+                for (float along = 0f; along <= edge.Length; along += 8f)
+                {
+                    Vector3 on = edge.Path.GetPositionAtDistance(along);
+                    float distance = Vector2.Distance(at, new Vector2(on.x, on.z));
+                    nearest = Mathf.Min(nearest, distance - edge.HalfOuter);
+                }
+            }
+
+            return nearest;
         }
 
         /// <summary>
