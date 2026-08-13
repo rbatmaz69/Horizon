@@ -858,8 +858,8 @@ namespace Horizon.EditorTools
             linkChunk.RecalculateBounds();
             linkChunk.SetBounds(linkChunk.Center, 100000f);
 
-            BuildMotorwayMerge(worldRoot.transform, motorwayPath, westbound, motorwayShape, roadShape,
-                linkPath, materials);
+            BuildMotorwayMerge(worldRoot.transform, out float rampCapOnMedian, out float rampMergeOnMedian,
+                motorwayPath, westbound, motorwayShape, roadShape, linkPath, materials);
             EditorUtility.SetDirty(roadChunk);
 
             // --- The city's arterial. Never paved: it is a coordinate axis and a height datum, which is
@@ -979,7 +979,8 @@ namespace Horizon.EditorTools
             BuildTraffic(worldRoot.transform, towns, path, roadShape, materials,
                 litRenderers, litSlotStart, litSlots, litSlotGroups,
                 motorwayPath, motorwayShape, AutobahnCourse.CarriagewayOffset,
-                System.Array.IndexOf(towns, hochstadt), HochstadtLayout.GatewayNode);
+                System.Array.IndexOf(towns, hochstadt), HochstadtLayout.GatewayNode,
+                linkPath, roadShape, rampCapOnMedian, rampMergeOnMedian);
 
             // After both, so one component carries the town's windows and the traffic's lamps.
             WireTownLights(worldRoot.transform, litRenderers, litSlotStart, litSlots, litSlotGroups,
@@ -1287,6 +1288,8 @@ namespace Horizon.EditorTools
         /// </summary>
         private static void BuildMotorwayMerge(
             Transform parent,
+            out float capOnMedian,
+            out float mergeOnMedian,
             IRoadPath motorwayPath,
             IRoadPath carriageway,
             in RoadShape motorwayShape,
@@ -1300,6 +1303,16 @@ namespace Horizon.EditorTools
             // interchange's bend.
             Vector3 cap = linkPath.GetPositionAtDistance(0f);
             float atDistance = NearestDistanceOn(carriageway, cap);
+
+            // The same two places expressed on the median line, because that is the frame the lane graph
+            // is built in: TrafficNetworkBuilder samples the median and offsets to a carriageway, so a
+            // distance taken along the carriageway would be several metres out by the time it had been
+            // through the interchange's bend.
+            capOnMedian = NearestDistanceOn(motorwayPath, cap);
+
+            // Assigned up front so the empty-mesh path below still leaves both defined. A negative merge
+            // distance is what tells TrafficNetworkBuilder there is no interchange to cut lanes for.
+            mergeOnMedian = -1f;
 
             Vector3 right = carriageway.GetRightAtDistance(atDistance);
             Vector3 forward = carriageway.GetDirectionAtDistance(atDistance);
@@ -1347,6 +1360,15 @@ namespace Horizon.EditorTools
             WorldChunk chunk = merge.AddComponent<WorldChunk>();
             chunk.RecalculateBounds();
             chunk.SetBounds(chunk.Center, 100000f);
+
+            // Measured through the carriageway and mapped back, rather than added to capOnMedian: the
+            // two paths have different arc lengths through a bend, and this is the point three lanes are
+            // going to be cut at.
+            Vector3 mergeEnd = carriageway.GetPositionAtDistance(
+                Mathf.Clamp(atDistance + travelSign * MotorwayMergeBuilder.TotalLength,
+                    0f, carriageway.Length));
+
+            mergeOnMedian = NearestDistanceOn(motorwayPath, mergeEnd);
 
             ValidateMergeSeam(carriageway, motorwayShape, linkPath, linkShape, atDistance, side, mouthWidth);
 
@@ -2466,7 +2488,11 @@ namespace Horizon.EditorTools
             RoadShape highwayShape,
             float carriagewayOffset,
             int highwayEndTown,
-            int highwayEndNode)
+            int highwayEndNode,
+            IRoadPath link,
+            RoadShape linkShape,
+            float rampCapDistance,
+            float rampMergeDistance)
         {
             var networks = new StreetNetwork[towns.Count];
             for (int i = 0; i < towns.Count; i++)
@@ -2484,7 +2510,8 @@ namespace Horizon.EditorTools
             // belongs where the meshes are and under the orphan report that watches them.
             TrafficNetwork routes = TrafficNetworkBuilder.Build(
                 networks, trunk, trunkShape, highway, highwayShape, carriagewayOffset,
-                highwayEndTown, highwayEndNode);
+                highwayEndTown, highwayEndNode,
+                link, linkShape, rampCapDistance, rampMergeDistance);
             routes = HorizonAssetUtility.ReplaceAsset(routes, GeneratedFolder + "/TrafficNetwork.asset");
 
             CarMeshBuilder.CarProfile[] profiles = CarMeshBuilder.TrafficProfiles;

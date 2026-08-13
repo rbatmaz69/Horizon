@@ -72,6 +72,17 @@ namespace Horizon.World
         private const float MinimumTrunkLane = 6f;
 
         /// <summary>
+        /// Speed on the on-ramp, metres per second. Twenty-two is about 80 km/h.
+        ///
+        /// <para>Between the trunk road's 19 and the nearside motorway lane's, because that is what the
+        /// lane is for: the loop is taken at country-road speed and the straight after it exists so a car
+        /// arrives at the carriageway doing something close to what is already on it. A ramp at trunk
+        /// speed puts a 70 km/h car into 110 km/h traffic, which the merge connector then has to
+        /// absorb.</para>
+        /// </summary>
+        private const float RampSpeed = 22f;
+
+        /// <summary>
         /// Builds the routes.
         ///
         /// <para>Two directed lanes per street and per stretch of trunk road, and one connector per legal
@@ -92,7 +103,11 @@ namespace Horizon.World
             RoadShape highwayShape = default,
             float carriagewayOffset = 0f,
             int highwayEndTown = -1,
-            int highwayEndNode = -1)
+            int highwayEndNode = -1,
+            IRoadPath link = null,
+            RoadShape linkShape = default,
+            float rampCapDistance = 0f,
+            float rampMergeDistance = -1f)
         {
             var lanes = new LaneBuffer();
 
@@ -118,6 +133,19 @@ namespace Horizon.World
             int highwayWestNode = nodeCount + 2;
             int highwayEastNode = nodeCount + 3;
             nodeCount += 4;
+
+            // And a fifth where the ramp meets the motorway, when there is one. It is a junction in every
+            // sense the rest of this file means: lanes end there and connectors take over, which is what
+            // turns two roads arriving at the same place into traffic that gives way to itself.
+            bool merging = link != null && highway != null && rampMergeDistance >= 0f
+                           && rampMergeDistance < highway.Length;
+
+            int interchangeNode = -1;
+            if (merging)
+            {
+                interchangeNode = nodeCount;
+                nodeCount += 1;
+            }
 
             // Unless the motorway ends somewhere real. Where it runs into a city, its far end and that
             // city's gateway are the same junction — not two junctions in the same place — and that
@@ -162,6 +190,19 @@ namespace Horizon.World
                 }
             }
 
+            if (merging)
+            {
+                // On the nearside lane itself, not on the median: this is the point the ramp's lane and
+                // the carriageway's two halves all end or begin at, and AddConnector shapes every turn
+                // through it around this position.
+                var nearside = new OffsetRoadPath(highway, -carriagewayOffset);
+                float across = (-(carriagewayOffset + 1.5f * HighwayLaneWidth) + carriagewayOffset)
+                               / Mathf.Max(0.001f, highwayShape.HalfWidth);
+
+                nodeAt[interchangeNode] = LanePoint(
+                    nearside, highwayShape, rampMergeDistance, across);
+            }
+
             var entryNode = new List<int>(256);
             var exitNode = new List<int>(256);
 
@@ -176,7 +217,25 @@ namespace Horizon.World
             if (highway != null)
             {
                 AddHighwayLanes(highway, highwayShape, carriagewayOffset,
-                    highwayWestNode, highwayEastNode, lanes, entryNode, exitNode);
+                    highwayWestNode, highwayEastNode, lanes, entryNode, exitNode,
+                    merging, rampMergeDistance, interchangeNode);
+            }
+
+            if (merging)
+            {
+                // Appended last, and as a pair, so the lane^1 arithmetic AddConnectors depends on keeps
+                // landing on an even boundary. Everything before this is emitted two at a time.
+                if ((lanes.Count & 1) != 0)
+                {
+                    Debug.LogError("[Horizon] Traffic lanes are meant to come in pairs and there is an "
+                                   + "odd number of them before the interchange. AddConnectors reads a "
+                                   + "lane's reverse as lane ^ 1, and from here on it would be reading "
+                                   + "the wrong one.");
+                }
+
+                AddInterchangeLanes(highway, highwayShape, carriagewayOffset, link, linkShape,
+                    rampCapDistance, rampMergeDistance, highwayEastNode, roadStartNode, interchangeNode,
+                    lanes, entryNode, exitNode);
             }
 
             int drivenLanes = lanes.Count;
@@ -185,6 +244,11 @@ namespace Horizon.World
 
             int[] exitStart = BuildExitTable(
                 drivenLanes, connectorsOf, connectorTarget, out int[] exits);
+
+            if (merging)
+            {
+                ReportInterchange(lanes, exitStart, exits, connectorTarget, drivenLanes);
+            }
 
             var asset = ScriptableObject.CreateInstance<TrafficNetwork>();
             asset.Fill(
@@ -382,7 +446,10 @@ namespace Horizon.World
             int eastNode,
             LaneBuffer lanes,
             List<int> entryNode,
-            List<int> exitNode)
+            List<int> exitNode,
+            bool merging,
+            float mergeDistance,
+            int interchangeNode)
         {
             if (centre == null || centre.Length < MinimumTrunkLane)
             {
@@ -402,10 +469,118 @@ namespace Horizon.World
                 entryNode.Add(westNode);
                 exitNode.Add(eastNode);
 
-                AddHighwayLane(centre, shape, -carriagewayOffset, -across, false, speed, lanes);
-                entryNode.Add(eastNode);
+                // The nearside lane on the carriageway the ramp feeds is cut at the merge point, and what
+                // is emitted here is only the half downstream of it. The upstream half is appended after
+                // the loop, alongside the ramp — see AddInterchangeLanes for why the two go together.
+                bool cut = merging && ordinal == 0;
+
+                AddHighwayLane(centre, shape, -carriagewayOffset, -across, false, speed, lanes,
+                    fromDistance: 0f, toDistance: cut ? mergeDistance : -1f);
+
+                entryNode.Add(cut ? interchangeNode : eastNode);
                 exitNode.Add(westNode);
             }
+        }
+
+        /// <summary>
+        /// Says what the interchange actually came out as.
+        ///
+        /// <para>The merge is three lanes agreeing about one node, and every part of that is an index
+        /// into a flat array. Nothing about a wrong one throws: the ramp simply leads nowhere, or the
+        /// motorway's nearside lane stops feeding itself, and the first anybody knows is a queue of cars
+        /// stopped on a slip road. Both counts below are two if it is wired right — the ramp reaching the
+        /// carriageway, and the carriageway's upstream half reaching its downstream half.</para>
+        /// </summary>
+        private static void ReportInterchange(
+            LaneBuffer lanes,
+            int[] exitStart,
+            int[] exits,
+            List<int> connectorTarget,
+            int drivenLanes)
+        {
+            // The pair appended last: the cut lane's upstream half, then the ramp.
+            int upstream = drivenLanes - 2;
+            int ramp = drivenLanes - 1;
+
+            int RunsInto(int lane)
+            {
+                return lane >= 0 && lane + 1 < exitStart.Length
+                    ? exitStart[lane + 1] - exitStart[lane]
+                    : 0;
+            }
+
+            int fromRamp = RunsInto(ramp);
+            int fromUpstream = RunsInto(upstream);
+
+            if (fromRamp == 0 || fromUpstream == 0)
+            {
+                Debug.LogError(
+                    $"[Horizon] The interchange is not wired: the ramp has {fromRamp} way(s) on and the "
+                    + $"motorway's upstream nearside lane has {fromUpstream}. Both need at least one, and "
+                    + "they need to be the same lane — see AddInterchangeLanes.");
+                return;
+            }
+
+            Debug.Log($"[Horizon] Interchange: the ramp is {lanes.Length[ramp]:0} m of lane off the pass "
+                      + $"with {fromRamp} way(s) onto the motorway, and the nearside carriageway lane is "
+                      + $"cut into {lanes.Length[upstream]:0} m before the merge plus the rest after it, "
+                      + $"with {fromUpstream} way(s) on. Traffic joins the motorway here rather than "
+                      + "driving past the slip road as it did.");
+        }
+
+        /// <summary>
+        /// The two lanes that meet at the interchange: the upstream half of the cut nearside lane, and
+        /// the ramp coming down off the pass.
+        ///
+        /// <para><b>Emitted as one pair, and appended rather than woven in.</b> Both exit at the
+        /// interchange node and the only lane entering it is the downstream half, so
+        /// <see cref="AddConnectors"/> builds one connector from each — which is a merge, expressed
+        /// entirely in the topology the graph already had. The file used to say this could not be done
+        /// without inventing something; it could, because lanes already carry an entry and an exit node
+        /// and connectors are already built from shared ones.</para>
+        ///
+        /// <para><b>Why the pair is these two and not the obvious ones.</b> <c>AddConnectors</c> reads a
+        /// lane's reverse as <c>lane ^ 1</c> and uses it for one thing only: to hold the U-turn back
+        /// unless there is nothing else to do. Pairing the upstream half with the ramp is harmless
+        /// because neither of them enters a node the other leaves — the exclusion never fires, and both
+        /// get their connector on the first pass. Splitting the eastbound nearside lane to keep a tidier
+        /// pairing was the alternative, and it would have put a junction token on a motorway lane with no
+        /// junction on it: one car through at a time, on a road where four go past abreast.</para>
+        /// </summary>
+        private static void AddInterchangeLanes(
+            IRoadPath centre,
+            in RoadShape shape,
+            float carriagewayOffset,
+            IRoadPath link,
+            in RoadShape linkShape,
+            float capDistance,
+            float mergeDistance,
+            int eastNode,
+            int rampFromNode,
+            int interchangeNode,
+            LaneBuffer lanes,
+            List<int> entryNode,
+            List<int> exitNode)
+        {
+            float across = carriagewayOffset + 1.5f * HighwayLaneWidth;
+
+            // Upstream half of the nearside lane: from the far end down to the merge point.
+            AddHighwayLane(centre, shape, -carriagewayOffset, -across, false, HighwayLaneSpeeds[0],
+                lanes, fromDistance: mergeDistance, toDistance: -1f);
+
+            entryNode.Add(eastNode);
+            exitNode.Add(interchangeNode);
+
+            // The ramp. Its lane ends where the nearside lane's two halves meet, having already moved
+            // across onto it, so the connector out of it is the last few metres rather than a swerve.
+            var carriageway = new OffsetRoadPath(centre, -carriagewayOffset);
+            float nearsideFraction = (-across + carriagewayOffset) / Mathf.Max(0.001f, shape.HalfWidth);
+
+            AddRampLane(link, linkShape, carriageway, shape, capDistance, mergeDistance,
+                nearsideFraction, lanes);
+
+            entryNode.Add(rampFromNode);
+            exitNode.Add(interchangeNode);
         }
 
         /// <summary>
@@ -423,14 +598,19 @@ namespace Horizon.World
             float acrossFromMedian,
             bool forward,
             float speed,
-            LaneBuffer lanes)
+            LaneBuffer lanes,
+            float fromDistance = 0f,
+            float toDistance = -1f)
         {
             // Rebased onto the carriageway this lane belongs to, so the camber and banking below are
             // measured across the asphalt the car is actually on rather than across the median.
             var carriageway = new OffsetRoadPath(centre, carriagewayOffset);
             float fraction = (acrossFromMedian - carriagewayOffset) / Mathf.Max(0.001f, shape.HalfWidth);
 
-            float length = centre.Length;
+            float end = toDistance < 0f ? centre.Length : Mathf.Min(toDistance, centre.Length);
+            float start = Mathf.Clamp(fromDistance, 0f, end);
+
+            float length = end - start;
             int count = Mathf.Max(2, Mathf.CeilToInt(length / SampleSpacing) + 1);
 
             for (int i = 0; i < count; i++)
@@ -438,11 +618,91 @@ namespace Horizon.World
                 // Backwards lanes are walked from the far end, so a lane's points always run in the
                 // direction its cars travel.
                 float t = i / (float)(count - 1);
-                float at = forward ? length * t : length * (1f - t);
+                float at = forward ? Mathf.Lerp(start, end, t) : Mathf.Lerp(end, start, t);
                 lanes.Points.Add(LanePoint(carriageway, shape, at, fraction));
             }
 
             lanes.Close(length, count, -1, TrafficLaneKind.Highway, speed);
+        }
+
+        /// <summary>
+        /// The on-ramp, as one lane: down the link road from the pass and along the acceleration lane
+        /// until it is on the motorway's nearside lane.
+        ///
+        /// <para><b>One lane, not a pair, and that is the honest shape of it.</b> Ambient traffic joins
+        /// the motorway here and never leaves it — a diverge would need its own node at the ramp's mouth
+        /// rather than at the merge point 315 m downstream, and hanging one off this node instead would
+        /// send cars up the acceleration lane against the traffic joining from it. The player drives the
+        /// ramp both ways regardless; the geometry is two-way and always was.</para>
+        ///
+        /// <para>The last stretch is a lateral lerp from the ramp's own lane onto the motorway's nearside
+        /// one, sampled in the carriageway's frame. That is what makes the merge a line a car can follow
+        /// rather than a step across two and a half metres — and it is the same curve the wedge under it
+        /// is built along, so the cars stay on the asphalt that was laid for them.</para>
+        /// </summary>
+        private static void AddRampLane(
+            IRoadPath link,
+            in RoadShape linkShape,
+            IRoadPath carriageway,
+            in RoadShape highwayShape,
+            float capDistance,
+            float mergeDistance,
+            float nearsideFraction,
+            LaneBuffer lanes)
+        {
+            // Travelling down the link means walking its course backwards, so the driver's right hand is
+            // the path's left: the lane sits on the negative side of the centreline.
+            const float rampFraction = -0.5f;
+
+            float linkLength = link.Length;
+            int linkCount = Mathf.Max(2, Mathf.CeilToInt(linkLength / SampleSpacing) + 1);
+
+            for (int i = 0; i < linkCount; i++)
+            {
+                float at = Mathf.Lerp(linkLength, 0f, i / (float)(linkCount - 1));
+                lanes.Points.Add(LanePoint(link, linkShape, at, rampFraction));
+            }
+
+            // Then the merge itself. The first sample would repeat the cap, which is already the last
+            // point above, so it starts one step in.
+            float mergeSpan = Mathf.Abs(mergeDistance - capDistance);
+            int mergeCount = Mathf.Max(2, Mathf.CeilToInt(mergeSpan / SampleSpacing) + 1);
+
+            // Where the ramp's own lane sits, expressed in the carriageway's frame, so the two ends of
+            // the lerp are measured the same way and the line between them cannot kink.
+            Vector3 cap = LanePoint(link, linkShape, 0f, rampFraction);
+            float capFraction = FractionOf(carriageway, highwayShape, capDistance, cap);
+
+            for (int i = 1; i < mergeCount; i++)
+            {
+                float t = i / (float)(mergeCount - 1);
+                float at = Mathf.Lerp(capDistance, mergeDistance, t);
+
+                // Eased rather than linear: a straight lerp across four metres puts the whole lateral
+                // move into a constant drift, and a car following it crabs the entire length of the
+                // lane instead of merging at the end of it.
+                float across = Mathf.Lerp(capFraction, nearsideFraction, Mathf.SmoothStep(0f, 1f, t));
+                lanes.Points.Add(LanePoint(carriageway, highwayShape, at, across));
+            }
+
+            int count = linkCount + mergeCount - 1;
+            lanes.Close(linkLength + mergeSpan, count, -1, TrafficLaneKind.Highway, RampSpeed);
+        }
+
+        /// <summary>
+        /// Which fraction of a carriageway's half-width a world point sits at. Used to express the ramp's
+        /// mouth in the motorway's own frame so the merge can be interpolated in one coordinate.
+        /// </summary>
+        private static float FractionOf(
+            IRoadPath road, in RoadShape shape, float along, Vector3 point)
+        {
+            float at = Mathf.Clamp(along, 0f, road.Length);
+
+            Vector3 centre = road.GetPositionAtDistance(at);
+            Vector3 right = road.GetBankedRightAtDistance(
+                at, shape.MaxBankDegrees, shape.FullBankRadius);
+
+            return Vector3.Dot(point - centre, right) / Mathf.Max(0.001f, shape.HalfWidth);
         }
 
         /// <summary>How far a bell-mouth reaches along the trunk road either side of its junction.</summary>
