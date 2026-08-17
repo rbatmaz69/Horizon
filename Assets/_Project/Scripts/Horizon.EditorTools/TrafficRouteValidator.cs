@@ -57,13 +57,14 @@ namespace Horizon.EditorTools
 
             try
             {
-                StreetNetwork streets = RebuildNetwork(out scratch, out RoadPath trunk);
+                StreetNetwork[] streets = RebuildNetwork(out scratch, out RoadPath trunk);
 
                 CheckLanesFollowTheirStreets(routes, streets);
                 CheckLanesFollowTheTrunkRoad(routes, trunk);
                 CheckConnectorsAreFlush(routes);
                 CheckNothingIsStranded(routes);
                 CheckConnectorsClearBuildings(routes);
+                CheckSignalsAreOnApproaches(routes);
             }
             finally
             {
@@ -80,6 +81,112 @@ namespace Horizon.EditorTools
         }
 
         /// <summary>
+        /// The signals are on the lanes that stop at them, and every controlled junction has both phases.
+        ///
+        /// <para>Three faults, none of which throws and none of which is visible in a screenshot. A
+        /// signal on a <b>connector</b> would stop a car in the middle of a junction rather than at the
+        /// line in front of it — the director only consults the phase on a driven lane, so today it
+        /// would be quietly ignored and would become a stopped car the day that condition is relaxed. A
+        /// junction whose approaches are <b>all on one group</b> spends half of every cycle red for
+        /// everybody. And a group number <b>past the end of the table</b> is a lane waiting on a phase
+        /// that never comes round.</para>
+        /// </summary>
+        private static void CheckSignalsAreOnApproaches(TrafficNetwork routes)
+        {
+            int groups = routes.SignalGroupCount;
+            if (groups <= 0)
+            {
+                Debug.Log("[Horizon] Traffic signals: none in this bake.");
+                return;
+            }
+
+            int onConnectors = 0;
+            int outOfRange = 0;
+            int controlled = 0;
+
+            // Which groups arrive at each junction, as a bitmask — two bits is the whole of what has to
+            // be counted, so a mask beats a set.
+            var arriving = new int[routes.NodeCount];
+
+            for (int lane = 0; lane < routes.LaneCount; lane++)
+            {
+                int group = routes.SignalOf(lane);
+                if (group < 0)
+                {
+                    continue;
+                }
+
+                controlled++;
+
+                if (routes.NodeOf(lane) >= 0)
+                {
+                    onConnectors++;
+                    continue;
+                }
+
+                if (group >= groups)
+                {
+                    outOfRange++;
+                    continue;
+                }
+
+                for (int i = 0; i < routes.ExitCount(lane); i++)
+                {
+                    int node = routes.NodeOf(routes.ExitAt(lane, i));
+                    if (node >= 0 && node < arriving.Length)
+                    {
+                        arriving[node] |= 1 << group;
+                    }
+                }
+            }
+
+            int junctions = 0;
+            int onePhase = 0;
+
+            for (int node = 0; node < arriving.Length; node++)
+            {
+                if (arriving[node] == 0)
+                {
+                    continue;
+                }
+
+                junctions++;
+
+                // A power of two is a single bit, which is a junction with only one phase arriving.
+                if ((arriving[node] & (arriving[node] - 1)) == 0)
+                {
+                    onePhase++;
+                }
+            }
+
+            if (onConnectors > 0)
+            {
+                Debug.LogError($"[Horizon] Traffic signals: {onConnectors} connector(s) carry a phase. A "
+                               + "signal belongs on the lane that stops at it, never on the turn through "
+                               + "the junction — see TrafficNetworkBuilder.AddStreetLanes.");
+            }
+
+            if (outOfRange > 0)
+            {
+                Debug.LogError($"[Horizon] Traffic signals: {outOfRange} lane(s) wait on a phase group "
+                               + $"that does not exist. The network has {groups}.");
+            }
+
+            if (onePhase > 0)
+            {
+                Debug.LogError($"[Horizon] Traffic signals: {onePhase} junction(s) have only one phase "
+                               + "arriving, so they are red for everybody for half of every cycle. See "
+                               + "TrafficSignalPlan.Split, which is supposed to drop those.");
+            }
+
+            if (onConnectors == 0 && outOfRange == 0 && onePhase == 0)
+            {
+                Debug.Log($"[Horizon] Traffic signals: {junctions} junction(s), {controlled} controlled "
+                          + $"lane(s), {groups} phase groups — all on approaches, all two-phase.");
+            }
+        }
+
+        /// <summary>
         /// Every street lane sample is within its own street's half-width of a centreline.
         ///
         /// <para>Measured against the street graph rebuilt from the layout table rather than against the
@@ -89,10 +196,22 @@ namespace Horizon.EditorTools
         ///
         /// <para>The check that matters is the <i>upper</i> bound. A lane inside the carriageway is fine;
         /// a lane outside it is a car on the footway.</para>
+        ///
+        /// <para><b>Against every settlement, and each sample against whichever is nearer.</b> This took
+        /// one street graph while there was one town, and kept taking one after Hochstadt was added — so
+        /// the city's hundred and twenty lanes were being measured against Talheim's streets, five
+        /// kilometres away, and every one of them reported as a car in a field. Six and a half thousand
+        /// samples of correct road, reported as faults, which is exactly how a check stops being
+        /// read.</para>
         /// </summary>
-        private static void CheckLanesFollowTheirStreets(TrafficNetwork routes, StreetNetwork streets)
+        private static void CheckLanesFollowTheirStreets(
+            TrafficNetwork routes, StreetNetwork[] towns)
         {
-            var index = new StreetIndex(streets, 2f, 16f);
+            var indices = new StreetIndex[towns.Length];
+            for (int i = 0; i < towns.Length; i++)
+            {
+                indices[i] = new StreetIndex(towns[i], 2f, 16f);
+            }
 
             float worst = 0f;
             int worstLane = -1;
@@ -111,16 +230,29 @@ namespace Horizon.EditorTools
                 for (int i = 0; i < routes.SampleCount(lane); i++)
                 {
                     Vector3 at = routes.SampleAt(lane, i);
-                    float distance = index.DistanceTo(at.x, at.z, out int edge);
-                    if (edge < 0)
+
+                    // The nearest street in any town. A lane belongs to exactly one of them and is
+                    // metres from it, so "nearest" and "its own" are the same answer — and finding it
+                    // this way needs no assumption about which town's lanes were emitted first.
+                    float over = float.MaxValue;
+
+                    for (int town = 0; town < indices.Length; town++)
+                    {
+                        float distance = indices[town].DistanceTo(at.x, at.z, out int edge);
+                        if (edge < 0)
+                        {
+                            continue;
+                        }
+
+                        // Against the carriageway, not the paved width: a lane on the pavement is the
+                        // thing being looked for, and a half-outer bound would let one through.
+                        over = Mathf.Min(over, distance - towns[town].Edges[edge].HalfWidth);
+                    }
+
+                    if (over == float.MaxValue)
                     {
                         continue;
                     }
-
-                    // Against the carriageway, not the paved width: a lane on the pavement is the thing
-                    // being looked for, and a half-outer bound would let one through.
-                    float allowed = streets.Edges[edge].HalfWidth;
-                    float over = distance - allowed;
 
                     if (over > 0f)
                     {
@@ -460,7 +592,7 @@ namespace Horizon.EditorTools
         /// caching it in a static would leave a hidden object holding forty <c>RoadPath</c> components
         /// alive between runs.</para>
         /// </summary>
-        private static StreetNetwork RebuildNetwork(out GameObject scratch, out RoadPath trunk)
+        private static StreetNetwork[] RebuildNetwork(out GameObject scratch, out RoadPath trunk)
         {
             scratch = new GameObject("TrafficValidatorScratch") { hideFlags = HideFlags.HideAndDontSave };
 
@@ -472,13 +604,31 @@ namespace Horizon.EditorTools
             trunk = pathObject.AddComponent<RoadPath>();
             trunk.SetControlPoints(course.ControlPoints);
 
-            TownNetworkSpec layout = TalheimLayout.Build();
+            // The city hangs off its own arterial rather than off the pass, and that line is never
+            // paved — it is a coordinate axis. Rebuilt here the same way PrototypeSetup does it, because
+            // a validator measuring against a graph the bake did not use is measuring nothing.
+            var arterialObject = new GameObject("Arterial");
+            arterialObject.transform.SetParent(scratch.transform, false);
 
+            RoadPath arterial = arterialObject.AddComponent<RoadPath>();
+            arterial.SetControlPoints(HochstadtCourse.Build().ControlPoints);
+
+            return new[]
+            {
+                RebuildTown(TalheimLayout.Build(), trunk, TownShape.Default, scratch.transform),
+                RebuildTown(HochstadtLayout.Build(), arterial, TownShape.Hochstadt, scratch.transform),
+            };
+        }
+
+        /// <summary>One settlement, taken through the same two steps the bake takes it through.</summary>
+        private static StreetNetwork RebuildTown(
+            TownNetworkSpec layout, IRoadPath trunk, in TownShape preset, Transform scratch)
+        {
             StreetNetwork network = StreetNetwork.Build(
                 trunk,
-                TownShape.CoverLayout(TownShape.Default, layout, TerrainShape.Default.RoadShelfDrop),
+                TownShape.CoverLayout(preset, layout, TerrainShape.Default.RoadShelfDrop),
                 layout,
-                scratch.transform,
+                scratch,
                 TerrainShape.Default.RoadShelfDrop);
 
             StreetJunctionBuilder.ResolveTrims(network, RoadShape.Default.OuterHalfWidth);
