@@ -206,7 +206,20 @@ namespace Horizon.World
         /// </summary>
         public const int MarkingSubmesh = 4;
 
-        public const int StreetSubmeshCount = 5;
+        /// <summary>
+        /// Traffic light masts, arms and heads — everything about a signal except the lenses.
+        ///
+        /// <para>In the street mesh rather than with the lenses, and the split is the whole trick. The
+        /// body never changes colour, so it rides in the vertices like every other category here and
+        /// <see cref="SurfaceTints"/> merges it away to nothing. Only the three lenses have to be
+        /// swapped between dark and lit four times a cycle, and those are a handful of quads on their
+        /// own renderer — see <c>TrafficSignalMeshes</c>. Putting the whole signal in the second mesh
+        /// would have cost a draw call for the masts; putting the lenses in this one would have made
+        /// them uncolourable.</para>
+        /// </summary>
+        public const int SignalBodySubmesh = 5;
+
+        public const int StreetSubmeshCount = 6;
 
         /// <summary>
         /// The colour each street submesh is tinted with when they are merged into one.
@@ -225,6 +238,10 @@ namespace Horizon.World
             tints[FootwaySubmesh] = new Color(0.60f, 0.58f, 0.55f);
             tints[VergeSubmesh] = new Color(0.36f, 0.48f, 0.26f);
             tints[MarkingSubmesh] = new Color(0.82f, 0.80f, 0.74f);
+
+            // Dark grey, not black: a black mast against a low sun is a silhouette with no form in it,
+            // and this world's shading is doing all its work in the midtones.
+            tints[SignalBodySubmesh] = new Color(0.16f, 0.16f, 0.17f);
 
             return tints;
         }
@@ -269,14 +286,166 @@ namespace Horizon.World
 
             float cycle = DashLength + DashGap;
 
+            // The approach zones at either end, which go solid. Kept off a street too short to hold two
+            // of them plus a dash between: on a forty-metre link the whole thing would be solid, which
+            // says "no overtaking for the next forty metres" about a street you cross in four seconds.
+            float approach = (to - from) > SolidApproach * 2f + cycle ? SolidApproach : 0f;
+
+            float dashFrom = from + approach;
+            float dashTo = to - approach;
+
             for (int i = 0; i < lines.Length; i++)
             {
+                if (approach > 0f)
+                {
+                    // Solid for the last few metres into a junction, on every line rather than only the
+                    // centre one: what the solid stretch says is "you are committed to this lane now",
+                    // and that applies as much to a boulevard's lane dividers as to its middle.
+                    AppendSolidLine(path, shape, lines[i], from, dashFrom, into);
+                    AppendSolidLine(path, shape, lines[i], dashTo, to, into);
+                }
+
                 // Started half a gap in, so a dash never begins flush against a junction pad.
-                for (float at = from + DashGap * 0.5f; at + DashLength <= to; at += cycle)
+                for (float at = dashFrom + DashGap * 0.5f; at + DashLength <= dashTo; at += cycle)
                 {
                     AppendDash(path, shape, lines[i], at, at + DashLength, field, terrainShape, into);
                 }
             }
+        }
+
+        /// <summary>How far a line runs solid before a junction, metres.</summary>
+        private const float SolidApproach = 15f;
+
+        /// <summary>An unbroken line down a street, in the same paint as the dashes.</summary>
+        public static void AppendSolidLine(
+            IRoadPath path,
+            in TownStreetShape shape,
+            float across,
+            float from,
+            float to,
+            VegetationMeshBuffer into)
+        {
+            if (path == null || into == null || to - from < 0.05f)
+            {
+                return;
+            }
+
+            // Stepped rather than emitted as one long quad, or a line down a bowed street would cut the
+            // corner and leave the carriageway. The step is the ribbon's own, so the paint bends exactly
+            // where the surface under it does.
+            int steps = Mathf.Max(1, Mathf.CeilToInt((to - from) / Mathf.Max(1f, shape.StepLength)));
+
+            for (int i = 0; i < steps; i++)
+            {
+                float a = Mathf.Lerp(from, to, i / (float)steps);
+                float b = Mathf.Lerp(from, to, (i + 1) / (float)steps);
+
+                AppendStripe(path, shape, across - LineWidth * 0.5f, across + LineWidth * 0.5f, a, b, into);
+            }
+        }
+
+        /// <summary>
+        /// The bar a car stops at, across the driver's own half of the carriageway.
+        ///
+        /// <para>Half rather than the full width, because the other half is the oncoming lane and it
+        /// stops at its own line at the other end of the street. A stop line drawn all the way across
+        /// reads as a level crossing.</para>
+        /// </summary>
+        /// <param name="rightHalf">
+        /// Which side of the centreline the approaching traffic uses — the path's right for a lane
+        /// travelling with the path, its left for the one coming back. Same sign convention
+        /// <c>TrafficNetworkBuilder.AddStreetLane</c> offsets its lanes by, and for the same reason:
+        /// getting it from the geometry rather than from the direction of travel is how half the
+        /// markings end up on the wrong side.
+        /// </param>
+        public static void AppendStopLine(
+            IRoadPath path,
+            in TownStreetShape shape,
+            float at,
+            bool rightHalf,
+            VegetationMeshBuffer into)
+        {
+            if (path == null || into == null)
+            {
+                return;
+            }
+
+            float inner = rightHalf ? 0f : -shape.HalfWidth;
+            float outer = rightHalf ? shape.HalfWidth : 0f;
+
+            AppendStripe(path, shape, inner, outer, at, at + StopLineWidth, into);
+        }
+
+        /// <summary>Width of a stop line along the road, metres.</summary>
+        public const float StopLineWidth = 0.32f;
+
+        /// <summary>
+        /// A pedestrian crossing: bars running <i>along</i> the street, across its full width.
+        ///
+        /// <para>Along rather than across, which is what makes it read as a crossing rather than as a
+        /// wide stop line — the bars are what a pedestrian walks between, so they point the way the
+        /// pedestrian is going, which is across the road and therefore along nothing the car sees.
+        /// Purely decorative: nobody walks on it.</para>
+        /// </summary>
+        public static void AppendCrossing(
+            IRoadPath path,
+            in TownStreetShape shape,
+            float from,
+            float to,
+            VegetationMeshBuffer into)
+        {
+            if (path == null || into == null)
+            {
+                return;
+            }
+
+            float low = Mathf.Min(from, to);
+            float high = Mathf.Max(from, to);
+
+            // Bars sized to fit the carriageway exactly rather than laid at a fixed pitch from one kerb:
+            // a fixed pitch leaves a sliver against the far kerb on every width that is not a multiple
+            // of it, and this town has six of them.
+            float width = shape.HalfWidth * 2f;
+            int bars = Mathf.Max(3, Mathf.RoundToInt(width / (CrossingBarWidth * 2f)));
+            float pitch = width / bars;
+
+            for (int i = 0; i < bars; i++)
+            {
+                float centre = -shape.HalfWidth + (i + 0.5f) * pitch;
+                AppendStripe(
+                    path, shape,
+                    centre - CrossingBarWidth * 0.5f, centre + CrossingBarWidth * 0.5f,
+                    low, high, into);
+            }
+        }
+
+        /// <summary>Width of one crossing bar, metres, and how deep the crossing runs along the road.</summary>
+        public const float CrossingBarWidth = 0.45f;
+
+        public const float CrossingDepth = 2.6f;
+
+        /// <summary>One painted rectangle, given in across/along coordinates on the carriageway.</summary>
+        private static void AppendStripe(
+            IRoadPath path,
+            in TownStreetShape shape,
+            float acrossFrom,
+            float acrossTo,
+            float alongFrom,
+            float alongTo,
+            VegetationMeshBuffer into)
+        {
+            float riseFrom = SurfaceRiseAt(shape, acrossFrom) + MarkingLift;
+            float riseTo = SurfaceRiseAt(shape, acrossTo) + MarkingLift;
+
+            // Each edge of the stripe takes its own height, so a bar wide enough to span the camber —
+            // a crossing bar, or a stop line across a whole half — lies on the road rather than
+            // bridging it.
+            Vector3 a0 = PointAcross(path, shape, alongFrom, acrossFrom, riseFrom);
+            Vector3 a1 = PointAcross(path, shape, alongFrom, acrossTo, riseTo);
+            Vector3 b0 = PointAcross(path, shape, alongTo, acrossFrom, riseFrom);
+            Vector3 b1 = PointAcross(path, shape, alongTo, acrossTo, riseTo);
+
+            into.AddQuadFacing(MarkingSubmesh, a0, b0, b1, a1, Vector3.up);
         }
 
         /// <summary>
@@ -311,15 +480,32 @@ namespace Horizon.World
             in TerrainShape terrainShape,
             VegetationMeshBuffer into)
         {
-            Vector3 a0 = PointAcross(path, shape, from, across - LineWidth * 0.5f, shape.SurfaceLift);
-            Vector3 a1 = PointAcross(path, shape, from, across + LineWidth * 0.5f, shape.SurfaceLift);
-            Vector3 b0 = PointAcross(path, shape, to, across - LineWidth * 0.5f, shape.SurfaceLift);
-            Vector3 b1 = PointAcross(path, shape, to, across + LineWidth * 0.5f, shape.SurfaceLift);
+            AppendStripe(
+                path, shape, across - LineWidth * 0.5f, across + LineWidth * 0.5f, from, to, into);
+        }
 
-            Vector3 lift = Vector3.up * MarkingLift;
+        /// <summary>
+        /// How high the carriageway sits at a point across it, above the street's own datum.
+        ///
+        /// <para><b>The camber, and every marking has to be told about it.</b> The paint used to be laid
+        /// at <see cref="TownStreetShape.SurfaceLift"/> flat, one <see cref="MarkingLift"/> above the
+        /// datum — but the carriageway is not flat, it is a tent: <see cref="CrossSection"/> puts a
+        /// vertex at the centre <c>Crown</c> metres higher than the two gutters, and the surface between
+        /// them is the straight line joining the three. So a centre line was painted a centimetre and a
+        /// half over the datum onto a surface six centimetres above it, and a boulevard's was nine — the
+        /// markings were not faint or z-fighting, they were <i>underneath the road</i>, on every marked
+        /// street in the city.</para>
+        ///
+        /// <para>Linear rather than the parabola <c>TrafficNetworkBuilder.LanePoint</c> uses on the trunk
+        /// road, because that road's ring has nine vertices and can afford a curve, and this one has
+        /// three. Matching what the mesh actually does beats matching what a camber ideally is.</para>
+        /// </summary>
+        private static float SurfaceRiseAt(in TownStreetShape shape, float across)
+        {
+            float half = Mathf.Max(0.001f, shape.HalfWidth);
+            float toEdge = Mathf.Clamp01(Mathf.Abs(across) / half);
 
-            into.AddQuadFacing(MarkingSubmesh,
-                a0 + lift, b0 + lift, b1 + lift, a1 + lift, Vector3.up);
+            return shape.SurfaceLift + shape.Crown * (1f - toEdge);
         }
 
         /// <summary>Which submesh each of the eight strips across a section belongs to.</summary>
