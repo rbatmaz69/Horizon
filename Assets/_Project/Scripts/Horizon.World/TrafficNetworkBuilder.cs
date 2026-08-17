@@ -50,6 +50,35 @@ namespace Horizon.World
         private const float StreetSpeed = 11f;
 
         /// <summary>
+        /// And per kind of street, because one number for all of them was wrong in both directions.
+        ///
+        /// <para>Every town street was baked at <see cref="StreetSpeed"/>, which made a four-lane
+        /// boulevard and a back alley behind a barn the same road as far as the traffic was concerned.
+        /// Two things were wrong with that. The visible one is that a city's main avenue should move
+        /// faster than a lane you can touch both walls of. The invisible one matters more: the turn a
+        /// car takes at a junction is now weighted by where it leads, and with one speed everywhere that
+        /// weighting had nothing to weigh — a boulevard and a dead-end stub scored identically.</para>
+        ///
+        /// <para>The spread is small on purpose. These are all 25–45 km/h; the point is the ordering,
+        /// not the numbers, and a town where the traffic differs by more than that reads as a race
+        /// track with pavements.</para>
+        /// </summary>
+        private static float StreetSpeedFor(TownStreetKind kind)
+        {
+            switch (kind)
+            {
+                case TownStreetKind.Boulevard: return 12.5f;
+                case TownStreetKind.CityStreet: return 11.5f;
+                case TownStreetKind.Avenue: return 10f;
+                case TownStreetKind.HighStreet: return 9f;
+                case TownStreetKind.Lane: return 9f;
+                case TownStreetKind.SquareEdge: return 8f;
+                case TownStreetKind.Alley: return 7f;
+                default: return StreetSpeed;
+            }
+        }
+
+        /// <summary>
         /// And on the trunk road. Nineteen is about 70 km/h — a country-road speed, quick enough that
         /// meeting a car on the pass is a moment rather than an obstacle, and slow enough that the player
         /// overtakes rather than being overtaken.
@@ -107,7 +136,8 @@ namespace Horizon.World
             IRoadPath link = null,
             RoadShape linkShape = default,
             float rampCapDistance = 0f,
-            float rampMergeDistance = -1f)
+            float rampMergeDistance = -1f,
+            IReadOnlyList<TrafficSignalPlan> signalPlans = null)
         {
             var lanes = new LaneBuffer();
 
@@ -208,7 +238,14 @@ namespace Horizon.World
 
             for (int i = 0; i < networks.Count; i++)
             {
-                AddStreetLanes(networks[i], nodeOffset[i], lanes, entryNode, exitNode);
+                // The plan is queried with the town's own node indices, before nodeOffset is added to
+                // anything — which is why re-numbering cannot corrupt it. The group it returns is 0 or 1
+                // and carries no node identity at all.
+                TrafficSignalPlan plan = signalPlans != null && i < signalPlans.Count
+                    ? signalPlans[i]
+                    : null;
+
+                AddStreetLanes(networks[i], nodeOffset[i], lanes, entryNode, exitNode, plan);
             }
 
             AddTrunkLanes(networks[0], trunk, trunkShape, roadStartNode, roadEndNode,
@@ -256,7 +293,77 @@ namespace Horizon.World
                 lanes.Step.ToArray(), lanes.Node.ToArray(), lanes.Kind.ToArray(),
                 lanes.Speed.ToArray(), exitStart, exits, nodeCount);
 
+            asset.FillSignals(
+                lanes.Signal.ToArray(), TrafficSignalPlan.Groups, SignalCycle, SignalGreen, SignalAmber);
+
+            ReportSignals(lanes, signalPlans);
+
             return asset;
+        }
+
+        /// <summary>Seconds in a full round of every phase. See <see cref="TrafficSignalPlan"/>.</summary>
+        private const float SignalCycle = 16f;
+
+        private const float SignalGreen = 6f;
+
+        private const float SignalAmber = 1f;
+
+        /// <summary>
+        /// Says how many lanes ended up stopping at a light, and checks that against how many approaches
+        /// the plans asked for.
+        ///
+        /// <para>That single equality is the whole cross-check between the two bakes. The heads are built
+        /// from the plan and the stopping is baked onto the lanes, and nothing else connects them — so a
+        /// mismatch is a junction with lights nobody obeys, or cars stopping at nothing. Neither throws,
+        /// and neither is visible in a screenshot.</para>
+        /// </summary>
+        private static void ReportSignals(LaneBuffer lanes, IReadOnlyList<TrafficSignalPlan> plans)
+        {
+            int signalled = 0;
+            for (int i = 0; i < lanes.Signal.Count; i++)
+            {
+                if (lanes.Signal[i] != TrafficNetwork.NoSignal)
+                {
+                    signalled++;
+                }
+            }
+
+            int junctions = 0;
+            int approaches = 0;
+
+            if (plans != null)
+            {
+                for (int i = 0; i < plans.Count; i++)
+                {
+                    if (plans[i] == null)
+                    {
+                        continue;
+                    }
+
+                    junctions += plans[i].JunctionCount;
+                    approaches += plans[i].ApproachCount;
+                }
+            }
+
+            if (signalled != approaches)
+            {
+                Debug.LogError(
+                    $"[Horizon] Traffic signals: {approaches} approach(es) were planned but {signalled} "
+                    + "lane(s) were baked to stop at one. The heads and the stopping come from the same "
+                    + "plan and must agree — see TrafficSignalPlan.GroupOf and AddStreetLanes.");
+                return;
+            }
+
+            if (junctions == 0)
+            {
+                return;
+            }
+
+            Debug.Log($"[Horizon] Traffic signals: {junctions} junction(s), {approaches} approach(es) on "
+                      + $"{TrafficSignalPlan.Groups} phase groups, {SignalCycle:0}s cycle "
+                      + $"({SignalGreen:0}s green, {SignalAmber:0}s amber, "
+                      + $"{SignalCycle / TrafficSignalPlan.Groups - SignalGreen - SignalAmber:0.0}s "
+                      + "all-red between phases).");
         }
 
         /// <summary>
@@ -268,20 +375,30 @@ namespace Horizon.World
         /// </summary>
         private static void AddStreetLanes(
             StreetNetwork network, int nodeOffset, LaneBuffer lanes,
-            List<int> entryNode, List<int> exitNode)
+            List<int> entryNode, List<int> exitNode, TrafficSignalPlan plan)
         {
             for (int i = 0; i < network.Edges.Count; i++)
             {
                 StreetEdge edge = network.Edges[i];
 
-                AddStreetLane(edge, true, lanes);
+                // The signal a lane stops at is the one facing the junction it *ends* at, so the two
+                // directions of one street read different ends of it — and a street between two
+                // controlled junctions is on one axis at one end and possibly the other axis at the
+                // other.
+                AddStreetLane(edge, true, lanes, SignalAt(plan, edge.ToNode, i));
                 entryNode.Add(nodeOffset + edge.FromNode);
                 exitNode.Add(nodeOffset + edge.ToNode);
 
-                AddStreetLane(edge, false, lanes);
+                AddStreetLane(edge, false, lanes, SignalAt(plan, edge.FromNode, i));
                 entryNode.Add(nodeOffset + edge.ToNode);
                 exitNode.Add(nodeOffset + edge.FromNode);
             }
+        }
+
+        private static byte SignalAt(TrafficSignalPlan plan, int node, int edge)
+        {
+            int group = plan != null ? plan.GroupOf(node, edge) : -1;
+            return group < 0 ? TrafficNetwork.NoSignal : (byte)group;
         }
 
         /// <summary>
@@ -292,7 +409,8 @@ namespace Horizon.World
         /// lane starts, is the class of mistake that puts half the traffic in the oncoming lane and looks
         /// almost right.
         /// </summary>
-        private static void AddStreetLane(StreetEdge edge, bool forward, LaneBuffer lanes)
+        private static void AddStreetLane(
+            StreetEdge edge, bool forward, LaneBuffer lanes, byte signal)
         {
             float from = forward ? edge.TrimStart : edge.Length - edge.TrimEnd;
             float to = forward ? edge.Length - edge.TrimEnd : edge.TrimStart;
@@ -309,7 +427,7 @@ namespace Horizon.World
                 lanes.Points.Add(TownStreetBuilder.PointAcross(edge.Path, edge.Shape, at, across, rise));
             }
 
-            lanes.Close(span, count, -1, TrafficLaneKind.Street, StreetSpeed);
+            lanes.Close(span, count, -1, TrafficLaneKind.Street, StreetSpeedFor(edge.Kind), signal);
         }
 
         /// <summary>
@@ -948,10 +1066,21 @@ namespace Horizon.World
             public readonly List<byte> Kind = new List<byte>(512);
             public readonly List<float> Speed = new List<float>(512);
 
+            /// <summary>
+            /// The signal group at the end of each lane, or <see cref="TrafficNetwork.NoSignal"/>.
+            ///
+            /// Defaulted at every call site but one: only a town street can end at a light. A connector
+            /// must never carry one, or a car would stop in the middle of a junction rather than at the
+            /// line in front of it.
+            /// </summary>
+            public readonly List<byte> Signal = new List<byte>(512);
+
             public int Count => Length.Count;
 
             /// <summary>Closes the lane whose points have just been added, and returns its index.</summary>
-            public int Close(float length, int sampleCount, int node, TrafficLaneKind kind, float speed)
+            public int Close(
+                float length, int sampleCount, int node, TrafficLaneKind kind, float speed,
+                byte signal = TrafficNetwork.NoSignal)
             {
                 Start.Add(Points.Count);
                 Length.Add(length);
@@ -959,6 +1088,7 @@ namespace Horizon.World
                 Node.Add(node);
                 Kind.Add((byte)kind);
                 Speed.Add(speed);
+                Signal.Add(signal);
 
                 return Length.Count - 1;
             }

@@ -89,7 +89,43 @@ namespace Horizon.World
         [Tooltip("Flattened lane indices: which lanes a lane leads to.")]
         [SerializeField] private int[] exits;
 
+        [Tooltip("The signal group controlling the END of each lane, or NoSignal.\n\n"
+               + "On the driven lane rather than on the connector, because the end of a driven lane is "
+               + "already where the director holds a car back — a group on a connector would be a car "
+               + "stopping in the middle of the junction, which is the one thing a give-way line "
+               + "exists to prevent.")]
+        [SerializeField] private byte[] laneSignal;
+
+        [SerializeField] private int signalGroups;
+
+        [Tooltip("Seconds for a full round of every phase.\n\n"
+               + "Sixteen, and it is not a taste setting: Hochstadt's cross streets are 200 m apart and "
+               + "the boulevard is driven at 12.5 m/s, so sixteen seconds is exactly how long it takes "
+               + "to get from one junction to the next. With every junction in phase, a car that leaves "
+               + "one on green reaches the next one cycle later — on green. The green wave is the cycle "
+               + "length; there is deliberately no per-junction offset. See TrafficSignalPlan.")]
+        [SerializeField] private float signalCycle = 16f;
+
+        [SerializeField] private float signalGreen = 6f;
+
+        [SerializeField] private float signalAmber = 1f;
+
         [SerializeField] private int nodeCount;
+
+        /// <summary>A lane that no signal controls. 255 rather than -1 so the array can stay bytes.</summary>
+        public const byte NoSignal = 255;
+
+        /// <summary>How many phase groups the signals run on, or zero where there are none.</summary>
+        public int SignalGroupCount => signalGroups;
+
+        /// <summary>
+        /// Seconds in a full round of every phase.
+        ///
+        /// Exposed because how long a car may legitimately be stationary is a property of this number:
+        /// anything that gives up on a stopped car has to wait longer than the longest red plus the
+        /// queue behind it, or it starts firing on ordinary traffic. See <c>TrafficDirector.Watchdog</c>.
+        /// </summary>
+        public float SignalCycle => signalCycle;
 
         /// <summary>How many lanes there are, street lanes and turn connectors together.</summary>
         public int LaneCount => laneLength != null ? laneLength.Length : 0;
@@ -124,6 +160,57 @@ namespace Horizon.World
         public float SpeedOf(int lane)
         {
             return laneSpeed != null && lane < laneSpeed.Length ? laneSpeed[lane] : 11f;
+        }
+
+        /// <summary>
+        /// The signal group controlling the end of this lane, or -1.
+        ///
+        /// Falls back to "no signal" for a network baked before signals existed, so an old asset gives
+        /// way at every junction the way it always did rather than failing to load — the same tolerance
+        /// <see cref="SpeedOf"/> extends.
+        /// </summary>
+        public int SignalOf(int lane)
+        {
+            if (laneSignal == null || lane >= laneSignal.Length)
+            {
+                return -1;
+            }
+
+            byte group = laneSignal[lane];
+            return group == NoSignal ? -1 : group;
+        }
+
+        /// <summary>
+        /// What one group is showing at a given moment.
+        ///
+        /// <para><b>A pure function of the clock, with nothing integrated and nothing stored.</b> That
+        /// is what makes a car teleported next to a junction see the right light on its first frame, and
+        /// it is why the phase lives on the baked asset rather than on a component: the director and the
+        /// thing that lights the lenses read the same arithmetic instead of one asking the other.</para>
+        ///
+        /// <para>Groups divide the cycle evenly and take their green at the start of their own share, so
+        /// the leftover — a cycle half minus green minus amber — is the all-red clearance between them.
+        /// At 16/6/1 that is a second and a half, which is what stops a car that went through on amber
+        /// from meeting the first car off the line on the other axis.</para>
+        /// </summary>
+        public TrafficSignalState SignalStateOf(int group, float time)
+        {
+            if (signalGroups <= 0 || group < 0)
+            {
+                return TrafficSignalState.Green;
+            }
+
+            float share = signalCycle / signalGroups;
+            float local = Mathf.Repeat(time - group * share, signalCycle);
+
+            if (local < signalGreen)
+            {
+                return TrafficSignalState.Green;
+            }
+
+            return local < signalGreen + signalAmber
+                ? TrafficSignalState.Amber
+                : TrafficSignalState.Red;
         }
 
         public int ExitCount(int lane)
@@ -206,6 +293,22 @@ namespace Horizon.World
             exitStart = bakedExitStart;
             exits = bakedExits;
             nodeCount = junctionCount;
+        }
+
+        /// <summary>
+        /// Fills in the signals. Edit time only, and separate from <see cref="Fill"/> on purpose.
+        ///
+        /// <para>Growing <c>Fill</c> to fourteen positional parameters is how a bake ends up passing
+        /// <c>laneKind</c> where <c>laneSignal</c> goes. It also keeps the two independent: a network
+        /// baked without ever calling this is a valid network with no lights in it.</para>
+        /// </summary>
+        public void FillSignals(byte[] bakedLaneSignal, int groups, float cycle, float green, float amber)
+        {
+            laneSignal = bakedLaneSignal;
+            signalGroups = groups;
+            signalCycle = cycle;
+            signalGreen = green;
+            signalAmber = amber;
         }
     }
 }

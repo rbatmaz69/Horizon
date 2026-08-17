@@ -146,6 +146,12 @@ namespace Horizon.EditorTools
             public readonly Material WindowNight;
             public readonly Material LampNight;
             public readonly Material TailNight;
+
+            /// <summary>An unlit traffic-light lens, and the three lit ones indexed by state.</summary>
+            public readonly Material SignalDark;
+
+            public readonly Material[] SignalLenses;
+
             public readonly Material[] TrafficBodies;
 
             /// <summary>
@@ -291,6 +297,31 @@ namespace Horizon.EditorTools
                 TailNight = HorizonAssetUtility.LoadOrCreateUnlitMaterial(
                     MaterialsFolder + "/M_TailNight.mat", "M_TailNight",
                     new Color(1.35f, 0.12f, 0.07f));
+
+                // Traffic lights. Unlit like everything above, and for a further reason of their own: a
+                // signal has to read at noon as well as at midnight, and a lit lens that took the sun
+                // into account would be a dark hole on the one side of every junction the sun is behind.
+                //
+                // Over one in the brightest channel, because these are the only things in the world that
+                // are meant to be a light source rather than a surface — under bloom that is what makes a
+                // green look like it is on rather than like it is painted green.
+                SignalDark = HorizonAssetUtility.LoadOrCreateUnlitMaterial(
+                    MaterialsFolder + "/M_SignalDark.mat", "M_SignalDark",
+                    new Color(0.09f, 0.09f, 0.10f));
+
+                // Indexed by TrafficSignalState: red, amber, green.
+                SignalLenses = new[]
+                {
+                    HorizonAssetUtility.LoadOrCreateUnlitMaterial(
+                        MaterialsFolder + "/M_SignalRed.mat", "M_SignalRed",
+                        new Color(1.70f, 0.14f, 0.09f)),
+                    HorizonAssetUtility.LoadOrCreateUnlitMaterial(
+                        MaterialsFolder + "/M_SignalAmber.mat", "M_SignalAmber",
+                        new Color(1.75f, 0.90f, 0.10f)),
+                    HorizonAssetUtility.LoadOrCreateUnlitMaterial(
+                        MaterialsFolder + "/M_SignalGreen.mat", "M_SignalGreen",
+                        new Color(0.20f, 1.60f, 0.42f)),
+                };
 
                 // Six body colours against five body shapes, which is the whole reason there are six.
                 // The two counts share no factor, so shape and colour drift against each other and a
@@ -1023,10 +1054,19 @@ namespace Horizon.EditorTools
             ValidateBridges(westbound, field, motorwayCourse);
             // The second half of every town: street meshes onto the finished terrain, then blocks and
             // plots seated on it.
+            // The lens renderers, in the same counts-to-offsets shape TownLights uses. Declared before
+            // the town loop because BuildStreetMeshes fills them, and read after it by
+            // WireTrafficSignals.
+            var signalRenderers = new List<MeshRenderer>();
+            var signalSlotStart = new List<int> { 0 };
+            var signalSlots = new List<int>();
+            var signalLenses = new List<int>();
+
             int plots = 0;
             for (int i = 0; i < towns.Length; i++)
             {
-                PlanTown(towns[i], field, terrainShape, materials);
+                PlanTown(towns[i], field, terrainShape, materials,
+                    signalRenderers, signalSlotStart, signalSlots, signalLenses);
                 plots += towns[i].Plan.Plots.Count;
             }
 
@@ -1092,11 +1132,17 @@ namespace Horizon.EditorTools
             BuildGuardRails(worldRoot.transform, linkPath, roadShape, field, linkCourse,
                 materials, "MotorwayLink");
 
-            BuildTraffic(worldRoot.transform, towns, path, roadShape, materials,
+            TrafficNetwork routes = BuildTraffic(worldRoot.transform, towns, path, roadShape, materials,
                 litRenderers, litSlotStart, litSlots, litSlotGroups,
                 motorwayPath, motorwayShape, AutobahnCourse.CarriagewayOffset,
                 System.Array.IndexOf(towns, hochstadt), HochstadtLayout.GatewayNode,
                 linkPath, roadShape, rampCapOnMedian, rampMergeOnMedian);
+
+            // After the routes exist, because the phase the lenses show is read off the same asset the
+            // traffic obeys — which is the whole reason a light cannot be green at a junction cars are
+            // stopping at.
+            WireTrafficSignals(worldRoot.transform, routes, materials,
+                signalRenderers, signalSlotStart, signalSlots, signalLenses);
 
             // After both, so one component carries the town's windows and the traffic's lamps.
             WireTownLights(worldRoot.transform, litRenderers, litSlotStart, litSlots, litSlotGroups,
@@ -1853,6 +1899,16 @@ namespace Horizon.EditorTools
             public Transform StreetsRoot;
             public Bounds Footprint;
 
+            /// <summary>
+            /// Which of this town's junctions have lights, and which phase each approach is on.
+            ///
+            /// <para>Held here because <b>two</b> bakes read it and they must read the same one: the
+            /// street mesh builds the heads from it, and the traffic bake writes the phase onto the lanes
+            /// from it. Recomputing it in the second place would be silent when it drifted — heads over
+            /// lanes that obey a different light.</para>
+            /// </summary>
+            public TrafficSignalPlan Signals;
+
             // Filled by PlanTown, after the field exists.
             public StreetIndex Index;
             public List<TownBlock> Blocks;
@@ -1926,6 +1982,12 @@ namespace Horizon.EditorTools
                 Network = network,
                 StreetsRoot = streetsRoot.transform,
                 Footprint = TownShape.Footprint(mine, shape.CorridorMargin),
+
+                // After the trims, because a signal head stands at the trim point and the stop line is
+                // painted from it. Talheim gets an empty plan without being asked about: its layout
+                // holds no boulevard and no city street, which is the rule, so a village is unlit by
+                // being a village rather than by a flag somebody has to remember to set.
+                Signals = TrafficSignalPlan.Build(network),
             };
         }
 
@@ -1934,10 +1996,15 @@ namespace Horizon.EditorTools
             TownBuild town,
             MountainField field,
             in TerrainShape terrainShape,
-            PrototypeMaterials materials)
+            PrototypeMaterials materials,
+            List<MeshRenderer> signalRenderers,
+            List<int> signalSlotStart,
+            List<int> signalSlots,
+            List<int> signalLenses)
         {
             BuildStreetMeshes(town.StreetsRoot, town.Network, town.Trunk, RoadShape.Default,
-                town.Shape, field, terrainShape, materials, town.Name);
+                town.Shape, field, terrainShape, materials, town.Name, town.Signals,
+                signalRenderers, signalSlotStart, signalSlots, signalLenses);
 
             ValidateStreetClearance(town.Network, field, terrainShape);
             ReportPadWinding(town.Network);
@@ -2277,7 +2344,12 @@ namespace Horizon.EditorTools
             MountainField field,
             in TerrainShape terrainShape,
             PrototypeMaterials materials,
-            string what)
+            string what,
+            TrafficSignalPlan signals,
+            List<MeshRenderer> signalRenderers,
+            List<int> signalSlotStart,
+            List<int> signalSlots,
+            List<int> signalLenses)
         {
             if (network.Edges.Count == 0)
             {
@@ -2357,6 +2429,38 @@ namespace Horizon.EditorTools
 
             int squareFlips = buffer.FlipCount - ribbonFlips - padFlips - mouthFlips;
 
+            // Traffic lights. The masts and heads go into the buffer above and are merged away to
+            // nothing; only the lenses need a renderer of their own, because they change colour.
+            var lensBuffer = new VegetationMeshBuffer(TrafficSignalMeshes.LensSubmeshCount);
+
+            var signalViewFrom = Vector3.zero;
+            var signalViewAt = Vector3.zero;
+            float widestApproach = -1f;
+
+            if (signals != null)
+            {
+                for (int i = 0; i < signals.ApproachCount; i++)
+                {
+                    signals.GetApproach(i, out int node, out int edge, out int group);
+                    TrafficSignalMeshes.AppendApproach(
+                        network, node, edge, group, buffer, lensBuffer,
+                        out Vector3 from, out Vector3 look);
+
+                    // The widest approach in the town, so the preview station lands on the boulevard
+                    // rather than on whichever grid street happened to be listed first. Only from an
+                    // approach that actually produced geometry — AppendApproach hands back zeroes for an
+                    // edge with no path, and a station built from those looks at the world origin from
+                    // the world origin, which LookRotation cannot even express.
+                    float width = network.Edges[edge].HalfWidth;
+                    if (width > widestApproach && from != look)
+                    {
+                        widestApproach = width;
+                        signalViewFrom = from;
+                        signalViewAt = look;
+                    }
+                }
+            }
+
             // Five categories, one draw call. Surface, kerb, footway, verge and paint were five flat
             // untextured materials, which is five draw calls per town for information that is only ever
             // a colour — the same case the buildings and the terrain already answered this way.
@@ -2379,6 +2483,22 @@ namespace Horizon.EditorTools
             chunk.SetBounds(chunk.Center, 100000f);
             EditorUtility.SetDirty(chunk);
 
+            BuildSignalLenses(parent, lensBuffer, materials, what,
+                signalRenderers, signalSlotStart, signalSlots, signalLenses);
+
+            if (widestApproach > 0f)
+            {
+                // A camera station where a driver meets the town's most important light. Placed from the
+                // geometry rather than from typed coordinates, for the reason TrafficView is aimed at an
+                // agent: a station that cannot follow the bake is a station that quietly ends up
+                // photographing a field.
+                var station = new GameObject("SignalView");
+                station.transform.SetParent(parent, false);
+                station.transform.SetPositionAndRotation(
+                    signalViewFrom,
+                    Quaternion.LookRotation(signalViewAt - signalViewFrom, Vector3.up));
+            }
+
             Debug.Log($"[Horizon] {what} streets: {network.Nodes.Count} nodes, {network.Edges.Count} "
                       + $"streets, {network.TotalLength:0} m, {pads} junction pads and {mouths} trunk "
                       + $"mouths — {mesh.triangles.Length / 3} triangles in {used.Count} draw calls.");
@@ -2395,6 +2515,78 @@ namespace Horizon.EditorTools
             ReportWindingFlips("Town junction pads", padFlips, padFlipsBySubmesh);
             ReportWindingFlips("Town trunk mouths", mouthFlips);
             ReportWindingFlips("Town squares", squareFlips);
+        }
+
+        /// <summary>
+        /// Hangs the signal lenses on an object of their own.
+        ///
+        /// <para><b>Not on the street mesh, and that is the whole reason this method exists.</b> The
+        /// street object carries <c>SetBounds(centre, 100000f)</c> so a town seen from the pass above is
+        /// never streamed out from under itself — which means every submesh on it is submitted whenever
+        /// any part of the town is in frustum, from three kilometres away. Six lens submeshes on that
+        /// renderer would be six draw calls paid for from the top of the mountain. On their own object
+        /// with their own bounds, they are culled like anything else.</para>
+        /// </summary>
+        private static void BuildSignalLenses(
+            Transform parent,
+            VegetationMeshBuffer lensBuffer,
+            PrototypeMaterials materials,
+            string what,
+            List<MeshRenderer> signalRenderers,
+            List<int> signalSlotStart,
+            List<int> signalSlots,
+            List<int> signalLenses)
+        {
+            if (lensBuffer.IsEmpty)
+            {
+                return;
+            }
+
+            var used = new List<int>(TrafficSignalMeshes.LensSubmeshCount);
+            Mesh mesh = lensBuffer.ToMesh(what + "SignalsMesh", used);
+            if (mesh == null)
+            {
+                return;
+            }
+
+            mesh = HorizonAssetUtility.ReplaceAsset(mesh, $"{GeneratedFolder}/{what}SignalsMesh.asset");
+
+            // Every slot starts dark. TrafficSignals lights the right ones on its first frame, and a
+            // mesh built with the lit material in it would show all three colours at once in any shot
+            // taken before that.
+            var lensMaterials = new Material[used.Count];
+            for (int i = 0; i < used.Count; i++)
+            {
+                lensMaterials[i] = materials.SignalDark;
+            }
+
+            // No collider: a lens is 20 cm of quad three metres in the air, and the mast under it is part
+            // of the street mesh, which has one.
+            GameObject lensObject = CreateMeshObject(
+                parent, what + "Signals", mesh, lensMaterials, addCollider: false);
+
+            var lensChunk = lensObject.AddComponent<WorldChunk>();
+            lensChunk.RecalculateBounds();
+            EditorUtility.SetDirty(lensChunk);
+
+            MeshRenderer lensRenderer = lensObject.GetComponent<MeshRenderer>();
+            lensRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+
+            signalRenderers.Add(lensRenderer);
+
+            // Which slot ended up holding which group's red, amber or green. Looked up rather than
+            // assumed, because ToMesh compacts empty submeshes away — the same reason the traffic pool
+            // asks where its headlights went instead of using a literal.
+            for (int i = 0; i < used.Count; i++)
+            {
+                signalSlots.Add(i);
+                signalLenses.Add(used[i]);
+            }
+
+            signalSlotStart.Add(signalSlots.Count);
+
+            Debug.Log($"[Horizon] {what} signals: {mesh.triangles.Length / 3} lens triangles in "
+                      + $"{used.Count} draw call(s), on their own chunk.");
         }
 
         /// <summary>
@@ -2857,7 +3049,7 @@ namespace Horizon.EditorTools
         /// <c>Light</c> components would be two more realtime lights each against a four-per-object
         /// budget, twenty-eight for the pool; the swap costs nothing and is already written.</para>
         /// </summary>
-        private static void BuildTraffic(
+        private static TrafficNetwork BuildTraffic(
             Transform parent,
             IReadOnlyList<TownBuild> towns,
             RoadPath trunk,
@@ -2878,14 +3070,20 @@ namespace Horizon.EditorTools
             float rampMergeDistance)
         {
             var networks = new StreetNetwork[towns.Count];
+
+            // Parallel to the networks, and the *same instances* the street meshes built their heads
+            // from. Recomputing them here would compile and would be silent when it drifted.
+            var plans = new TrafficSignalPlan[towns.Count];
+
             for (int i = 0; i < towns.Count; i++)
             {
                 networks[i] = towns[i].Network;
+                plans[i] = towns[i].Signals;
             }
 
             if (networks.Length == 0 || networks[0].Edges.Count == 0)
             {
-                return;
+                return null;
             }
 
             // Generated, not Settings. It is a ScriptableObject like VehicleConfig, but it is derived
@@ -2894,7 +3092,7 @@ namespace Horizon.EditorTools
             TrafficNetwork routes = TrafficNetworkBuilder.Build(
                 networks, trunk, trunkShape, highway, highwayShape, carriagewayOffset,
                 highwayEndTown, highwayEndNode,
-                link, linkShape, rampCapDistance, rampMergeDistance);
+                link, linkShape, rampCapDistance, rampMergeDistance, plans);
             routes = HorizonAssetUtility.ReplaceAsset(routes, GeneratedFolder + "/TrafficNetwork.asset");
 
             CarMeshBuilder.CarProfile[] profiles = CarMeshBuilder.TrafficProfiles;
@@ -3021,6 +3219,51 @@ namespace Horizon.EditorTools
             HorizonAssetUtility.AssertReferenceAssigned(director, "network");
 
             ReportTraffic(routes, profiles, bodies, bodyTriangles);
+
+            return routes;
+        }
+
+        /// <summary>
+        /// Hangs the component that lights the lenses on the world root.
+        ///
+        /// <para>It is handed the routes rather than a cycle length of its own: the phase is a function
+        /// on the baked asset, and both this and <c>TrafficDirector</c> evaluate it. A timer here that
+        /// the director asked for would be the same number arrived at twice, with a frame between
+        /// them.</para>
+        /// </summary>
+        private static void WireTrafficSignals(
+            Transform parent,
+            TrafficNetwork routes,
+            PrototypeMaterials materials,
+            List<MeshRenderer> renderers,
+            List<int> slotStart,
+            List<int> slots,
+            List<int> lenses)
+        {
+            if (routes == null || renderers.Count == 0)
+            {
+                return;
+            }
+
+            var host = new GameObject("TrafficSignals");
+            host.transform.SetParent(parent, false);
+
+            TrafficSignals signals = host.AddComponent<TrafficSignals>();
+
+            HorizonAssetUtility.Configure(signals, serialized =>
+            {
+                serialized.FindProperty("network").objectReferenceValue = routes;
+
+                HorizonAssetUtility.SetObjectArray(serialized, "renderers", renderers.ToArray());
+                SetIntArray(serialized, "slotStart", slotStart);
+                SetIntArray(serialized, "slots", slots);
+                SetIntArray(serialized, "slotLens", lenses);
+
+                serialized.FindProperty("darkMaterial").objectReferenceValue = materials.SignalDark;
+                HorizonAssetUtility.SetObjectArray(serialized, "lensMaterials", materials.SignalLenses);
+            });
+
+            HorizonAssetUtility.AssertReferenceAssigned(signals, "network");
         }
 
         /// <summary>

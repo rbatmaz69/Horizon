@@ -240,6 +240,18 @@ namespace Horizon.EditorTools
                 CaptureFromMarker(camera, "TrafficView", 55f,
                     Path.Combine(directory, "WorldPreview_Town_Traffic.png"));
 
+                // A city junction from the stop line: the mast and head, the bar the traffic stops at,
+                // the crossing beyond it and the lane lines going solid on the approach. All of that is
+                // paint on a merged mesh, so a shot is the only thing that says it landed on the road
+                // rather than under it.
+                // The lenses do not tick outside Play mode, so they are told to evaluate once here.
+                // Without it every signal in every shot is a head with three dark lenses, which is what
+                // a broken material swap also looks like.
+                Object.FindFirstObjectByType<TrafficSignals>()?.Refresh();
+
+                CaptureFromMarker(camera, "SignalView", 42f,
+                    Path.Combine(directory, "WorldPreview_City_Signal.png"));
+
                 // The mosque from the street, close enough that the two-stage spire, the dome and the
                 // porch are separate things rather than one blob.
                 GameObject landmark = GameObject.Find("TownLandmark");
@@ -433,6 +445,17 @@ namespace Horizon.EditorTools
                 // swap that never fired looks exactly like a car parked in the dark.
                 CaptureFromMarker(camera, "TrafficView", 55f,
                     Path.Combine(directory, "WorldPreview_Town_Night_Traffic.png"));
+
+                // And the signal after dark, which is the only test of the lens materials there is: the
+                // three lenses are one mesh with a material swapped per phase, so a swap that never
+                // fired looks exactly like a head with no bulbs in it.
+                // The lenses do not tick outside Play mode, so they are told to evaluate once here.
+                // Without it every signal in every shot is a head with three dark lenses, which is what
+                // a broken material swap also looks like.
+                Object.FindFirstObjectByType<TrafficSignals>()?.Refresh();
+
+                CaptureFromMarker(camera, "SignalView", 42f,
+                    Path.Combine(directory, "WorldPreview_City_Night_Signal.png"));
 
                 CaptureNightFromViewpoint(camera, path, directory, townMiddle);
 
