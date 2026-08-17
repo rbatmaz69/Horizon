@@ -23,6 +23,7 @@ namespace Horizon.Game
 
         private VehicleController vehicle;
         private TimeOfDayController timeOfDay;
+        private TrafficDirector traffic;
         private Vector3 spawnPosition;
         private Quaternion spawnRotation;
         private bool spawnCaptured;
@@ -47,6 +48,11 @@ namespace Horizon.Game
             if (timeOfDay == null)
             {
                 timeOfDay = FindFirstObjectByType<TimeOfDayController>();
+            }
+
+            if (traffic == null)
+            {
+                traffic = FindFirstObjectByType<TrafficDirector>();
             }
 
             if (vehicle != null && !spawnCaptured)
@@ -84,6 +90,15 @@ namespace Horizon.Game
             else
             {
                 GUILayout.Label("waiting for world…");
+            }
+
+            // What the density control is actually doing. The pair is the whole of the tuning loop for
+            // MetresPerCar: drive from the pass through Talheim to Hochstadt and watch whether "near"
+            // tracks "target", and whether the target it settles on matches how busy the place looks.
+            if (traffic != null)
+            {
+                GUILayout.Label($"traffic {traffic.NearCount}/{traffic.NearTarget} near"
+                              + $"   budget {traffic.ActiveBudget}");
             }
 
             if (inputRouter != null)
