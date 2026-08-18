@@ -227,10 +227,19 @@ namespace Horizon.Vehicle
         /// combining the sideways slide with the spin-up from <see cref="WheelState.SpinSlip"/>. The two
         /// are perpendicular, so they combine as a hypotenuse rather than a sum.</para>
         ///
-        /// <para>The sideways half is weighted by what the friction circle <i>refused</i> rather than by
-        /// the raw sideways speed. A tyre holding a steady corner still has sideways velocity at the
-        /// patch — that is how it makes force at all — and billing that as sliding would put smoke
-        /// under the car in every bend it ever took.</para>
+        /// <para>The sideways half is gated on how sideways the <i>car</i> is, not on the wheel's own
+        /// sideways speed, and the difference is the whole of whether this effect is believable.</para>
+        ///
+        /// <para><b>Two things make the wheel's own figure useless on its own.</b> A steered front wheel
+        /// is dragged across its own plane by the mere act of turning: at 100 km/h and 30° of lock that
+        /// is 14 m/s at the patch before the car has begun to yaw, which is more sideways speed than a
+        /// genuine drift produces. And <see cref="WheelState.GripUsed"/> cannot rescue it — it looks like
+        /// a saturation figure but is roughly capacity divided by sideways speed, so it *falls* as the
+        /// tyre slides more, and weighting by what it refused amplified exactly what it was meant to
+        /// suppress. Between them, turning the wheel was enough to lay smoke.</para>
+        ///
+        /// <para><see cref="SlipAngle"/> is the honest gate: it measures the car's direction of travel
+        /// against where it is pointing, so steering does not move it and only actually sliding does.</para>
         /// </summary>
         public bool TryGetWheelSlip(int index, out Vector3 contactPoint, out float slipSpeed)
         {
@@ -250,9 +259,27 @@ namespace Horizon.Vehicle
 
             contactPoint = wheel.ContactPoint;
 
-            float sliding = wheel.LateralSlip * (1f - Mathf.Clamp01(wheel.GripUsed));
+            float sliding = wheel.LateralSlip * BodySlideFraction();
             slipSpeed = Mathf.Sqrt(sliding * sliding + wheel.SpinSlip * wheel.SpinSlip);
             return true;
+        }
+
+        /// <summary>
+        /// How far the car is past cornering and into sliding, 0 to 1, from its body slip angle.
+        ///
+        /// <para>Ramped either side of <see cref="VehicleConfig.DriftSlipAngle"/> rather than switched
+        /// at it, so smoke arrives with the slide instead of appearing whole the instant a threshold is
+        /// crossed. Zero below half that angle, which is where ordinary hard cornering lives.</para>
+        /// </summary>
+        private float BodySlideFraction()
+        {
+            if (config == null)
+            {
+                return 0f;
+            }
+
+            float drift = Mathf.Max(1f, config.DriftSlipAngle);
+            return Mathf.Clamp01(Mathf.InverseLerp(drift * 0.5f, drift * 1.5f, SlipAngle));
         }
 
         public VehicleConfig Config => config;
