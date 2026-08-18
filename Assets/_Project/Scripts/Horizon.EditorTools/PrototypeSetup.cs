@@ -128,6 +128,17 @@ namespace Horizon.EditorTools
             public readonly Material MotorwaySurface;
             public readonly Material Concrete;
             public readonly Material GuardRail;
+
+            /// <summary>The white shaft of a roadside delineator post.</summary>
+            public readonly Material Delineator;
+
+            /// <summary>
+            /// The reflector panel on a delineator. Unlit, so it holds its brightness once the sun has
+            /// gone and the fog has swallowed everything else — which is when the posts are carrying the
+            /// whole sense of speed on their own.
+            /// </summary>
+            public readonly Material DelineatorReflector;
+
             public readonly Material Grass;
 
             /// <summary>
@@ -189,6 +200,12 @@ namespace Horizon.EditorTools
             public readonly Material LightFront;
             public readonly Material LightRear;
             public readonly Material Smoke;
+
+            /// <summary>
+            /// Tyre smoke. Lighter and far less transparent than the exhaust plume: burnt rubber is
+            /// near-white and thick, and reusing the exhaust's grey made a drift look like a misfire.
+            /// </summary>
+            public readonly Material TyreSmoke;
 
             /// <summary>
             /// The exhaust flame. Additive, so it brightens what it is over rather than being pasted on
@@ -360,6 +377,16 @@ namespace Horizon.EditorTools
 
                 GuardRail = HorizonAssetUtility.LoadOrCreateMaterial(
                     MaterialsFolder + "/M_GuardRail.mat", "M_GuardRail", new Color(0.66f, 0.68f, 0.70f), 0.55f, 0.6f);
+
+                // Not pure white: a delineator is weathered plastic, and at the density these are placed
+                // a true white reads as a row of lights down the verge in daylight.
+                Delineator = HorizonAssetUtility.LoadOrCreateMaterial(
+                    MaterialsFolder + "/M_Delineator.mat", "M_Delineator",
+                    new Color(0.88f, 0.88f, 0.85f), 0.25f);
+
+                DelineatorReflector = HorizonAssetUtility.LoadOrCreateUnlitMaterial(
+                    MaterialsFolder + "/M_DelineatorReflector.mat", "M_DelineatorReflector",
+                    new Color(1f, 0.93f, 0.72f));
                 // The palette owns M_CarBody now, as its first entry, so the orange the car has always
                 // worn is created exactly once and by one table. CarBody stays as a named handle to it
                 // because a good deal of code — and the traffic material resolver — reads it that way.
@@ -394,6 +421,10 @@ namespace Horizon.EditorTools
                 Smoke = HorizonAssetUtility.LoadOrCreateParticleMaterial(
                     MaterialsFolder + "/M_ExhaustSmoke.mat", "M_ExhaustSmoke", smokeTexture,
                     new Color(0.62f, 0.62f, 0.64f, 0.5f));
+
+                TyreSmoke = HorizonAssetUtility.LoadOrCreateParticleMaterial(
+                    MaterialsFolder + "/M_TyreSmoke.mat", "M_TyreSmoke", smokeTexture,
+                    new Color(0.88f, 0.87f, 0.85f, 0.62f));
             }
         }
 
@@ -703,6 +734,11 @@ namespace Horizon.EditorTools
             });
 
             HorizonAssetUtility.AssertReferenceAssigned(controller, "config");
+
+            // On the chassis rather than on a body, unlike the tailpipes: the wheels belong to the car
+            // and do not change when the garage swaps a shell over them. Built after the controller so
+            // the reference can be explicit instead of resolved in Awake.
+            CreateTyreSmoke(root.transform, materials);
 
             // Wired here rather than with the rest of VehicleLights, because the controller does not
             // exist yet at that point. VehicleLights falls back to a GetComponentInParent in Awake, but
@@ -1101,6 +1137,7 @@ namespace Horizon.EditorTools
 
             BuildCoveredSections(worldRoot.transform, path, roadShape, course, field, materials);
             BuildGuardRails(worldRoot.transform, path, roadShape, field, course, materials);
+            BuildDelineatorPosts(worldRoot.transform, path, roadShape, field, course, materials);
 
             // --- Motorway structures. Per carriageway, because a divided road has two of everything:
             // two bores through a spur, two decks over a valley, two sets of verge rails. Only the
@@ -1125,11 +1162,17 @@ namespace Horizon.EditorTools
 
             BuildGuardRails(worldRoot.transform, westbound, motorwayShape, field, motorwayCourse,
                 materials, "MotorwayWest");
+            BuildDelineatorPosts(worldRoot.transform, westbound, motorwayShape, field, motorwayCourse,
+                materials, "MotorwayWest");
             BuildGuardRails(worldRoot.transform, eastbound, motorwayShape, field, motorwayCourse,
+                materials, "MotorwayEast");
+            BuildDelineatorPosts(worldRoot.transform, eastbound, motorwayShape, field, motorwayCourse,
                 materials, "MotorwayEast");
             BuildMedianBarrier(worldRoot.transform, motorwayPath, motorwayShape, motorwayCourse, materials);
 
             BuildGuardRails(worldRoot.transform, linkPath, roadShape, field, linkCourse,
+                materials, "MotorwayLink");
+            BuildDelineatorPosts(worldRoot.transform, linkPath, roadShape, field, linkCourse,
                 materials, "MotorwayLink");
 
             TrafficNetwork routes = BuildTraffic(worldRoot.transform, towns, path, roadShape, materials,
@@ -1413,7 +1456,7 @@ namespace Horizon.EditorTools
                     int index, string name,
                     float streamLoad, float streamUnload, float streamMargin,
                     int trafficBudget, float trafficLoad, float trafficRecycle,
-                    bool shadows, bool exhaust, int frameRate)
+                    bool shadows, bool exhaust, bool tyreSmoke, int frameRate)
                 {
                     SerializedProperty level = levels.GetArrayElementAtIndex(index);
                     level.FindPropertyRelative("Name").stringValue = name;
@@ -1425,17 +1468,23 @@ namespace Horizon.EditorTools
                     level.FindPropertyRelative("TrafficRecycleRadius").floatValue = trafficRecycle;
                     level.FindPropertyRelative("SunShadows").boolValue = shadows;
                     level.FindPropertyRelative("ExhaustParticles").boolValue = exhaust;
+                    level.FindPropertyRelative("TyreSmokeParticles").boolValue = tyreSmoke;
                     level.FindPropertyRelative("TargetFrameRate").intValue = frameRate;
                 }
 
+                // Low keeps the tyre smoke while losing the exhaust, which looks like the wrong way
+                // round until you ask what each one is for. The tailpipe plume is atmosphere and runs
+                // constantly; tyre smoke is feedback — it is how the player sees that the car has let
+                // go — and taking that away on a weak phone would remove information rather than
+                // decoration. It also costs nothing at all until something actually slides.
                 Set((int)QualityPreset.Low, "Low",
-                    380f, 500f, 140f, 24, 320f, 460f, false, false, 30);
+                    380f, 500f, 140f, 24, 320f, 460f, false, false, true, 30);
 
                 Set((int)QualityPreset.Balanced, "Balanced",
-                    650f, 820f, 220f, 56, 650f, 900f, true, true, 60);
+                    650f, 820f, 220f, 56, 650f, 900f, true, true, true, 60);
 
                 Set((int)QualityPreset.High, "High",
-                    820f, 1000f, 260f, TrafficPoolSize, 800f, 1050f, true, true, 60);
+                    820f, 1000f, 260f, TrafficPoolSize, 800f, 1050f, true, true, true, 60);
             });
         }
 
@@ -2167,6 +2216,94 @@ namespace Horizon.EditorTools
         }
 
         /// <summary>Smoke emitters at the tailpipe mouths, pointing backwards out of the car.</summary>
+        /// <summary>
+        /// The single world-space emitter every tyre smokes into.
+        ///
+        /// <para>Not parented per wheel and not four systems — see <see cref="TyreSmoke"/> for why.
+        /// Emission is off because the component emits by hand at the contact patches; leaving the rate
+        /// on would put a second, wheel-less plume under the car.</para>
+        /// </summary>
+        private static void CreateTyreSmoke(Transform parent, PrototypeMaterials materials)
+        {
+            var emitterObject = new GameObject("TyreSmoke");
+            emitterObject.transform.SetParent(parent, false);
+            emitterObject.transform.localPosition = Vector3.zero;
+
+            ParticleSystem particles = emitterObject.AddComponent<ParticleSystem>();
+
+            ParticleSystem.MainModule main = particles.main;
+            main.duration = 1f;
+            main.loop = true;
+
+            // Long-lived, because tyre smoke hangs. A drift that leaves nothing behind it reads as a
+            // puff of dust, and the trail down the road is most of the effect.
+            main.startLifetime = new ParticleSystem.MinMaxCurve(1.2f, 2f);
+
+            // Slow, and mostly supplied per-particle by the component. What is left here is the spread.
+            main.startSpeed = new ParticleSystem.MinMaxCurve(0.2f, 0.9f);
+            main.startSize = 0.6f;
+            main.startColor = new Color(1f, 1f, 1f, 0.5f);
+            main.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
+
+            // Rises, but barely: hot rubber smoke drifts up far more slowly than it spreads out.
+            main.gravityModifier = -0.02f;
+            // 260, and it is the arithmetic rather than a round number: four tyres alight at 35 a
+            // second each, living 1.6 seconds on average, is 224 in the air at once. Under that and the
+            // cloud thins out at exactly the moment the car is most sideways.
+            main.maxParticles = 260;
+
+            // World space is not optional here. The whole point is that the cloud stays on the road
+            // where it was made while the car drives away from it.
+            main.simulationSpace = ParticleSystemSimulationSpace.World;
+
+            ParticleSystem.EmissionModule emission = particles.emission;
+            emission.enabled = false;
+
+            ParticleSystem.ShapeModule shape = particles.shape;
+            shape.enabled = false;
+
+            // Billows out as it ages, which is what separates smoke from dust.
+            ParticleSystem.SizeOverLifetimeModule size = particles.sizeOverLifetime;
+            size.enabled = true;
+            size.size = new ParticleSystem.MinMaxCurve(
+                1f, AnimationCurve.EaseInOut(0f, 0.55f, 1f, 2.6f));
+
+            ParticleSystem.ColorOverLifetimeModule color = particles.colorOverLifetime;
+            color.enabled = true;
+            var fade = new Gradient();
+            fade.SetKeys(
+                new[]
+                {
+                    new GradientColorKey(Color.white, 0f),
+                    new GradientColorKey(new Color(0.86f, 0.86f, 0.88f), 1f),
+                },
+                new[]
+                {
+                    new GradientAlphaKey(0f, 0f),
+                    new GradientAlphaKey(1f, 0.12f),
+                    new GradientAlphaKey(0f, 1f),
+                });
+            color.color = new ParticleSystem.MinMaxGradient(fade);
+
+            var renderer = emitterObject.GetComponent<ParticleSystemRenderer>();
+            renderer.renderMode = ParticleSystemRenderMode.Billboard;
+            renderer.sharedMaterial = materials.TyreSmoke;
+            renderer.sortingFudge = 20f;
+            renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            renderer.receiveShadows = false;
+
+            TyreSmoke tyreSmoke = emitterObject.AddComponent<TyreSmoke>();
+
+            VehicleController vehicle = parent.GetComponent<VehicleController>();
+            if (vehicle != null)
+            {
+                HorizonAssetUtility.Configure(tyreSmoke, serialized =>
+                    serialized.FindProperty("vehicle").objectReferenceValue = vehicle);
+
+                HorizonAssetUtility.AssertReferenceAssigned(tyreSmoke, "vehicle");
+            }
+        }
+
         private static void CreateExhaustEmitters(
             Transform parent, PrototypeMaterials materials, in CarMeshBuilder.CarProfile profile)
         {
@@ -5409,6 +5546,40 @@ namespace Horizon.EditorTools
                 addCollider: false, markStatic: true);
 
             Debug.Log($"[Horizon] Guard rails on {Where(label)}: {triangles} triangles.");
+        }
+
+        /// <summary>
+        /// Builds the delineator posts. Resident with the road for the same reason the guard rails are:
+        /// they are one draw call, and a stretch of road that loses its posts loses the thing the eye
+        /// was reading its speed from.
+        /// </summary>
+        private static void BuildDelineatorPosts(
+            Transform parent,
+            IRoadPath path,
+            in RoadShape roadShape,
+            MountainField field,
+            RoadCourse course,
+            PrototypeMaterials materials,
+            string label = "")
+        {
+            Mesh mesh = DelineatorPostBuilder.Build(path, roadShape, field, course);
+            if (mesh == null)
+            {
+                Debug.Log($"[Horizon] No delineator posts on {Where(label)}.");
+                return;
+            }
+
+            int triangles = mesh.triangles.Length / 3;
+            mesh = HorizonAssetUtility.ReplaceAsset(
+                mesh, $"{GeneratedFolder}/Delineator{label}Mesh.asset");
+
+            // No collider, for the same reason the guard rails have none: a post is a marker, not
+            // something the car should be able to lean on.
+            CreateMeshObject(parent, "Delineators" + label, mesh,
+                new[] { materials.Delineator, materials.DelineatorReflector },
+                addCollider: false, markStatic: true);
+
+            Debug.Log($"[Horizon] Delineator posts on {Where(label)}: {triangles} triangles.");
         }
 
         /// <summary>

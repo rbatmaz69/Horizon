@@ -48,8 +48,15 @@ namespace Horizon.Game
             [Header("Rendering")]
             public bool SunShadows;
 
-            [Tooltip("Exhaust smoke and flames. Two particle systems, and the only ones on the car.")]
+            [Tooltip("Exhaust smoke and flames. Two particle systems on the active body.")]
             public bool ExhaustParticles;
+
+            [Tooltip("Smoke off the tyres when they slide.\n\n"
+                   + "Kept apart from the exhaust rather than folded in with it, because the two cost "
+                   + "very different things. The tailpipes trickle at a fixed low rate all the time; "
+                   + "this one is idle for most of a drive and then asks for its whole budget at once, "
+                   + "during a slide — which is also the frame that is already doing the most work.")]
+            public bool TyreSmokeParticles;
 
             [Tooltip("30 on Low is a real thermal and battery win on a weak phone, and a steady 30 "
                    + "reads better than a 60 that cannot hold.")]
@@ -127,6 +134,7 @@ namespace Horizon.Game
             }
 
             SetExhaustEnabled(level.ExhaustParticles);
+            SetTyreSmokeEnabled(level.TyreSmokeParticles);
         }
 
         /// <summary>
@@ -163,6 +171,46 @@ namespace Horizon.Game
                 else
                 {
                     // Clear as well as stop, or the plume that was in the air hangs there.
+                    particles.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Switches the tyre smoke on or off.
+        ///
+        /// <para>Separate from the exhaust and searched separately, because it sits on the chassis
+        /// rather than on a body — swapping cars in the garage does not replace it, but the same
+        /// find-through-the-vehicle rule is kept so there is one way this is done rather than two.</para>
+        ///
+        /// <para>Disabling the component is not enough on its own: it stops new puffs, but a cloud
+        /// already lying on the road would sit there until it aged out.</para>
+        /// </summary>
+        private static void SetTyreSmokeEnabled(bool enabled)
+        {
+            Vehicle.VehicleController vehicle = FindFirstObjectByType<Vehicle.VehicleController>();
+            if (vehicle == null)
+            {
+                return;
+            }
+
+            Vehicle.TyreSmoke[] emitters = vehicle.GetComponentsInChildren<Vehicle.TyreSmoke>(true);
+            for (int i = 0; i < emitters.Length; i++)
+            {
+                emitters[i].enabled = enabled;
+
+                var particles = emitters[i].GetComponent<ParticleSystem>();
+                if (particles == null)
+                {
+                    continue;
+                }
+
+                if (enabled)
+                {
+                    particles.Play();
+                }
+                else
+                {
                     particles.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
                 }
             }
