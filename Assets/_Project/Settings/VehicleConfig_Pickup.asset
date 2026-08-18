@@ -12,12 +12,13 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 2e6c54b425c874741ae73be512ddf6a2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Horizon.Vehicle::Horizon.Vehicle.VehicleConfig
-  Version: 1
+  Version: 3
   Mass: 1750
   CenterOfMass: {x: 0, y: -0.18, z: -0.05}
   LinearDamping: 0.06
   AngularDamping: 0.05
-  RollPitchDamping: 3
+  RollDamping: 3
+  PitchDamping: 1.3
   WheelRadius: 0.44
   SuspensionRestLength: 0.3
   SuspensionStiffness: 42000
@@ -70,15 +71,19 @@ MonoBehaviour:
   IdleRpm: 750
   RedlineRpm: 4600
   GearRatios:
-  - 2.78
-  - 1.93
-  - 1.36
+  - 4.2
+  - 2.9
+  - 2.15
+  - 1.65
+  - 1.28
   - 1
   ReverseRatio: 2.9
   FinalDrive: 4.6
   DrivetrainEfficiency: 0.9
   UpshiftRpm: 4300
   DownshiftRpm: 1700
+  PartThrottleUpshiftRpm: 2300
+  PartThrottleDownshiftRpm: 1200
   ShiftTime: 0.35
   BrakeForce: 17500
   ReverseSpeed: 8
