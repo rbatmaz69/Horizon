@@ -453,7 +453,7 @@ namespace Horizon.Vehicle
             // treats reversing as braking gets it wrong — brake lights being the obvious one.
             BrakeInput = brake;
 
-            float driveForcePerWheel = UpdateDrivetrain(deltaTime, throttle, reverse);
+            float driveForcePerWheel = UpdateDrivetrain(deltaTime, throttle, reverse, brake);
 
             for (int i = 0; i < WheelCount; i++)
             {
@@ -638,7 +638,7 @@ namespace Horizon.Vehicle
         /// and the interruption during a shift is a genuine gap in thrust. That gap is what a gear change
         /// feels like, and it is the reason the car no longer accelerates like a single-speed electric.
         /// </summary>
-        private float UpdateDrivetrain(float deltaTime, float throttle, float reverse)
+        private float UpdateDrivetrain(float deltaTime, float throttle, float reverse, float brake)
         {
             if (shiftTimer > 0f)
             {
@@ -652,7 +652,8 @@ namespace Horizon.Vehicle
 
             // Engine speed from road speed, through the gearbox.
             float wheelRevsPerSecond = Mathf.Abs(forwardSpeed) / (2f * Mathf.PI * config.WheelRadius);
-            float geared = wheelRevsPerSecond * 60f * driveRatio;
+            float wheelRpm = wheelRevsPerSecond * 60f;
+            float geared = wheelRpm * driveRatio;
 
             // Rolling away from a standstill the clutch or converter slips, so the engine can rev while
             // the wheels barely turn. Without this the car has no voice at all until it is moving.
@@ -672,15 +673,49 @@ namespace Horizon.Vehicle
                 // low gear at town speeds — harmless with four long gears, unbearable with six short
                 // ones. Interpolating on command is the whole of the fix: stamp on it and nothing
                 // changes, lift off and the box short-shifts the way a driver would.
-                if (engineRpm >= config.UpshiftRpm && gearIndex < config.ForwardGearCount - 1)
+                // Braking counts as asking for a lower gear, exactly as the throttle does.
+                //
+                // It was left out, and the effect was the one thing a gearbox must never do: slow from
+                // 100 to 50 and the box held sixth almost the whole way down, because with the throttle
+                // shut it was reading the coasting threshold. The gear you needed was then chosen only
+                // once you asked for drive — which is a second too late, because you are already asking.
+                // A driver going for the brakes is a driver about to want a gear.
+                float shiftDemand = Mathf.Max(command, brake);
+
+                float upshiftRpm = Mathf.Lerp(
+                    config.PartThrottleUpshiftRpm, config.UpshiftRpm, shiftDemand);
+                float downshiftRpm = Mathf.Lerp(
+                    config.PartThrottleDownshiftRpm, config.DownshiftRpm, shiftDemand);
+
+                if (engineRpm >= upshiftRpm && gearIndex < config.ForwardGearCount - 1)
                 {
+                    // Upshifts stay one at a time. Accelerating walks through the gears anyway, and
+                    // skipping one would step over the engine speed that justified it.
                     gearIndex++;
                     shiftTimer = config.ShiftTime;
                 }
-                else if (engineRpm <= config.DownshiftRpm && gearIndex > 0)
+                else if (engineRpm <= downshiftRpm && gearIndex > 0)
                 {
-                    gearIndex--;
-                    shiftTimer = config.ShiftTime;
+                    // Downshifts go straight to the right gear instead of walking down to it.
+                    //
+                    // One gear per shift cost ShiftTime of *zero drive* per step, so answering a pedal
+                    // in sixth at town speed meant three quarters of a second of nothing while the box
+                    // counted its way down — the pause being longest exactly when the driver had asked
+                    // for the most. A real automatic kicks down two or three gears in one action for
+                    // this reason. The search stops at the first gear that clears the threshold, so it
+                    // can never drop further than a sequence of single steps would have.
+                    int target = gearIndex;
+                    while (target > 0
+                           && wheelRpm * config.RatioForGear(target) * config.FinalDrive <= downshiftRpm)
+                    {
+                        target--;
+                    }
+
+                    if (target != gearIndex)
+                    {
+                        gearIndex = target;
+                        shiftTimer = config.ShiftTime;
+                    }
                 }
             }
 

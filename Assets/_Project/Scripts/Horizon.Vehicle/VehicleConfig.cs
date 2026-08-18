@@ -22,7 +22,7 @@ namespace Horizon.Vehicle
         /// stamped below this is stale and gets rewritten from the code defaults — see
         /// <c>VehicleConfigReset</c>.
         /// </summary>
-        public const int CurrentVersion = 2;
+        public const int CurrentVersion = 3;
 
         /// <summary>
         /// Which set of meanings this asset's numbers were chosen under.
@@ -126,7 +126,25 @@ namespace Horizon.Vehicle
         [Header("Gearbox")]
         [Tooltip("Forward gear ratios, first to top. Top speed comes out of the last one — it is not "
                + "set directly anywhere.")]
-        public float[] GearRatios = { 2.78f, 1.93f, 1.36f, 1f };
+        /// <summary>
+        /// Six forward ratios, closely spaced, ending at exactly 1.00.
+        ///
+        /// <para><b>Why six and not four.</b> The old ladder was {2.78, 1.93, 1.36, 1.00}, and the
+        /// number that condemns it is first gear: it ran to <b>78.8 km/h</b>. Town and country driving
+        /// lives entirely under that, so across the whole speed range the game is actually played in,
+        /// the gearbox never changed gear once. Every shift is a hole in the drive — the one honest
+        /// event the drivetrain produces — and there were none of them where the player was.</para>
+        ///
+        /// <para>These end first at 52 km/h and put five shifts under 171 km/h. The steps are 1.45 then
+        /// 1.35 down to 1.28, wide at the bottom and closing at the top, which is how a real box is cut:
+        /// first has to launch the car, the upper gears only have to keep the engine in its band.</para>
+        ///
+        /// <para><b>The last ratio must stay 1.00.</b> <see cref="TopSpeed"/> is computed from it, and
+        /// TopSpeed is the divisor for <c>SpeedNormalized</c> — which is what <see cref="SteeringBySpeed"/>
+        /// and <see cref="LateralGrip"/> are looked up on. Shortening top gear would quietly retune the
+        /// steering and the tyres of every car in the game while looking like a gearing change.</para>
+        /// </summary>
+        public float[] GearRatios = { 4.20f, 2.90f, 2.15f, 1.65f, 1.28f, 1f };
 
         public float ReverseRatio = 2.90f;
 
@@ -146,12 +164,25 @@ namespace Horizon.Vehicle
 
         [Range(0.5f, 1f)] public float DrivetrainEfficiency = 0.9f;
 
-        [Tooltip("Upshift above this engine speed.")]
+        [Tooltip("Upshift above this engine speed at full throttle.")]
         public float UpshiftRpm = 5400f;
 
-        [Tooltip("Downshift below this engine speed. Must stay well under UpshiftRpm divided by the "
-               + "ratio step, or the box hunts between two gears.")]
+        [Tooltip("Downshift below this engine speed at full throttle. Must stay well under UpshiftRpm "
+               + "divided by the ratio step, or the box hunts between two gears.")]
         public float DownshiftRpm = 2100f;
+
+        [Tooltip("Upshift above this engine speed with the throttle closed; the real threshold is "
+               + "interpolated between the two on pedal travel.\n\n"
+               + "Without this the shift points are the full-throttle ones at every pedal position, "
+               + "which with six gears is not a detail — it is the difference between cruising through "
+               + "town in third at 2600 rpm and screaming through it in first at 5200. A driver lifting "
+               + "off short-shifts, and so should the box.")]
+        public float PartThrottleUpshiftRpm = 2800f;
+
+        [Tooltip("Downshift below this engine speed with the throttle closed. Must clear "
+               + "PartThrottleUpshiftRpm divided by the widest ratio step, or the box hunts on a "
+               + "trailing throttle — which is exactly where it would be least forgivable.")]
+        public float PartThrottleDownshiftRpm = 1400f;
 
         [Tooltip("Seconds of torque interruption per shift. This gap is the shift you actually feel.")]
         public float ShiftTime = 0.35f;

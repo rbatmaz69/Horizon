@@ -127,7 +127,9 @@ namespace Horizon.EditorTools
                         new Keyframe(0.60f, 0.88f),
                         new Keyframe(1f, 0.55f));
 
-                    config.GearRatios = new[] { 3.90f, 2.31f, 1.52f, 1.12f, 0.86f };
+                    config.GearRatios = new[] { 4.35f, 3.05f, 2.20f, 1.62f, 1.18f, 0.86f };
+                    config.PartThrottleUpshiftRpm = 2100f;
+                    config.PartThrottleDownshiftRpm = 1050f;
                     config.FinalDrive = 4.90f;
                     config.LateralGrip = Grip(1.45f, 1.30f, 1.15f);
                     config.MaxSteerAngle = 34f;
@@ -157,6 +159,8 @@ namespace Horizon.EditorTools
                     config.RedlineRpm = 4600f;
                     config.UpshiftRpm = 4300f;
                     config.DownshiftRpm = 1700f;
+                    config.PartThrottleUpshiftRpm = 2300f;
+                    config.PartThrottleDownshiftRpm = 1200f;
 
                     // Flat and low, the way a large lazy engine in a working vehicle is.
                     config.TorqueByRpm = new AnimationCurve(
@@ -201,7 +205,13 @@ namespace Horizon.EditorTools
                         new Keyframe(1f, 0.80f));
 
                     // Close ratios, because there is no torque to cover a gap with.
-                    config.GearRatios = new[] { 3.31f, 2.05f, 1.48f, 1.14f, 0.94f };
+                    config.GearRatios = new[] { 3.75f, 2.62f, 1.92f, 1.45f, 1.14f, 0.94f };
+
+                    // Scaled off the 6600 redline rather than left at the default: a threshold that is
+                    // half of the fastback's redline is two thirds of a van's, and the point of the
+                    // part-throttle figure is where it sits in the engine's own band.
+                    config.PartThrottleUpshiftRpm = 3300f;
+                    config.PartThrottleDownshiftRpm = 1700f;
 
                     // 6.40, and it looks absurd until you remember every car here is on the fastback's
                     // 0.44 m wheels. A real hatchback rolls on about 0.30 m, and FinalDrive is coupled
