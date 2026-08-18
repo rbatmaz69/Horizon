@@ -34,6 +34,7 @@ namespace Horizon.Vehicle
         private IDriveInput explicitInput;
         private float steerAngle;
         private float forwardSpeed;
+        private Vector3 previousVelocity;
         private float wheelbase = 2.7f;
 
         private int gearIndex;
@@ -60,7 +61,40 @@ namespace Horizon.Vehicle
 
             /// <summary>Sideways speed at the contact patch, m/s.</summary>
             public float LateralSlip;
+
+            /// <summary>
+            /// How fast the tyre is spinning up or locking against the road, m/s at the contact patch.
+            ///
+            /// <para>The model carries no wheel angular velocity — <see cref="SpinAngle"/> is derived
+            /// from road speed for the visual and nothing else — so there is no true longitudinal slip
+            /// to read. This stands in for it, and it is not a fudge: when the friction circle refuses
+            /// part of the drive or brake force, the refused part is exactly what would have been
+            /// spinning the wheel up instead of pushing the car. Dividing it by the wheel's share of
+            /// the mass gives the acceleration the patch slips at, and that settles to a slip speed.</para>
+            /// </summary>
+            public float SpinSlip;
         }
+
+        /// <summary>
+        /// Ceiling on the reported acceleration, m/s². Comfortably above what the tyres can produce
+        /// (a traction-limited launch is around 8.5), so it only ever catches impact spikes.
+        /// </summary>
+        private const float MaxLongitudinalAcceleration = 15f;
+
+        /// <summary>
+        /// Seconds of overload that a steady spin slip settles to. Larger spins the tyres up more
+        /// readily for the same excess force.
+        /// </summary>
+        private const float SpinSlipGain = 0.35f;
+
+        /// <summary>How quickly spin slip rises and falls toward what the overload calls for, per second.</summary>
+        private const float SpinSlipResponse = 8f;
+
+        /// <summary>Ceiling on spin slip, m/s. Well past the point where the tyre is fully alight.</summary>
+        private const float MaxSpinSlip = 25f;
+
+        /// <summary>Filter rate for <see cref="LongitudinalAcceleration"/>, per second.</summary>
+        private const float AccelerationSmoothing = 12f;
 
         /// <summary>Signed forward speed in m/s. Negative when reversing.</summary>
         public float ForwardSpeed => forwardSpeed;
@@ -71,6 +105,23 @@ namespace Horizon.Vehicle
         /// <summary>Speed as a 0..1 fraction of <see cref="VehicleConfig.TopSpeed"/>.</summary>
         public float SpeedNormalized =>
             config != null ? Mathf.Clamp01(Mathf.Abs(forwardSpeed) / Mathf.Max(1f, config.TopSpeed)) : 0f;
+
+        /// <summary>
+        /// Specific force along the car's own forward axis, m/s² — what an accelerometer bolted to the
+        /// car would read. Positive is being pushed back into the seat, negative is braking.
+        ///
+        /// <para>Here because a speed readout cannot answer the question everything downstream actually
+        /// asks. Speed changes smoothly, so a cue driven by it is invisible while it changes — which is
+        /// the whole reason the car could gain 100 km/h without the moment ever registering. The events
+        /// are real and already in the physics: the drivetrain drops to zero drive for the whole of
+        /// <see cref="VehicleConfig.ShiftTime"/> at every shift, and again on the limiter. This is what
+        /// lets the audio and the body movement show them.</para>
+        ///
+        /// <para>Filtered, and that is not tidiness. The raw difference carries every friction-circle
+        /// clamp and suspension bump, which at 50 Hz is loud enough to swamp the signal — a consumer
+        /// reading it unfiltered would shake rather than surge.</para>
+        /// </summary>
+        public float LongitudinalAcceleration { get; private set; }
 
         /// <summary>Current steering angle in degrees.</summary>
         public float SteerAngle => steerAngle;
@@ -160,6 +211,48 @@ namespace Horizon.Vehicle
 
                 return count;
             }
+        }
+
+        /// <summary>Number of wheels an effect can ask about. Order is FL, FR, RL, RR.</summary>
+        public static int WheelSlipCount => WheelCount;
+
+        /// <summary>
+        /// Where a wheel is touching the road and how hard it is sliding there, for effects that have
+        /// to be drawn at the contact patch — tyre smoke above all.
+        ///
+        /// <para>Returns false for an airborne wheel, which is the whole reason this is a Try method:
+        /// a caller that got a stale contact point would leave smoke hanging in the air over a crest.</para>
+        ///
+        /// <para><paramref name="slipSpeed"/> is metres per second of tyre sliding across tarmac,
+        /// combining the sideways slide with the spin-up from <see cref="WheelState.SpinSlip"/>. The two
+        /// are perpendicular, so they combine as a hypotenuse rather than a sum.</para>
+        ///
+        /// <para>The sideways half is weighted by what the friction circle <i>refused</i> rather than by
+        /// the raw sideways speed. A tyre holding a steady corner still has sideways velocity at the
+        /// patch — that is how it makes force at all — and billing that as sliding would put smoke
+        /// under the car in every bend it ever took.</para>
+        /// </summary>
+        public bool TryGetWheelSlip(int index, out Vector3 contactPoint, out float slipSpeed)
+        {
+            contactPoint = Vector3.zero;
+            slipSpeed = 0f;
+
+            if (index < 0 || index >= WheelCount)
+            {
+                return false;
+            }
+
+            WheelState wheel = wheels[index];
+            if (!wheel.Grounded)
+            {
+                return false;
+            }
+
+            contactPoint = wheel.ContactPoint;
+
+            float sliding = wheel.LateralSlip * (1f - Mathf.Clamp01(wheel.GripUsed));
+            slipSpeed = Mathf.Sqrt(sliding * sliding + wheel.SpinSlip * wheel.SpinSlip);
+            return true;
         }
 
         public VehicleConfig Config => config;
@@ -288,6 +381,13 @@ namespace Horizon.Vehicle
             transform.SetPositionAndRotation(position, rotation);
 
             steerAngle = 0f;
+
+            // Without this the next step differentiates the whole of the old speed across one frame and
+            // reports a crash the car never had — which every consumer would then render.
+            forwardSpeed = 0f;
+            previousVelocity = Vector3.zero;
+            LongitudinalAcceleration = 0f;
+
             float restLength = config != null ? config.SuspensionRestLength : 0.3f;
             for (int i = 0; i < WheelCount; i++)
             {
@@ -323,6 +423,8 @@ namespace Horizon.Vehicle
             Vector3 velocity = body.linearVelocity;
             forwardSpeed = Vector3.Dot(velocity, transform.forward);
             float speed01 = Mathf.Clamp01(Mathf.Abs(forwardSpeed) / Mathf.Max(1f, config.TopSpeed));
+
+            UpdateLongitudinalAcceleration(deltaTime);
 
             // Lock available at this speed, plus whatever the slide has earned back. SteeringBySpeed
             // cuts to a third at speed to keep a straight calm, and that is the exact opposite of what
@@ -384,6 +486,48 @@ namespace Horizon.Vehicle
         }
 
         /// <summary>
+        /// Measures <see cref="LongitudinalAcceleration"/> for this step.
+        ///
+        /// <para>Runs at the top of the step, before any force is applied, so every consumer within the
+        /// frame sees the same number — a value updated halfway through would mean the camera and the
+        /// audio were reacting to different instants.</para>
+        /// </summary>
+        private void UpdateLongitudinalAcceleration(float deltaTime)
+        {
+            if (deltaTime <= 0f)
+            {
+                return;
+            }
+
+            // Differentiating the *vector* and projecting the result, rather than differentiating the
+            // already-projected forwardSpeed. The two are not the same thing and the difference is not
+            // subtle: forwardSpeed is measured along transform.forward, so pitching the body re-projects
+            // an unchanged velocity and manufactures acceleration out of nothing. Cresting a rise at
+            // 10° is worth over 2 m/s² of pure fiction that way — and since PitchDamping now lets the
+            // body move more, the error would feed itself.
+            Vector3 velocity = body.linearVelocity;
+            float raw = Vector3.Dot(velocity - previousVelocity, transform.forward) / deltaTime;
+            previousVelocity = velocity;
+
+            // Minus gravity's component along the same axis, which makes this specific force — what an
+            // accelerometer bolted to the car reads, and what actually presses the driver into the seat.
+            // On a game set on mountain passes that is the definition worth having: holding a steady
+            // 60 km/h up a gradient now reads as the load it is, and coasting down one reads as the
+            // free ride it is, neither of which a plain speed derivative can tell you.
+            raw -= Vector3.Dot(Physics.gravity, transform.forward);
+
+            // Clamped before the filter, not after. A single-frame spike from a kerb or a landing is
+            // physically real but useless to a consumer, and letting it into the filter would leave the
+            // tail of it in the signal for a tenth of a second after the bump was over.
+            raw = Mathf.Clamp(raw, -MaxLongitudinalAcceleration, MaxLongitudinalAcceleration);
+
+            LongitudinalAcceleration = Mathf.Lerp(
+                LongitudinalAcceleration,
+                raw,
+                1f - Mathf.Exp(-AccelerationSmoothing * deltaTime));
+        }
+
+        /// <summary>
         /// Damps roll and pitch while leaving yaw alone.
         ///
         /// <para>Rigidbody.angularDamping applies to every axis at once, and a vehicle wants very
@@ -399,7 +543,7 @@ namespace Horizon.Vehicle
         /// </summary>
         private void ApplyAxisDamping()
         {
-            if (config.RollPitchDamping <= 0f)
+            if (config.RollDamping <= 0f && config.PitchDamping <= 0f)
             {
                 return;
             }
@@ -409,8 +553,14 @@ namespace Horizon.Vehicle
             float roll = Vector3.Dot(angular, transform.forward);
             float pitch = Vector3.Dot(angular, transform.right);
 
-            Vector3 damped = transform.forward * roll + transform.right * pitch;
-            body.AddTorque(-damped * config.RollPitchDamping, ForceMode.Acceleration);
+            // A constant per axis, because the two are asked for by different things. Roll damping is
+            // what keeps the car off its roof; pitch damping only ever cost us the squat and dive that
+            // tell the player the car is accelerating. Sharing one number meant the anti-flip figure
+            // silently set how much the nose was allowed to move.
+            Vector3 damped = transform.forward * (roll * config.RollDamping)
+                           + transform.right * (pitch * config.PitchDamping);
+
+            body.AddTorque(-damped, ForceMode.Acceleration);
         }
 
         /// <summary>
@@ -517,6 +667,11 @@ namespace Horizon.Vehicle
 
             if (!reversing && shiftTimer <= 0f)
             {
+                // Shift points move with the pedal. A fixed threshold is a full-throttle threshold, and
+                // applying it to a trailing throttle is what leaves the car pinned near the redline in a
+                // low gear at town speeds — harmless with four long gears, unbearable with six short
+                // ones. Interpolating on command is the whole of the fix: stamp on it and nothing
+                // changes, lift off and the box short-shifts the way a driver would.
                 if (engineRpm >= config.UpshiftRpm && gearIndex < config.ForwardGearCount - 1)
                 {
                     gearIndex++;
@@ -604,6 +759,8 @@ namespace Horizon.Vehicle
                 wheel.Grounded = false;
                 wheel.Compression01 = 0f;
                 wheel.SpringLength = config.SuspensionRestLength;
+                wheel.LateralSlip = 0f;
+                wheel.SpinSlip = 0f;
                 UpdateWheelVisual(index, config.SuspensionRestLength, wheelSteer, forwardSpeed, deltaTime);
                 return;
             }
@@ -693,7 +850,19 @@ namespace Horizon.Vehicle
             // an electric motor and corner like it was on ice. Clamped here, asking for more drive than
             // the road can take costs acceleration — which is wheelspin, and is why a standing start in
             // first now has to be fed in rather than stamped on.
+            float demandedLongitudinal = longitudinalForce;
             longitudinalForce = Mathf.Clamp(longitudinalForce, -budget, budget);
+
+            // What the circle refused is what spins the tyre. Positive under power (wheelspin) and
+            // under the handbrake or hard braking alike (a locked tyre slides just as far), because
+            // the tyre does not care which end of the clamp it hit.
+            float refused = Mathf.Abs(demandedLongitudinal) - budget;
+            float spinTarget = refused > 0f
+                ? Mathf.Min(MaxSpinSlip, refused / wheelShareOfMass * SpinSlipGain)
+                : 0f;
+
+            wheel.SpinSlip = Mathf.Lerp(
+                wheel.SpinSlip, spinTarget, 1f - Mathf.Exp(-SpinSlipResponse * deltaTime));
 
             float spent = Mathf.Abs(longitudinalForce);
             float capacity = Mathf.Sqrt(Mathf.Max(0f, budget * budget - spent * spent));

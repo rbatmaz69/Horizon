@@ -90,7 +90,8 @@ namespace Horizon.EditorTools
                     // underneath.
                     config.Mass = 1420f;
                     config.CenterOfMass = new Vector3(0f, -0.26f, 0.02f);
-                    config.RollPitchDamping = 2.7f;
+                    config.RollDamping = 2.7f;
+                    config.PitchDamping = 1.1f;
                     config.AntiRollStiffness = 15000f;
                     config.MaxTorqueNm = 470f;
                     config.RedlineRpm = 5400f;
@@ -109,7 +110,8 @@ namespace Horizon.EditorTools
                     // what stops that ending on its roof.
                     config.Mass = 1950f;
                     config.CenterOfMass = new Vector3(0f, -0.10f, 0.10f);
-                    config.RollPitchDamping = 3.4f;
+                    config.RollDamping = 3.4f;
+                    config.PitchDamping = 1.5f;
                     config.AntiRollStiffness = 22000f;
                     config.DrivenAxle = DrivenAxle.Front;
                     config.MaxTorqueNm = 420f;
@@ -148,7 +150,8 @@ namespace Horizon.EditorTools
                     // it swings rather than stops.
                     config.Mass = 1750f;
                     config.CenterOfMass = new Vector3(0f, -0.18f, -0.05f);
-                    config.RollPitchDamping = 3.0f;
+                    config.RollDamping = 3.0f;
+                    config.PitchDamping = 1.3f;
                     config.AntiRollStiffness = 17000f;
                     config.MaxTorqueNm = 520f;
                     config.RedlineRpm = 4600f;
@@ -179,7 +182,8 @@ namespace Horizon.EditorTools
                     // of lock to spend it with.
                     config.Mass = 980f;
                     config.CenterOfMass = new Vector3(0f, -0.32f, 0.04f);
-                    config.RollPitchDamping = 2.2f;
+                    config.RollDamping = 2.2f;
+                    config.PitchDamping = 0.9f;
                     config.AntiRollStiffness = 12000f;
                     config.DrivenAxle = DrivenAxle.Front;
                     config.MaxTorqueNm = 260f;

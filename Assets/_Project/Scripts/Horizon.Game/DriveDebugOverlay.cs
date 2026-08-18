@@ -80,6 +80,13 @@ namespace Horizon.Game
                 string shifting = vehicle.IsShifting ? "  shifting" : string.Empty;
                 GUILayout.Label($"gear {gear}   {vehicle.EngineRpm:0} rpm{shifting}");
 
+                // The camera FOV, the rig offset and the engine load are all driven off this one
+                // number, and none of them can be tuned against a value that only exists in the
+                // physics step. Shown in g as well as m/s² because the figure worth recognising is
+                // 0.85 g — what the tyres can actually put down on a launch.
+                float accel = vehicle.LongitudinalAcceleration;
+                GUILayout.Label($"accel {accel:0.0} m/s²   {accel / 9.81f:0.00} g");
+
                 // The friction circle is tuned by watching these while driving — there is no other way
                 // to see whether the rear is at its limit, and a number that only exists in the physics
                 // step is a number nobody can tune against.

@@ -22,7 +22,7 @@ namespace Horizon.Vehicle
         /// stamped below this is stale and gets rewritten from the code defaults — see
         /// <c>VehicleConfigReset</c>.
         /// </summary>
-        public const int CurrentVersion = 1;
+        public const int CurrentVersion = 2;
 
         /// <summary>
         /// Which set of meanings this asset's numbers were chosen under.
@@ -43,7 +43,7 @@ namespace Horizon.Vehicle
 
         public float LinearDamping = 0.06f;
 
-        [Tooltip("Rigidbody angular damping. Deliberately almost nothing — see RollPitchDamping.\n\n"
+        [Tooltip("Rigidbody angular damping. Deliberately almost nothing — see RollDamping.\n\n"
                + "This was 1.2, and it is why the steering felt vague no matter how much lock was wound "
                + "on. Rigidbody damping cannot tell yaw from roll, so the figure that stopped a tall car "
                + "wallowing was also being applied to the axis the driver steers with. Holding a steady "
@@ -52,13 +52,24 @@ namespace Horizon.Vehicle
                + "that no amount of steering angle could answer.")]
         public float AngularDamping = 0.05f;
 
-        [Tooltip("Damping applied to roll and pitch only, in rad/s per rad/s — a time constant of about "
-               + "1/this.\n\n"
+        [Tooltip("Damping applied to roll only, in rad/s per rad/s — a time constant of about 1/this.\n\n"
                + "Higher than the 1.2 it replaces, so the body is *steadier* in roll than before, while "
                + "yaw is left to the tyres and DriftYawDamping. Turning it down makes the car livelier "
                + "over crests and closer to flipping on a hairpin, which is the failure this and the "
                + "anti-roll bars exist to prevent.")]
-        public float RollPitchDamping = 2.5f;
+        public float RollDamping = 2.5f;
+
+        [Tooltip("Damping applied to pitch only, in rad/s per rad/s. Deliberately much lower than "
+               + "RollDamping.\n\n"
+               + "These used to be one number, and that was a mistake worth spelling out. The figure "
+               + "exists to stop the car flipping, which is a *roll* problem — but applied to pitch it "
+               + "also erased the squat and dive the tyre forces generate at the contact patch. That "
+               + "movement is about a degree at a full-throttle launch, and it is most of how "
+               + "acceleration is communicated to the player: with it damped away, the car gained speed "
+               + "without ever looking like it was trying. Roll stability is unaffected by this number, "
+               + "so it can be tuned on feel alone — down until the nose visibly takes a set, and no "
+               + "further, because too little makes the car porpoise over crests.")]
+        public float PitchDamping = 1f;
 
         [Header("Suspension")]
         /// <summary>
