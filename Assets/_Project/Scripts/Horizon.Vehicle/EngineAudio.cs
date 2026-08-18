@@ -61,6 +61,24 @@ namespace Horizon.Vehicle
                + "and the lag is a large part of why the car sounds big.")]
         [SerializeField] private float revSmoothing = 4.5f;
 
+        [Tooltip("Longitudinal acceleration in m/s² that counts as the engine working flat out. A "
+               + "traction-limited launch is about 8.")]
+        [SerializeField] private float loadReferenceAcceleration = 6f;
+
+        [Tooltip("How much of the load blend comes from the car actually gaining speed, 0 to 1.\n\n"
+               + "Load used to be throttle and revs only — intent and engine speed, neither of which "
+               + "knows whether the car is going anywhere. Pulling away on the flat and leaning on the "
+               + "throttle against a hill sounded identical, which is the one comparison where an engine "
+               + "has something to say.")]
+        [Range(0f, 1f)]
+        [SerializeField] private float accelerationLoadWeight = 0.3f;
+
+        [Tooltip("How far the engine note falls while the box is between gears, as a fraction of the "
+               + "idle-to-redline span. The gearbox has cut the drive, so the engine is spinning down "
+               + "against nothing — hearing that fall is what makes a shift an event rather than a gap.")]
+        [Range(0f, 0.3f)]
+        [SerializeField] private float shiftPitchDrop = 0.08f;
+
         [Header("Under cover")]
         [Tooltip("Shared cover probe. Found automatically if left empty.")]
         [SerializeField] private VehicleCover cover;
@@ -178,16 +196,33 @@ namespace Horizon.Vehicle
 
             revs = Mathf.Lerp(revs, targetRevs, 1f - Mathf.Exp(-revSmoothing * deltaTime));
 
-            load = Mathf.Clamp01(smoothedThrottle * 0.65f + revs * 0.45f);
+            // Throttle and revs say what is being asked for; acceleration says whether the road is
+            // giving it. The third term is what separates a car that is pulling from one that is merely
+            // revving, and the weights are scaled so the sum still reaches 1 at full effort.
+            float effort = 1f - accelerationLoadWeight;
+            float pulling = vehicle != null
+                ? Mathf.Clamp01(vehicle.LongitudinalAcceleration
+                    / Mathf.Max(0.01f, loadReferenceAcceleration))
+                : 0f;
+
+            load = Mathf.Clamp01(
+                effort * (smoothedThrottle * 0.65f + revs * 0.45f)
+                + accelerationLoadWeight * pulling);
+
+            float pitch = Mathf.Lerp(idlePitch, redlinePitch, revs);
 
             // Drop off during the shift. The gearbox has cut the torque, so the engine should go
             // quiet for that moment too — it is half of why a gear change registers.
+            //
+            // The other half is the pitch. An engine uncoupled from the wheels falls away, and until
+            // this was here the 0.35 s of zero drive the drivetrain really does produce was audible
+            // only as a dip in volume — the one moment in a full-throttle pull with an actual edge on
+            // it, rendered as the note going quiet and carrying on.
             if (vehicle != null && vehicle.IsShifting)
             {
                 load *= 0.35f;
+                pitch -= (redlinePitch - idlePitch) * shiftPitchDrop;
             }
-
-            float pitch = Mathf.Lerp(idlePitch, redlinePitch, revs);
             float boost = 1f + coveredEngineBoost * coverAmount;
             float level = (idleVolume + loadVolume * load) * boost;
 
