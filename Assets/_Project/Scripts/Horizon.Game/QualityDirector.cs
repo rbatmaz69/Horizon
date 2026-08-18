@@ -58,6 +58,12 @@ namespace Horizon.Game
                    + "during a slide — which is also the frame that is already doing the most work.")]
             public bool TyreSmokeParticles;
 
+            [Tooltip("The grit hanging in the air at speed.\n\n"
+                   + "The first thing to go on a weak phone, and the easiest call of the three: it is "
+                   + "pure atmosphere, it is only ever on show while the player is going fast, and the "
+                   + "fog closing in — which costs nothing at all — carries the same message without it.")]
+            public bool AirRushParticles;
+
             [Tooltip("30 on Low is a real thermal and battery win on a weak phone, and a steady 30 "
                    + "reads better than a 60 that cannot hold.")]
             public int TargetFrameRate;
@@ -135,6 +141,7 @@ namespace Horizon.Game
 
             SetExhaustEnabled(level.ExhaustParticles);
             SetTyreSmokeEnabled(level.TyreSmokeParticles);
+            SetAirRushEnabled(level.AirRushParticles);
         }
 
         /// <summary>
@@ -174,6 +181,36 @@ namespace Horizon.Game
                     particles.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
                 }
             }
+        }
+
+        /// <summary>
+        /// Switches the air-rush grit on or off.
+        ///
+        /// <para>Found through the atmosphere rather than the vehicle, because that is where it hangs —
+        /// it belongs to the world, not to the car.</para>
+        /// </summary>
+        private static void SetAirRushEnabled(bool enabled)
+        {
+            SpeedAtmosphere speed = FindFirstObjectByType<SpeedAtmosphere>();
+            if (speed == null)
+            {
+                return;
+            }
+
+            ParticleSystem[] emitters = speed.GetComponentsInChildren<ParticleSystem>(true);
+            for (int i = 0; i < emitters.Length; i++)
+            {
+                if (enabled)
+                {
+                    emitters[i].Play();
+                }
+                else
+                {
+                    emitters[i].Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                }
+            }
+
+            speed.RushEnabled = enabled;
         }
 
         /// <summary>

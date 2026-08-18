@@ -202,6 +202,12 @@ namespace Horizon.EditorTools
             public readonly Material Smoke;
 
             /// <summary>
+            /// The grit hanging in the air that the car flies past at speed. Its colour is written from
+            /// the fog every frame, so what is set here is only a starting point.
+            /// </summary>
+            public readonly Material AirRush;
+
+            /// <summary>
             /// Tyre smoke. Lighter and far less transparent than the exhaust plume: burnt rubber is
             /// near-white and thick, and reusing the exhaust's grey made a drift look like a misfire.
             /// </summary>
@@ -425,6 +431,10 @@ namespace Horizon.EditorTools
                 TyreSmoke = HorizonAssetUtility.LoadOrCreateParticleMaterial(
                     MaterialsFolder + "/M_TyreSmoke.mat", "M_TyreSmoke", smokeTexture,
                     new Color(0.88f, 0.87f, 0.85f, 0.62f));
+
+                AirRush = HorizonAssetUtility.LoadOrCreateParticleMaterial(
+                    MaterialsFolder + "/M_AirRush.mat", "M_AirRush", smokeTexture,
+                    new Color(0.9f, 0.9f, 0.92f, 0.45f));
             }
         }
 
@@ -1234,6 +1244,8 @@ namespace Horizon.EditorTools
             HorizonAssetUtility.AssertReferenceAssigned(timeOfDay, "profile");
             HorizonAssetUtility.AssertReferenceAssigned(timeOfDay, "sun");
 
+            BuildSpeedAtmosphere(atmosphereObject.transform, timeOfDay, materials);
+
             // --- Vehicle, dropped onto the road among the houses rather than at the start of the course.
             // The arrival road in front of the town is 700 m of scenery to drive *back* along, not
             // something to make the player sit through before anything happens.
@@ -1456,7 +1468,7 @@ namespace Horizon.EditorTools
                     int index, string name,
                     float streamLoad, float streamUnload, float streamMargin,
                     int trafficBudget, float trafficLoad, float trafficRecycle,
-                    bool shadows, bool exhaust, bool tyreSmoke, int frameRate)
+                    bool shadows, bool exhaust, bool tyreSmoke, bool airRush, int frameRate)
                 {
                     SerializedProperty level = levels.GetArrayElementAtIndex(index);
                     level.FindPropertyRelative("Name").stringValue = name;
@@ -1469,6 +1481,7 @@ namespace Horizon.EditorTools
                     level.FindPropertyRelative("SunShadows").boolValue = shadows;
                     level.FindPropertyRelative("ExhaustParticles").boolValue = exhaust;
                     level.FindPropertyRelative("TyreSmokeParticles").boolValue = tyreSmoke;
+                    level.FindPropertyRelative("AirRushParticles").boolValue = airRush;
                     level.FindPropertyRelative("TargetFrameRate").intValue = frameRate;
                 }
 
@@ -1478,13 +1491,13 @@ namespace Horizon.EditorTools
                 // go — and taking that away on a weak phone would remove information rather than
                 // decoration. It also costs nothing at all until something actually slides.
                 Set((int)QualityPreset.Low, "Low",
-                    380f, 500f, 140f, 24, 320f, 460f, false, false, true, 30);
+                    380f, 500f, 140f, 24, 320f, 460f, false, false, true, false, 30);
 
                 Set((int)QualityPreset.Balanced, "Balanced",
-                    650f, 820f, 220f, 56, 650f, 900f, true, true, true, 60);
+                    650f, 820f, 220f, 56, 650f, 900f, true, true, true, true, 60);
 
                 Set((int)QualityPreset.High, "High",
-                    820f, 1000f, 260f, TrafficPoolSize, 800f, 1050f, true, true, true, 60);
+                    820f, 1000f, 260f, TrafficPoolSize, 800f, 1050f, true, true, true, true, 60);
             });
         }
 
@@ -2216,6 +2229,89 @@ namespace Horizon.EditorTools
         }
 
         /// <summary>Smoke emitters at the tailpipe mouths, pointing backwards out of the car.</summary>
+        /// <summary>
+        /// The world's own response to speed: the fog layer and the grit hanging in the air.
+        ///
+        /// <para>Parented to the Atmosphere object rather than to the car, and that is the point. The
+        /// grit is emitted in world space and left standing still, so it is the car passing it that
+        /// makes the motion — hang it off the vehicle and it would travel along and read as a effect
+        /// stuck to the windscreen.</para>
+        ///
+        /// <para>The vehicle reference is left empty deliberately: the car the player drives is spawned
+        /// by the bootstrap and swapped by the garage, so the component finds it at runtime rather than
+        /// holding a reference to whichever body happened to exist at build time.</para>
+        /// </summary>
+        private static void BuildSpeedAtmosphere(
+            Transform parent, TimeOfDayController timeOfDay, PrototypeMaterials materials)
+        {
+            var rushObject = new GameObject("AirRush");
+            rushObject.transform.SetParent(parent, false);
+
+            ParticleSystem particles = rushObject.AddComponent<ParticleSystem>();
+
+            ParticleSystem.MainModule main = particles.main;
+            main.duration = 1f;
+            main.loop = true;
+
+            // Long enough that a speck placed 75 m ahead is still there when the car reaches it: at
+            // 65 m/s that is a little over a second, and the rest is the tail as it falls behind.
+            main.startLifetime = new ParticleSystem.MinMaxCurve(1.4f, 2.2f);
+
+            // Almost still. The whole effect is the car's own motion, so anything more than a drift
+            // here starts competing with it.
+            main.startSpeed = new ParticleSystem.MinMaxCurve(0f, 0.4f);
+            main.startSize = new ParticleSystem.MinMaxCurve(0.05f, 0.16f);
+            main.startColor = new Color(0.9f, 0.9f, 0.92f, 0.45f);
+            main.gravityModifier = 0.02f;
+
+            // 90 a second living up to 2.2 seconds is 198 in the air at once.
+            main.maxParticles = 220;
+
+            main.simulationSpace = ParticleSystemSimulationSpace.World;
+
+            ParticleSystem.EmissionModule emission = particles.emission;
+            emission.enabled = false;
+
+            ParticleSystem.ShapeModule shape = particles.shape;
+            shape.enabled = false;
+
+            // Faded in and out rather than popped: a speck that appears in front of the car is a speck
+            // the eye reads as a glitch, however brief.
+            ParticleSystem.ColorOverLifetimeModule color = particles.colorOverLifetime;
+            color.enabled = true;
+            var fade = new Gradient();
+            fade.SetKeys(
+                new[]
+                {
+                    new GradientColorKey(Color.white, 0f),
+                    new GradientColorKey(Color.white, 1f),
+                },
+                new[]
+                {
+                    new GradientAlphaKey(0f, 0f),
+                    new GradientAlphaKey(1f, 0.25f),
+                    new GradientAlphaKey(1f, 0.7f),
+                    new GradientAlphaKey(0f, 1f),
+                });
+            color.color = new ParticleSystem.MinMaxGradient(fade);
+
+            var renderer = rushObject.GetComponent<ParticleSystemRenderer>();
+            renderer.renderMode = ParticleSystemRenderMode.Billboard;
+            renderer.sharedMaterial = materials.AirRush;
+            renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            renderer.receiveShadows = false;
+
+            SpeedAtmosphere speed = parent.gameObject.AddComponent<SpeedAtmosphere>();
+            HorizonAssetUtility.Configure(speed, serialized =>
+            {
+                serialized.FindProperty("atmosphere").objectReferenceValue = timeOfDay;
+                serialized.FindProperty("rush").objectReferenceValue = particles;
+            });
+
+            HorizonAssetUtility.AssertReferenceAssigned(speed, "atmosphere");
+            HorizonAssetUtility.AssertReferenceAssigned(speed, "rush");
+        }
+
         /// <summary>
         /// The single world-space emitter every tyre smokes into.
         ///

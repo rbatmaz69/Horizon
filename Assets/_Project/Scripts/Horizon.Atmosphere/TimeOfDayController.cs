@@ -29,6 +29,26 @@ namespace Horizon.Atmosphere
         [Tooltip("0 clear, 1 fully overcast. Dims the sun and thickens the fog.")]
         [Range(0f, 1f)] public float Overcast;
 
+        [Header("Speed layer")]
+        [Tooltip("How hard the viewer is travelling, 0 to 1. Written every frame by "
+               + "Horizon.Game's SpeedAtmosphere — nothing sets it by hand.\n\n"
+               + "It lives here as a plain field for the same reason Overcast does: fog belongs to this "
+               + "class and is rewritten by Apply() every frame, so anything writing RenderSettings.fog "
+               + "from outside would survive exactly until the next frame. Atmosphere cannot see the "
+               + "vehicle module either, and must not — so the value is pushed in rather than pulled.")]
+        [Range(0f, 1f)] public float SpeedHaze;
+
+        [Tooltip("How much thicker the fog gets at full speed, as a fraction added to the density.\n\n"
+               + "This is the world closing in on a driver going too fast, and it is honest rather than "
+               + "a trick: at 235 km/h it cuts the sight line from around 790 m to 330 m, which is five "
+               + "seconds of road. Corners on the pass start arriving with less warning than the driver "
+               + "would like, and that is the whole intent.")]
+        public float SpeedFogGain = 1.4f;
+
+        [Tooltip("How far the fog darkens at full speed, 0 to 1. Small on purpose — the art direction "
+               + "is warm and inviting, and this is the one place allowed to argue with it.")]
+        [Range(0f, 0.5f)] public float SpeedFogDarkening = 0.1f;
+
         [Header("Quality")]
         [Tooltip("Let the sun cast shadows at all.\n\n"
                + "The single biggest GPU saving available without touching the render pipeline asset, "
@@ -46,6 +66,7 @@ namespace Horizon.Atmosphere
 
         private float lastAppliedHours = float.NaN;
         private float lastAppliedOvercast = float.NaN;
+        private float lastAppliedSpeedHaze = float.NaN;
 
         private void OnEnable()
         {
@@ -69,7 +90,8 @@ namespace Horizon.Atmosphere
             // In the Editor, applying every tick would rewrite RenderSettings and leave the scene
             // permanently dirty. Only push changes when a value actually moved.
             if (!Mathf.Approximately(TimeOfDayHours, lastAppliedHours)
-                || !Mathf.Approximately(Overcast, lastAppliedOvercast))
+                || !Mathf.Approximately(Overcast, lastAppliedOvercast)
+                || !Mathf.Approximately(SpeedHaze, lastAppliedSpeedHaze))
             {
                 Apply();
             }
@@ -87,6 +109,7 @@ namespace Horizon.Atmosphere
             float sunDim = 1f - Overcast * 0.75f;
             lastAppliedHours = TimeOfDayHours;
             lastAppliedOvercast = Overcast;
+            lastAppliedSpeedHaze = SpeedHaze;
 
             if (sun != null)
             {
@@ -114,10 +137,22 @@ namespace Horizon.Atmosphere
             RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
             RenderSettings.ambientLight = ambient;
 
+            // Speed thickens the fog on top of the weather, the same way the weather thickens it on top
+            // of the time of day. Only ever thicker: fog is also what hides the draw distance, and a
+            // term that could thin it would let the far plane show through at exactly the speed the
+            // player is covering ground fastest.
+            float haze = Mathf.Clamp01(SpeedHaze);
+
             RenderSettings.fog = true;
             RenderSettings.fogMode = FogMode.ExponentialSquared;
-            RenderSettings.fogColor = profile.FogColor.Evaluate(t);
-            RenderSettings.fogDensity = Mathf.Max(0f, profile.FogDensity.Evaluate(t)) * (1f + Overcast * 1.6f);
+
+            Color fogColor = profile.FogColor.Evaluate(t);
+            RenderSettings.fogColor = Color.Lerp(
+                fogColor, fogColor * (1f - SpeedFogDarkening), haze);
+
+            RenderSettings.fogDensity = Mathf.Max(0f, profile.FogDensity.Evaluate(t))
+                * (1f + Overcast * 1.6f)
+                * (1f + haze * Mathf.Max(0f, SpeedFogGain));
         }
     }
 }
