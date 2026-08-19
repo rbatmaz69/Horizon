@@ -280,6 +280,73 @@ namespace Horizon.EditorTools
                     (inspectPoint + Vector3.up * 1f) - camera.transform.position, Vector3.up);
                 Capture(camera, Path.Combine(directory, "WorldPreview_Verge.png"));
 
+                // --- Seeburg. Its own stations, because every other settlement has some and the newest
+                // one is the one nobody has looked at. Found by name rather than rebuilt: the axis is a
+                // RoadPath in the scene like the pass and the arterial.
+                GameObject axisObject = GameObject.Find("SeeburgAxis");
+                RoadPath seeburgAxis = axisObject != null
+                    ? axisObject.GetComponent<RoadPath>()
+                    : null;
+
+                if (seeburgAxis != null)
+                {
+                    // Along the front from the old-town end, which is the view the promenade is for — and
+                    // the one that shows whether the rail runs along the kerb or across the junctions.
+                    float frontFrom = SeeburgCourse.CityStart + 60f;
+                    Vector3 frontAt = seeburgAxis.GetPositionAtDistance(frontFrom);
+                    Vector3 frontForward = seeburgAxis.GetDirectionAtDistance(frontFrom);
+                    Vector3 frontRight = seeburgAxis.GetRightAtDistance(frontFrom);
+
+                    camera.fieldOfView = 60f;
+                    camera.farClipPlane = 900f;
+                    camera.transform.position = frontAt - frontRight * 9f + Vector3.up * 3.5f;
+                    camera.transform.rotation = Quaternion.LookRotation(
+                        (frontForward + Vector3.down * 0.05f).normalized, Vector3.up);
+                    Capture(camera, Path.Combine(directory, "WorldPreview_Seeburg_Promenade.png"));
+
+                    // Across the basin at the moles and the light, from the quay.
+                    Vector3 quayAt = seeburgAxis.GetPositionAtDistance(SeeburgCourse.BasinAlong);
+                    Vector3 seawardAt = -seeburgAxis.GetRightAtDistance(SeeburgCourse.BasinAlong);
+
+                    camera.transform.position = quayAt - seawardAt * 6f + Vector3.up * 6f;
+                    camera.transform.rotation = Quaternion.LookRotation(
+                        (seawardAt + Vector3.down * 0.06f).normalized, Vector3.up);
+                    Capture(camera, Path.Combine(directory, "WorldPreview_Seeburg_Harbour.png"));
+
+                    // The mosque, from the water side of the boulevard, so it is seen the way the town
+                    // sees it rather than from its own back garden.
+                    Vector3 mosqueAt = seeburgAxis.GetPositionAtDistance(515f);
+                    Vector3 mosqueSeaward = -seeburgAxis.GetRightAtDistance(515f);
+
+                    camera.fieldOfView = 55f;
+                    camera.transform.position = mosqueAt + mosqueSeaward * 55f + Vector3.up * 8f;
+                    camera.transform.rotation = Quaternion.LookRotation(
+                        (mosqueAt - mosqueSeaward * 48f + Vector3.up * 22f) - camera.transform.position,
+                        Vector3.up);
+                    Capture(camera, Path.Combine(directory, "WorldPreview_Seeburg_Mosque.png"));
+
+                    // And straight down over the waterfront with the fog off — the shot that answers
+                    // whether the rail, the quay and the junction pads agree with one another, which
+                    // nothing at eye level shows.
+                    Vector3 planAt = seeburgAxis.GetPositionAtDistance(
+                        (SeeburgCourse.CityStart + SeeburgCourse.CityEnd) * 0.5f);
+
+                    bool seeburgFog = RenderSettings.fog;
+                    RenderSettings.fog = false;
+
+                    try
+                    {
+                        camera.fieldOfView = 60f;
+                        camera.transform.position = planAt + Vector3.up * 430f;
+                        camera.transform.rotation = Quaternion.LookRotation(Vector3.down, Vector3.forward);
+                        Capture(camera, Path.Combine(directory, "WorldPreview_Seeburg_Plan.png"));
+                    }
+                    finally
+                    {
+                        RenderSettings.fog = seeburgFog;
+                    }
+                }
+
                 // Obliquely from above, not straight down: a plan view of this terrain is a single flat
                 // colour, because every top face catches the sun at the same angle and nothing casts a
                 // silhouette. The tilt is what makes the tree line and the clearings visible at all.

@@ -55,7 +55,8 @@ namespace Horizon.World
                 float surface = plan.HasFixedSurface ? plan.FixedSurface : rim - plan.Freeboard;
 
                 bodies.Add(new WaterBody(
-                    plan.Name, plan.Kind, spine, plan.HalfWidth, plan.BankEase, surface, plan.Depth));
+                    plan.Name, plan.Kind, spine, plan.HalfWidth, plan.BankEase, surface, plan.Depth,
+                    plan.BedScale));
 
                 // The centre is in the line because a body that comes out somewhere unintended is the
                 // failure this whole file is written to avoid, and 'surface -3.8 m' reads perfectly

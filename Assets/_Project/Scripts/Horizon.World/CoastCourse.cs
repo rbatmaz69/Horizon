@@ -3,7 +3,7 @@ using UnityEngine;
 namespace Horizon.World
 {
     /// <summary>
-    /// The road off the west end of the motorway, down to the water.
+    /// The road off the west end of the motorway, down to the water and into Seeburg.
     ///
     /// <para><b>West, because that end of the world is empty and low.</b> The motorway's western tip has
     /// no buildings on it, no traffic worth the name and the lowest ground anywhere in the build — the
@@ -22,6 +22,12 @@ namespace Horizon.World
     /// <para>It bends twice on the way down. A dead straight run to a beach reads as a slipway; two
     /// gentle turns of a few hundred metres' radius mean the water arrives in the windscreen rather than
     /// having been there the whole way.</para>
+    ///
+    /// <para><b>It ends at a junction now, not on a beach.</b> The last sixty metres used to be a
+    /// parking apron where the road stopped being a road, because there was nothing at the water to
+    /// arrive at. There is now: the run-in ends on Seeburg's waterfront boulevard, and
+    /// <see cref="EndPoint"/> is what <see cref="SeeburgCourse"/> hangs the town's axis off. The apron
+    /// would have been a stub of tarmac inside the junction throat.</para>
     /// </summary>
     public static class CoastCourse
     {
@@ -40,11 +46,56 @@ namespace Horizon.World
         /// <summary>Radius and sweep of the two bends. Open enough to be taken at speed.</summary>
         private const float BendRadius = 320f;
 
-        /// <summary>The parking apron at the end, where the road stops being a road.</summary>
-        public const float ApronLength = 60f;
+        /// <summary>The run down to the seafront once the bay is in sight.</summary>
+        private const float RunIn = 260f;
 
         /// <summary>
-        /// The whole course, from the motorway's west tip to the water's edge.
+        /// The last stretch, into the junction.
+        ///
+        /// <para>Nearly level, and it has to be. A road still falling at 1.3% where it meets the
+        /// waterfront drags the boulevard's height datum down with it — every floor in the town is
+        /// derived from that line by <c>TownShape.FloorHeight</c> — and the sea's surface is derived
+        /// from the same place. A ramp here is a town on a slope and a shoreline in the wrong
+        /// spot.</para>
+        /// </summary>
+        private const float ApproachRun = 80f;
+
+        private const float ApproachGrade = -0.3f;
+
+        static CoastCourse()
+        {
+            // Walked once so the end is measured rather than looked up, the way AutobahnCourse measures
+            // its own. SeeburgCourse grafts onto this point, and it has to follow the coast road
+            // whenever the bends above are retuned instead of being typed beside it.
+            var probe = new RoadCourseBuilder(
+                AutobahnCourse.WestEndPoint, AutobahnCourse.WestEndHeading + 180f);
+
+            Append(probe);
+
+            RoadCourse walked = probe.Build();
+
+            EndPoint = walked.ControlPoints[walked.ControlPoints.Count - 1];
+            EndHeading = probe.HeadingDegrees;
+        }
+
+        /// <summary>
+        /// Where the coast road runs out — on Seeburg's waterfront boulevard, at its harbour.
+        ///
+        /// <para>Public for the same reason <c>AutobahnCourse.EndPoint</c> is: something is grafted onto
+        /// it. See <see cref="SeeburgCourse"/>.</para>
+        /// </summary>
+        public static Vector3 EndPoint { get; }
+
+        /// <summary>
+        /// Heading there, <b>facing the sea</b>. 0 faces +Z, increasing turns towards +X.
+        ///
+        /// <para>The town's axis crosses this at a right angle, so this direction is also the town's
+        /// seaward normal — which is what sites the shoreline, the harbour basin and the moles.</para>
+        /// </summary>
+        public static float EndHeading { get; }
+
+        /// <summary>
+        /// The whole course, from the motorway's west tip to the seafront.
         ///
         /// <para>No probe-and-graft solve, for the same reason the arterial needs none: this starts
         /// where something else finished and runs on, so there is nothing to solve for.</para>
@@ -56,19 +107,28 @@ namespace Horizon.World
             var builder = new RoadCourseBuilder(
                 AutobahnCourse.WestEndPoint, AutobahnCourse.WestEndHeading + 180f);
 
+            Append(builder);
+
+            return builder.Build();
+        }
+
+        /// <summary>
+        /// The shape itself, so the probe in the static constructor and the real walk cannot drift
+        /// apart. Two copies of a road are two roads.
+        /// </summary>
+        private static void Append(RoadCourseBuilder builder)
+        {
             builder.Straight(FirstRun, Grade);
             builder.Turn(BendRadius, -34f, Grade);
             builder.Straight(300f, Grade);
             builder.Turn(BendRadius, 44f, Grade);
-            builder.Straight(280f, Grade);
 
-            // The last stretch flattens out. A ramp that is still falling at the waterline carries on
-            // falling under it, and what should be a beach becomes a boat slip.
-            builder.Straight(ApronLength, -0.3f);
+            // Where the bay opens up: the second bend finishes pointing at the water, and this is the
+            // last place on the road you can stop and see the whole of it before the town closes in.
+            builder.AddViewpoint("Seeburger Bucht");
 
-            builder.AddViewpoint("Westmeer");
-
-            return builder.Build();
+            builder.Straight(RunIn, Grade);
+            builder.Straight(ApproachRun, ApproachGrade);
         }
     }
 }

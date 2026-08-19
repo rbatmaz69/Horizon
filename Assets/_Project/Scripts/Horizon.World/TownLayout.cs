@@ -87,6 +87,17 @@ namespace Horizon.World
 
         /// <summary>The city's perimeter-block belt: continuous street walls, shallow setback.</summary>
         Commercial = 6,
+
+        /// <summary>
+        /// The quayside: sheds, stores and chandlers' yards around a harbour basin.
+        ///
+        /// <para><b>Not <see cref="Industry"/> renamed.</b> The industrial quarter is written for a
+        /// village edge — wide plots, deep setback, a third of them left empty, so it reads as a place
+        /// with room to spare. A working quay is the opposite: the whole value of the ground is that it
+        /// touches the water, so it is built out to the kerb and there are no gaps in it. Same buildings,
+        /// almost the reverse geometry.</para>
+        /// </summary>
+        Harbour = 7,
     }
 
     /// <summary>One junction or dead end in the layout table.</summary>
@@ -202,12 +213,59 @@ namespace Horizon.World
         }
     }
 
+    /// <summary>
+    /// A set-piece building placed by the table rather than by a rule.
+    ///
+    /// <para><b>Why a table entry and not a placement rule.</b> Talheim's mosque and windmill are sited
+    /// by <c>TownPlanner.AddMosque</c>, which searches a band of the basin for the highest ground — a
+    /// rule written for a village, and a good one, because a village's landmark stands wherever the land
+    /// offered. A monument does not. Where a town's cathedral or its grand mosque goes is the single most
+    /// deliberate decision in its plan, it is the thing the place is recognised by from two kilometres
+    /// off, and it belongs in the file where the decisions are — readable in a diff, next to the streets
+    /// it faces.</para>
+    ///
+    /// <para><see cref="Scale"/> is what makes it a monument rather than a large house. The recipes in
+    /// <c>LandmarkMeshes</c> are drawn at village size; multiplying the placement scales every offset in
+    /// one, so a single recipe covers both without a second set of numbers to keep in step.</para>
+    /// </summary>
+    public readonly struct TownLandmarkSpec
+    {
+        public readonly TownPlotKind Kind;
+
+        public readonly TownPoint At;
+
+        /// <summary>How much bigger than the recipe. One is village size.</summary>
+        public readonly float Scale;
+
+        /// <summary>
+        /// Which way it faces, degrees <b>relative to the trunk road's own heading</b> at this station.
+        ///
+        /// <para>Relative for the same reason the position is in town-local coordinates: a world bearing
+        /// is exact until the course moves, and then it is a building facing a field. Minus ninety is
+        /// whichever way the town's <c>across</c> runs negative — for Seeburg, out to sea.</para>
+        /// </summary>
+        public readonly float Facing;
+
+        public readonly string Name;
+
+        public TownLandmarkSpec(TownPlotKind kind, float along, float across, float scale, float facing,
+            string name)
+        {
+            Kind = kind;
+            At = new TownPoint(along, across);
+            Scale = scale;
+            Facing = facing;
+            Name = name;
+        }
+    }
+
     /// <summary>The layout table as data: nodes, the streets between them, and any squares.</summary>
     public sealed class TownNetworkSpec
     {
         public readonly List<TownNodeSpec> Nodes = new List<TownNodeSpec>(32);
         public readonly List<TownStreetSpec> Streets = new List<TownStreetSpec>(40);
         public readonly List<TownSquareSpec> Squares = new List<TownSquareSpec>(2);
+        public readonly List<TownLandmarkSpec> Landmarks = new List<TownLandmarkSpec>(2);
 
         public int AddNode(float along, float across, bool onTrunkRoad = false, string name = null)
         {
@@ -224,6 +282,34 @@ namespace Horizon.World
         public void AddSquare(string name, params int[] nodes)
         {
             Squares.Add(new TownSquareSpec(name, nodes));
+        }
+
+        /// <summary>A set-piece building at a place the table chooses. See <see cref="TownLandmarkSpec"/>.</summary>
+        public void AddLandmark(
+            TownPlotKind kind, float along, float across, float scale, float facing, string name)
+        {
+            Landmarks.Add(new TownLandmarkSpec(kind, along, across, scale, facing, name));
+        }
+
+        /// <summary>
+        /// The index of a named node, or −1.
+        ///
+        /// <para>For the one thing outside a layout that has to point at a node inside it: where another
+        /// road hands its traffic over. A hand-listed table cannot express that as arithmetic the way a
+        /// generated grid can, and a written-down index is a count of the lines above it — right until
+        /// somebody inserts a node.</para>
+        /// </summary>
+        public int IndexOfNode(string name)
+        {
+            for (int i = 0; i < Nodes.Count; i++)
+            {
+                if (Nodes[i].Name == name)
+                {
+                    return i;
+                }
+            }
+
+            return -1;
         }
 
         /// <summary>

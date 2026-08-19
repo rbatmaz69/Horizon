@@ -137,7 +137,11 @@ namespace Horizon.World
             RoadShape linkShape = default,
             float rampCapDistance = 0f,
             float rampMergeDistance = -1f,
-            IReadOnlyList<TrafficSignalPlan> signalPlans = null)
+            IReadOnlyList<TrafficSignalPlan> signalPlans = null,
+            IRoadPath coast = null,
+            RoadShape coastShape = default,
+            int coastEndTown = -1,
+            int coastEndNode = -1)
         {
             var lanes = new LaneBuffer();
 
@@ -191,6 +195,15 @@ namespace Horizon.World
             {
                 highwayEastNode = nodeOffset[highwayEndTown] + highwayEndNode;
             }
+
+            // The coast road is a second road that runs out of one network and into another, and it needs
+            // no synthetic junction at either end: it <i>starts</i> where the motorway starts — the same
+            // metre of tarmac, so the same node — and it ends on the town's own gateway. Two real nodes,
+            // and AddConnectors builds the turns at both from the lanes that meet there.
+            bool coastJoinsATown = coast != null && highway != null
+                                   && coastEndTown >= 0 && coastEndTown < networks.Count
+                                   && coastEndNode >= 0
+                                   && coastEndNode < networks[coastEndTown].Nodes.Count;
 
             var nodeAt = new Vector3[nodeCount];
 
@@ -250,6 +263,16 @@ namespace Horizon.World
 
             AddTrunkLanes(networks[0], trunk, trunkShape, roadStartNode, roadEndNode,
                 lanes, entryNode, exitNode);
+
+            if (coastJoinsATown)
+            {
+                // Its town is handed in only so the cut list can look for junctions on it, and there are
+                // none: Seeburg's axis is never paved, so nothing in that table is OnTrunkRoad. What this
+                // builds is one lane each way over the whole road, ending at the two junctions above.
+                AddTrunkLanes(networks[coastEndTown], coast, coastShape,
+                    highwayWestNode, nodeOffset[coastEndTown] + coastEndNode,
+                    lanes, entryNode, exitNode);
+            }
 
             if (highway != null)
             {

@@ -48,6 +48,19 @@ namespace Horizon.World
         public readonly float Depth;
 
         /// <summary>
+        /// Over how many metres in from the edge the bed reaches <see cref="Depth"/>.
+        ///
+        /// <para><b>Separate from <see cref="HalfWidth"/>, and only because a sea made it necessary.</b>
+        /// For a river or a tarn the two are the same number — the deepest point is the middle — and
+        /// passing the half-width here reproduces the dish those were tuned with, exactly. A sea is
+        /// different: its radius is chosen so the shoreline reads straight along a waterfront, which
+        /// makes it kilometres across, and a dish spread over kilometres is a uniformly pale one for the
+        /// few hundred metres of it anybody ever sees. The bed's scale is the shading (see
+        /// <see cref="BedAt"/>), so it has to be a decision rather than a consequence.</para>
+        /// </summary>
+        public readonly float BedScale;
+
+        /// <summary>
         /// Plan bounds including the bank, cached.
         ///
         /// <para>Every terrain vertex in the world asks every body whether it is near it. That is
@@ -64,7 +77,8 @@ namespace Horizon.World
             float halfWidth,
             float bankEase,
             float surfaceY,
-            float depth)
+            float depth,
+            float bedScale = 0f)
         {
             Name = name;
             Kind = kind;
@@ -73,6 +87,10 @@ namespace Horizon.World
             BankEase = bankEase;
             SurfaceY = surfaceY;
             Depth = depth;
+
+            // Zero means "as wide as the body", which is what every river and lake in the world wants
+            // and is the shape they were tuned against.
+            BedScale = bedScale > 0.01f ? bedScale : halfWidth;
 
             float reach = halfWidth + bankEase;
 
@@ -157,11 +175,17 @@ namespace Horizon.World
                 }
             }
 
-            float across = HalfWidth > 0.01f ? Mathf.Clamp01(best / HalfWidth) : 1f;
+            // Measured in from the edge rather than out from the middle, which is the same thing
+            // whenever BedScale is the half-width — cos(b/H · π/2) ≡ sin((H−b)/H · π/2) — and is the
+            // only way to say "deep by three hundred metres off the beach" about a disc that is
+            // kilometres across.
+            float inFromEdge = BedScale > 0.01f
+                ? Mathf.Clamp01((HalfWidth - best) / BedScale)
+                : 0f;
 
-            // Cosine rather than linear: a straight taper meets the bank at an angle you can see as a
+            // Sine rather than linear: a straight taper meets the bank at an angle you can see as a
             // crease in the shading, and this is the one place the bed's shape is visible.
-            return SurfaceY - Depth * Mathf.Cos(across * Mathf.PI * 0.5f);
+            return SurfaceY - Depth * Mathf.Sin(inFromEdge * Mathf.PI * 0.5f);
         }
 
         private static float DistanceToSegment(Vector2 point, Vector2 a, Vector2 b)
@@ -238,6 +262,9 @@ namespace Horizon.World
         /// <summary>See <see cref="HasFixedSurface"/>.</summary>
         public readonly float FixedSurface;
 
+        /// <summary>See <see cref="WaterBody.BedScale"/>. Zero means "as wide as the body".</summary>
+        public readonly float BedScale;
+
         public WaterPlan(
             string name,
             WaterKind kind,
@@ -250,7 +277,8 @@ namespace Horizon.World
             float depth,
             float freeboard,
             bool hasFixedSurface = false,
-            float fixedSurface = 0f)
+            float fixedSurface = 0f,
+            float bedScale = 0f)
         {
             Name = name;
             Kind = kind;
@@ -264,6 +292,7 @@ namespace Horizon.World
             Freeboard = freeboard;
             HasFixedSurface = hasFixedSurface;
             FixedSurface = fixedSurface;
+            BedScale = bedScale;
         }
 
         /// <summary>A river under a named bridge, crossing the road it spans.</summary>
@@ -292,9 +321,33 @@ namespace Horizon.World
         /// coastline would be geometry built to be invisible.</para>
         /// </summary>
         public static WaterPlan Sea(
-            string name, Vector2 centre, float radius, float bankEase, float depth, float surfaceY)
+            string name, Vector2 centre, float radius, float bankEase, float depth, float surfaceY,
+            float bedScale = 0f)
         {
             return new WaterPlan(name, WaterKind.Sea, null, centre,
+                radius, bankEase, 0f, 0f, depth, 0f,
+                hasFixedSurface: true, fixedSurface: surfaceY, bedScale: bedScale);
+        }
+
+        /// <summary>
+        /// A harbour basin: water dredged into the shore, level with the sea it opens onto.
+        ///
+        /// <para><b>Not a second <see cref="Sea"/>, and the difference is load-bearing.</b> A sea
+        /// <i>sets</i> the ground under it while everything else only caps it
+        /// (<c>MountainField.UnderWater</c>). Two overlapping seas therefore fight over the water they
+        /// share — whichever is later in the array wins, and its rim leaves a step across the middle of
+        /// the harbour mouth. A capping body digs the basin out of the land it reaches, and where it
+        /// runs out over the sea's own bed it simply leaves the deeper of the two. No step, and no
+        /// ordering to remember.</para>
+        ///
+        /// <para>The surface is handed in rather than derived from a rim, and must be the sea's own: a
+        /// harbour a few centimetres off the water it opens onto has a step at its mouth that the
+        /// shading shows up immediately.</para>
+        /// </summary>
+        public static WaterPlan Basin(
+            string name, Vector2 centre, float radius, float bankEase, float depth, float surfaceY)
+        {
+            return new WaterPlan(name, WaterKind.Lake, null, centre,
                 radius, bankEase, 0f, 0f, depth, 0f, hasFixedSurface: true, fixedSurface: surfaceY);
         }
     }

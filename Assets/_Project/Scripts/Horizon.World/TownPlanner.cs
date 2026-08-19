@@ -106,8 +106,23 @@ namespace Horizon.World
             /// </summary>
             public readonly float LitChance;
 
+            /// <summary>
+            /// How much bigger than its recipe this building is built.
+            ///
+            /// <para>One for everything the frontage pass puts down, and it has to be: a street of houses
+            /// at assorted sizes is a street of houses drawn wrong. What this is for is the set piece a
+            /// town is <i>known</i> by — a grand mosque on a waterfront is not a large version of the
+            /// village one so much as a different order of building, and the cheapest honest way to say
+            /// that with one recipe is to build it bigger.</para>
+            ///
+            /// <para>It multiplies through <c>PlantPlacement.ToWorld</c>, so every offset in the recipe
+            /// scales together and nothing has to know it is being scaled.</para>
+            /// </summary>
+            public readonly float Scale;
+
             public Plot(Vector3 position, float yaw, float halfWidth, float halfDepth,
-                TownPlotKind kind, bool hasCar, bool fenced, float litChance, uint seed)
+                TownPlotKind kind, bool hasCar, bool fenced, float litChance, uint seed,
+                float scale = 1f)
             {
                 Position = position;
                 Yaw = yaw;
@@ -118,6 +133,7 @@ namespace Horizon.World
                 Fenced = fenced;
                 LitChance = litChance;
                 Seed = seed;
+                Scale = scale;
             }
 
             /// <summary>Radius that covers the whole plot — garden and all.</summary>
@@ -131,7 +147,7 @@ namespace Horizon.World
             /// overlapped into one continuous bare strip down every street. A wall needs 8 m of clearance;
             /// a lawn needs none.
             /// </summary>
-            public float BuildingRadius => Kind == TownPlotKind.Tower ? 20f
+            public float BuildingRadius => Scale * (Kind == TownPlotKind.Tower ? 20f
                 : Kind == TownPlotKind.Block ? 13f
                 : Kind == TownPlotKind.Mosque ? 16f
                 : Kind == TownPlotKind.TownHall ? 15f
@@ -139,7 +155,7 @@ namespace Horizon.World
                 : Kind == TownPlotKind.Barn ? 9f
                 : Kind == TownPlotKind.Fountain ? 4f
                 : Kind == TownPlotKind.Stall ? 2.5f
-                : 7.5f;
+                : 7.5f);
         }
 
         private readonly List<Plot> plots;
@@ -481,6 +497,13 @@ namespace Horizon.World
                     case TownQuarter.Commercial:
                         return new QuarterStyle(2.5f, 26f, 22f, 0.05f, 0.50f);
 
+                    // Sheds on the quay. Industry's footprint — a store is a big shallow box — but built
+                    // out to the kerb and with hardly a gap in it, because quayside ground is the most
+                    // expensive in a harbour town and nobody leaves a yard of it as garden. Nearly dark
+                    // after hours: a warehouse has a lamp over its door and nothing else.
+                    case TownQuarter.Harbour:
+                        return new QuarterStyle(4f, 28f, 24f, 0.08f, 0.12f);
+
                     default:
                         return new QuarterStyle(9f, 18f, 20f, 0.20f, 0.35f);
                 }
@@ -492,7 +515,8 @@ namespace Horizon.World
                 return quarter == TownQuarter.OldTown
                        || quarter == TownQuarter.Market
                        || quarter == TownQuarter.Downtown
-                       || quarter == TownQuarter.Commercial;
+                       || quarter == TownQuarter.Commercial
+                       || quarter == TownQuarter.Harbour;
             }
         }
 
@@ -611,6 +635,12 @@ namespace Horizon.World
             // drop those here than to make every frontage aware of every street — and with the spatial
             // index it is one cell lookup per plot rather than a walk down every centreline.
             ClearStreets(plots, index, trunk, shape);
+
+            // After ClearStreets, deliberately. That pass drops any plot standing in a street it does not
+            // face, which is right for three hundred plots laid out by rule and wrong for the one the
+            // table asked for by name: a monument quietly swept up by a clearance sweep leaves nothing in
+            // the log to say where it went. It cost an afternoon once already, on a town hall.
+            AddTableLandmarks(plots, network, index, trunk, shape, field, terrainShape);
 
             var footprint = new Bounds(
                 plots.Count > 0 ? plots[0].Position : Vector3.zero, Vector3.one);
@@ -894,6 +924,83 @@ namespace Horizon.World
         }
 
         /// <summary>
+        /// The set-piece buildings the layout table named, seated on the finished ground.
+        ///
+        /// <para><b>Placed here rather than by a rule, and last.</b> Last because the frontage pass has
+        /// already filled the block it stands in, and clearing what is in the way is the same trade
+        /// <see cref="AddTownHall"/> makes: the alternative is teaching the frontage code to avoid every
+        /// landmark there will ever be. The clearing radius is the building's own, which scales with it —
+        /// a mosque at one and a half times village size sweeps twenty-four metres, not sixteen.</para>
+        ///
+        /// <para>The facing is turned from the table's trunk-relative bearing into a world one here,
+        /// because this is the first point at which the trunk road's own heading at that station is a
+        /// thing anybody can ask for.</para>
+        /// </summary>
+        private static void AddTableLandmarks(
+            List<TownPlan.Plot> plots,
+            StreetNetwork network,
+            StreetIndex index,
+            IRoadPath trunk,
+            in TownShape shape,
+            MountainField field,
+            in TerrainShape terrainShape)
+        {
+            if (network.Landmarks == null || trunk == null)
+            {
+                return;
+            }
+
+            for (int i = 0; i < network.Landmarks.Count; i++)
+            {
+                TownLandmarkSpec landmark = network.Landmarks[i];
+
+                Vector3 site = TownShape.ToWorld(
+                    trunk, shape, landmark.At.Along, landmark.At.Across);
+
+                TerrainTileBuilder.SampleSurface(field, terrainShape, site.x, site.z,
+                    out Vector3 point, out Vector3 _);
+
+                float along = Mathf.Clamp(landmark.At.Along, 0f, trunk.Length);
+                float heading = HeadingOf(trunk.GetDirectionAtDistance(along)) + landmark.Facing;
+
+                var plot = new TownPlan.Plot(
+                    point, heading, 1f, 1f, landmark.Kind, false, false, 0.7f,
+                    Hash(9371, i, 0), landmark.Scale);
+
+                // Everything the frontage pass put inside the footprint comes out. Squared once and
+                // compared squared, because this runs over every plot in the town.
+                float clear = plot.BuildingRadius + 6f;
+                float clearSqr = clear * clear;
+
+                for (int p = plots.Count - 1; p >= 0; p--)
+                {
+                    float dx = plots[p].Position.x - point.x;
+                    float dz = plots[p].Position.z - point.z;
+
+                    if (dx * dx + dz * dz < clearSqr)
+                    {
+                        plots.RemoveAt(p);
+                    }
+                }
+
+                plots.Add(plot);
+
+                // Said out loud rather than fixed, because there is nothing sensible to fix it to: a
+                // monument standing in a carriageway is a number in the table, and the table is the only
+                // place it can be corrected. This is the check ClearStreets would otherwise have made
+                // silently, by deleting it.
+                if (index != null && index.IsWithin(point.x, point.z, plot.BuildingRadius))
+                {
+                    Debug.LogWarning(
+                        $"[Horizon] Landmark '{landmark.Name}' stands at {landmark.At.Along:0} m along / "
+                        + $"{landmark.At.Across:0} m across, and a street runs within its own "
+                        + $"{plot.BuildingRadius:0} m footprint. Move it in the layout table, or build it "
+                        + "smaller.");
+                }
+            }
+        }
+
+        /// <summary>
         /// The town hall, across the street from the uphill edge of a square and facing back into it.
         ///
         /// <para>Uphill because that is where a civic building goes: it is the one frontage on the square
@@ -1081,6 +1188,13 @@ namespace Horizon.World
                 {
                     kind = TownPlotKind.Block;
                 }
+                else if (quarter == TownQuarter.Harbour)
+                {
+                    // Mostly stores, with a kontor house every fourth plot or so. All sheds reads as a
+                    // depot; all offices reads as a business park. A quay is both, and the tall ones
+                    // standing between the low ones is most of what makes it look worked in.
+                    kind = random.Chance(0.26f) ? TownPlotKind.Block : TownPlotKind.Barn;
+                }
                 else if (random.Chance(shape.WorkingBuildingChance))
                 {
                     // A working building rather than another house. Scattered through the town instead
@@ -1149,7 +1263,7 @@ namespace Horizon.World
                 }
 
                 var place = new PlantPlacement(plot.Position, Vector3.up,
-                    plot.Yaw * Mathf.Deg2Rad, 1f, plot.Seed);
+                    plot.Yaw * Mathf.Deg2Rad, plot.Scale, plot.Seed);
                 var random = new PlantRandom(plot.Seed);
 
                 switch (plot.Kind)

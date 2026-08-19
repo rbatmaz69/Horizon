@@ -57,6 +57,74 @@ namespace Horizon.World
         public bool[] PadKerbedAfter;
 
         public int Degree => Edges != null ? Edges.Length : 0;
+
+        /// <summary>
+        /// How far this junction's paving reaches in the direction of <paramref name="towards"/>, from
+        /// the node itself. Zero where the node has no pad.
+        ///
+        /// <para>For anything that has to be laid <i>around</i> a junction rather than across it — a
+        /// promenade rail is the first, and the reason this exists: held at a constant offset from the
+        /// boulevard it ran straight through the middle of every pad on the seafront, which reads as a
+        /// fence somebody put across a road.</para>
+        ///
+        /// <para>A ray cast against the outline rather than a radius, because a pad is not a circle: it
+        /// is a fan whose reach depends entirely on which street is in that direction, and the whole
+        /// point is to follow the shape. <see cref="StreetJunctionBuilder"/> guarantees the outline is
+        /// star-shaped about the node — it is checked, not assumed — so the farthest hit is the
+        /// boundary.</para>
+        /// </summary>
+        public float PavingReach(Vector3 towards)
+        {
+            if (PadOutline == null || PadOutline.Length < 3)
+            {
+                return 0f;
+            }
+
+            var direction = new Vector2(towards.x - Position.x, towards.z - Position.z);
+
+            if (direction.sqrMagnitude < 0.000001f)
+            {
+                return 0f;
+            }
+
+            direction.Normalize();
+
+            float best = 0f;
+
+            for (int i = 0; i < PadOutline.Length; i++)
+            {
+                Vector3 from = PadOutline[i];
+                Vector3 to = PadOutline[(i + 1) % PadOutline.Length];
+
+                var a = new Vector2(from.x - Position.x, from.z - Position.z);
+                var b = new Vector2(to.x - Position.x, to.z - Position.z);
+
+                // Solve a + t(b − a) = s·direction for s, in the segment's own parameter t.
+                Vector2 edge = b - a;
+                float denominator = direction.x * edge.y - direction.y * edge.x;
+
+                if (Mathf.Abs(denominator) < 0.000001f)
+                {
+                    continue;
+                }
+
+                float t = (direction.x * a.y - direction.y * a.x) / denominator;
+                if (t < 0f || t > 1f)
+                {
+                    continue;
+                }
+
+                Vector2 hit = a + edge * t;
+                float s = Vector2.Dot(hit, direction);
+
+                if (s > best)
+                {
+                    best = s;
+                }
+            }
+
+            return best;
+        }
     }
 
     /// <summary>One street between two nodes.</summary>
@@ -119,13 +187,16 @@ namespace Horizon.World
         private readonly List<StreetNode> nodes;
         private readonly List<StreetEdge> edges;
         private readonly List<TownSquare> squares;
+        private readonly IReadOnlyList<TownLandmarkSpec> landmarks;
 
         private StreetNetwork(
-            List<StreetNode> nodes, List<StreetEdge> edges, List<TownSquare> squares, Bounds footprint)
+            List<StreetNode> nodes, List<StreetEdge> edges, List<TownSquare> squares,
+            IReadOnlyList<TownLandmarkSpec> landmarks, Bounds footprint)
         {
             this.nodes = nodes;
             this.edges = edges;
             this.squares = squares;
+            this.landmarks = landmarks;
             Footprint = footprint;
         }
 
@@ -138,6 +209,15 @@ namespace Horizon.World
         /// trims.
         /// </summary>
         public IReadOnlyList<TownSquare> Squares => squares;
+
+        /// <summary>
+        /// The set-piece buildings the layout table asked for, carried through untouched.
+        ///
+        /// <para>Kept here because the network is what survives the two-phase town build: the spec is
+        /// consumed before the height field exists and the planner runs after it, and a landmark has to
+        /// be sited on finished ground like every other plot.</para>
+        /// </summary>
+        public IReadOnlyList<TownLandmarkSpec> Landmarks => landmarks;
 
         /// <summary>Plan bounds of every street centreline, for the terrain corridor and cheap early-outs.</summary>
         public Bounds Footprint { get; }
@@ -244,7 +324,7 @@ namespace Horizon.World
                 SortByBearing(nodes[i], incident[i], edges);
             }
 
-            return new StreetNetwork(nodes, edges, BuildSquares(spec, edges), footprint);
+            return new StreetNetwork(nodes, edges, BuildSquares(spec, edges), spec.Landmarks, footprint);
         }
 
         /// <summary>

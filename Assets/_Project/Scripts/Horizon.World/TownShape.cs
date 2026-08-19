@@ -185,6 +185,44 @@ namespace Horizon.World
         public bool TrunkLamps;
 
         /// <summary>
+        /// Where a road runs through the skirt rings, as a station along the trunk road, and how wide a
+        /// gap it needs. Zero reach means no gap.
+        ///
+        /// <para><b>Because a terrace across an arrival road is a wall across it.</b> The rings are
+        /// invented ground — three and eight metres of it — laid in a rectangle outside the basin, and
+        /// <see cref="Raised"/> already lets them down to nothing near the <i>trunk</i> road because the
+        /// basin straddles that one. A road that arrives across the town instead crosses the rings out
+        /// at their corners, where the fade is fully on: Seeburg's coast road came in perpendicular and
+        /// picked up eight metres of hillside in its own carriageway, at five of six hundred sampled
+        /// points, which is the driveable-corridor check earning its keep.</para>
+        ///
+        /// <para>A window rather than a road reference, for the same reason the layout tables hold
+        /// distances rather than coordinates: this runs before the height field exists and has nothing
+        /// to ask about roads. Where something crosses is a fact about the plan, and the plan is where
+        /// it is written down.</para>
+        /// </summary>
+        public float SkirtGapAlong;
+
+        /// <summary>See <see cref="SkirtGapAlong"/>. Half-width of the dead-flat window, metres.</summary>
+        public float SkirtGapReach;
+
+        /// <summary>
+        /// Whether the basin's seaward edge is water rather than hillside.
+        ///
+        /// <para><b>What it actually switches off is the skirt.</b> The two rings outside the basin
+        /// rise three and eight metres, and they exist to turn the edge of a levelled floor into two
+        /// shallow terraces instead of a cliff — which is right on every side of a town that sits in a
+        /// valley. On the side that faces the sea it is a seven-metre earth bank standing between the
+        /// promenade and the water, built at exactly the place the whole town is looking at.</para>
+        ///
+        /// <para>Clamping the rings to <c>across &gt;= 0</c> rather than deleting them is deliberate:
+        /// <c>Raised</c> fades a ring to nothing over the first 35 m either side of the trunk road
+        /// anyway, so a ring line on the axis contributes zero by construction and the two ends of the
+        /// town still get their terraces from the landward half.</para>
+        /// </summary>
+        public bool OpenShore;
+
+        /// <summary>
         /// Whether this town gets Talheim's set-piece buildings: the mosque on the high ground and the
         /// windmill on the first industrial frontage.
         ///
@@ -255,6 +293,90 @@ namespace Horizon.World
 
             // Its own street lamps come from the street network; the arterial does not want a row of
             // village lanterns down it, and the city has no set-piece mosque or windmill.
+            TrunkLamps = false,
+            Landmarks = false,
+        };
+
+        /// <summary>
+        /// Seeburg: a harbour town on one side of a straight shoreline axis.
+        ///
+        /// <para><b>One-sided like Talheim, straight like Hochstadt.</b> The other side is the sea, so
+        /// the across range runs from a wide seaward apron to the hillside; and the axis is dead
+        /// straight, so the mapping never folds and the town may be as deep as it likes. See
+        /// <see cref="SeeburgCourse"/> for why it has an axis of its own instead of hanging off the
+        /// coast road that arrives at it.</para>
+        ///
+        /// <para><b>The seaward apron is far wider than anything built on it</b> — see
+        /// <c>SeeburgCourse.Seaward</c>. It is levelled ground that ends up under water, and it is there
+        /// so the shoreline never falls outside the level shelf. That is the one failure this town has
+        /// available to it that neither of the others does.</para>
+        /// </summary>
+        public static TownShape Seeburg => new TownShape
+        {
+            AlongStart = SeeburgCourse.CityStart,
+            AlongEnd = SeeburgCourse.CityEnd,
+
+            TownSide = 1f,
+            AcrossInner = -SeeburgCourse.Seaward,
+            AcrossOuter = SeeburgCourse.Inland,
+
+            SamplePitch = 28f,
+
+            // Steeper than the city and gentler than the village. A harbour town climbs away from its
+            // water — about six metres over the full depth, which is enough that the streets behind the
+            // front look down on it and far too little to be felt through the wheels.
+            //
+            // Read out of the course rather than typed here, because the axis' own height is derived
+            // from the same three numbers: see SeeburgCourse.CrossFallNear.
+            CrossFallNear = SeeburgCourse.CrossFallNear,
+            CrossFallFar = SeeburgCourse.CrossFallFar,
+            CrossFallBreak = SeeburgCourse.CrossFallBreak,
+
+            // No dish, and this is the one town that may not have one.
+            //
+            // The roll is a deterministic half-percent wobble that stops a levelled basin reading as a
+            // table, and it is worth having in a valley. Here it would put up to twenty centimetres of
+            // unpredictable height between the coast road's last metre and the street it hands over to —
+            // which is the plinth-with-daylight-under-it that the shared floor function exists to
+            // prevent. And the job it does elsewhere is already done: this basin has a sea falling away
+            // from one edge of it and a hillside climbing off the other.
+            DishAmplitude = 0f,
+            DishWavelength = 420f,
+
+            SkirtFirstRise = 3f,
+            SkirtSecondRise = 8f,
+
+            // …but only on three sides of the town. The fourth is the sea.
+            OpenShore = true,
+
+            // And with a gap in it where the coast road comes through. Forty metres flat either side of
+            // the arrival spine's station, easing back to full terrace by a hundred and twenty.
+            SkirtGapAlong = SeeburgCourse.GatewayAlong,
+            SkirtGapReach = 40f,
+
+            CorridorMargin = 60f,
+            MaxTrianglesPerTile = 30000,
+
+            PlotSetback = 14f,
+            ParkedCarChance = 0.35f,
+
+            LampSpacing = 42f,
+            LampSpacingCore = 30f,
+            LampSpacingOuter = 45f,
+
+            // Some, unlike the city: a working harbour has sheds behind it as well as on the quay, and
+            // the odd store between two houses is what stops the back streets reading as a suburb.
+            WorkingBuildingChance = 0.08f,
+
+            PlotClearance = 2.5f,
+            TreeKeepOut = 4f,
+
+            // The axis is a country-road-width line, not a motorway: the boulevard on it is built by the
+            // street network like every other street in the town.
+            TrunkHalfWidth = RoadShape.Default.OuterHalfWidth,
+
+            // The boulevard brings its own lamps, and the town's landmark is a lighthouse rather than
+            // the mosque and windmill AddMosque/AddMill place by village rules.
             TrunkLamps = false,
             Landmarks = false,
         };
@@ -377,6 +499,26 @@ namespace Horizon.World
             float roll = Mathf.Sin(along * k) * 0.6f + Mathf.Sin(across * k * 0.8f + 1.7f) * 0.4f;
 
             return shape.DishAmplitude * roll * AwayFromTheRoad(across, 0f, 80f);
+        }
+
+        /// <summary>
+        /// A 0-to-1 ramp on distance from a road that crosses the rings — see
+        /// <see cref="SkirtGapAlong"/>. One at every station that has no such road.
+        ///
+        /// <para>Flat out to the reach and back to full rise by three times it, so the terrace closes in
+        /// over a couple of hundred metres rather than stepping. The ring is scenery; a visible seam in
+        /// it is worse than not having it there.</para>
+        /// </summary>
+        private static float SkirtGap(in TownShape shape, float along)
+        {
+            if (shape.SkirtGapReach <= 0f)
+            {
+                return 1f;
+            }
+
+            float distance = Mathf.Abs(along - shape.SkirtGapAlong);
+            return Mathf.SmoothStep(
+                0f, 1f, Mathf.InverseLerp(shape.SkirtGapReach, shape.SkirtGapReach * 3f, distance));
         }
 
         /// <summary>
@@ -519,8 +661,12 @@ namespace Horizon.World
 
             float alongMin = shape.AlongStart - 40f - expand;
             float alongMax = shape.AlongEnd + 40f + expand;
-            float acrossMin = shape.AcrossInner - expand;
             float acrossMax = shape.AcrossOuter + expand;
+
+            // See TownShape.OpenShore: a terrace on the seaward side is a bank across the view.
+            float acrossMin = shape.OpenShore
+                ? 0f
+                : shape.AcrossInner - expand;
 
             for (float along = alongMin; along <= alongMax; along += pitch)
             {
@@ -537,12 +683,35 @@ namespace Horizon.World
 
         /// <summary>
         /// One level sample, unless it falls out past where town-local coordinates hold — see
-        /// <see cref="IsBeyondFold"/>.
+        /// <see cref="IsBeyondFold"/> — or, if it is a raised one, past the end of the trunk road.
         /// </summary>
         private static void AddSample(
             IRoadPath main, in TownShape shape, float along, float across, float rise,
             List<Vector3> samples)
         {
+            // <b>A raised sample past the end of the road lands on the town instead.</b>
+            //
+            // <see cref="ToWorld"/> clamps <c>along</c> to the road, which is the same lie
+            // <see cref="IsBeyondFold"/> refuses on the other axis and is harmless for exactly as long
+            // as the sample is flat: several flat samples piled on one spot say the same thing once.
+            // A skirt ring is not flat. Its two end lines sit 68 and 124 m outside the town, so for any
+            // town whose <see cref="AlongStart"/> is at the start of its own trunk road — Hochstadt and
+            // Seeburg both, Talheim not, which is why this went unnoticed — the whole of one ring gets
+            // clamped onto the town's own first metre and dumps three and eight metres of hillside
+            // across the basin floor.
+            //
+            // It cost a while to find because every check downstream is healthy: the samples are there,
+            // the mapping holds, nothing folds. What the ground report showed was a five-metre
+            // corrugation at a point with a level sample sitting exactly on it.
+            //
+            // Dropped rather than flattened, because a terrace needs ground beyond the town to stand on
+            // and there is none: what the near end gets instead is TerrainShape.BlendDistance easing
+            // back to the hillside, which is what every other edge in the world outside a town gets.
+            if (rise > 0f && (along < 0f || along > main.Length))
+            {
+                return;
+            }
+
             if (IsBeyondFold(main, shape, along, across))
             {
                 return;
@@ -561,7 +730,7 @@ namespace Horizon.World
             IRoadPath main, in TownShape shape, float along, float across, float rise)
         {
             Vector3 point = ToWorld(main, shape, along, across);
-            point.y += rise * AwayFromTheRoad(across, 35f, 135f);
+            point.y += rise * AwayFromTheRoad(across, 35f, 135f) * SkirtGap(shape, along);
             return point;
         }
 

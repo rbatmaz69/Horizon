@@ -1093,6 +1093,16 @@ namespace Horizon.EditorTools
             coastChunk.RecalculateBounds();
             coastChunk.SetBounds(coastChunk.Center, 100000f);
 
+            // --- Seeburg's axis, crossing the coast road where it runs out. Never paved: like Hochstadt's
+            // arterial it is a coordinate system and a height datum, and what is driven along it is the
+            // waterfront boulevard in the town's own layout table.
+            var seeburgAxisObject = new GameObject("SeeburgAxis");
+            seeburgAxisObject.transform.SetParent(worldRoot.transform, false);
+            RoadPath seeburgAxis = seeburgAxisObject.AddComponent<RoadPath>();
+
+            RoadCourse seeburgCourse = SeeburgCourse.Build();
+            seeburgAxis.SetControlPoints(seeburgCourse.ControlPoints);
+
             BuildMotorwayMerge(worldRoot.transform, out float rampCapOnMedian, out float rampMergeOnMedian,
                 motorwayPath, westbound, motorwayShape, roadShape, linkPath, materials);
             EditorUtility.SetDirty(roadChunk);
@@ -1123,7 +1133,29 @@ namespace Horizon.EditorTools
                 "Hochstadt", HochstadtLayout.Build(), arterialPath, TownShape.Hochstadt,
                 worldRoot.transform, motorwayShape, terrainShape, levelSamples);
 
-            var towns = new[] { talheim, hochstadt };
+            // Seeburg hangs off its own axis rather than off the coast road, for the reason
+            // HochstadtCourse gives: town-local coordinates fold on a bend, and the coast road's are
+            // 320 m. The trunk shape handed in is the pass's, not the motorway's — the axis stands in
+            // for a country road, and TownShape.Seeburg measures its plot clearances against that.
+            TownNetworkSpec seeburgLayout = SeeburgLayout.Build();
+
+            // Resolved once, here, because everything downstream wants the index and the table only
+            // gives a name — see SeeburgLayout.GatewayNodeName. A second Build() would be a second
+            // table, and the two would agree until they did not.
+            int seeburgGateway = seeburgLayout.IndexOfNode(SeeburgLayout.GatewayNodeName);
+
+            if (seeburgGateway < 0)
+            {
+                Debug.LogError($"[Horizon] Seeburg's layout has no node named "
+                               + $"'{SeeburgLayout.GatewayNodeName}'. The coast road has nothing to hand "
+                               + "its traffic over to, so its cars will reach the sea and turn round.");
+            }
+
+            TownBuild seeburg = PrepareTown(
+                "Seeburg", seeburgLayout, seeburgAxis, TownShape.Seeburg,
+                worldRoot.transform, roadShape, terrainShape, levelSamples);
+
+            var towns = new[] { talheim, hochstadt, seeburg };
             Phase(clock, "roads and street networks");
 
             // One field, shared: the terrain is built from it, the guard rails ask it where the ground falls
@@ -1185,32 +1217,57 @@ namespace Horizon.EditorTools
 
             Debug.Log($"[Horizon] Water siting: {lakeSite}");
 
-            // And the sea, hung off the end of the coast road.
+            // And the sea, and the harbour dug into it.
             //
-            // Everything about it is measured from where that road runs out: the shoreline sits a few
-            // metres past the last of the paving, and the level is the height of that paving less the
-            // drop below. Both have to be, because the whole point of the road is that it arrives at
-            // the water — a sea at a typed height would be either a cliff or a flood the first time the
-            // road's grade was touched.
-            float coastEnd = coastPath.Length;
-            Vector3 apron = coastPath.GetPositionAtDistance(coastEnd);
-            Vector3 seaward = coastPath.GetDirectionAtDistance(coastEnd);
+            // Both are measured off Seeburg's axis rather than off the coast road, which is a change
+            // from when there was nothing at the water but a parking apron. The axis is the waterfront:
+            // it is where the shoreline has to be parallel to, where the town's floor is derived from,
+            // and the one line both the sea's level and the harbour's have to agree with. Deriving them
+            // from the road that arrives instead would be deriving them from something perpendicular to
+            // everything that matters.
+            Vector3 waterfront = seeburgAxis.GetPositionAtDistance(SeeburgCourse.GatewayAlong);
 
-            const float seaRadius = 700f;
+            // Seaward is the axis' left, because TownShape.ToWorld puts positive across to its right and
+            // Seeburg's positive across is inland — see SeeburgCourse.
+            Vector3 seaward = -seeburgAxis.GetRightAtDistance(SeeburgCourse.GatewayAlong);
+
+            // Three and a half metres under the waterfront. Two would read better, but three is the
+            // least a road may stand clear of water anywhere in this build, and a rule the newest town
+            // is exempt from is not a rule.
+            float seaLevel = waterfront.y - SeeburgCourse.SeaFreeboard;
+
+            Vector2 seaCentre = Flat(
+                waterfront + seaward * (SeeburgCourse.ShoreOffset + SeeburgCourse.SeaRadius));
 
             waterPlans.Add(WaterPlan.Sea(
                 "Westmeer",
-                new Vector2(apron.x + seaward.x * (seaRadius + 25f),
-                    apron.z + seaward.z * (seaRadius + 25f)),
-                radius: seaRadius,
-                // Wide, because this bank is the beach — the one shore in the world meant to be driven
-                // down rather than looked at.
-                bankEase: 70f,
-                depth: 8f,
-                // Three and a half metres under the apron. Two would read better and is what the plan
-                // asked for, but three is the least a road may stand clear of water anywhere in this
-                // build, and a rule that the newest road is exempt from is not a rule.
-                surfaceY: apron.y - 3.5f));
+                seaCentre,
+                radius: SeeburgCourse.SeaRadius,
+                bankEase: SeeburgCourse.SeaBankEase,
+                depth: SeeburgCourse.SeaDepth,
+                surfaceY: seaLevel,
+                // Untied from the radius, which is the whole reason the shoreline can be this straight
+                // and the water still go dark within sight of the beach. See WaterBody.BedScale.
+                bedScale: SeeburgCourse.SeaBedScale));
+
+            // The harbour. A capping body rather than a second sea, so it digs the basin out of the land
+            // it reaches and leaves the deeper of the two where it lies over the sea's own bed — see
+            // WaterPlan.Basin for what two overlapping seas do to each other instead.
+            Vector3 basinAt = seeburgAxis.GetPositionAtDistance(SeeburgCourse.BasinAlong)
+                              + seaward * -SeeburgCourse.BasinAcross;
+
+            // Sized so its landward rim stands this far out from the axis. The harbour geometry is laid
+            // against the same figure, because a quay wall that is not on the edge of the basin is a
+            // wall in the water or a wall in a field.
+            float basinRimAcross = -SeeburgCourse.BasinAcross - SeeburgCourse.BasinRadius;
+
+            waterPlans.Add(WaterPlan.Basin(
+                "Seeburger Hafen",
+                Flat(basinAt),
+                radius: SeeburgCourse.BasinRadius,
+                bankEase: SeeburgCourse.BasinBankEase,
+                depth: SeeburgCourse.BasinDepth,
+                surfaceY: seaLevel));
 
             WaterBody[] waters = WaterPlanner.Resolve(
                 waterPlans, field, motorwayPath, motorwayCourse, out string waterReport);
@@ -1256,17 +1313,24 @@ namespace Horizon.EditorTools
             var litSlots = new List<int>();
             var litSlotGroups = new List<int>();
 
-            // The sea's own share of terrain, out past the corridor the coast road brings with it.
+            // The sea's own share of terrain, out past the corridor and past Seeburg's basin.
             //
             // Nothing here is about ground: it is about how far the water reaches, and the water only
             // exists where a tile does. With the corridor alone the sea ran out about 320 m from the
             // beach — inside the fog, inside the 600 m far plane, and therefore a visible dark edge with
             // the sky behind it. A square box rather than a band because Bounds are axis-aligned and the
-            // shore runs at whatever angle the road arrives at; the corners cost a few tiles that are
-            // then skipped for being under deep water.
+            // shore runs at whatever angle the town does; the corners cost a few tiles that are then
+            // skipped for being under deep water.
+            //
+            // Centred on the middle of the waterfront rather than on one point of it, and half again as
+            // wide as it was: the horizon has to hold from either end of a seven-hundred-metre front
+            // now, not just from a parking apron.
+            Vector3 frontMiddle = seeburgAxis.GetPositionAtDistance(
+                (SeeburgCourse.CityStart + SeeburgCourse.CityEnd) * 0.5f);
+
             var seaBand = new Bounds(
-                new Vector3(apron.x + seaward.x * 400f, apron.y, apron.z + seaward.z * 400f),
-                new Vector3(1000f, 200f, 1000f));
+                frontMiddle + seaward * 320f,
+                new Vector3(1500f, 200f, 1500f));
 
             BuildTerrainTiles(worldRoot.transform, path, roadShape, course, field, terrainShape,
                 towns, materials, litRenderers, litSlotStart, litSlots, litSlotGroups, seaBand);
@@ -1311,6 +1375,13 @@ namespace Horizon.EditorTools
 
             BuildGuardRails(worldRoot.transform, linkPath, roadShape, field, linkCourse,
                 materials, "MotorwayLink");
+
+            // --- Seeburg's harbour. After the water, because every height in it is measured off the
+            // surface that was resolved there, and after the terrain, because the promenade rail is laid
+            // on ground that has to exist first.
+            BuildHarbour(worldRoot.transform, seeburgAxis, field, terrainShape, materials,
+                seeburg.Network, basinAt, seaward, seaLevel, basinRimAcross,
+                litRenderers, litSlotStart, litSlots, litSlotGroups);
             BuildDelineatorPosts(worldRoot.transform, linkPath, roadShape, field, linkCourse,
                 materials, "MotorwayLink");
 
@@ -1318,7 +1389,8 @@ namespace Horizon.EditorTools
                 litRenderers, litSlotStart, litSlots, litSlotGroups,
                 motorwayPath, motorwayShape, AutobahnCourse.CarriagewayOffset,
                 System.Array.IndexOf(towns, hochstadt), HochstadtLayout.GatewayNode,
-                linkPath, roadShape, rampCapOnMedian, rampMergeOnMedian);
+                linkPath, roadShape, rampCapOnMedian, rampMergeOnMedian,
+                coastPath, roadShape, System.Array.IndexOf(towns, seeburg), seeburgGateway);
 
             // After the routes exist, because the phase the lenses show is read off the same asset the
             // traffic obeys — which is the whole reason a light cannot be green at a junction cars are
@@ -1336,11 +1408,13 @@ namespace Horizon.EditorTools
             ValidateDriveableCorridor(eastbound, "the eastbound carriageway", 1.3f, 4f);
             ValidateDriveableCorridor(linkPath, "the motorway link", 1.3f, 4f);
             ValidateDriveableCorridor(coastPath, "the coast road", 1.3f, 4f);
+            ReportCourse(seeburgCourse, seeburgAxis, "Seeburg axis");
             Phase(clock, "validation");
             int worstJunction = ValidateStreetNetwork(talheim.Network, path, roadShape);
             MarkWorstJunction(worldRoot.transform, talheim.Network, worstJunction);
             ValidateStreetNetwork(hochstadt.Network, arterialPath, motorwayShape,
                 HochstadtLayout.GatewayNode);
+            ValidateStreetNetwork(seeburg.Network, seeburgAxis, roadShape, seeburgGateway);
 
             // --- Streaming.
             var streamingObject = new GameObject("Streaming");
@@ -1352,7 +1426,7 @@ namespace Horizon.EditorTools
             // Counted after every builder and before the car, at the streamer's own radius and again at
             // the first pressure valve, so the question "would 450 m help, and by how much" is answered
             // in the log rather than by trying it.
-            List<Vector3> stations = DrawCallStations(path, motorwayPath);
+            List<Vector3> stations = DrawCallStations(path, motorwayPath, arterialPath, seeburgAxis);
             ReportDrawCallBudget(worldRoot.transform, stations, streamer.LoadRadius);
             ReportDrawCallBudget(worldRoot.transform, stations, 450f);
 
@@ -1437,7 +1511,7 @@ namespace Horizon.EditorTools
             // the Bootstrap scene — the menu that offers them lives there and has no way to ask a road
             // anything.
             List<SpawnPoint> spawns = BuildSpawnTable(
-                path, roadShape, motorwayPath, motorwayShape, arterialPath, rideHeight);
+                path, roadShape, motorwayPath, motorwayShape, arterialPath, seeburgAxis, rideHeight);
 
             EditorSceneManager.SaveScene(scene, WorldScenePath);
             return spawns;
@@ -1457,9 +1531,10 @@ namespace Horizon.EditorTools
             RoadPath motorway,
             in RoadShape motorwayShape,
             RoadPath arterial,
+            RoadPath seeburgAxis,
             float rideHeight)
         {
-            var spawns = new List<SpawnPoint>(4);
+            var spawns = new List<SpawnPoint>(5);
 
             void Add(string name, IRoadPath path, float distance, float across, float lift)
             {
@@ -1490,7 +1565,138 @@ namespace Horizon.EditorTools
             // overhead.
             Add("Hochstadt", arterial, 120f, 4f, rideHeight);
 
+            // On Seeburg's waterfront, a little past the harbour so the quay and the moles are in the
+            // mirror rather than behind the camera. The right-hand lane here is the inland one, so the
+            // water is out of the driver's window from the moment the scene loads.
+            Add("Seeburg", seeburgAxis, SeeburgCourse.BasinAlong + 60f, 4f, rideHeight);
+
             return spawns;
+        }
+
+        /// <summary>
+        /// How the ground report decides a sample is shore rather than town floor. The same pair
+        /// <c>TerrainTileBuilder</c> tints sand with, so the two agree about where the beach is.
+        /// </summary>
+        private const float ShoreFreeboard = 3f;
+
+        /// <summary>See <see cref="ShoreFreeboard"/>.</summary>
+        private const float ShoreReach = 18f;
+
+        /// <summary>
+        /// Seeburg's harbour: quay, moles, lighthouse, pontoons, boats and the promenade rail.
+        ///
+        /// <para><b>One mesh and one chunk for the lot.</b> The four opaque submeshes merge into one on
+        /// the vertex-tint material the buildings already use, so the whole harbour is two draw calls —
+        /// the second being the lantern, which needs a material of its own because <c>TownLights</c>
+        /// swaps it after dusk.</para>
+        ///
+        /// <para><b>Not a town plot, which is why it is here and not in TownPlanner.</b> Every plot in
+        /// the world is placed against a street frontage. A quay wall is placed against the edge of a
+        /// dredged basin and a mole against open water, so this belongs with the guard rails and the
+        /// bridges: things laid along a line the world already has.</para>
+        /// </summary>
+        private static void BuildHarbour(
+            Transform parent,
+            RoadPath axis,
+            MountainField field,
+            in TerrainShape terrainShape,
+            PrototypeMaterials materials,
+            StreetNetwork streets,
+            Vector3 basinAt,
+            Vector3 seaward,
+            float seaLevel,
+            float basinRimAcross,
+            List<MeshRenderer> litRenderers,
+            List<int> litSlotStart,
+            List<int> litSlots,
+            List<int> litSlotGroups)
+        {
+            // The quay's paving is the town's own floor at the basin's rim, less the shelf drop the field
+            // applies to every levelled sample. Derived rather than sampled, because sampling the ground
+            // there reads the bank that has just been dug into it.
+            float quayY = axis.GetPositionAtDistance(SeeburgCourse.BasinAlong).y
+                          + SeeburgCourse.FloorRiseAt(basinRimAcross)
+                          - terrainShape.RoadShelfDrop;
+
+            var site = new HarbourMeshes.HarbourSite(
+                basinAt,
+                SeeburgCourse.BasinRadius,
+                -seaward,
+                seaLevel,
+                seaLevel - SeeburgCourse.BasinDepth,
+                quayY,
+                // Where the open sea's waterline crosses, measured from the basin's centre. The moles
+                // start there, because an arm that starts anywhere else starts in the water.
+                -SeeburgCourse.BasinAcross - SeeburgCourse.ShoreOffset);
+
+            var buffer = new VegetationMeshBuffer(HarbourMeshes.SubmeshCount);
+            HarbourMeshes.AddHarbour(buffer, site);
+
+            // The rail sits just outside the boulevard's footway. Read off the street's own cross-section
+            // rather than typed, so it stays on the kerb line if the boulevard is ever widened.
+            // The same figure twice: it is how far outside the kerb the rail nominally stands, and it is
+            // the margin the clearance test holds it to. Two numbers here means every post on a dead
+            // straight stretch counts as blocked and swings out for nothing — which is what happened.
+            const float railClearance = 1.2f;
+
+            float railAcross = -(TownStreetShape.For(
+                TownStreetKind.Boulevard, terrainShape.RoadShelfDrop).HalfOuter + railClearance);
+
+            HarbourMeshes.AddPromenade(buffer, axis, field, streets,
+                SeeburgCourse.CityStart + 30f, SeeburgCourse.CityEnd - 30f, railAcross, railClearance,
+                // How far the rail may lean out to get round a pad before it gives up and leaves a gap.
+                // Six metres, because the beach begins about twenty out from the boulevard's centreline
+                // and the rail nominally stands fourteen.
+                6f,
+                out float worstSwing, out int railGaps);
+
+            buffer.MergeTinted(HarbourMeshes.Tints());
+
+            var used = new List<int>(HarbourMeshes.SubmeshCount);
+            Mesh mesh = buffer.ToMesh("SeeburgHarbourMesh", used);
+
+            if (mesh == null)
+            {
+                Debug.LogWarning("[Horizon] Seeburg harbour: nothing was built.");
+                return;
+            }
+
+            mesh = HorizonAssetUtility.ReplaceAsset(mesh, GeneratedFolder + "/SeeburgHarbourMesh.asset");
+
+            var harbourMaterials = new Material[used.Count];
+            for (int i = 0; i < used.Count; i++)
+            {
+                harbourMaterials[i] = used[i] == HarbourMeshes.LanternSubmesh
+                    ? materials.WindowDay
+                    : materials.BuildingTint;
+            }
+
+            GameObject harbour = CreateMeshObject(parent, "SeeburgHarbour", mesh, harbourMaterials);
+
+            WorldChunk chunk = harbour.AddComponent<WorldChunk>();
+            chunk.RecalculateBounds();
+
+            int lanternSlot = used.IndexOf(HarbourMeshes.LanternSubmesh);
+            if (lanternSlot >= 0)
+            {
+                litRenderers.Add(harbour.GetComponent<MeshRenderer>());
+                litSlots.Add(lanternSlot);
+                litSlotGroups.Add((int)LitGroup.Lamps);
+                litSlotStart.Add(litSlots.Count);
+            }
+
+            Debug.Log($"[Horizon] Seeburg harbour: {mesh.triangles.Length / 3} triangles in "
+                      + $"{used.Count} draw call(s) — a {SeeburgCourse.BasinRadius:0} m basin with its rim "
+                      + $"{basinRimAcross:0} m off the waterfront, quay at {quayY:0.0} m over water at "
+                      + $"{seaLevel:0.0} m, and a {HarbourMeshes.LighthouseHeight:0} m light on the mole "
+                      + $"head. The promenade rail leans out up to {worstSwing:0.0} m to clear the "
+                      + $"paving and breaks for it at {railGaps} of its posts.");
+        }
+
+        /// <summary>A world position as plan coordinates. Water is authored in X and Z.</summary>
+        private static Vector2 Flat(Vector3 at)
+        {
+            return new Vector2(at.x, at.z);
         }
 
         /// <summary>Distance along a path of its highest point, sampled every 10 m.</summary>
@@ -3067,6 +3273,7 @@ namespace Horizon.EditorTools
             float steepestAcross = 0f;
             int samples = 0;
             int steep = 0;
+            int drowned = 0;
 
             for (float along = shape.AlongStart; along <= shape.AlongEnd; along += step)
             {
@@ -3077,6 +3284,26 @@ namespace Horizon.EditorTools
                     float here = field.HeightAt(point.x, point.z);
                     float ahead = field.HeightAt(point.x + step, point.z);
                     float beside = field.HeightAt(point.x, point.z + step);
+
+                    // Sea bed and shore are not ground this report has anything to say about.
+                    //
+                    // <b>A coastal town's basin deliberately reaches past its own shoreline</b> — see
+                    // SeeburgCourse.Seaward for why it has to — so several hundred metres of every
+                    // sweep here is under water, and the band between that and the promenade is the
+                    // beach and the quay bank. Measured against the planned floor those are eleven
+                    // metres of error and a forty-five percent slope, and both figures then trip the
+                    // warnings below: 'the level samples are not reaching MountainField', about ground
+                    // that was levelled correctly and then dug out on purpose.
+                    //
+                    // The shore test is the one TerrainTileBuilder already uses to decide where to tint
+                    // the ground sand, so what is skipped here is exactly what comes out as beach.
+                    // Talheim and Hochstadt skip nothing, because neither of them touches water.
+                    if (field.IsUnderWater(point.x, point.z, here, 0.5f)
+                        || field.IsShore(point.x, point.z, here, ShoreFreeboard, ShoreReach))
+                    {
+                        drowned++;
+                        continue;
+                    }
 
                     // Against the floor the town was planned on, less the shelf drop the field applies to
                     // every road and level sample it is given. A constant offset here is correct and
@@ -3118,15 +3345,43 @@ namespace Horizon.EditorTools
                       + $"{shape.AlongEnd - shape.AlongStart:0} x {shape.AcrossSpan:0} m, "
                       + $"{lowest:0.0} m to {highest:0.0} m off the planned floor, steepest "
                       + $"{steepest * 100f:0} % at {steepestAlong:0} m along / {steepestAcross:0} m across, "
-                      + $"{steepFraction * 100f:0.0} % of the basin over 8 %.");
+                      + $"{steepFraction * 100f:0.0} % of the basin over 8 %"
+                      + (drowned > 0 ? $", {drowned} samples skipped as sea bed or shore." : "."));
 
             if (steepFraction > 0.06f || steepest > 0.30f)
             {
+                // Where the worst sample is and what stands around it, because the sentence above names
+                // two causes and cannot tell them apart. A profile across the point separates them at a
+                // glance: level samples that never arrived leave the ground far below the planned floor
+                // and following the hillside, while a pitch too coarse leaves it on the floor and
+                // corrugated between the shelves. A third answer turns up as often as either — the point
+                // is out on the skirt rings, which are meant to be steep and are not buildable ground in
+                // the first place.
+                Vector3 worst = TownShape.ToWorld(path, shape, steepestAlong, steepestAcross);
+                float floor = TownShape.FloorHeight(path, shape, steepestAlong, steepestAcross)
+                              - terrainShape.RoadShelfDrop;
+
+                var profile = new System.Text.StringBuilder();
+                for (float across = steepestAcross - step * 2f;
+                     across <= steepestAcross + step * 2f;
+                     across += step)
+                {
+                    Vector3 at = TownShape.ToWorld(path, shape, steepestAlong, across);
+                    bool folded = TownShape.IsBeyondFold(path, shape, steepestAlong, across);
+                    profile.Append($" {across:0}:{field.HeightAt(at.x, at.z):0.0}"
+                                   + $"/{field.ShelfDistance(at.x, at.z):0}"
+                                   + (folded ? "*" : string.Empty));
+                }
+
                 Debug.LogWarning(
                     "[Horizon] Town ground has too little buildable area. The level samples from "
                     + "TownShape.BuildLevelSamples are either not reaching MountainField, or their grid "
                     + "pitch is too coarse for the shelves to merge — it has to stay under twice "
-                    + $"MountainField.Verge, which is {Mathf.Max(terrainShape.VergeWidth, terrainShape.CellSize * 2f):0} m.");
+                    + $"MountainField.Verge, which is {Mathf.Max(terrainShape.VergeWidth, terrainShape.CellSize * 2f):0} m."
+                    + $" Worst point at ({worst.x:0}, {worst.z:0}), ground {field.HeightAt(worst.x, worst.z):0.0} m "
+                    + $"against a planned floor of {floor:0.0} m, {field.Verge:0} m of verge. Profile "
+                    + $"across (m:height/shelf distance, * = the mapping refused the sample as beyond "
+                    + $"the fold):{profile}");
             }
 
             if (highest - lowest > 3f)
@@ -3435,7 +3690,11 @@ namespace Horizon.EditorTools
             IRoadPath link,
             RoadShape linkShape,
             float rampCapDistance,
-            float rampMergeDistance)
+            float rampMergeDistance,
+            IRoadPath coast,
+            RoadShape coastShape,
+            int coastEndTown,
+            int coastEndNode)
         {
             var networks = new StreetNetwork[towns.Count];
 
@@ -3460,7 +3719,8 @@ namespace Horizon.EditorTools
             TrafficNetwork routes = TrafficNetworkBuilder.Build(
                 networks, trunk, trunkShape, highway, highwayShape, carriagewayOffset,
                 highwayEndTown, highwayEndNode,
-                link, linkShape, rampCapDistance, rampMergeDistance, plans);
+                link, linkShape, rampCapDistance, rampMergeDistance, plans,
+                coast, coastShape, coastEndTown, coastEndNode);
             routes = HorizonAssetUtility.ReplaceAsset(routes, GeneratedFolder + "/TrafficNetwork.asset");
 
             CarMeshBuilder.CarProfile[] profiles = CarMeshBuilder.TrafficProfiles;
@@ -3993,9 +4253,10 @@ namespace Horizon.EditorTools
         /// is a different question with a different answer, since out there the resident count is the
         /// cars and almost nothing else.</para>
         /// </summary>
-        private static List<Vector3> DrawCallStations(RoadPath path, RoadPath motorway)
+        private static List<Vector3> DrawCallStations(
+            RoadPath path, RoadPath motorway, RoadPath arterial, RoadPath seeburgAxis)
         {
-            var stations = new List<Vector3>(11);
+            var stations = new List<Vector3>(15);
 
             float[] fractions = { 0.06f, 0.30f, 0.55f, 0.78f, 0.95f };
             for (int i = 0; i < fractions.Length; i++)
@@ -4016,6 +4277,24 @@ namespace Horizon.EditorTools
                     Mathf.Min(AutobahnCourse.JunctionDistance, motorway.Length)));
                 stations.Add(motorway.GetPositionAtDistance(motorway.Length * 0.15f));
                 stations.Add(motorway.GetPositionAtDistance(motorway.Length * 0.85f));
+            }
+
+            // The two towns that are not on the pass. Neither was sampled before, which meant the budget
+            // was measured everywhere except the heaviest place in the world — Hochstadt's core carries
+            // 239k triangles of tower and perimeter block, against Talheim's 49k.
+            if (arterial != null)
+            {
+                stations.Add(arterial.GetPositionAtDistance(arterial.Length * 0.15f));
+                stations.Add(arterial.GetPositionAtDistance(arterial.Length * 0.5f));
+            }
+
+            if (seeburgAxis != null)
+            {
+                // On the waterfront at the harbour, and back at the market square. The first is the view
+                // the town is built for; the second is where its own buildings stand thickest.
+                stations.Add(seeburgAxis.GetPositionAtDistance(SeeburgCourse.BasinAlong));
+                stations.Add(seeburgAxis.GetPositionAtDistance(SeeburgCourse.GatewayAlong)
+                             + seeburgAxis.GetRightAtDistance(SeeburgCourse.GatewayAlong) * 150f);
             }
 
             return stations;
@@ -4052,6 +4331,8 @@ namespace Horizon.EditorTools
             int worstStation = 0;
             int worstChunks = 0;
 
+            var callsAt = new int[stations.Count];
+
             for (int s = 0; s < stations.Count; s++)
             {
                 int calls = unchunked;
@@ -4068,6 +4349,8 @@ namespace Horizon.EditorTools
                     resident++;
                 }
 
+                callsAt[s] = calls;
+
                 if (calls > worst)
                 {
                     worst = calls;
@@ -4076,11 +4359,32 @@ namespace Horizon.EditorTools
                 }
             }
 
+            // The three heaviest, not only the heaviest. One number says whether the world is over
+            // budget; three say <i>where</i>, which is the question anyone reading this is actually
+            // asking — and with stations in every settlement it is now a number per place rather than a
+            // number for the world.
+            var order = new int[stations.Count];
+            for (int i = 0; i < order.Length; i++)
+            {
+                order[i] = i;
+            }
+
+            System.Array.Sort(order, (a, b) => callsAt[b].CompareTo(callsAt[a]));
+
+            var heaviest = new System.Text.StringBuilder();
+            for (int i = 0; i < order.Length && i < 3; i++)
+            {
+                heaviest.Append(i == 0 ? " Heaviest: " : ", ");
+                heaviest.Append(
+                    $"({stations[order[i]].x:0}, {stations[order[i]].z:0}) {callsAt[order[i]]}");
+            }
+
             Debug.Log($"[Horizon] Draw calls at loadRadius {loadRadius:0} m: worst of "
                       + $"{stations.Count} stations is {worst} over {worstChunks} chunks plus "
                       + $"{unchunked} always resident, at station {worstStation + 1} "
                       + $"({stations[worstStation].x:0}, {stations[worstStation].z:0}). "
-                      + "Upper bound — no culling, no batcher merging. Confirm on device.");
+                      + "Upper bound — no culling, no batcher merging. Confirm on device."
+                      + heaviest + ".");
 
             if (worst > 400)
             {
@@ -4321,12 +4625,19 @@ namespace Horizon.EditorTools
                 // Several colliders on one object rather than a child each: a BoxCollider carries its own
                 // centre, so a second box needs no second transform, and the tile ends up with one
                 // GameObject per building however many boxes that building takes.
+                // Scaled with the plot, because the mesh is: TownPlan.Plot.Scale multiplies every offset
+                // in the recipe through PlantPlacement, so a collider box left at recipe size would put a
+                // fifty-metre minaret behind a thirty-metre one you can drive through.
+                float scale = plot.Scale;
+
                 for (int b = 0; b < boxes.Length; b++)
                 {
                     BuildingBox box = boxes[b];
                     BoxCollider collider = holder.AddComponent<BoxCollider>();
-                    collider.center = new Vector3(box.OffsetX, box.Height * 0.5f, box.OffsetZ);
-                    collider.size = new Vector3(box.HalfWidth * 2f, box.Height, box.HalfDepth * 2f);
+                    collider.center = new Vector3(
+                        box.OffsetX * scale, box.Height * 0.5f * scale, box.OffsetZ * scale);
+                    collider.size = new Vector3(
+                        box.HalfWidth * 2f * scale, box.Height * scale, box.HalfDepth * 2f * scale);
                 }
 
                 GameObjectUtility.SetStaticEditorFlags(holder, StaticEditorFlags.BatchingStatic);
@@ -4872,7 +5183,8 @@ namespace Horizon.EditorTools
                       + $"{byQuarter[(int)TownQuarter.Industry]} industry, "
                       + $"{byQuarter[(int)TownQuarter.Green]} green, "
                       + $"{byQuarter[(int)TownQuarter.Downtown]} downtown, "
-                      + $"{byQuarter[(int)TownQuarter.Commercial]} commercial.");
+                      + $"{byQuarter[(int)TownQuarter.Commercial]} commercial, "
+                      + $"{byQuarter[(int)TownQuarter.Harbour]} harbour.");
         }
 
         /// <summary>

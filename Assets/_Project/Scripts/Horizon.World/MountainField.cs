@@ -540,6 +540,20 @@ namespace Horizon.World
         }
 
         /// <summary>
+        /// Distance to the nearest sample that carries a shelf — road or level sample alike.
+        ///
+        /// <para>The number <see cref="HeightAt"/> compares against <see cref="Verge"/> to decide whether
+        /// a point is on levelled ground or on its way back to the mountain. Exposed for the ground
+        /// report, which otherwise has to guess between 'the level samples never arrived' and 'their
+        /// pitch is too coarse' — and those want opposite fixes.</para>
+        /// </summary>
+        public float ShelfDistance(float x, float z)
+        {
+            NearestInLattice(cellStart, cellItems, x, z, out float bestSqr);
+            return Mathf.Sqrt(bestSqr);
+        }
+
+        /// <summary>
         /// Index of the nearest sample held by a lattice, or -1 if it holds none.
         ///
         /// A widening ring search rather than a fixed neighbourhood, because unlike the shelf this has no
