@@ -13,25 +13,25 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Horizon.Vehicle::Horizon.Vehicle.VehicleConfig
   Version: 8
-  Mass: 1750
-  CenterOfMass: {x: 0, y: -0.18, z: -0.05}
+  Mass: 1570
+  CenterOfMass: {x: 0, y: -0.34, z: 0}
   LinearDamping: 0.06
   AngularDamping: 0.05
-  RollDamping: 3
-  PitchDamping: 1.3
-  WheelRadius: 0.48
-  SuspensionRestLength: 0.36
+  RollDamping: 2.3
+  PitchDamping: 1
+  WheelRadius: 0.44
+  SuspensionRestLength: 0.31
   SuspensionStiffness: 42000
   SuspensionDamping: 3800
-  AntiRollStiffness: 18500
+  AntiRollStiffness: 16050
   DrivenAxle: 1
-  MaxTorqueNm: 520
+  MaxTorqueNm: 560
   TorqueByRpm:
     serializedVersion: 2
     m_Curve:
     - serializedVersion: 3
       time: 0
-      value: 0.72
+      value: 0.48
       inSlope: 0
       outSlope: 0
       tangentMode: 0
@@ -39,8 +39,8 @@ MonoBehaviour:
       inWeight: 0
       outWeight: 0
     - serializedVersion: 3
-      time: 0.3
-      value: 0.98
+      time: 0.26
+      value: 0.88
       inSlope: 0
       outSlope: 0
       tangentMode: 0
@@ -48,7 +48,7 @@ MonoBehaviour:
       inWeight: 0
       outWeight: 0
     - serializedVersion: 3
-      time: 0.65
+      time: 0.55
       value: 1
       inSlope: 0
       outSlope: 0
@@ -58,7 +58,7 @@ MonoBehaviour:
       outWeight: 0
     - serializedVersion: 3
       time: 1
-      value: 0.7
+      value: 0.9
       inSlope: 0
       outSlope: 0
       tangentMode: 0
@@ -68,46 +68,46 @@ MonoBehaviour:
     m_PreInfinity: 2
     m_PostInfinity: 2
     m_RotationOrder: 4
-  IdleRpm: 750
-  RedlineRpm: 4600
-  EngineFundamentalHz: 40
-  Cylinders: 8
-  Layout: 1
-  ExhaustPitchHz: 82
-  ExhaustClatterHz: 520
-  ExhaustRing: 0.74
-  ExhaustBoom: 0.95
-  ExhaustRasp: 0.14
-  CombustionNoise: 0.52
-  ExhaustDrive: 3.34
-  ExhaustLevel: 0.58
+  IdleRpm: 780
+  RedlineRpm: 6800
+  EngineFundamentalHz: 36
+  Cylinders: 6
+  Layout: 0
+  ExhaustPitchHz: 108
+  ExhaustClatterHz: 740
+  ExhaustRing: 0.66
+  ExhaustBoom: 0.8
+  ExhaustRasp: 0.46
+  CombustionNoise: 0.3
+  ExhaustDrive: 3.14
+  ExhaustLevel: 0.6
   IdlePitch: 0.44
-  RedlinePitch: 1.42
-  TurboWhistle: 0
-  TurboSpoolRevs: 0.3
-  TurboSpoolRate: 2.4
-  TurboNotePitch: 1
-  BlowOffLevel: 0
+  RedlinePitch: 1.76
+  TurboWhistle: 1
+  TurboSpoolRevs: 0.22
+  TurboSpoolRate: 1.6
+  TurboNotePitch: 0.84
+  BlowOffLevel: 0.95
   GearRatios:
-  - 4.2
-  - 2.9
-  - 2.15
-  - 1.65
-  - 1.28
+  - 3.3
+  - 2.05
+  - 1.5
+  - 1.22
+  - 1.09
   - 1
   ReverseRatio: 2.9
-  FinalDrive: 5.02
+  FinalDrive: 4.2
   DrivetrainEfficiency: 0.9
-  UpshiftRpm: 4300
-  DownshiftRpm: 1700
-  PartThrottleUpshiftRpm: 2300
-  PartThrottleDownshiftRpm: 1200
+  UpshiftRpm: 6400
+  DownshiftRpm: 2700
+  PartThrottleUpshiftRpm: 3200
+  PartThrottleDownshiftRpm: 1600
   ShiftTime: 0.35
-  BrakeForce: 17500
+  BrakeForce: 18500
   ReverseSpeed: 8
   RollingResistanceN: 46
-  AeroDrag: 0.62
-  MaxSteerAngle: 36
+  AeroDrag: 0.38
+  MaxSteerAngle: 37
   SteeringBySpeed:
     serializedVersion: 2
     m_Curve:
@@ -141,13 +141,13 @@ MonoBehaviour:
     m_PreInfinity: 2
     m_PostInfinity: 2
     m_RotationOrder: 4
-  SteerRate: 260
+  SteerRate: 300
   LateralGrip:
     serializedVersion: 2
     m_Curve:
     - serializedVersion: 3
       time: 0
-      value: 1.4
+      value: 1.68
       inSlope: 0
       outSlope: 0
       tangentMode: 0
@@ -156,7 +156,7 @@ MonoBehaviour:
       outWeight: 0
     - serializedVersion: 3
       time: 0.5
-      value: 1.26
+      value: 1.52
       inSlope: 0
       outSlope: 0
       tangentMode: 0
@@ -165,7 +165,7 @@ MonoBehaviour:
       outWeight: 0
     - serializedVersion: 3
       time: 1
-      value: 1.12
+      value: 1.34
       inSlope: 0
       outSlope: 0
       tangentMode: 0
@@ -175,10 +175,10 @@ MonoBehaviour:
     m_PreInfinity: 2
     m_PostInfinity: 2
     m_RotationOrder: 4
-  HandbrakeGrip: 0.35
+  HandbrakeGrip: 0.55
   HandbrakeForceN: 9000
-  DriftSlipAngle: 12
+  DriftSlipAngle: 14
   DriftYawDamping: 2.2
-  CountersteerAuthority: 0.75
+  CountersteerAuthority: 0.8
   TurnInAssist: 3
-  Downforce: 1.8
+  Downforce: 2.8

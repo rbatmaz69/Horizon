@@ -13,25 +13,25 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Horizon.Vehicle::Horizon.Vehicle.VehicleConfig
   Version: 8
-  Mass: 1750
-  CenterOfMass: {x: 0, y: -0.18, z: -0.05}
+  Mass: 1120
+  CenterOfMass: {x: 0, y: -0.28, z: 0.03}
   LinearDamping: 0.06
   AngularDamping: 0.05
-  RollDamping: 3
-  PitchDamping: 1.3
-  WheelRadius: 0.48
-  SuspensionRestLength: 0.36
+  RollDamping: 2.6
+  PitchDamping: 1.1
+  WheelRadius: 0.42
+  SuspensionRestLength: 0.32
   SuspensionStiffness: 42000
   SuspensionDamping: 3800
-  AntiRollStiffness: 18500
+  AntiRollStiffness: 14350
   DrivenAxle: 1
-  MaxTorqueNm: 520
+  MaxTorqueNm: 300
   TorqueByRpm:
     serializedVersion: 2
     m_Curve:
     - serializedVersion: 3
       time: 0
-      value: 0.72
+      value: 0.62
       inSlope: 0
       outSlope: 0
       tangentMode: 0
@@ -39,8 +39,8 @@ MonoBehaviour:
       inWeight: 0
       outWeight: 0
     - serializedVersion: 3
-      time: 0.3
-      value: 0.98
+      time: 0.32
+      value: 0.92
       inSlope: 0
       outSlope: 0
       tangentMode: 0
@@ -48,7 +48,7 @@ MonoBehaviour:
       inWeight: 0
       outWeight: 0
     - serializedVersion: 3
-      time: 0.65
+      time: 0.6
       value: 1
       inSlope: 0
       outSlope: 0
@@ -58,7 +58,7 @@ MonoBehaviour:
       outWeight: 0
     - serializedVersion: 3
       time: 1
-      value: 0.7
+      value: 0.76
       inSlope: 0
       outSlope: 0
       tangentMode: 0
@@ -68,46 +68,45 @@ MonoBehaviour:
     m_PreInfinity: 2
     m_PostInfinity: 2
     m_RotationOrder: 4
-  IdleRpm: 750
-  RedlineRpm: 4600
-  EngineFundamentalHz: 40
-  Cylinders: 8
-  Layout: 1
-  ExhaustPitchHz: 82
-  ExhaustClatterHz: 520
-  ExhaustRing: 0.74
-  ExhaustBoom: 0.95
-  ExhaustRasp: 0.14
-  CombustionNoise: 0.52
-  ExhaustDrive: 3.34
-  ExhaustLevel: 0.58
-  IdlePitch: 0.44
-  RedlinePitch: 1.42
+  IdleRpm: 820
+  RedlineRpm: 6000
+  EngineFundamentalHz: 36
+  Cylinders: 4
+  Layout: 0
+  ExhaustPitchHz: 120
+  ExhaustClatterHz: 900
+  ExhaustRing: 0.55
+  ExhaustBoom: 0.7
+  ExhaustRasp: 0.5
+  CombustionNoise: 0.42
+  ExhaustDrive: 2.79
+  ExhaustLevel: 0.48
+  IdlePitch: 0.48
+  RedlinePitch: 1.5
   TurboWhistle: 0
   TurboSpoolRevs: 0.3
   TurboSpoolRate: 2.4
   TurboNotePitch: 1
   BlowOffLevel: 0
   GearRatios:
-  - 4.2
-  - 2.9
-  - 2.15
-  - 1.65
-  - 1.28
+  - 3.91
+  - 2.32
+  - 1.6
+  - 1.25
   - 1
   ReverseRatio: 2.9
-  FinalDrive: 5.02
+  FinalDrive: 4.43
   DrivetrainEfficiency: 0.9
-  UpshiftRpm: 4300
-  DownshiftRpm: 1700
-  PartThrottleUpshiftRpm: 2300
-  PartThrottleDownshiftRpm: 1200
+  UpshiftRpm: 5600
+  DownshiftRpm: 2200
+  PartThrottleUpshiftRpm: 2900
+  PartThrottleDownshiftRpm: 1450
   ShiftTime: 0.35
-  BrakeForce: 17500
+  BrakeForce: 14500
   ReverseSpeed: 8
-  RollingResistanceN: 46
-  AeroDrag: 0.62
-  MaxSteerAngle: 36
+  RollingResistanceN: 42
+  AeroDrag: 0.48
+  MaxSteerAngle: 39
   SteeringBySpeed:
     serializedVersion: 2
     m_Curve:
@@ -141,13 +140,13 @@ MonoBehaviour:
     m_PreInfinity: 2
     m_PostInfinity: 2
     m_RotationOrder: 4
-  SteerRate: 260
+  SteerRate: 300
   LateralGrip:
     serializedVersion: 2
     m_Curve:
     - serializedVersion: 3
       time: 0
-      value: 1.4
+      value: 1.58
       inSlope: 0
       outSlope: 0
       tangentMode: 0
@@ -156,7 +155,7 @@ MonoBehaviour:
       outWeight: 0
     - serializedVersion: 3
       time: 0.5
-      value: 1.26
+      value: 1.44
       inSlope: 0
       outSlope: 0
       tangentMode: 0
@@ -165,7 +164,7 @@ MonoBehaviour:
       outWeight: 0
     - serializedVersion: 3
       time: 1
-      value: 1.12
+      value: 1.28
       inSlope: 0
       outSlope: 0
       tangentMode: 0
@@ -175,10 +174,10 @@ MonoBehaviour:
     m_PreInfinity: 2
     m_PostInfinity: 2
     m_RotationOrder: 4
-  HandbrakeGrip: 0.35
+  HandbrakeGrip: 0.55
   HandbrakeForceN: 9000
   DriftSlipAngle: 12
-  DriftYawDamping: 2.2
+  DriftYawDamping: 2.5
   CountersteerAuthority: 0.75
   TurnInAssist: 3
-  Downforce: 1.8
+  Downforce: 2.1
