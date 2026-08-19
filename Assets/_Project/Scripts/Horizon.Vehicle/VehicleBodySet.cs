@@ -3,22 +3,29 @@ using UnityEngine;
 namespace Horizon.Vehicle
 {
     /// <summary>
-    /// The five bodies the player may drive, and the paints they may wear.
+    /// The ten bodies the player may drive, and the paints they may wear.
     ///
-    /// <para><b>One vehicle with five bodies parented under it, not five vehicles.</b> The prefab is
+    /// <para><b>One vehicle with ten bodies parented under it, not ten vehicles.</b> The prefab is
     /// barely a mesh: it is a Rigidbody, four wheel anchors, four wheel pivots, four audio sources, a
     /// reverb filter, <see cref="EngineAudio"/>, <see cref="VehicleCover"/> and
-    /// <see cref="VehicleLights"/>. Five copies of that would be five places for a wiring mistake and
-    /// five things to keep in step. It would also mean the car did not exist until something
+    /// <see cref="VehicleLights"/>. Ten copies of that would be ten places for a wiring mistake and
+    /// ten things to keep in step. It would also mean the car did not exist until something
     /// instantiated it, and both <c>GameBootstrap.WireUpWorld</c> and <c>PauseMenu</c> find the vehicle
     /// by type on the frame the world loads — so the camera binding and the spawn capture would become
     /// a race. One instance, placed in the world scene as it always has been, keeps all of that
     /// untouched.</para>
     ///
-    /// <para>What differs per body is only ever four things: the mesh, the collider box, the lamps, and
-    /// the handling asset. Wheels, track, wheelbase and ride height are shared by construction — see
-    /// the note on <c>CarMeshBuilder.CarProfile</c> for why every silhouette is drawn around the same
-    /// running gear.</para>
+    /// <para>What differs per body is the mesh, the collider box, the lamps, the wheel and the handling
+    /// asset — and the engine note, which the handling asset carries rather than being a sixth. Track
+    /// and wheelbase are shared by construction; see the note on <c>CarMeshBuilder.CarProfile</c> for
+    /// why the anchors are in the same place on every one of them and the tyre hanging off them is
+    /// not.</para>
+    ///
+    /// <para><b>The wheel is the one of those that is not parented to the body.</b> The four pivots
+    /// belong to the chassis — the controller writes their position and spin every physics step — so
+    /// swapping a shell cannot take its tyres with it the way it takes its headlight beams. The mesh has
+    /// to be assigned here instead, and a body that forgot to would put a hatchback's 0.40 m tyre inside
+    /// an off-roader's arch.</para>
     /// </summary>
     public sealed class VehicleBodySet : MonoBehaviour
     {
@@ -46,9 +53,21 @@ namespace Horizon.Vehicle
             public Vector3 ColliderCenter;
 
             public Vector3 ColliderSize;
+
+            /// <summary>
+            /// This car's tyre, for the four shared pivots. Two submeshes, tyre then rim, matching
+            /// <c>CarMeshBuilder.BuildWheel</c> — so the materials already on the pivots keep working
+            /// whichever wheel is in them.
+            /// </summary>
+            public Mesh WheelMesh;
         }
 
         [SerializeField] private Body[] bodies = new Body[0];
+
+        [Tooltip("The four wheel pivots' mesh filters, in the controller's order. They live on the "
+               + "chassis rather than on a body, so the wheel has to be swapped explicitly when the "
+               + "shell changes.")]
+        [SerializeField] private MeshFilter[] wheelFilters = new MeshFilter[0];
 
         /// <summary>
         /// The paints, as whole ready-made materials rather than colours.
@@ -67,6 +86,13 @@ namespace Horizon.Vehicle
         [SerializeField] private VehicleController controller;
         [SerializeField] private VehicleLights lights;
         [SerializeField] private BoxCollider hull;
+
+        /// <summary>
+        /// Told to re-synthesise its drone after the config changes, because a diesel and a
+        /// turbocharged six are different notes rather than one note at two pitches. Optional: a body
+        /// set with no audio simply swaps in silence, which is what the editor preview does.
+        /// </summary>
+        [SerializeField] private EngineAudio engineAudio;
 
         /// <summary>
         /// One material array per body, allocated once.
@@ -140,9 +166,27 @@ namespace Horizon.Vehicle
                 hull.size = body.ColliderSize;
             }
 
+            if (body.WheelMesh != null)
+            {
+                for (int i = 0; i < wheelFilters.Length; i++)
+                {
+                    if (wheelFilters[i] != null)
+                    {
+                        wheelFilters[i].sharedMesh = body.WheelMesh;
+                    }
+                }
+            }
+
             if (controller != null)
             {
                 controller.SetConfig(body.Config);
+
+                // After SetConfig, never before — it reads the config off the controller, and building
+                // the old car's engine one more time is worse than not building it at all.
+                if (engineAudio != null)
+                {
+                    engineAudio.RebuildClips();
+                }
             }
 
             if (lights != null)

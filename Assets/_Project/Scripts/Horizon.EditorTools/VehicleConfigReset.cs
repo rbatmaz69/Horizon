@@ -102,6 +102,19 @@ namespace Horizon.EditorTools
             AssetDatabase.SaveAssets();
             AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceSynchronousImport);
 
+            // The one thing in a preset that fails silently and audibly at the same time. A cycle rate
+            // that is not a whole divisor of the sample rate makes the generated engine loop tick once a
+            // second, which is easy to write, hard to hear over an engine, and impossible to find later.
+            if (!existing.LoopsCleanly)
+            {
+                Debug.LogWarning(
+                    $"[Horizon] Vehicle config '{profile}' will tick once a second: "
+                    + $"{existing.EngineFundamentalHz:0.##} Hz over {existing.Cylinders} cylinders is "
+                    + $"{existing.CycleHz:0.###} engine cycles per second, which is not a whole number "
+                    + "that divides 44100. Pick a firing frequency where it is — see the note on "
+                    + "VehicleConfigPresets.Voice.");
+            }
+
             Debug.Log($"[Horizon] Vehicle config '{profile}' reset to code defaults: "
                       + $"{existing.Mass:0} kg, drive {existing.DrivenAxle}, "
                       + $"{existing.MaxTorqueNm:0} Nm to {existing.RedlineRpm:0} rpm, "

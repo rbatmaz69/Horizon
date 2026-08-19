@@ -29,12 +29,6 @@ namespace Horizon.EditorTools
 
         private const int ThumbHeight = 256;
 
-        /// <summary>
-        /// Rolling radius, matching <c>VehicleConfig.WheelRadius</c> on every one of the five cars. See
-        /// <see cref="AddThumbnailWheels"/> for why it is a literal here.
-        /// </summary>
-        private const float WheelRadius = 0.44f;
-
         /// <summary>Somewhere nothing else exists, so the render only contains the car.</summary>
         private static readonly Vector3 StagePosition = new Vector3(0f, 5000f, 0f);
 
@@ -81,9 +75,11 @@ namespace Horizon.EditorTools
                     Path.Combine(directory, "CarPreview_Side.png"));
 
                 RenderTrafficProfiles(camera, car, directory);
+                RenderEndViews(camera, car, directory);
 
                 Debug.Log($"[Horizon] Car preview written to {directory}/CarPreview_Front.png, _Rear.png, "
-                          + $"_Side.png and one _Side_<body>.png per ambient body type.");
+                          + "_Side.png, one _Side_<body>.png per ambient body type and a "
+                          + "_Front_<body>.png and _Rear_<body>.png per player body.");
             }
             finally
             {
@@ -97,10 +93,16 @@ namespace Horizon.EditorTools
         /// A side elevation of every ambient body type, on the same stage and the same camera as the
         /// player's car.
         ///
-        /// <para>Four silhouettes cannot be judged from a table of cross-sections — the numbers say
+        /// <para>Ten silhouettes cannot be judged from a table of cross-sections — the numbers say
         /// nothing about whether a van reads as a van — and this project already reviews geometry by
-        /// rendering it rather than by opening the editor. Side-on only, because that is the view
-        /// proportion lives in: a roofline, an overhang and where the cabin sits over the wheelbase.</para>
+        /// rendering it rather than by opening the editor.</para>
+        ///
+        /// <para><b>Two views each, and the second one is not a luxury.</b> Side-on is the view
+        /// proportion lives in: a roofline, an overhang and where the cabin sits over the wheelbase. But
+        /// it is also the one view a player never has of any car except their own, and everything that
+        /// tells one of these apart from behind — the lamp cluster, the pipes, whether the tailgate has
+        /// a window in it — is invisible in it. A tail that was wrong stayed wrong for as long as the
+        /// only render of it was a profile.</para>
         ///
         /// <para>Built from the mesh straight out of <see cref="CarMeshBuilder"/> rather than from the
         /// saved assets, so this works before a rebuild has ever run and cannot show a stale shape.
@@ -112,7 +114,7 @@ namespace Horizon.EditorTools
             Material[] shared = TrafficMaterials();
 
             // The player's car is standing on the same spot. Switched off rather than moved, so the
-            // camera framing is identical between its side view and these and the five can be compared
+            // camera framing is identical between its side view and these and the ten can be compared
             // by flicking between the files.
             car.SetActive(false);
 
@@ -128,6 +130,9 @@ namespace Horizon.EditorTools
                         // Lifted so the wheels stand where the road would be. Without it each body is
                         // framed on a different part of itself and the shots cannot be compared, which
                         // is the entire point of rendering them.
+                        // Lifted by the pool's own constant rather than by the profile's ride height:
+                        // a traffic mesh already carries the difference between the two baked into its
+                        // vertices, so this is exactly what TrafficDirector does to it in the world.
                         stand.transform.position =
                             StagePosition + Vector3.up * CarMeshBuilder.TrafficRideHeight;
 
@@ -146,6 +151,72 @@ namespace Horizon.EditorTools
                     {
                         Object.DestroyImmediate(stand);
                         Object.DestroyImmediate(mesh);
+                    }
+                }
+            }
+            finally
+            {
+                car.SetActive(true);
+            }
+        }
+
+        /// <summary>
+        /// Three-quarter front and rear views of every body at <i>full</i> detail, which is where the
+        /// lamps, the grille, the tailpipes and the tailgate glass live.
+        ///
+        /// <para>The reduced traffic body has none of those — <c>BuildTrafficBody</c> skips the whole
+        /// detail pass — so these are built with <c>BuildBody</c> and wear the player's materials, and
+        /// they are the only render in the project that shows what either end of a car actually looks
+        /// like. <see cref="RenderTrafficProfiles"/>'s side elevations own proportion; these own the
+        /// furniture, and the two questions genuinely need different pictures.</para>
+        ///
+        /// <para>Three-quarter rather than straight-on: a flat elevation of a flat panel hides which of
+        /// the lamps stand proud of it and where the pipes sit under the bumper.</para>
+        /// </summary>
+        private static void RenderEndViews(Camera camera, GameObject car, string directory)
+        {
+            Material[] shared = PlayerMaterials();
+            Material[] wheelMaterials = WheelMaterials();
+
+            car.SetActive(false);
+
+            try
+            {
+                foreach (CarMeshBuilder.CarProfile profile in CarMeshBuilder.PlayerProfiles)
+                {
+                    Mesh mesh = CarMeshBuilder.BuildBody(profile, $"Ends_{profile.Name}");
+                    Mesh wheelMesh = CarMeshBuilder.BuildWheel(
+                        profile.WheelRadius, profile.TyreWidth, 18, $"EndsWheel_{profile.Name}",
+                        profile.RimFraction, profile.Rim);
+
+                    var stand = new GameObject($"Ends_{profile.Name}");
+
+                    try
+                    {
+                        stand.transform.position = StagePosition + Vector3.up * profile.RideHeight;
+                        stand.AddComponent<MeshFilter>().sharedMesh = mesh;
+
+                        MeshRenderer standRenderer = stand.AddComponent<MeshRenderer>();
+                        if (shared != null)
+                        {
+                            standRenderer.sharedMaterials = shared;
+                        }
+
+                        AddThumbnailWheels(stand.transform, profile, wheelMesh, wheelMaterials);
+
+                        // High enough to look into an open load bed, low enough that the tail panel is
+                        // still a panel rather than a sliver. This is the only render in the project
+                        // that can show either, and the pickup's bed needs it as much as the lamps do.
+                        RenderFrom(camera, stand.transform, new Vector3(4.2f, 3.0f, -9.0f),
+                            Path.Combine(directory, $"CarPreview_Rear_{profile.Name}.png"));
+                        RenderFrom(camera, stand.transform, new Vector3(4.6f, 1.9f, 9.4f),
+                            Path.Combine(directory, $"CarPreview_Front_{profile.Name}.png"));
+                    }
+                    finally
+                    {
+                        Object.DestroyImmediate(stand);
+                        Object.DestroyImmediate(mesh);
+                        Object.DestroyImmediate(wheelMesh);
                     }
                 }
             }
@@ -230,51 +301,49 @@ namespace Horizon.EditorTools
                 camera.farClipPlane = 100f;
                 camera.enabled = false;
 
-                // One wheel mesh, hung four times under every body. The player's shell carries no wheels
-                // — they are separate objects on the prefab, hung off the suspension — so a thumbnail of
+                // A wheel per body, hung four times under it. The player's shell carries no wheels —
+                // they are separate objects on the prefab, hung off the suspension — so a thumbnail of
                 // the shell alone is a car up on blocks. Built here rather than loaded from the
-                // generated asset because this runs before the prefab does.
-                Mesh wheelMesh = CarMeshBuilder.BuildWheel(WheelRadius, 0.34f, 18, "ThumbWheel");
+                // generated asset because this runs before the prefab does, and per body rather than
+                // once because the ten no longer share a tyre.
                 Material[] wheelMaterials = WheelMaterials();
 
-                try
+                foreach (CarMeshBuilder.CarProfile profile in CarMeshBuilder.PlayerProfiles)
                 {
-                    foreach (CarMeshBuilder.CarProfile profile in CarMeshBuilder.PlayerProfiles)
+                    Mesh mesh = CarMeshBuilder.BuildBody(profile, $"Thumb_{profile.Name}");
+                    Mesh wheelMesh = CarMeshBuilder.BuildWheel(
+                        profile.WheelRadius, profile.TyreWidth, 18, $"ThumbWheel_{profile.Name}",
+                        profile.RimFraction, profile.Rim);
+
+                    var stand = new GameObject($"Thumb_{profile.Name}");
+
+                    try
                     {
-                        Mesh mesh = CarMeshBuilder.BuildBody(profile, $"Thumb_{profile.Name}");
-                        var stand = new GameObject($"Thumb_{profile.Name}");
+                        // Lifted so the wheels stand where the road would be. Its own ride height, not
+                        // one shared number: framed on its origin every body is framed on a different
+                        // part of itself, and an off-roader lifted by a fastback's 0.74 stands with its
+                        // tyres twelve centimetres into the tarmac.
+                        stand.transform.position = StagePosition + Vector3.up * profile.RideHeight;
 
-                        try
+                        stand.AddComponent<MeshFilter>().sharedMesh = mesh;
+
+                        MeshRenderer renderer = stand.AddComponent<MeshRenderer>();
+                        if (shared != null)
                         {
-                            // Lifted so the wheels stand where the road would be, for the same reason the
-                            // side views are: framed on its own origin, every body is framed on a
-                            // different part of itself and the five cannot be compared.
-                            stand.transform.position =
-                                StagePosition + Vector3.up * CarMeshBuilder.TrafficRideHeight;
-
-                            stand.AddComponent<MeshFilter>().sharedMesh = mesh;
-
-                            MeshRenderer renderer = stand.AddComponent<MeshRenderer>();
-                            if (shared != null)
-                            {
-                                renderer.sharedMaterials = shared;
-                            }
-
-                            AddThumbnailWheels(stand.transform, wheelMesh, wheelMaterials);
-
-                            RenderThumbnail(camera, stand.transform,
-                                $"{UiFolder}/CarThumb_{profile.Name}.png");
+                            renderer.sharedMaterials = shared;
                         }
-                        finally
-                        {
-                            Object.DestroyImmediate(stand);
-                            Object.DestroyImmediate(mesh);
-                        }
+
+                        AddThumbnailWheels(stand.transform, profile, wheelMesh, wheelMaterials);
+
+                        RenderThumbnail(camera, stand.transform,
+                            $"{UiFolder}/CarThumb_{profile.Name}.png");
                     }
-                }
-                finally
-                {
-                    Object.DestroyImmediate(wheelMesh);
+                    finally
+                    {
+                        Object.DestroyImmediate(stand);
+                        Object.DestroyImmediate(mesh);
+                        Object.DestroyImmediate(wheelMesh);
+                    }
                 }
 
                 Debug.Log($"[Horizon] {CarMeshBuilder.PlayerProfiles.Length} car thumbnails written to "
@@ -292,13 +361,15 @@ namespace Horizon.EditorTools
         /// carved for, dropped by the suspension rest length so the tyres sit in the openings rather
         /// than beside them.
         ///
-        /// <para>The 0.30 m drop is <c>VehicleConfig.SuspensionRestLength</c>, restated rather than read:
-        /// this runs before the configs are loaded, and it is the same number on all five cars by
-        /// construction — see <c>VehicleConfigPresets</c> on why the running gear cannot vary.</para>
+        /// <para>The drop comes off the profile rather than off the loaded <c>VehicleConfig</c>, and
+        /// that is not a shortcut: this runs before the configs exist, and the profile is where the
+        /// number is authored anyway — <c>VehicleConfigPresets</c> copies it out of here into the asset,
+        /// not the other way round.</para>
         /// </summary>
-        private static void AddThumbnailWheels(Transform parent, Mesh mesh, Material[] materials)
+        private static void AddThumbnailWheels(
+            Transform parent, in CarMeshBuilder.CarProfile profile, Mesh mesh, Material[] materials)
         {
-            const float restLength = 0.30f;
+            float restLength = profile.SuspensionRestLength;
 
             for (int i = 0; i < 4; i++)
             {

@@ -22,6 +22,13 @@ namespace Horizon.Vehicle
 
         [SerializeField] private LayerMask groundMask = ~0;
 
+        /// <summary>
+        /// The fastest the suspension is allowed to be told it is moving, metres per second. See the
+        /// note where it is used — it is a guard on a finite difference across a step in the road, not a
+        /// tuning value.
+        /// </summary>
+        private const float MaxDamperSpeed = 4f;
+
         private const int WheelCount = 4;
         private const int FrontLeft = 0;
         private const int FrontRight = 1;
@@ -833,7 +840,20 @@ namespace Horizon.Vehicle
             // --- Suspension: spring pushes out of compression, damper resists the rate of change.
             float springLength = Mathf.Clamp(hit.distance - config.WheelRadius, 0f, config.SuspensionRestLength);
             float compression = config.SuspensionRestLength - springLength;
-            float compressionVelocity = (wheel.SpringLength - springLength) / deltaTime;
+
+            // Clamped, and a step in the road is the whole reason. A raycast wheel does not roll up a
+            // kerb, it arrives on top of one: the ray finds ground 14 cm higher between one step and the
+            // next, and this finite difference reads that as seven metres a second of shaft speed. At
+            // the damper rates these cars run that is tens of kilonewtons on one corner in one step,
+            // which throws the car into the air rather than lifting a wheel over a kerb.
+            //
+            // Not a config field, deliberately. It is not a property of any car — it is the speed above
+            // which this difference stops describing a damper and starts describing the size of the
+            // timestep. Ordinary bumps at speed reach two to three metres a second, so nothing a road
+            // does touches it.
+            float compressionVelocity = Mathf.Clamp(
+                (wheel.SpringLength - springLength) / deltaTime, -MaxDamperSpeed, MaxDamperSpeed);
+
             wheel.SpringLength = springLength;
             wheel.Compression01 = compression / config.SuspensionRestLength;
 

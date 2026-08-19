@@ -11,6 +11,26 @@ namespace Horizon.Vehicle
     }
 
     /// <summary>
+    /// How the cylinders are arranged around the crankshaft, which is the whole of why one engine
+    /// rumbles and another screams.
+    /// </summary>
+    public enum FiringLayout
+    {
+        /// <summary>One pipe, cylinders evenly spaced over the 720° cycle. Smooth by construction.</summary>
+        Inline = 0,
+
+        /// <summary>
+        /// Two pipes. Evenly spaced at 90° overall, but each <i>bank</i> fires at 90/180/270/180 — and
+        /// that unevenness, beating against the other bank, is the American V8 burble. Nothing else in
+        /// this file produces it and no parameter asks for it.
+        /// </summary>
+        CrossPlaneV8 = 1,
+
+        /// <summary>Two pipes, each evenly spaced at 180°. A racing V8: it screams rather than rumbles.</summary>
+        FlatPlaneV8 = 2,
+    }
+
+    /// <summary>
     /// Every tunable of the handling model. Lives as an asset so a new vehicle is a new asset
     /// rather than new code, and so it can be edited during Play mode — that is the tuning loop.
     /// </summary>
@@ -21,8 +41,46 @@ namespace Horizon.Vehicle
         /// Bumped whenever a field in here changes <i>meaning</i> rather than merely value. An asset
         /// stamped below this is stale and gets rewritten from the code defaults — see
         /// <c>VehicleConfigReset</c>.
+        ///
+        /// <para><b>6: the exhaust resonances were wrong and the engine had no bottom end.</b>
+        /// <c>ExhaustRing</c> was a damping in samples, which meant the pipe resonance died after
+        /// <i>0.36 of one of its own cycles</i> — it never oscillated at all, so what came out was a
+        /// train of clicks with 80% silence between them at idle. It is now a Q in cycles, and there is
+        /// a fourth resonance on the firing order plus <see cref="ExhaustBoom"/> to weigh it. Same
+        /// field name, completely different number.</para>
+        ///
+        /// <para><b>5: the engine became firing pulses instead of a harmonic stack.</b>
+        /// <c>HalfOrderLevel</c> and <c>LopeDepth</c> are gone — they were hand-dialled stand-ins for a
+        /// rumble that now falls out of <see cref="Layout"/> and <see cref="Cylinders"/> on its own, and
+        /// <c>HarmonicRolloff</c> gave way to the exhaust's own resonances. Every one of those is a
+        /// field whose meaning did not merely change but ceased, which is this counter's own
+        /// definition.</para>
+        ///
+        /// <para><b>4: the engine got a voice and a turbocharger.</b> Strictly the existing fields all
+        /// kept their meanings and only new ones arrived — but a new field lands in an existing asset as
+        /// its <i>initialiser</i>, and the initialisers here are the fastback's. Every car would have
+        /// come out naturally aspirated with a V8's pitch range, silently, because the value is present,
+        /// in range and of the right type. That is the exact failure this counter exists for, so it
+        /// moved. Checked before bumping: all ten assets held values identical to their code presets, so
+        /// nothing hand-tuned was thrown away.</para>
+        ///
+        /// <para><b>5 and 6</b> are recorded in the git history rather than here; both were ordinary
+        /// retunings of fields that already existed.</para>
+        ///
+        /// <para><b>7: the cars stopped sharing a wheel.</b> <see cref="WheelRadius"/> and
+        /// <see cref="SuspensionRestLength"/> were the same on all ten and are now the shape's own,
+        /// which moves <see cref="FinalDrive"/> on six of them to keep the gearing where it was tuned.
+        /// Without the bump the assets keep the old radius against a body lofted around the new one, and
+        /// the car sits with its wheels through its arches.</para>
+        ///
+        /// <para><b>8: the cars stopped sitting on their bump stops.</b> Every road body gained three to
+        /// four centimetres of <see cref="SuspensionRestLength"/> so there is daylight over the tyre and
+        /// ground clearance under the sill, and <see cref="AntiRollStiffness"/> moved with it on all nine
+        /// — the bar is normalised by the travel, so a longer spring silently softens it. Without the
+        /// bump the assets keep the short travel and the soft bar together, which is the one combination
+        /// that rolls.</para>
         /// </summary>
-        public const int CurrentVersion = 3;
+        public const int CurrentVersion = 8;
 
         /// <summary>
         /// Which set of meanings this asset's numbers were chosen under.
@@ -75,14 +133,21 @@ namespace Horizon.Vehicle
         /// <summary>
         /// Rolling radius. **Coupled to <see cref="FinalDrive"/>** — read the note there before changing
         /// it, because the radius is not only a visual dimension.
+        ///
+        /// <para><b>Written from the body, not tuned here.</b> <c>VehicleConfigPresets</c> copies this
+        /// and <see cref="SuspensionRestLength"/> out of the car's <c>CarMeshBuilder.CarProfile</c>,
+        /// because the mesh is lofted around them: the wheel arches are cut at a height that is
+        /// arithmetic off exactly these two, and so is the ground plane the silhouette is measured
+        /// against. Edit them on the profile and re-run the presets; editing them on the asset gives a
+        /// car whose wheels no longer fit its own bodywork.</para>
         /// </summary>
         public float WheelRadius = 0.44f;
 
-        [Tooltip("Suspension travel in metres.\n\n"
-               + "0.30 rather than 0.35 because the wheels grew: ride height is rest length plus radius, "
-               + "so without this the car would stand 8 cm taller and a muscle car on stilts is not the "
-               + "look. Static compression is only 7 cm, so 30 cm of travel is still ample.")]
-        public float SuspensionRestLength = 0.30f;
+        [Tooltip("Suspension travel in metres, and with the wheel radius the car's ride height.\n\n"
+               + "0.30 is the fastback's: static compression is only 7 cm, so 30 cm of travel is ample. "
+               + "Like the radius this is the body's number rather than a tuning value — see the note on "
+               + "WheelRadius.")]
+        public float SuspensionRestLength = 0.34f;
 
         [Tooltip("Spring rate in N per metre of compression.")]
         public float SuspensionStiffness = 42000f;
@@ -91,8 +156,11 @@ namespace Horizon.Vehicle
         public float SuspensionDamping = 3800f;
 
         [Tooltip("Resists body roll by transferring load across an axle. Without this the car "
-               + "flips on the first hairpin.")]
-        public float AntiRollStiffness = 14000f;
+               + "flips on the first hairpin.\n\n"
+               + "Works on compression as a fraction of the travel, so it has to be rescaled whenever "
+               + "SuspensionRestLength moves — see the note on VehicleConfigPresets. 15900 is 14000 "
+               + "against the 0.30 m of travel this car used to have.")]
+        public float AntiRollStiffness = 15900f;
 
         [Header("Drivetrain")]
         [Tooltip("Which wheels get drive.\n\n"
@@ -122,6 +190,176 @@ namespace Horizon.Vehicle
         public float IdleRpm = 750f;
 
         public float RedlineRpm = 5800f;
+
+        [Header("Engine voice")]
+
+        /// <summary>
+        /// How many times the engine fires per second at a playback pitch of 1. The clip is one second
+        /// long, so this is also the number of firing pulses in it.
+        ///
+        /// <para><b>The loop constraint, which is arithmetic and not taste.</b> One engine cycle is two
+        /// crank revolutions and contains <see cref="Cylinders"/> firings, so the cycle rate is
+        /// <c>EngineFundamentalHz / (Cylinders / 2)</c>. For the clip to close, that rate must be a whole
+        /// number <i>and</i> must divide the 44100 sample rate exactly — otherwise one cycle is a
+        /// fractional number of samples and the seam ticks once a second, which is the failure CLAUDE.md
+        /// warns about. <see cref="LoopsCleanly"/> checks it and the config reset logs anything that
+        /// fails, because the symptom is quiet enough to ship.</para>
+        /// </summary>
+        public float EngineFundamentalHz = 48f;
+
+        /// <summary>
+        /// How many cylinders fire per cycle. Sets the pulse spacing together with <see cref="Layout"/>,
+        /// and therefore how much of the noise is firing order and how much is rumble.
+        /// </summary>
+        [Range(2, 12)] public int Cylinders = 8;
+
+        public FiringLayout Layout = FiringLayout.CrossPlaneV8;
+
+        /// <summary>
+        /// The exhaust's main resonance, in hertz — the pipe's own note, which every firing pulse rings.
+        /// Low and long for a big silenced V8, higher and shorter for a small engine on a straight pipe.
+        /// A second resonance sits at 2.5× this and does the mid honk.
+        /// </summary>
+        public float ExhaustPitchHz = 92f;
+
+        /// <summary>
+        /// The top resonance, where the hard edge and — on a diesel — the clatter lives. Explicit rather
+        /// than a ratio of <see cref="ExhaustPitchHz"/> because that is exactly what separates a diesel
+        /// from a petrol engine: both boom low, only one rattles at a kilohertz.
+        /// </summary>
+        public float ExhaustClatterHz = 600f;
+
+        /// <summary>
+        /// How long the pipe rings after each pulse, 0 to 1 — mapped to a Q of 2.5 to 10 <b>cycles of
+        /// the resonance's own frequency</b>. High is boomy and joined-up; low is dry and separated, so
+        /// you hear individual firings rather than a note.
+        ///
+        /// <para><b>Cycles, not milliseconds, and that distinction was a shipped bug.</b> This was once
+        /// a fixed damping per sample, which sounds equivalent and is not: at 92 Hz it left the pipe
+        /// ringing for 4 ms against a 10.9 ms period, so the resonance died a third of the way through
+        /// its first swing. A resonator that cannot complete one oscillation is not a resonator, it is a
+        /// click — and the engine correspondingly had no note at all, only a rattle with silence between
+        /// the firings. Anything expressed here has to be relative to the frequency it applies to.</para>
+        /// </summary>
+        [Range(0f, 1f)] public float ExhaustRing = 0.6f;
+
+        /// <summary>
+        /// Weight of the resonance sitting on the firing order itself — the rumble, and the reason the
+        /// engine has a bottom end.
+        ///
+        /// <para>An exhaust's fundamental <i>is</i> its firing rate; <see cref="ExhaustPitchHz"/> is the
+        /// pipe's own colour on top of that. Tuning only the pipe and leaving the fundamental to chance
+        /// is how this file ended up with 2.6% of its energy below 80 Hz where the model it replaced had
+        /// 97% — measurably, and audibly, an engine with no engine in it.</para>
+        /// </summary>
+        [Range(0f, 2f)] public float ExhaustBoom = 0.8f;
+
+        /// <summary>
+        /// How much of the sound is the upper resonances rather than the low one, 0 to 1. This is the
+        /// old <c>HarmonicRolloff</c>'s job done by the thing that actually does it in a real exhaust.
+        /// </summary>
+        [Range(0f, 1f)] public float ExhaustRasp = 0.2f;
+
+        /// <summary>Roughness riding on each combustion pulse. Diesels are the noisy end of this.</summary>
+        [Range(0f, 1f)] public float CombustionNoise = 0.45f;
+
+        /// <summary>
+        /// Soft-clip amount. Saturation, and where a loaded engine's growl comes from.
+        ///
+        /// <para>High, and it has to be. A pulse train is peaky, so at equal peak level it is far
+        /// quieter than the saturated sine stack this model replaced — measured, 3 dB quieter, which is
+        /// most of why the engine read as missing. Squashing it back up costs less than it sounds like
+        /// it should: from drive 1.6 to 5.0 the RMS goes 0.46 to 0.57 while the octave balance moves by
+        /// under a percent, so the firing pulses survive the compression intact.</para>
+        /// </summary>
+        public float ExhaustDrive = 3.1f;
+
+        /// <summary>
+        /// Level of the continuous exhaust layer, which is the same firing pulses through the low
+        /// resonances only and nothing else.
+        ///
+        /// <para>It exists separately because an engine and its exhaust are two sounds in two places: one
+        /// in front of the driver and one behind them, one with the intake and the mechanical noise in it
+        /// and one that is only pipe. Folding them into a single layer is what made every car here sound
+        /// like a speaker playing an engine rather than like a car.</para>
+        /// </summary>
+        [Range(0f, 1f)] public float ExhaustLevel = 0.55f;
+
+        /// <summary>
+        /// Playback pitch of the drone at idle, and at the redline.
+        ///
+        /// <para>These lived on <c>EngineAudio</c> as component fields, which meant one pitch range for
+        /// every car in the game. That is wrong twice over: an engine that spins to 8000 sweeps a far
+        /// wider range than a diesel that gives up at 4800, and the top of the sweep is most of what
+        /// "revs" sounds like. A car whose redline is 38% higher than another's and sounds identical at
+        /// it has no redline.</para>
+        /// </summary>
+        public float IdlePitch = 0.46f;
+
+        public float RedlinePitch = 1.50f;
+
+        /// <summary>Engine cycles per second at a playback pitch of 1 — the clip's own repeat rate.</summary>
+        public float CycleHz => EngineFundamentalHz / Mathf.Max(1f, Cylinders * 0.5f);
+
+        /// <summary>
+        /// Whether the generated clip closes without a tick. See <see cref="EngineFundamentalHz"/> for
+        /// what has to hold and why nothing at runtime can paper over it.
+        /// </summary>
+        public bool LoopsCleanly
+        {
+            get
+            {
+                float cycles = CycleHz;
+                int rounded = Mathf.RoundToInt(cycles);
+                return rounded > 0
+                       && Mathf.Abs(cycles - rounded) < 0.0001f
+                       && 44100 % rounded == 0;
+            }
+        }
+
+        [Header("Forced induction")]
+
+        /// <summary>
+        /// Level of the turbo's whistle, 0 to 1. <b>Zero means naturally aspirated</b> and switches the
+        /// whole layer off, which is what every car written before this field had.
+        ///
+        /// <para><b>Why this is not the wind layer this project deleted.</b> That one rose with the
+        /// square of road speed, so every acceleration came with a whoosh over the engine, and there was
+        /// no car and no moment where it was not there. This one is driven by <i>boost</i> — exhaust
+        /// energy above <see cref="TurboSpoolRevs"/> multiplied by throttle — so it exists only on the
+        /// cars that have a turbocharger, only when the driver is asking for something, and it collapses
+        /// the instant they lift. It is also narrow-band and sits an octave above the drone's harmonics
+        /// rather than across them. The level is applied squared, for the reason the tyre squeal is: a
+        /// linear ramp gives a car that whistles gently everywhere, which is wallpaper.</para>
+        /// </summary>
+        [Range(0f, 1f)] public float TurboWhistle;
+
+        /// <summary>
+        /// Fraction of the redline below which there is not enough exhaust to spin the turbine. Small
+        /// turbos come in early and big ones late — this is the number that decides whether the car has
+        /// a hole at the bottom of the rev range you can hear as well as feel.
+        /// </summary>
+        [Range(0f, 0.8f)] public float TurboSpoolRevs = 0.30f;
+
+        /// <summary>
+        /// How fast boost builds, per second. Collapse is four times this — a turbo takes a moment to
+        /// spool and no time at all to stop, and getting that asymmetry wrong is what makes synthesised
+        /// boost sound like a volume envelope.
+        /// </summary>
+        public float TurboSpoolRate = 2.4f;
+
+        /// <summary>
+        /// Playback pitch of the whistle at full boost; it starts an octave below that and rises. Small
+        /// twin turbos sing high, one big compressor sits lower and louder.
+        /// </summary>
+        public float TurboNotePitch = 1f;
+
+        /// <summary>
+        /// Level of the dump valve, 0 to 1, fired when the throttle shuts with boost still in the pipes.
+        /// Zero for anything without a throttle plate to shut — which is every diesel here, however
+        /// turbocharged.
+        /// </summary>
+        [Range(0f, 1f)] public float BlowOffLevel;
 
         [Header("Gearbox")]
         [Tooltip("Forward gear ratios, first to top. Top speed comes out of the last one — it is not "

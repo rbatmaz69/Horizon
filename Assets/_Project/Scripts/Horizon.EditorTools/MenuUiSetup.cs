@@ -29,7 +29,26 @@ namespace Horizon.EditorTools
         private const float PanelWidth = 860f;
 
         /// <summary>Tall enough that a car is legible rather than a smear. The rows are pictures.</summary>
-        private const float CarRowHeight = 150f;
+        /// <summary>
+        /// Height of one car row.
+        ///
+        /// <para>Was 150 while there were five cars. Ten of those would stand the garage page 1990 px
+        /// tall against a reference height of 1080, so the page went to two columns and the rows came
+        /// down to fit: <c>92 padding + 60 title + 5×120 + 96 back + 6×22 spacing = 980</c>.</para>
+        ///
+        /// <para>It costs something and it is worth naming. The thumbnails are 512×256 drawn with
+        /// <c>preserveAspect</c>, so a 300×120 slot renders them at 240×120 rather than 300×150 — a
+        /// fifth smaller. 120 is still well clear of the 96 this file calls a dark smudge, and there is
+        /// no arrangement of ten of these that fits on a phone without either this or a scroll view.</para>
+        /// </summary>
+        private const float CarRowHeight = 120f;
+
+        /// <summary>
+        /// The garage is the one page wider than <see cref="PanelWidth"/>, because it is the one page
+        /// with two columns. 1320 leaves 1200 inside the padding — two 590 cells, which is enough for a
+        /// full-width thumbnail beside its name — and still sits well inside a 1920 reference width.
+        /// </summary>
+        private const float GaragePanelWidth = 1320f;
 
         /// <summary>
         /// Builds the whole menu and wires it. Returns the components the scene builder still has to
@@ -257,17 +276,25 @@ namespace Horizon.EditorTools
         }
 
         /// <summary>
-        /// One row per body, each with a rendered side view of the car it selects.
+        /// One row per body, each with a rendered side view of the car it selects, two to a line.
         ///
         /// <para>The thumbnails come from <c>CarPreviewRenderer.RenderUiThumbnails</c>, which runs
         /// earlier in the same rebuild. A missing sprite leaves the row as its name alone, which is
         /// ugly but usable — worth saying, because the first rebuild after a clone renders them and the
         /// import is what makes them appear.</para>
+        ///
+        /// <para><b>Two columns, in the shape <see cref="BuildPaintPage"/> already uses.</b> The page is
+        /// a vertical layout with a content-size fitter and no scroll view, so its height is simply the
+        /// sum of its rows — ten full-width rows would be nearly twice the screen and the ends of the
+        /// list would be unreachable. Pairing them halves that, and a scroll view would mean a drag
+        /// gesture competing with a tap on every row, on a page whose rows are the only thing on it.
+        /// If the garage ever outgrows two columns of five, that is the moment for the scroll view, not
+        /// a third column: a car at a third of 1200 px is a smudge again.</para>
         /// </summary>
         private static GaragePage BuildGaragePage(RectTransform parent, Sprite box)
         {
             var page = new GaragePage();
-            page.Panel = TouchUiSetup.StackPanel(parent, "GaragePanel", box, PanelWidth);
+            page.Panel = TouchUiSetup.StackPanel(parent, "GaragePanel", box, GaragePanelWidth);
 
             TouchUiSetup.MenuLabel(page.Panel, "CAR", 44, 60f);
 
@@ -275,13 +302,35 @@ namespace Horizon.EditorTools
             page.Rows = new Button[profiles.Length];
             page.Backgrounds = new Image[profiles.Length];
 
-            for (int i = 0; i < profiles.Length; i++)
+            const int perRow = 2;
+            for (int start = 0; start < profiles.Length; start += perRow)
             {
-                Sprite thumb = AssetDatabase.LoadAssetAtPath<Sprite>(
-                    $"{SpriteFolder}/CarThumb_{profiles[i].Name}.png");
+                int count = Mathf.Min(perRow, profiles.Length - start);
 
-                page.Rows[i] = CarRow(page.Panel, box, thumb, profiles[i].Name, $"Car{i}");
-                page.Backgrounds[i] = page.Rows[i].GetComponent<Image>();
+                var lineObject = new GameObject($"Cars{start}", typeof(RectTransform));
+                lineObject.transform.SetParent(page.Panel, false);
+                TouchUiSetup.Row(lineObject, CarRowHeight);
+
+                var line = lineObject.AddComponent<HorizontalLayoutGroup>();
+                line.spacing = 20f;
+                line.childAlignment = TextAnchor.MiddleCenter;
+                line.childControlWidth = true;
+                line.childControlHeight = true;
+                line.childForceExpandWidth = true;
+                line.childForceExpandHeight = true;
+
+                for (int i = 0; i < count; i++)
+                {
+                    int index = start + i;
+                    Sprite thumb = AssetDatabase.LoadAssetAtPath<Sprite>(
+                        $"{SpriteFolder}/CarThumb_{profiles[index].Name}.png");
+
+                    page.Rows[index] = CarRow(
+                        (RectTransform)lineObject.transform, box, thumb,
+                        profiles[index].Name, $"Car{index}");
+
+                    page.Backgrounds[index] = page.Rows[index].GetComponent<Image>();
+                }
             }
 
             page.Back = TouchUiSetup.MenuButton(page.Panel, "Back", box, "Back");
@@ -666,23 +715,32 @@ namespace Horizon.EditorTools
         /// A car row: a rendered side view on the left, the body's name on the right.
         ///
         /// <para>Taller than an ordinary menu row, because the point of it is the picture. A car at 96
-        /// units is a dark smudge; at 150 the difference between a fastback and a pickup is the thing
-        /// you notice first, which is the only reason to show it at all.</para>
+        /// units is a dark smudge; at <see cref="CarRowHeight"/> the difference between a fastback and a
+        /// pickup is the thing you notice first, which is the only reason to show it at all.</para>
+        ///
+        /// <para>The 590 is a hint, not a width: these sit inside a <c>HorizontalLayoutGroup</c> that
+        /// controls and expands its children, so the pair share the panel between them. The thumbnail's
+        /// inset is what actually has to be right, and it is half the picture's width plus a margin.</para>
         /// </summary>
         private static Button CarRow(
             RectTransform parent, Sprite box, Sprite thumbnail, string caption, string name)
         {
+            const float thumbWidth = 300f;
+
             RectTransform rect = TouchUiSetup.Panel(parent, name, box, TouchUiSetup.ControlTint,
                 new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
-                new Vector2(700f, CarRowHeight), Vector2.zero);
+                new Vector2(590f, CarRowHeight), Vector2.zero);
 
             TouchUiSetup.Row(rect.gameObject, CarRowHeight);
 
             if (thumbnail != null)
             {
+                // Height tied to the row rather than written out: preserveAspect fits the 2:1 sprite
+                // inside whichever of the two is binding, and a slot taller than its row would have the
+                // picture spilling over the panel edge instead of being letterboxed inside it.
                 RectTransform art = TouchUiSetup.Panel(rect, "Thumb", thumbnail, Color.white,
                     new Vector2(0f, 0.5f), new Vector2(0f, 0.5f),
-                    new Vector2(300f, 150f), new Vector2(170f, 0f));
+                    new Vector2(thumbWidth, CarRowHeight), new Vector2(thumbWidth * 0.5f + 20f, 0f));
 
                 Image image = art.GetComponent<Image>();
 
@@ -693,9 +751,9 @@ namespace Horizon.EditorTools
                 image.raycastTarget = false;
             }
 
-            Text label = TouchUiSetup.Label(rect, caption, 32);
+            Text label = TouchUiSetup.Label(rect, caption, 30);
             label.alignment = TextAnchor.MiddleRight;
-            ((RectTransform)label.transform).offsetMax = new Vector2(-40f, 0f);
+            ((RectTransform)label.transform).offsetMax = new Vector2(-28f, 0f);
 
             Button button = rect.gameObject.AddComponent<Button>();
             button.targetGraphic = rect.GetComponent<Image>();

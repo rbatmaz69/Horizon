@@ -346,11 +346,12 @@ namespace Horizon.EditorTools
                         new Color(0.20f, 1.60f, 0.42f)),
                 };
 
-                // Six body colours against five body shapes, which is the whole reason there are six.
-                // The two counts share no factor, so shape and colour drift against each other and a
-                // pairing only repeats after thirty cars — a pool of twenty-four has no two alike. Make
-                // them equal and you get five combinations shown five times each, which looks more like a
-                // bug than one colour would.
+                // Seven body colours against ten body shapes, and the count is the whole reason it is
+                // seven. The two share no factor, so shape and colour drift against each other and a
+                // pairing only repeats after seventy cars — a pool of ninety-six is very nearly all
+                // distinct. It was six against five for the same reason; ten and six share a factor of
+                // two and would have quietly halved the variety back to thirty at the moment the garage
+                // doubled, which is exactly the kind of regression nobody looks for.
                 //
                 // All muted against the player's orange: ambient traffic that pulls the eye is traffic
                 // that has stopped being ambient.
@@ -377,6 +378,13 @@ namespace Horizon.EditorTools
                     HorizonAssetUtility.LoadOrCreateMaterial(
                         MaterialsFolder + "/M_TrafficNavy.mat", "M_TrafficNavy",
                         new Color(0.22f, 0.27f, 0.36f), 0.56f, 0.1f),
+
+                    // The seventh, added when the garage went from five shapes to ten. Warm and dull, so
+                    // it sits between the sand and the maroon without giving the set a second light
+                    // colour to compete with the bone.
+                    HorizonAssetUtility.LoadOrCreateMaterial(
+                        MaterialsFolder + "/M_TrafficRust.mat", "M_TrafficRust",
+                        new Color(0.46f, 0.31f, 0.23f), 0.53f, 0.1f),
                 };
                 Concrete = HorizonAssetUtility.LoadOrCreateMaterial(
                     MaterialsFolder + "/M_Concrete.mat", "M_Concrete", new Color(0.52f, 0.51f, 0.49f), 0.20f);
@@ -443,8 +451,8 @@ namespace Horizon.EditorTools
         ///
         /// <para>A freshly created config carries <c>Version = 0</c>, which counts as stale, so
         /// <see cref="LoadVehicleConfig"/> stamps it with its profile's preset the first time it is read.
-        /// The four new bodies therefore arrive correctly tuned without this function knowing anything
-        /// about what a van weighs — see <see cref="VehicleConfigPresets"/>.</para>
+        /// Every body added after the fastback therefore arrives correctly tuned without this function
+        /// knowing anything about what a van weighs — see <see cref="VehicleConfigPresets"/>.</para>
         /// </summary>
         private static void CreateVehicleConfigs()
         {
@@ -529,17 +537,21 @@ namespace Horizon.EditorTools
         }
 
         /// <summary>
-        /// Builds the vehicle: five generated low-poly bodies on one chassis, and four generated wheels
+        /// Builds the vehicle: ten generated low-poly bodies on one chassis, and four generated wheels
         /// on pivots.
         ///
         /// The physics side is untouched by the shape of the art — the raycast wheels work off the
         /// anchors and the config, so a body mesh can be replaced freely without retuning handling.
         ///
-        /// <para><b>Five bodies, one of everything else.</b> Only the shell, its lamps, its pipes, its
+        /// <para><b>Ten bodies, one of everything else.</b> Only the shell, its lamps, its pipes, its
         /// collider box and its handling asset are per body; the Rigidbody, the wheels, the anchors, the
         /// audio graph and the cover probe are shared, because every silhouette is drawn around the same
         /// running gear. <see cref="VehicleBodySet"/> is what swaps between them at run time, and the
-        /// note on that class says why this is one prefab rather than five.</para>
+        /// note on that class says why this is one prefab rather than ten.</para>
+        ///
+        /// <para>The audio graph being shared is why the body set holds a reference to
+        /// <c>EngineAudio</c>: the note is per config rather than per object, so it has to be rebuilt on
+        /// a swap instead of simply being switched on with the shell.</para>
         /// </summary>
         private static GameObject BuildVehiclePrefab()
         {
@@ -561,9 +573,9 @@ namespace Horizon.EditorTools
             }
 
             // The fastback, and what the car is until the player says otherwise. Everything shared below
-            // — the Rigidbody's mass, the wheel mesh, the anchor drop — is seeded from it; all five agree
-            // on the suspension numbers, so only the mass is really a choice, and VehicleBodySet.Select
-            // rewrites that the moment another body is picked.
+            // — the Rigidbody's mass, the anchor drop, the wheel in the pivots — is seeded from it, and
+            // every one of those is rewritten by VehicleBodySet.Select the moment another body is
+            // picked. None of them is a choice; they are the state the prefab happens to be saved in.
             VehicleConfig config = configs[0];
 
             var root = new GameObject("Vehicle_Prototype");
@@ -583,13 +595,14 @@ namespace Horizon.EditorTools
             collider.center = hull.center;
             collider.size = hull.size;
 
-            // --- The five bodies, all built, one left showing.
+            // --- The ten bodies, all built, one left showing.
             var bodiesRoot = new GameObject("Bodies");
             bodiesRoot.transform.SetParent(root.transform, false);
 
             var bodyObjects = new GameObject[profiles.Length];
             var bodyBeams = new Light[profiles.Length][];
             var bodyBounds = new Bounds[profiles.Length];
+            var bodyWheels = new Mesh[profiles.Length];
 
             for (int i = 0; i < profiles.Length; i++)
             {
@@ -624,6 +637,16 @@ namespace Horizon.EditorTools
 
                 bodyBounds[i] = CarMeshBuilder.HullBounds(profile);
 
+                // One wheel per car, not one per prefab. Built with its axle on X so the controller can
+                // write the pivot's rotation directly as spin plus steer, with no correcting child
+                // transform, and wide enough to stand slightly proud of the arch — which is what makes
+                // the stance read.
+                bodyWheels[i] = HorizonAssetUtility.ReplaceAsset(
+                    CarMeshBuilder.BuildWheel(
+                        profile.WheelRadius, profile.TyreWidth, 18, $"WheelMesh_{profile.Name}",
+                        profile.RimFraction, profile.Rim),
+                    $"{GeneratedFolder}/WheelMesh_{profile.Name}.asset");
+
                 bodyObjects[i].SetActive(i == 0);
             }
 
@@ -643,7 +666,17 @@ namespace Horizon.EditorTools
             exhaustSource.loop = false;
             exhaustSource.volume = 1f;
 
+            // The continuous pipe note, on its own source because it is a different sound in a different
+            // place from the engine: less spatialised than the engine and more than the one-shots, which
+            // is roughly where a tailpipe sits relative to a chase camera.
+            AudioSource exhaustToneSource = CreateAudioSource(root.transform, "Audio_ExhaustTone", 0.18f);
+
             AudioSource tyreSource = CreateAudioSource(root.transform, "Audio_Tyres", 0.1f);
+
+            // The turbo sits with the engine and at the engine's spatial blend, because that is where it
+            // is: a compressor is bolted to the exhaust manifold, and putting its whistle anywhere else
+            // makes the car sound like it is being followed by a kettle.
+            AudioSource turboSource = CreateAudioSource(root.transform, "Audio_Turbo", 0.25f);
 
             // Reverb on the engine layer only. Configured as a stone corridor but starting silent — the
             // level is faded in from the cover probe, so an open road is unaffected.
@@ -669,7 +702,9 @@ namespace Horizon.EditorTools
                 serialized.FindProperty("engineSource").objectReferenceValue = engineSource;
                 serialized.FindProperty("engineLoadSource").objectReferenceValue = engineLoadSource;
                 serialized.FindProperty("exhaustSource").objectReferenceValue = exhaustSource;
+                serialized.FindProperty("exhaustToneSource").objectReferenceValue = exhaustToneSource;
                 serialized.FindProperty("tyreSource").objectReferenceValue = tyreSource;
+                serialized.FindProperty("turboSource").objectReferenceValue = turboSource;
                 serialized.FindProperty("engineReverb").objectReferenceValue = reverb;
                 serialized.FindProperty("cover").objectReferenceValue = cover;
             });
@@ -680,7 +715,9 @@ namespace Horizon.EditorTools
             HorizonAssetUtility.AssertReferenceAssigned(engineAudio, "engineSource");
             HorizonAssetUtility.AssertReferenceAssigned(engineAudio, "engineLoadSource");
             HorizonAssetUtility.AssertReferenceAssigned(engineAudio, "exhaustSource");
+            HorizonAssetUtility.AssertReferenceAssigned(engineAudio, "exhaustToneSource");
             HorizonAssetUtility.AssertReferenceAssigned(engineAudio, "tyreSource");
+            HorizonAssetUtility.AssertReferenceAssigned(engineAudio, "turboSource");
 
             VehicleLights lights = root.AddComponent<VehicleLights>();
             HorizonAssetUtility.Configure(lights, serialized =>
@@ -710,13 +747,12 @@ namespace Horizon.EditorTools
 
             var anchors = new Transform[4];
             var visuals = new Transform[4];
+            var wheelFilters = new MeshFilter[4];
 
-            // One shared wheel mesh for all four. Built with its axle on X so the controller can write
-            // the pivot's rotation directly as spin plus steer, with no correcting child transform.
-            // Wide enough to stand slightly proud of the arch, which is what makes the stance read.
-            Mesh wheelMesh = HorizonAssetUtility.ReplaceAsset(
-                CarMeshBuilder.BuildWheel(config.WheelRadius, 0.34f),
-                GeneratedFolder + "/WheelMesh.asset");
+            // The default body's wheel, in all four pivots. VehicleBodySet.Select puts the right one in
+            // whenever the shell changes — the pivots are on the chassis, so unlike the beams and the
+            // tailpipes they do not travel with the body they belong to.
+            Mesh wheelMesh = bodyWheels[0];
 
             for (int i = 0; i < 4; i++)
             {
@@ -730,7 +766,10 @@ namespace Horizon.EditorTools
                 pivot.transform.localPosition = anchorPositions[i] - new Vector3(0f, config.SuspensionRestLength, 0f);
                 visuals[i] = pivot.transform;
 
-                pivot.AddComponent<MeshFilter>().sharedMesh = wheelMesh;
+                MeshFilter filter = pivot.AddComponent<MeshFilter>();
+                filter.sharedMesh = wheelMesh;
+                wheelFilters[i] = filter;
+
                 pivot.AddComponent<MeshRenderer>().sharedMaterials =
                     new[] { materials.Tyre, materials.CarRim };
             }
@@ -774,6 +813,7 @@ namespace Horizon.EditorTools
                     element.FindPropertyRelative("Config").objectReferenceValue = configs[i];
                     element.FindPropertyRelative("ColliderCenter").vector3Value = bodyBounds[i].center;
                     element.FindPropertyRelative("ColliderSize").vector3Value = bodyBounds[i].size;
+                    element.FindPropertyRelative("WheelMesh").objectReferenceValue = bodyWheels[i];
 
                     SerializedProperty beams = element.FindPropertyRelative("Headlights");
                     beams.arraySize = bodyBeams[i].Length;
@@ -784,18 +824,21 @@ namespace Horizon.EditorTools
                 }
 
                 HorizonAssetUtility.SetObjectArray(serialized, "paints", materials.CarPaints);
+                HorizonAssetUtility.SetObjectArray(serialized, "wheelFilters", wheelFilters);
 
                 serialized.FindProperty("controller").objectReferenceValue = controller;
                 serialized.FindProperty("lights").objectReferenceValue = lights;
                 serialized.FindProperty("hull").objectReferenceValue = collider;
+                serialized.FindProperty("engineAudio").objectReferenceValue = engineAudio;
             });
 
-            // The three that would fail silently: without the collider the car keeps the fastback's box
-            // whatever it is wearing, and without the controller or the lights a swap changes the shape
-            // and nothing else.
+            // The four that would fail silently: without the collider the car keeps the fastback's box
+            // whatever it is wearing, without the controller or the lights a swap changes the shape and
+            // nothing else, and without the audio every car keeps the last one's engine note.
             HorizonAssetUtility.AssertReferenceAssigned(bodySet, "controller");
             HorizonAssetUtility.AssertReferenceAssigned(bodySet, "lights");
             HorizonAssetUtility.AssertReferenceAssigned(bodySet, "hull");
+            HorizonAssetUtility.AssertReferenceAssigned(bodySet, "engineAudio");
 
             HorizonAssetUtility.EnsureFolder(PrefabsFolder);
             GameObject prefab = PrefabUtility.SaveAsPrefabAsset(root, VehiclePrefabPath);
@@ -818,6 +861,33 @@ namespace Horizon.EditorTools
         /// wall, and by then nobody is looking at the shape of a box. A line in the log is where that
         /// gets noticed.</para>
         /// </summary>
+        /// <summary>
+        /// How high off the road the highest-riding body sits, metres.
+        ///
+        /// <para>Read off the profiles rather than off the configs, for the same reason
+        /// <c>CarPreviewRenderer</c> does: the profile is where the number is authored, and the config
+        /// is a copy of it that a stale asset can be behind.</para>
+        /// </summary>
+        private static float TallestRideHeight()
+        {
+            float tallest = 0f;
+
+            CarMeshBuilder.CarProfile[] profiles = CarMeshBuilder.PlayerProfiles;
+            for (int i = 0; i < profiles.Length; i++)
+            {
+                tallest = Mathf.Max(tallest, profiles[i].RideHeight);
+            }
+
+            return tallest;
+        }
+
+        /// <summary>
+        /// The tallest kerb <c>TownStreetBuilder</c> builds, metres. Restated here because the check it
+        /// feeds is about the car rather than about the street, and a car that cannot mount a kerb is a
+        /// bug in the vehicle whichever file the number lives in.
+        /// </summary>
+        private const float TallestKerb = 0.17f;
+
         private static void ReportBodies(
             CarMeshBuilder.CarProfile[] profiles,
             VehicleConfig[] configs,
@@ -831,22 +901,83 @@ namespace Horizon.EditorTools
             {
                 VehicleConfig config = configs[i];
 
-                report.Append($"\n  {profiles[i].Name,-10} {bounds[i].size.z:0.00} x {bounds[i].size.x:0.00} "
+                CarMeshBuilder.CarProfile profile = profiles[i];
+
+                report.Append($"\n  {profile.Name,-10} {bounds[i].size.z:0.00} x {bounds[i].size.x:0.00} "
                               + $"x {bounds[i].size.y:0.00} m, collider centre "
                               + $"({bounds[i].center.x:0.00}, {bounds[i].center.y:0.00}, "
                               + $"{bounds[i].center.z:0.00}), {config.Mass:0} kg, {config.DrivenAxle} drive, "
                               + $"{config.MaxTorqueNm:0} Nm, top {config.TopSpeed * 3.6f:0} km/h");
+
+                // The stance and the furniture, on their own line. Ride height is the number the whole
+                // station table is quoted against, so a car whose config and profile have drifted apart
+                // shows up here as two numbers that disagree rather than as a wheel through an arch that
+                // nobody notices until they look at the thing side-on.
+                // The arch gap is printed as what was asked for and what the beltline cap allowed,
+                // because those two differ and only the second one is what the player sees.
+                float frontGap = CarMeshBuilder.ArchClearanceAt(profile, CarMeshBuilder.WheelBaseHalf);
+                float rearGap = CarMeshBuilder.ArchClearanceAt(profile, -CarMeshBuilder.WheelBaseHalf);
+
+                report.Append($"\n  {string.Empty,-10} rides {profile.RideHeight:0.00} m on a "
+                              + $"{profile.WheelRadius * 2f:0.00} m {profile.Rim} wheel "
+                              + $"(rim {profile.RimFraction:0.00}), gap {frontGap:0.000}/{rearGap:0.000} m "
+                              + $"of {profile.ArchGap:0.00} asked, "
+                              + $"roof {bounds[i].max.y + profile.RideHeight:0.00} m up, "
+                              + $"{profile.TailLamps} tail, {profile.HeadLamps} face, "
+                              + $"{profile.ExhaustCount}x{profile.ExhaustRadius * 2f:0.00} m pipe");
+
+                // What the bumper clears once the springs have taken the car's weight, which is the
+                // number that decides whether it can drive up a kerb. Quoted rather than the box's own
+                // corner because the box is measured at full droop and the car never is.
+                float sag = config.Mass * 9.81f * 0.25f / Mathf.Max(1f, config.SuspensionStiffness);
+                float bumper = profile.RideHeight + bounds[i].min.y - sag;
+
+                report.Append($"\n  {string.Empty,-10} bumper {bumper:0.00} m over the road at rest "
+                              + $"({sag * 100f:0} cm of sag)");
+
+                if (bumper < TallestKerb + 0.03f)
+                {
+                    Debug.LogWarning(
+                        $"[Horizon] {profile.Name}'s hull clears {bumper:0.00} m once it has settled, and "
+                        + $"the town's tallest kerb is {TallestKerb:0.00} m. This car will plant its nose "
+                        + "in one and stop. Raise CarMeshBuilder.ColliderGroundClearance.");
+                }
+
+                if (Mathf.Min(frontGap, rearGap) < profile.ArchGap - 0.015f)
+                {
+                    Debug.LogWarning(
+                        $"[Horizon] {profile.Name} asked for {profile.ArchGap:0.00} m of arch gap and got "
+                        + $"{Mathf.Min(frontGap, rearGap):0.000} m: BuildRing caps every opening at "
+                        + "belt - 0.08, so the beltline over that axle is what is holding it back. Raise "
+                        + "the beltline there, not the gap.");
+                }
+
+                if (Mathf.Abs(config.WheelRadius - profile.WheelRadius) > 0.001f
+                    || Mathf.Abs(config.SuspensionRestLength - profile.SuspensionRestLength) > 0.001f)
+                {
+                    Debug.LogWarning(
+                        $"[Horizon] {profile.Name}'s config rides on {config.WheelRadius:0.00} m over "
+                        + $"{config.SuspensionRestLength:0.00} m of travel, and its body is lofted around "
+                        + $"{profile.WheelRadius:0.00} over {profile.SuspensionRestLength:0.00}. The asset "
+                        + "is stale — bump VehicleConfig.CurrentVersion or run Tools > Horizon > Reset "
+                        + "Vehicle Configs to code defaults.");
+                }
             }
 
             Debug.Log(report.ToString());
 
-            // The fastback's box was four literals for the whole life of the project, and every one of
-            // them is reproduced by HullBounds. Checked rather than trusted: if a change to the station
-            // table or to the derivation moves it, this is the line that says so, and the alternative is
-            // finding out from a car that no longer fits its own collider.
+            // The fastback's box was four literals for the whole life of the project. Checked rather
+            // than trusted: if a change to the station table or to the derivation moves it, this is the
+            // line that says so, and the alternative is finding out from a car that no longer fits its
+            // own collider.
+            //
+            // The height and centre are 22 cm off the original pair, and deliberately: the box no longer
+            // reaches down to the sill. See CarMeshBuilder.ColliderGroundClearance — a hull measured
+            // honestly off the bodywork cannot get over a kerb. Width and length are untouched, and they
+            // are the two that would mean the silhouette had moved.
             Bounds fastback = bounds[0];
-            var wasCenter = new Vector3(0f, 0.05f, -0.11f);
-            var wasSize = new Vector3(2.26f, 1.28f, 4.74f);
+            var wasCenter = new Vector3(0f, 0.127f, -0.11f);
+            var wasSize = new Vector3(2.26f, 1.13f, 4.74f);
 
             if (Vector3.Distance(fastback.center, wasCenter) > 0.01f
                 || Vector3.Distance(fastback.size, wasSize) > 0.01f)
@@ -873,8 +1004,6 @@ namespace Horizon.EditorTools
             var materials = new PrototypeMaterials();
             TimeOfDayProfile timeOfDayProfile = LoadTimeOfDayProfile();
 
-            // Any body would do: this is only wanted for the ride height, and wheel radius and suspension
-            // rest length are identical across all five by construction — see VehicleConfigPresets.
             VehicleConfig config = LoadVehicleConfig("Fastback");
 
             var worldRoot = new GameObject("World");
@@ -1251,9 +1380,13 @@ namespace Horizon.EditorTools
             // something to make the player sit through before anything happens.
             float spawnDistance = MountainPassCourse.TownStartDistance + 45f;
             Vector3 spawnDirection = path.GetDirectionAtDistance(spawnDistance);
-            float rideHeight = config != null
-                ? config.SuspensionRestLength + config.WheelRadius + 0.05f
-                : 0.75f;
+            // The *tallest* body's, not the fastback's, and that is the whole reason this is a loop.
+            // A spawn point is a fixed position in a baked scene and the player may arrive at it in any
+            // of the ten — so it has to clear the one that rides highest. Placed at the off-roader's
+            // height a hatchback drops 17 cm onto its springs, which is a settle nobody notices; placed
+            // at the hatchback's, the off-roader starts with its wheels inside the tarmac and its first
+            // physics step is a launch.
+            float rideHeight = TallestRideHeight() + 0.05f;
 
             // In the right-hand lane, not astride the centre line. Small thing, but with markings drawn
             // it is a large part of the road reading as something you drive on.
@@ -2407,7 +2540,9 @@ namespace Horizon.EditorTools
 
             for (int i = 0; i < outlets.Length; i++)
             {
-                var emitterObject = new GameObject(i == 0 ? "Exhaust_R" : "Exhaust_L");
+                // Numbered rather than named left and right: a car may have one pipe, two or four, and
+                // two objects called Exhaust_L under one parent is a wiring mistake waiting to be made.
+                var emitterObject = new GameObject($"Exhaust_{i}");
                 emitterObject.transform.SetParent(parent, false);
                 emitterObject.transform.localPosition = outlets[i];
                 emitterObject.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
