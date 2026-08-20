@@ -34,6 +34,9 @@ namespace Horizon.Game
         [Tooltip("Hidden with everything else while paused, so it cannot be leaned on through the menu.")]
         [SerializeField] private GameObject handbrake;
 
+        [Tooltip("The rev counter. Shown in every control scheme — it is a readout, not a control.")]
+        [SerializeField] private GameObject instruments;
+
         private bool paused;
 
         private void Awake()
@@ -88,6 +91,10 @@ namespace Horizon.Game
             // No handbrake on the keyboard layout: there is a space bar, and a button hanging in the
             // corner of a desktop screen with nothing to press it is just clutter.
             Show(handbrake, driving && router.Pedals != PedalMethod.KeyboardGamepad);
+
+            // No scheme test: the dial says nothing about how you steer. It still goes away with the
+            // rest of the HUD while paused, which is also what keeps it off the start screen.
+            Show(instruments, driving);
         }
 
         private static void Show(GameObject target, bool visible)

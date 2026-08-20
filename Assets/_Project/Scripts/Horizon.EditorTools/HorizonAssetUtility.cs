@@ -623,6 +623,104 @@ namespace Horizon.EditorTools
         }
 
         /// <summary>
+        /// The rev counter's needle: a tapered blade from the hub outward, with the hub under it.
+        ///
+        /// <para><b>Drawn pointing straight up from the centre of a full-size square</b>, most of which
+        /// is therefore transparent. That is the point. The <c>RectTransform</c> then covers the whole
+        /// dial with uGUI's default centre pivot, so rotating the image about its own centre rotates the
+        /// needle about the dial's centre and nothing has to agree about where the pivot went. The
+        /// obvious alternative — a short sprite with <c>RectTransform.pivot</c> moved down to its
+        /// base — needs the pivot, the anchored position and the sprite's own geometry to line up, and
+        /// gets the needle orbiting a point slightly off the hub when they do not.</para>
+        ///
+        /// <para>Tapered rather than a plain bar because a needle that is the same width at the tip as
+        /// at the hub reads as a clock hand. The taper is what says which end is the pointer.</para>
+        /// </summary>
+        public static Sprite LoadOrCreateNeedleSprite(string assetPath, int size = 256)
+        {
+            var existing = AssetDatabase.LoadAssetAtPath<Sprite>(assetPath);
+            if (existing != null)
+            {
+                return existing;
+            }
+
+            var texture = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            float half = size * 0.5f;
+            float pixel = 1f / half;
+
+            // Proportions of the dial's radius: the blade stops short of the rim so it points at the
+            // ticks rather than crossing them.
+            const float tip = 0.80f;
+            const float root = 0.06f;
+            const float hubRadius = 0.13f;
+            const float rootHalfWidth = 0.055f;
+            const float tipHalfWidth = 0.018f;
+
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float u = (x + 0.5f - half) / half;
+                    float v = (y + 0.5f - half) / half;
+
+                    // The blade. v runs along the needle, so the half-width is a function of how far
+                    // up it we are — that is the taper.
+                    float along = Mathf.InverseLerp(root, tip, v);
+                    float halfWidth = Mathf.Lerp(rootHalfWidth, tipHalfWidth, Mathf.Clamp01(along));
+
+                    float inBand = Mathf.Min(
+                        Mathf.Clamp01((halfWidth - Mathf.Abs(u)) / pixel),
+                        Mathf.Min(
+                            Mathf.Clamp01((v - root) / pixel),
+                            Mathf.Clamp01((tip - v) / pixel)));
+
+                    // Above the tip the band would flare back out, because InverseLerp clamps and the
+                    // width stops shrinking. Cut it off rather than letting it.
+                    float alpha = v > tip ? 0f : inBand;
+
+                    // The hub, which also caps the blade's root.
+                    float hub = Mathf.Clamp01((hubRadius - new Vector2(u, v).magnitude) / pixel);
+
+                    texture.SetPixel(x, y, new Color(1f, 1f, 1f, Mathf.Max(alpha, hub)));
+                }
+            }
+
+            return SaveSprite(texture, assetPath, Vector4.zero);
+        }
+
+        /// <summary>
+        /// One tick mark for the dial face: a rounded bar, upright in its own square.
+        ///
+        /// <para>One sprite for every mark on every dial, rotated into place by the builder. They all
+        /// share a texture, so uGUI batches the lot into a single draw call — nine separate mark
+        /// sprites would be nine.</para>
+        /// </summary>
+        public static Sprite LoadOrCreateTickSprite(string assetPath, int size = 32)
+        {
+            var existing = AssetDatabase.LoadAssetAtPath<Sprite>(assetPath);
+            if (existing != null)
+            {
+                return existing;
+            }
+
+            var texture = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            float half = size * 0.5f;
+
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float u = (x + 0.5f - half) / half;
+                    float v = (y + 0.5f - half) / half;
+
+                    texture.SetPixel(x, y, new Color(1f, 1f, 1f, Bar(u, v, 0.30f, 0.86f, 0f, 1f / half)));
+                }
+            }
+
+            return SaveSprite(texture, assetPath, Vector4.zero);
+        }
+
+        /// <summary>
         /// A glyph for a control: an arrow, a pedal, a hand or a pause bar, drawn into a square.
         ///
         /// <para>Generated for the same reason the wheel is — a handful of shapes does not justify an

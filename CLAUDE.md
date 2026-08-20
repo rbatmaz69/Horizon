@@ -155,6 +155,24 @@ renamed `Rigidbody.velocity` → `linearVelocity` and `drag`/`angularDrag` →
 Anti-roll bars and speed-dependent downforce are **not optional** — without them the car flips
 on the first hairpin.
 
+## The rev counter
+
+`InstrumentCluster` draws the dial in the top-right corner — the only screen corner nothing else
+owns. **Its face is built from the car rather than printed on it.** The ten engines redline anywhere
+between 4200 and 8000 rpm, so full scale is the car's own redline rounded up to the next thousand,
+the tick labels are written from that, and the red zone starts at the real redline. It re-runs
+whenever `VehicleController.Config` is a different object, because `SetConfig` raises no event and
+the garage changes car while the game is running.
+
+The needle reads **absolute rpm over full scale**, not the idle-rebased fraction `EngineAudio.Revs`
+exposes. That fraction is zero at idle, which is right for a pitch curve and wrong for a dial: a real
+tacho sits just above zero when the engine is running, and `EngineRpm` is clamped so it never falls
+below idle anyway.
+
+Text in a HUD allocates. `label.text = $"{speed:0}"` makes a string every frame the number changes,
+which above walking pace is most of them — so the numbers come out of a prebuilt table and are
+assigned only when the integer moves. Anything else added to this dial has to do the same.
+
 ## Updating
 
 The game is sideloaded, so nothing tells a player that a release happened. `Horizon.Updates` asks

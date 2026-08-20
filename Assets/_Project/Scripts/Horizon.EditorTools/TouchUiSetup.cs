@@ -124,6 +124,7 @@ namespace Horizon.EditorTools
             GameObject handbrake = BuildHandbrake(safe, box);
 
             GameObject pauseButton = BuildPauseButton(safe, box);
+            GameObject instruments = BuildInstruments(safe);
 
             TouchControlsHud hud = canvas.gameObject.AddComponent<TouchControlsHud>();
 
@@ -136,6 +137,7 @@ namespace Horizon.EditorTools
                 serialized.FindProperty("slider").objectReferenceValue = slider;
                 serialized.FindProperty("autoPedals").objectReferenceValue = autoPedals;
                 serialized.FindProperty("handbrake").objectReferenceValue = handbrake;
+                serialized.FindProperty("instruments").objectReferenceValue = instruments;
             });
 
             // --- The menu, in its own file.
@@ -398,6 +400,166 @@ namespace Horizon.EditorTools
             slider.targetGraphic = handle.GetComponent<Image>();
 
             return slider;
+        }
+
+        /// <summary>
+        /// The rev counter, in the top-right corner.
+        ///
+        /// <para><b>The one corner that was free.</b> The wheel owns the bottom left, the throttle
+        /// slider owns the whole right-hand column from y=300 up, and the pause button sits top left.
+        /// Anywhere else and a gauge would either be under a thumb or on top of a control.</para>
+        ///
+        /// <para>Nothing here is tappable — <c>raycastTarget</c> is off on every graphic. A 300-unit
+        /// square of raycast target parked in a corner swallows taps without any sign that it did, and
+        /// this is a readout.</para>
+        /// </summary>
+        private static GameObject BuildInstruments(RectTransform parent)
+        {
+            const float dialSize = 300f;
+
+            Sprite ring = HorizonAssetUtility.LoadOrCreateUiSprite(
+                $"{SpriteFolder}/UI_Dial.png", 256, 1f, 0.80f);
+            Sprite needleSprite = HorizonAssetUtility.LoadOrCreateNeedleSprite($"{SpriteFolder}/UI_Needle.png");
+            Sprite tickSprite = HorizonAssetUtility.LoadOrCreateTickSprite($"{SpriteFolder}/UI_Tick.png");
+
+            GameObject group = Group(parent, "Instruments");
+
+            RectTransform dial = Panel(group.transform, "Dial", ring, ControlTint,
+                new Vector2(1f, 1f), new Vector2(1f, 1f),
+                new Vector2(dialSize, dialSize), new Vector2(-190f, -180f));
+
+            // Simple, not Sliced. Panel assumes a nine-sliced box; a ring has no border, and stretching
+            // one as though it did turns the circle into a lozenge.
+            Untargeted(dial, Image.Type.Simple);
+
+            // The red zone, under the marks. A radial fill on the same ring, rotated at run time so it
+            // begins at whatever this car's redline is.
+            RectTransform redline = Panel(dial, "Redline", ring, RedlineTint,
+                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                new Vector2(dialSize, dialSize), Vector2.zero);
+
+            Image redlineImage = Untargeted(redline, Image.Type.Filled);
+            redlineImage.fillMethod = Image.FillMethod.Radial360;
+            redlineImage.fillOrigin = (int)Image.Origin360.Top;
+            redlineImage.fillClockwise = true;
+            redlineImage.fillAmount = 0f;
+
+            // Nine of each: eight thousand rpm is the fastest engine in the fleet, so 0..8 is the
+            // longest face any car asks for. InstrumentCluster switches off the ones it does not need.
+            var tickMarks = new RectTransform[MaxDialMarks];
+            var tickLabels = new Text[MaxDialMarks];
+
+            for (int i = 0; i < MaxDialMarks; i++)
+            {
+                // 17x23 for a mark five units wide and twenty tall: the bar inside UI_Tick.png fills
+                // 30% of the sprite's width and 86% of its height, so the rect has to be that much
+                // bigger than the mark you want. Sizing the rect to the mark draws a hairline.
+                tickMarks[i] = Panel(dial, $"Tick{i}", tickSprite, GlyphTint,
+                    new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                    new Vector2(17f, 23f), Vector2.zero);
+
+                Untargeted(tickMarks[i], Image.Type.Simple);
+
+                // Its own rect rather than a stretched Label: these are positioned around a circle, and
+                // Label stretches to its parent.
+                var labelObject = new GameObject($"TickLabel{i}", typeof(RectTransform));
+                labelObject.transform.SetParent(dial, false);
+
+                var labelRect = (RectTransform)labelObject.transform;
+                labelRect.anchorMin = new Vector2(0.5f, 0.5f);
+                labelRect.anchorMax = new Vector2(0.5f, 0.5f);
+                labelRect.pivot = new Vector2(0.5f, 0.5f);
+                labelRect.sizeDelta = new Vector2(40f, 30f);
+
+                tickLabels[i] = LabelOn(labelRect, string.Empty, 22, new Color(1f, 1f, 1f, 0.75f));
+
+                tickMarks[i].gameObject.SetActive(false);
+                labelObject.SetActive(false);
+            }
+
+            // The readouts, stacked down the middle and parted around the needle's hub — a 39-unit
+            // disc over the centre of the dial, which a number centred on the middle would sit under.
+            // Speed above it, unit and gear below. The unit is a fixed caption, wired to nothing.
+            Text speed = CentreLabel(dial, "Speed", "0", 48, new Vector2(0f, 48f), new Vector2(170f, 60f),
+                Color.white);
+            CentreLabel(dial, "Unit", "km/h", 18, new Vector2(0f, -30f), new Vector2(120f, 26f),
+                new Color(1f, 1f, 1f, 0.65f));
+            Text gear = CentreLabel(dial, "Gear", "1", 32, new Vector2(0f, -68f), new Vector2(90f, 40f),
+                AccentTint);
+
+            // Last, so it draws over the face — uGUI draws canvas children in hierarchy order. Full
+            // dial size, because the needle sprite is drawn from the centre of its own square: the
+            // rect then turns about the middle of the dial with the default centre pivot, and there is
+            // no pivot to get subtly wrong.
+            RectTransform needle = Panel(dial, "Needle", needleSprite, NeedleTint,
+                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                new Vector2(dialSize, dialSize), Vector2.zero);
+
+            Untargeted(needle, Image.Type.Simple);
+
+            InstrumentCluster cluster = dial.gameObject.AddComponent<InstrumentCluster>();
+
+            HorizonAssetUtility.Configure(cluster, serialized =>
+            {
+                serialized.FindProperty("needle").objectReferenceValue = needle;
+                serialized.FindProperty("redlineArc").objectReferenceValue = redlineImage;
+                serialized.FindProperty("speedLabel").objectReferenceValue = speed;
+                serialized.FindProperty("gearLabel").objectReferenceValue = gear;
+
+                HorizonAssetUtility.SetObjectArray(serialized, "tickMarks", tickMarks);
+                HorizonAssetUtility.SetObjectArray(serialized, "tickLabels", tickLabels);
+            });
+
+            return group;
+        }
+
+        /// <summary>How many marks the dial pool holds. The Coupe revs to 8000, so 0..8.</summary>
+        private const int MaxDialMarks = 9;
+
+        /// <summary>The red zone's colour. Warmer than a pure red, to sit with the rest of the palette.</summary>
+        private static readonly Color RedlineTint = new Color(0.86f, 0.22f, 0.16f, 0.85f);
+
+        /// <summary>
+        /// The needle, in the menu's accent orange rather than white.
+        ///
+        /// <para>It has to be findable in a glance taken away from the road, and white on a dial whose
+        /// marks are also white is the one colour that will not do that.</para>
+        /// </summary>
+        private static readonly Color NeedleTint = new Color(0.96f, 0.55f, 0.28f, 0.98f);
+
+        /// <summary>Sets an Image's draw type and takes it out of the raycast, which is what a readout wants.</summary>
+        private static Image Untargeted(RectTransform rect, Image.Type type)
+        {
+            Image image = rect.GetComponent<Image>();
+            image.type = type;
+            image.raycastTarget = false;
+            return image;
+        }
+
+        /// <summary>A label stretched over a rect of its own, tinted.</summary>
+        private static Text LabelOn(RectTransform parent, string caption, int fontSize, Color colour)
+        {
+            Text text = Label(parent, caption, fontSize);
+            text.color = colour;
+            return text;
+        }
+
+        /// <summary>One of the readouts down the middle of the dial.</summary>
+        private static Text CentreLabel(
+            RectTransform parent, string name, string caption, int fontSize,
+            Vector2 position, Vector2 size, Color colour)
+        {
+            var go = new GameObject(name, typeof(RectTransform));
+            go.transform.SetParent(parent, false);
+
+            var rect = (RectTransform)go.transform;
+            rect.anchorMin = new Vector2(0.5f, 0.5f);
+            rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.sizeDelta = size;
+            rect.anchoredPosition = position;
+
+            return LabelOn(rect, caption, fontSize, colour);
         }
 
         // --- Small builders.
