@@ -14,6 +14,10 @@
 #   export HORIZON_KEYALIAS_PASS=...      # optional, defaults to HORIZON_KEYSTORE_PASS
 #   export HORIZON_KEYSTORE_PATH=...      # optional, defaults to ~/.horizon/horizon-release.keystore
 #   export HORIZON_KEYALIAS_NAME=...      # optional, defaults to "horizon"
+#
+# When HORIZON_KEYSTORE_PASS is unset the password is read from ~/.horizon/keystore-password.txt
+# instead, so a release can be cut without the password passing through a shell history, a process
+# argument list, or whoever happens to be reading over your shoulder.
 
 set -euo pipefail
 
@@ -46,7 +50,18 @@ gh auth status >/dev/null 2>&1 || die "gh is not authenticated. Run: gh auth log
 
 readonly KEYSTORE="${HORIZON_KEYSTORE_PATH:-$HOME/.horizon/horizon-release.keystore}"
 [ -f "$KEYSTORE" ] || die "no keystore at $KEYSTORE. See Tools/release.sh for how to generate one."
-[ -n "${HORIZON_KEYSTORE_PASS:-}" ] || die "HORIZON_KEYSTORE_PASS is not set."
+
+readonly PASS_FILE="${HORIZON_KEYSTORE_PASS_FILE:-$HOME/.horizon/keystore-password.txt}"
+if [ -z "${HORIZON_KEYSTORE_PASS:-}" ] && [ -f "$PASS_FILE" ]; then
+  # Only the first line, stripped: a password file written with a text editor almost always ends in
+  # a newline, and a trailing newline in a keystore password fails as "wrong password" with no hint
+  # that the password itself was right.
+  HORIZON_KEYSTORE_PASS="$(head -n 1 "$PASS_FILE" | tr -d '[:space:]')"
+  export HORIZON_KEYSTORE_PASS
+fi
+
+[ -n "${HORIZON_KEYSTORE_PASS:-}" ] \
+  || die "no password: HORIZON_KEYSTORE_PASS is unset and $PASS_FILE does not exist."
 
 cd "$REPO"
 

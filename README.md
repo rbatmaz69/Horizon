@@ -102,6 +102,9 @@ export HORIZON_KEYSTORE_PASS=...
 ./Tools/release.sh 0.2.0
 ```
 
+Or write the password once into `~/.horizon/keystore-password.txt` (`chmod 600`) and drop the
+export — the script falls back to that file, which keeps the password out of your shell history.
+
 That configures the Android player, builds a signed APK in batch mode, tags `v0.2.0`, pushes, and
 attaches the APK to a GitHub release. It refuses to start on a dirty tree, a branch other than
 `main`, an existing tag, a missing keystore or an open Unity editor — all of which are cheaper to
