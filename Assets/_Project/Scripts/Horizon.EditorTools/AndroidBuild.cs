@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using UnityEditor;
 using UnityEditor.Build;
@@ -84,7 +85,157 @@ namespace Horizon.EditorTools
             Build(true);
         }
 
-        private static void Build(bool run)
+        /// <summary>
+        /// Builds a signed, versioned APK and quits, for <c>Tools/release.sh</c> to upload.
+        ///
+        /// <para>Separate from <see cref="BuildApk"/> because those two want opposite things from a
+        /// failure: the menu item leaves the editor open with the error in the console, this one has to
+        /// hand a non-zero exit code back to the shell. Under <c>-quit -executeMethod</c> Unity exits 0
+        /// unless somebody calls <see cref="EditorApplication.Exit"/>, so a build that failed would
+        /// otherwise sail on into <c>git tag</c> and <c>gh release create</c>.</para>
+        ///
+        /// <para>Configured from the environment rather than from arguments, because two of the four
+        /// values are keystore passwords and process arguments are readable by every other process on
+        /// the machine.</para>
+        /// </summary>
+        public static void BuildRelease()
+        {
+            int exitCode = 1;
+
+            try
+            {
+                exitCode = RunRelease() ? 0 : 1;
+            }
+            catch (Exception exception)
+            {
+                Debug.LogError($"[Horizon] Release build threw: {exception}");
+            }
+            finally
+            {
+                EditorApplication.Exit(exitCode);
+            }
+        }
+
+        private static bool RunRelease()
+        {
+            string version = Environment.GetEnvironmentVariable("HORIZON_VERSION");
+            if (!TryVersionCode(version, out int versionCode))
+            {
+                Debug.LogError($"[Horizon] HORIZON_VERSION is '{version}'. Expected MAJOR.MINOR.PATCH "
+                               + "with minor and patch below 100.");
+                return false;
+            }
+
+            string keystore = Environment.GetEnvironmentVariable("HORIZON_KEYSTORE_PATH");
+            if (string.IsNullOrEmpty(keystore))
+            {
+                keystore = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                    ".horizon", "horizon-release.keystore");
+            }
+
+            string alias = Environment.GetEnvironmentVariable("HORIZON_KEYALIAS_NAME");
+            if (string.IsNullOrEmpty(alias))
+            {
+                alias = "horizon";
+            }
+
+            string keystorePass = Environment.GetEnvironmentVariable("HORIZON_KEYSTORE_PASS");
+            string aliasPass = Environment.GetEnvironmentVariable("HORIZON_KEYALIAS_PASS");
+            if (string.IsNullOrEmpty(aliasPass))
+            {
+                aliasPass = keystorePass;
+            }
+
+            // Checked here rather than left to Unity, which falls back to the debug keystore when the
+            // release one cannot be opened and still reports a successful build. That APK installs
+            // perfectly well and only reveals itself months later, when the next release refuses to
+            // install over it because the signature changed.
+            if (!File.Exists(keystore))
+            {
+                Debug.LogError($"[Horizon] No keystore at {keystore}. Generate one with keytool, or "
+                               + "point HORIZON_KEYSTORE_PATH at it.");
+                return false;
+            }
+
+            if (string.IsNullOrEmpty(keystorePass))
+            {
+                Debug.LogError("[Horizon] HORIZON_KEYSTORE_PASS is empty.");
+                return false;
+            }
+
+            // Before Configure(), whose SaveAssets() is what writes the version into
+            // ProjectSettings.asset so the repo records what each tag shipped.
+            PlayerSettings.bundleVersion = version;
+            PlayerSettings.Android.bundleVersionCode = versionCode;
+
+            Configure();
+
+            try
+            {
+                PlayerSettings.Android.useCustomKeystore = true;
+                PlayerSettings.Android.keystoreName = keystore;
+                PlayerSettings.Android.keystorePass = keystorePass;
+                PlayerSettings.Android.keyaliasName = alias;
+                PlayerSettings.Android.keyaliasPass = aliasPass;
+
+                Debug.Log($"[Horizon] Release {version} (versionCode {versionCode}), signed with "
+                          + $"alias '{alias}' from {keystore}.");
+
+                return Build(false);
+            }
+            finally
+            {
+                // Cleared, and deliberately without a SaveAssets() afterwards: the keystore path and
+                // both passwords must not end up in ProjectSettings.asset, which is committed.
+                PlayerSettings.Android.keystorePass = string.Empty;
+                PlayerSettings.Android.keyaliasPass = string.Empty;
+                PlayerSettings.Android.keystoreName = string.Empty;
+                PlayerSettings.Android.keyaliasName = string.Empty;
+                PlayerSettings.Android.useCustomKeystore = false;
+            }
+        }
+
+        /// <summary>
+        /// Turns <c>0.2.0</c> into <c>200</c>.
+        ///
+        /// Derived from the version rather than counted up separately, because Android only compares
+        /// the code when deciding whether an install is an upgrade — a counter that drifts away from
+        /// the tag is a release that silently refuses to install over its predecessor.
+        /// </summary>
+        private static bool TryVersionCode(string version, out int versionCode)
+        {
+            versionCode = 0;
+
+            if (string.IsNullOrEmpty(version))
+            {
+                return false;
+            }
+
+            string[] parts = version.Split('.');
+            if (parts.Length != 3)
+            {
+                return false;
+            }
+
+            if (!int.TryParse(parts[0], out int major)
+                || !int.TryParse(parts[1], out int minor)
+                || !int.TryParse(parts[2], out int patch))
+            {
+                return false;
+            }
+
+            if (major < 0 || minor < 0 || minor > 99 || patch < 0 || patch > 99)
+            {
+                return false;
+            }
+
+            versionCode = (major * 10000) + (minor * 100) + patch;
+
+            return versionCode > 0;
+        }
+
+        private static bool Build(bool run)
         {
             Configure();
 
@@ -94,7 +245,7 @@ namespace Horizon.EditorTools
                 Debug.LogError("[Horizon] No scenes are enabled in Build Settings, so the APK would "
                                + "start on an empty screen. Bootstrap must be first — it owns the input "
                                + "router and loads the world additively.");
-                return;
+                return false;
             }
 
             // Switching costs a re-import of every asset the first time and nothing afterwards. Doing it
@@ -130,11 +281,13 @@ namespace Horizon.EditorTools
                                + "error(s). The first IL2CPP build is also the one most likely to fail "
                                + "on a missing NDK or JDK — Unity Hub installs both with the Android "
                                + "Build Support module.");
-                return;
+                return false;
             }
 
             Debug.Log($"[Horizon] Android build succeeded: {summary.totalSize / (1024 * 1024)} MB in "
                       + $"{summary.totalTime.TotalMinutes:0.0} minutes, at {path}.");
+
+            return true;
         }
 
         /// <summary>The enabled scenes from Build Settings, in order. Bootstrap has to be first.</summary>

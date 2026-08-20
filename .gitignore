@@ -44,6 +44,12 @@ sysinfo.txt
 *.unitypackage
 *.app
 
+# Signing keys. The release keystore lives outside the repo (see Tools/release.sh) and this rule is
+# only here to catch the day somebody generates one in the project directory by accident. A leaked
+# signing key cannot be rotated — every future release has to be signed with the same one.
+*.keystore
+*.jks
+
 # Crashlytics
 crashlytics-build.properties
 

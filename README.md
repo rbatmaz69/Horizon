@@ -85,6 +85,46 @@ sensor data.
 Tuning happens in `Assets/_Project/Settings/VehicleConfig_Prototype.asset`, editable while in Play
 mode, with changes persisting.
 
+## Installing a release
+
+Built APKs are published on the [Releases page](https://github.com/rbatmaz69/Horizon/releases).
+Open it on the phone, download `Horizon-<version>.apk` and tap it. Android asks once whether the
+browser may install unknown apps — that permission is per-app and has to be granted before the
+install proceeds.
+
+ARM64 only, Android 7.1 (API 25) and newer. There is no 32-bit build, which no phone made in the
+last several years needs.
+
+## Cutting a release
+
+```
+export HORIZON_KEYSTORE_PASS=...
+./Tools/release.sh 0.2.0
+```
+
+That configures the Android player, builds a signed APK in batch mode, tags `v0.2.0`, pushes, and
+attaches the APK to a GitHub release. It refuses to start on a dirty tree, a branch other than
+`main`, an existing tag, a missing keystore or an open Unity editor — all of which are cheaper to
+find out about before an IL2CPP build than after one.
+
+Release builds are signed with a keystore kept outside the repo, generated once with the JDK that
+ships inside Unity's Android module:
+
+```
+mkdir -p ~/.horizon
+/Applications/Unity/Hub/Editor/6000.3.21f1/PlaybackEngines/AndroidPlayer/OpenJDK/bin/keytool \
+  -genkeypair -v -keystore ~/.horizon/horizon-release.keystore \
+  -alias horizon -keyalg RSA -keysize 2048 -validity 10000
+```
+
+**Back that file up.** Android identifies an app by its signature, so a release signed with a
+different key cannot install over an existing one — losing the keystore means every player has to
+uninstall before they can update.
+
+The build happens on your machine rather than in GitHub Actions because most of `Assets/` is
+generated geometry that git ignores; a CI checkout would get scenes referencing meshes that do not
+exist there and would have to regenerate the world first.
+
 ## Layout
 
 ```
