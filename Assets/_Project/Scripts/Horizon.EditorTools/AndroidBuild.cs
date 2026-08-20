@@ -58,13 +58,21 @@ namespace Horizon.EditorTools
             PlayerSettings.allowedAutorotateToLandscapeLeft = true;
             PlayerSettings.allowedAutorotateToLandscapeRight = true;
 
+            // The update check talks to the GitHub releases API, so the manifest needs INTERNET.
+            //
+            // Set rather than left on Unity's "Auto", which infers the permission from what it can see
+            // surviving IL2CPP's code stripping. When that inference misses, the failure is a transport
+            // error on the phone against a check that works perfectly in the editor — a whole release
+            // cycle to notice and another to fix.
+            PlayerSettings.Android.forceInternetPermission = true;
+
             // An APK to sideload or push over USB, not an App Store bundle.
             EditorUserBuildSettings.buildAppBundle = false;
 
             AssetDatabase.SaveAssets();
 
             Debug.Log($"[Horizon] Android player: {ApplicationId}, ARM64, IL2CPP, landscape, "
-                      + $"min SDK {PlayerSettings.Android.minSdkVersion}. APK, not AAB.");
+                      + $"min SDK {PlayerSettings.Android.minSdkVersion}, INTERNET. APK, not AAB.");
         }
 
         [MenuItem("Tools/Horizon/Build Android APK", priority = 61)]

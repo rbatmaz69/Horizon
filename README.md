@@ -95,6 +95,11 @@ install proceeds.
 ARM64 only, Android 7.1 (API 25) and newer. There is no 32-bit build, which no phone made in the
 last several years needs.
 
+From 0.2.0 onwards the game checks that page for you: it asks GitHub for the newest release once on
+launch and puts the answer on the start screen, beside Controls. When there is a newer version the
+row turns orange and opens a page with the release notes and a download button, which hands the APK
+to the browser — from there it is the same download-and-tap as above.
+
 ## Cutting a release
 
 ```

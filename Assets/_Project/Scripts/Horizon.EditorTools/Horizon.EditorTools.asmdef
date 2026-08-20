@@ -8,6 +8,7 @@
         "Horizon.World",
         "Horizon.Atmosphere",
         "Horizon.Game",
+        "Horizon.Updates",
         "UnityEngine.UI",
         "Unity.InputSystem"
     ],

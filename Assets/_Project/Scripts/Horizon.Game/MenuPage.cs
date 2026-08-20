@@ -40,5 +40,8 @@ namespace Horizon.Game
 
         /// <summary>The in-drive pause menu. Reached only from the pause button.</summary>
         Paused = 7,
+
+        /// <summary>Which version is running, and the newer one if GitHub has published it.</summary>
+        Update = 8,
     }
 }

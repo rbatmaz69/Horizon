@@ -62,6 +62,7 @@ Horizon.Vehicle        -> Horizon.Core, Horizon.Input (via IDriveInput only)
 Horizon.World          -> Horizon.Core
 Horizon.World.Splines  -> Horizon.World, Unity.Splines (optional, see below)
 Horizon.Atmosphere     -> Horizon.Core
+Horizon.Updates        no dependencies (GitHub release feed)
 Horizon.Game           -> everything (leaf assembly: scene wiring, debug overlay)
 Horizon.EditorTools    -> everything (Editor platform only)
 ```
@@ -153,6 +154,27 @@ renamed `Rigidbody.velocity` → `linearVelocity` and `drag`/`angularDrag` →
 
 Anti-roll bars and speed-dependent downforce are **not optional** — without them the car flips
 on the first hairpin.
+
+## Updating
+
+The game is sideloaded, so nothing tells a player that a release happened. `Horizon.Updates` asks
+`api.github.com/.../releases/latest` once per app start and `UpdateScreen` puts the answer on the
+start screen: a version row, and behind it a page with the release notes and a download button.
+
+It only ever **offers**. The button hands the APK URL to `Application.OpenURL`, and the browser plus
+Android's own installer do the rest. An in-app download would need `REQUEST_INSTALL_PACKAGES`, a
+FileProvider in a `.androidlib` manifest and an install intent through `AndroidJavaObject` — every
+failed attempt at which costs a twenty-minute IL2CPP build to observe.
+
+`ReleaseVersion.TryParse` encodes a version the same way `AndroidBuild.TryVersionCode` does
+(`major*10000 + minor*100 + patch`) **on purpose**: that is the `bundleVersionCode` Android compares
+when deciding whether an APK may install over the running one, so a release the game calls newer is
+one the installer will accept. The copy exists because `AndroidBuild` is Editor-only; change one and
+change the other.
+
+`AndroidBuild.Configure` sets `forceInternetPermission`. Unity's "Auto" infers INTERNET from what
+survives IL2CPP stripping, and when it guesses wrong the symptom is a transport error on the phone
+against a check that works in the editor.
 
 ## Commits
 

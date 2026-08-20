@@ -70,6 +70,7 @@ namespace Horizon.EditorTools
             PauseMenu menu = canvas.gameObject.AddComponent<PauseMenu>();
             MenuPanels panels = canvas.gameObject.AddComponent<MenuPanels>();
             StartScreen start = canvas.gameObject.AddComponent<StartScreen>();
+            UpdateScreen updates = canvas.gameObject.AddComponent<UpdateScreen>();
 
             // All three on the canvas object, which is what makes the Awake/Start ordering in
             // StartScreen safe to rely on — see the note there.
@@ -96,6 +97,9 @@ namespace Horizon.EditorTools
 
             PausedPage paused = BuildPausedPage(safe, box);
             Register(panelList, MenuPage.Paused, paused.Panel);
+
+            UpdatePage update = BuildUpdatePage(safe, box);
+            Register(panelList, MenuPage.Update, update.Panel);
 
             HorizonAssetUtility.Configure(panels, serialized =>
                 HorizonAssetUtility.SetObjectArray(serialized, "panels", panelList.ToArray()));
@@ -137,6 +141,15 @@ namespace Horizon.EditorTools
                 serialized.FindProperty("qualityLabel").objectReferenceValue = startPage.QualityLabel;
             });
 
+            HorizonAssetUtility.Configure(updates, serialized =>
+            {
+                serialized.FindProperty("summaryLabel").objectReferenceValue = startPage.UpdateLabel;
+                serialized.FindProperty("statusLabel").objectReferenceValue = update.Status;
+                serialized.FindProperty("notesLabel").objectReferenceValue = update.Notes;
+                serialized.FindProperty("downloadButton").objectReferenceValue = update.Download;
+                serialized.FindProperty("downloadLabel").objectReferenceValue = update.DownloadLabel;
+            });
+
             WireStartPage(startPage, start, panels);
             WireGarage(garage, start, panels);
             WirePaint(paint, start, panels);
@@ -145,6 +158,7 @@ namespace Horizon.EditorTools
             WireControls(controls, menu, panels);
             WireQuality(quality, start, panels);
             WirePaused(paused, menu, panels, pauseButton);
+            WireUpdate(update, updates, panels);
 
             // Everything starts hidden. StartScreen shows its own first page in Start().
             for (int i = 0; i < panelList.Count; i++)
@@ -230,12 +244,14 @@ namespace Horizon.EditorTools
             public Button Conditions;
             public Button Controls;
             public Button Quality;
+            public Button Update;
 
             public Text CarLabel;
             public Text PaintLabel;
             public Text PlaceLabel;
             public Text WeatherLabel;
             public Text QualityLabel;
+            public Text UpdateLabel;
         }
 
         /// <summary>
@@ -262,7 +278,14 @@ namespace Horizon.EditorTools
             page.Conditions = SummaryRow(page.Panel, box, "Weather", out page.WeatherLabel);
             page.Quality = SummaryRow(page.Panel, box, "Quality", out page.QualityLabel);
 
-            page.Controls = TouchUiSetup.MenuButton(page.Panel, "Controls", box, "Controls");
+            // Side by side rather than one under the other, and that is arithmetic rather than taste.
+            // The page already stands 988 units tall against a reference height of 1080 — title, Drive,
+            // five summary rows and this — so a ninth full-height row would hang off the bottom of the
+            // screen, and further off it on a phone with a notch eating into the safe area.
+            Button[] bottom = ButtonPair(page.Panel, box, "Controls", "Controls", "Update", "Version");
+            page.Controls = bottom[0];
+            page.Update = bottom[1];
+            page.UpdateLabel = page.Update.GetComponentInChildren<Text>();
 
             return page;
         }
@@ -516,6 +539,50 @@ namespace Horizon.EditorTools
             return page;
         }
 
+        private sealed class UpdatePage
+        {
+            public RectTransform Panel;
+            public Text Status;
+            public Text Notes;
+            public Button Download;
+            public Text DownloadLabel;
+            public Button Back;
+        }
+
+        /// <summary>
+        /// Which version is running, and the newer one if there is one.
+        ///
+        /// <para>The page is built for both outcomes and <c>UpdateScreen</c> decides which one it is
+        /// showing: the notes and the download button are switched off unless GitHub actually answered
+        /// with something newer. Building it the other way — a page that only exists when an update
+        /// does — would mean generating scene content at run time, which is the one thing the rest of
+        /// this file exists to avoid.</para>
+        /// </summary>
+        private static UpdatePage BuildUpdatePage(RectTransform parent, Sprite box)
+        {
+            var page = new UpdatePage();
+            page.Panel = TouchUiSetup.StackPanel(parent, "UpdatePanel", box, PanelWidth);
+
+            TouchUiSetup.MenuLabel(page.Panel, "UPDATE", 44, 60f);
+
+            // Two lines' worth of height: every state but the first says something about the running
+            // version and something about GitHub, and a row sized for one line would clip the second.
+            page.Status = TouchUiSetup.MenuLabel(page.Panel, "Checking for updates...", 28, 84f);
+
+            page.Notes = TouchUiSetup.MenuLabel(page.Panel, string.Empty, 22, 160f);
+            page.Notes.alignment = TextAnchor.UpperLeft;
+            page.Notes.color = new Color(1f, 1f, 1f, 0.72f);
+            page.Notes.horizontalOverflow = HorizontalWrapMode.Wrap;
+            page.Notes.verticalOverflow = VerticalWrapMode.Truncate;
+
+            page.Download = TouchUiSetup.MenuButton(page.Panel, "Download", box, "Download");
+            Accent(page.Download);
+            page.DownloadLabel = page.Download.GetComponentInChildren<Text>();
+
+            page.Back = TouchUiSetup.MenuButton(page.Panel, "Back", box, "Back");
+            return page;
+        }
+
         private sealed class PausedPage
         {
             public RectTransform Panel;
@@ -561,6 +628,7 @@ namespace Horizon.EditorTools
             BindPage(page.Conditions, panels, MenuPage.Conditions);
             BindPage(page.Controls, panels, MenuPage.Controls);
             BindPage(page.Quality, panels, MenuPage.Quality);
+            BindPage(page.Update, panels, MenuPage.Update);
         }
 
         private static void WireGarage(GaragePage page, StartScreen start, MenuPanels panels)
@@ -632,6 +700,12 @@ namespace Horizon.EditorTools
                 BindInt(page.Rows[i], start.SelectQuality, i);
             }
 
+            BindBack(page.Back, panels);
+        }
+
+        private static void WireUpdate(UpdatePage page, UpdateScreen updates, MenuPanels panels)
+        {
+            Bind(page.Download, updates, nameof(UpdateScreen.Download));
             BindBack(page.Back, panels);
         }
 
@@ -811,6 +885,38 @@ namespace Horizon.EditorTools
             }
 
             return buttons;
+        }
+
+        /// <summary>
+        /// Two menu buttons sharing one row's height.
+        ///
+        /// <para>The same trick the garage uses for its ten cars, for the same reason: the page is out of
+        /// vertical room and a row is the unit that costs height. Both halves are full-height tap targets
+        /// — it is the width that is halved, not the thing a thumb has to hit.</para>
+        /// </summary>
+        private static Button[] ButtonPair(
+            RectTransform parent, Sprite box, string leftName, string leftCaption,
+            string rightName, string rightCaption)
+        {
+            var lineObject = new GameObject($"{leftName}{rightName}", typeof(RectTransform));
+            lineObject.transform.SetParent(parent, false);
+            TouchUiSetup.Row(lineObject, TouchUiSetup.MenuRowHeight);
+
+            var line = lineObject.AddComponent<HorizontalLayoutGroup>();
+            line.spacing = 20f;
+            line.childAlignment = TextAnchor.MiddleCenter;
+            line.childControlWidth = true;
+            line.childControlHeight = true;
+            line.childForceExpandWidth = true;
+            line.childForceExpandHeight = true;
+
+            var row = (RectTransform)lineObject.transform;
+
+            return new[]
+            {
+                TouchUiSetup.MenuButton(row, leftName, box, leftCaption),
+                TouchUiSetup.MenuButton(row, rightName, box, rightCaption),
+            };
         }
 
         /// <summary>Paints a button in the accent colour. For the one button on a page that is the point.</summary>
