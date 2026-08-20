@@ -101,12 +101,22 @@ $(tail -n 40 "$LOG")"
 
 [ -f "$REPO/Horizon.apk" ] || die "Unity exited 0 but produced no APK. See $LOG."
 
-# The editor should have cleared these again, but a committed password is not the kind of mistake
-# that gets a second chance once it is pushed.
-if git diff --quiet -- ProjectSettings/ProjectSettings.asset; then
-  :
-elif git diff -- ProjectSettings/ProjectSettings.asset | grep -qE '^\+\s*(AndroidKeystoreName|AndroidKeyaliasName):\s*\S'; then
-  die "the build left keystore details in ProjectSettings.asset. Revert that file before releasing."
+# The editor restores these itself, but a committed signing secret is not the kind of mistake that
+# gets a second chance once it is pushed, so it is checked rather than assumed.
+#
+# Matched narrowly on purpose. An earlier version of this rejected any non-empty AndroidKeystoreName
+# and blocked every release: Unity writes the literal '{inproject}: ' there to mean "no keystore",
+# which is not a path and not a secret. A real leak looks like an absolute path, so that is what is
+# tested for. The password lines are belt and braces — this Unity has no field for them in that
+# file at all.
+if ! git diff --quiet -- ProjectSettings/ProjectSettings.asset; then
+  readonly SETTINGS_DIFF="$(git diff -- ProjectSettings/ProjectSettings.asset)"
+
+  printf '%s\n' "$SETTINGS_DIFF" | grep -qE '^\+[[:space:]]*Android(KeystoreName|KeyaliasName):.*/' \
+    && die "the build left a keystore path in ProjectSettings.asset. Revert that file before releasing."
+
+  printf '%s\n' "$SETTINGS_DIFF" | grep -qiE '^\+.*(keystorepass|keyaliaspass)[^:]*:[[:space:]]*[^[:space:]]' \
+    && die "the build left a keystore password in ProjectSettings.asset. Revert that file, and do not push it."
 fi
 
 readonly ASSET="$REPO/Horizon-$VERSION.apk"

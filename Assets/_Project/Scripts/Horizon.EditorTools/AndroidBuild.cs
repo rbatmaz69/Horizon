@@ -171,6 +171,14 @@ namespace Horizon.EditorTools
 
             Configure();
 
+            // Captured so the finally below can put them back exactly as they were. Clearing them to
+            // empty instead looks equivalent and is not: Unity normalises an empty keystore name to
+            // the literal '{inproject}: ', which shows up as a modified ProjectSettings.asset after
+            // every single release.
+            bool previousUseCustomKeystore = PlayerSettings.Android.useCustomKeystore;
+            string previousKeystoreName = PlayerSettings.Android.keystoreName;
+            string previousKeyaliasName = PlayerSettings.Android.keyaliasName;
+
             try
             {
                 PlayerSettings.Android.useCustomKeystore = true;
@@ -186,13 +194,15 @@ namespace Horizon.EditorTools
             }
             finally
             {
-                // Cleared, and deliberately without a SaveAssets() afterwards: the keystore path and
-                // both passwords must not end up in ProjectSettings.asset, which is committed.
+                // Restored, and deliberately without a SaveAssets() afterwards: the keystore path
+                // must not end up in ProjectSettings.asset, which is committed. The passwords are
+                // held in memory only — Unity has no field for them in that file — but they are
+                // cleared here anyway so they do not outlive the build inside the editor process.
                 PlayerSettings.Android.keystorePass = string.Empty;
                 PlayerSettings.Android.keyaliasPass = string.Empty;
-                PlayerSettings.Android.keystoreName = string.Empty;
-                PlayerSettings.Android.keyaliasName = string.Empty;
-                PlayerSettings.Android.useCustomKeystore = false;
+                PlayerSettings.Android.keystoreName = previousKeystoreName;
+                PlayerSettings.Android.keyaliasName = previousKeyaliasName;
+                PlayerSettings.Android.useCustomKeystore = previousUseCustomKeystore;
             }
         }
 
