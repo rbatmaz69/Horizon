@@ -268,10 +268,34 @@ namespace Horizon.Vehicle
             blowOffClip = BuildBlowOffClip();
         }
 
+        /// <summary>
+        /// How long the note takes to die when the tank runs out, seconds.
+        ///
+        /// <para><b>A fade, not a cut.</b> Every source here is a looping waveform, and dropping a
+        /// periodic signal to zero part-way through a cycle is a click — the same fact the whole file
+        /// is built around, and the reason the drone is a whole number of cycles at the sample rate.
+        /// A third of a second is an engine dying; much longer and it is an engine being turned down.
+        /// The same ramp runs backwards when the tank is filled, which is a plausible restart.</para>
+        /// </summary>
+        private const float IgnitionFade = 0.35f;
+
+        private float runGain = 1f;
+
         private void Update()
         {
             float deltaTime = Time.deltaTime;
             float throttle = Mathf.Clamp01(DriveInput.Current.Throttle);
+
+            // A dead engine has to stop making a noise, and it does not do so on its own. Revs fall to
+            // zero and the pitch follows them down, but the level is idleVolume plus a load term — so
+            // without this the car sits silent on the tacho, motionless on the road, and audibly idling
+            // in the speaker.
+            //
+            // Applied as a gain on the engine and exhaust layers rather than as an early return out of
+            // this method, and that distinction matters: a coasting car still squeals its tyres, and the
+            // reverb still has to follow the car out of a tunnel. Both of those live below.
+            float running = vehicle != null && vehicle.IsOutOfFuel ? 0f : 1f;
+            runGain = Mathf.MoveTowards(runGain, running, deltaTime / IgnitionFade);
             smoothedThrottle = Mathf.MoveTowards(smoothedThrottle, throttle, 4f * deltaTime);
 
             float coverAmount = cover != null ? cover.CoverAmount : 0f;
@@ -313,7 +337,7 @@ namespace Horizon.Vehicle
             // Renamed from "boost" when the turbo arrived: in a file that now models plenum pressure,
             // one name for two things is a bug waiting for whoever reads it next.
             float coverGain = 1f + coveredEngineBoost * coverAmount;
-            float level = (idleVolume + loadVolume * load) * coverGain;
+            float level = (idleVolume + loadVolume * load) * coverGain * runGain;
 
             // The two voices are the same note played with a different amount of anger, crossfaded on
             // load — so the engine *hardens* as it is worked rather than only getting louder, which is
@@ -340,7 +364,7 @@ namespace Horizon.Vehicle
 
                 exhaustToneSource.pitch = pitch;
                 exhaustToneSource.volume = exhaustVolume * exhaustLevel
-                                          * (0.35f + 0.65f * load) * coverGain;
+                                          * (0.35f + 0.65f * load) * coverGain * runGain;
             }
 
             if (engineReverb != null)

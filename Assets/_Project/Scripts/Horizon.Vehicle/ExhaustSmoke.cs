@@ -102,6 +102,16 @@ namespace Horizon.Vehicle
 
         private void Update()
         {
+            // A stopped engine has no exhaust, and this is the one layer that would not work that out
+            // for itself: the plume is driven off the pedal, and the pedal is still being pressed by a
+            // driver wondering why the car will not move. The comment below about never quite switching
+            // off is about an idling engine, and a dry one is not idling.
+            if (vehicle != null && vehicle.IsOutOfFuel)
+            {
+                emission.rateOverTime = 0f;
+                return;
+            }
+
             float throttle = Mathf.Clamp01(DriveInput.Current.Throttle);
             float rate = Mathf.Lerp(idleRate, throttleRate, throttle);
 
