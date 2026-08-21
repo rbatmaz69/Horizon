@@ -238,6 +238,16 @@ namespace Horizon.World
         public float Elevation => position.y;
 
         /// <summary>
+        /// Where the builder currently stands.
+        ///
+        /// <para>Exposed for the same reason <see cref="HeadingDegrees"/> is: something outside the
+        /// course has to be placed against a point on it that only the walk knows. See
+        /// <c>EbentalCourse.LakeCentre</c>, which takes the centre of a bend from the pose at its
+        /// entry rather than keeping a second copy of the coordinates.</para>
+        /// </summary>
+        public Vector3 Position => position;
+
+        /// <summary>
         /// Current heading, in the same convention as the constructor: 0 faces +Z, increasing turns
         /// towards +X.
         ///

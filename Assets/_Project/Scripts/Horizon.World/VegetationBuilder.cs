@@ -12,6 +12,13 @@ namespace Horizon.World
         public int Tufts;
         public int Boulders;
         public int Snags;
+
+        /// <summary>The Ebental's own, counted apart so the log can say whether the avenue actually stood up.</summary>
+        public int Poplars;
+
+        public int FruitTrees;
+        public int HayBales;
+        public int WallRuns;
         public int Triangles;
 
         /// <summary>
@@ -41,7 +48,8 @@ namespace Horizon.World
         /// <summary>Which of the <see cref="PlantMeshes"/> submeshes the finished mesh actually contains.</summary>
         public readonly List<int> Submeshes = new List<int>(PlantMeshes.SubmeshCount);
 
-        public int Plants => Conifers + Broadleaves + Shrubs + Tufts + Boulders + Snags;
+        public int Plants => Conifers + Broadleaves + Shrubs + Tufts + Boulders + Snags
+                             + Poplars + FruitTrees;
 
         public void Add(VegetationStats other)
         {
@@ -51,6 +59,10 @@ namespace Horizon.World
             Tufts += other.Tufts;
             Boulders += other.Boulders;
             Snags += other.Snags;
+            Poplars += other.Poplars;
+            FruitTrees += other.FruitTrees;
+            HayBales += other.HayBales;
+            WallRuns += other.WallRuns;
             Triangles += other.Triangles;
             Flips += other.Flips;
             ClosestToRoad = Mathf.Min(ClosestToRoad, other.ClosestToRoad);
@@ -79,6 +91,15 @@ namespace Horizon.World
 
         private readonly Vector3[] blockers;
         private readonly Vector3[] viewpoints;
+
+        /// <summary>
+        /// Where the avenue trees stand, in plan.
+        ///
+        /// <para>Worked out once here rather than per tile, exactly as the blockers and the viewpoints
+        /// are. A tile that derived them itself would walk the whole five kilometres of road to find the
+        /// twenty stations inside it, six hundred and thirty-three times over.</para>
+        /// </summary>
+        private readonly Vector2[] avenue;
         private readonly float blockerRadius;
         private readonly float viewpointRadius;
 
@@ -168,11 +189,29 @@ namespace Horizon.World
             public bool HasStreets;
         }
 
+        /// <param name="path">
+        /// The road the climb axis is taken from, and the first road whose features are read.
+        /// </param>
+        /// <param name="course">Its course. Null leaves the world with no tunnels and no viewpoints.</param>
+        /// <param name="others">
+        /// Any other road with features worth clearing around.
+        ///
+        /// <para>Features only — <b>not</b> the climb axis, and that asymmetry is deliberate. The tree
+        /// line is a fraction between <see cref="LowestElevation"/> and <see cref="SummitElevation"/>,
+        /// and those come from the mountain the tree line belongs to. Widening the span to take in the
+        /// motorway at −25 m or the coast road at −46 would move the tree line on the pass, several
+        /// kilometres from either.</para>
+        ///
+        /// <para>What a second road does need is its viewpoints kept clear. A viewpoint with a forest
+        /// grown over it is a lay-by, and nothing else in the build would report it.</para>
+        /// </param>
         public VegetationContext(
             IRoadPath path,
             RoadCourse course,
             in VegetationShape shape,
-            IReadOnlyList<TownSource> settlements = null)
+            IReadOnlyList<TownSource> settlements = null,
+            IReadOnlyList<MountainField.FieldRoad> others = null,
+            IRoadPath avenueRoad = null)
         {
             blockerRadius = shape.TunnelExclusion;
             viewpointRadius = shape.ViewpointClearing;
@@ -264,7 +303,47 @@ namespace Horizon.World
             var covered = new List<Vector3>(128);
             var views = new List<Vector3>(8);
 
-            if (course != null)
+            AddFeatures(path, course, shape, covered, views);
+
+            for (int i = 0; others != null && i < others.Count; i++)
+            {
+                AddFeatures(others[i].Path, others[i].Course, shape, covered, views);
+            }
+
+            blockers = covered.ToArray();
+            viewpoints = views.ToArray();
+            avenue = AvenueStations(avenueRoad);
+
+            LowestElevation = course != null ? course.LowestElevation : 0f;
+            SummitElevation = course != null ? course.Summit.y : LowestElevation + 1f;
+
+            hasBlockers = blockers.Length > 0 || viewpoints.Length > 0;
+            if (!hasBlockers)
+            {
+                return;
+            }
+
+            minX = float.MaxValue;
+            maxX = float.MinValue;
+            minZ = float.MaxValue;
+            maxZ = float.MinValue;
+
+            Encapsulate(blockers, blockerRadius);
+            Encapsulate(viewpoints, viewpointRadius);
+        }
+
+        /// <summary>
+        /// Reads one road's features into the two keep-out lists: a clearing at every viewpoint, and a
+        /// run of blockers along everything roofed.
+        /// </summary>
+        private static void AddFeatures(
+            IRoadPath path,
+            RoadCourse course,
+            in VegetationShape shape,
+            List<Vector3> covered,
+            List<Vector3> views)
+        {
+            if (path != null && course != null)
             {
                 for (int i = 0; i < course.Features.Count; i++)
                 {
@@ -272,7 +351,8 @@ namespace Horizon.World
 
                     if (feature.Kind == RoadFeatureKind.Viewpoint)
                     {
-                        views.Add(path.GetPositionAtDistance(feature.StartDistance));
+                        views.Add(path.GetPositionAtDistance(
+                            Mathf.Clamp(feature.StartDistance, 0f, path.Length)));
                         continue;
                     }
 
@@ -296,31 +376,80 @@ namespace Horizon.World
                     }
                 }
             }
-
-            blockers = covered.ToArray();
-            viewpoints = views.ToArray();
-
-            LowestElevation = course != null ? course.LowestElevation : 0f;
-            SummitElevation = course != null ? course.Summit.y : LowestElevation + 1f;
-
-            hasBlockers = blockers.Length > 0 || viewpoints.Length > 0;
-            if (!hasBlockers)
-            {
-                return;
-            }
-
-            minX = float.MaxValue;
-            maxX = float.MinValue;
-            minZ = float.MaxValue;
-            maxZ = float.MinValue;
-
-            Encapsulate(blockers, blockerRadius);
-            Encapsulate(viewpoints, viewpointRadius);
         }
 
         public float LowestElevation { get; }
 
         public float SummitElevation { get; }
+
+        /// <summary>The avenue's stations. Empty where no road was handed in.</summary>
+        public IReadOnlyList<Vector2> Avenue => avenue;
+
+        /// <summary>Spacing of the avenue along the road, metres.</summary>
+        private const float AvenueSpacing = 18f;
+
+        /// <summary>
+        /// How far out from the centreline the trunks stand, metres.
+        ///
+        /// <para>9.5, against a paved half-width of 6.75 and a delineator line just outside it. Closer
+        /// and the canopies lean over the carriageway; much further and the two rows stop reading as one
+        /// avenue and become a wood with a gap in it.</para>
+        /// </summary>
+        private const float AvenueOffset = 9.5f;
+
+        /// <summary>
+        /// Below this radius the inside of a bend gets no trees, metres.
+        ///
+        /// <para>Sight line, not clearance. On the inside of a tight bend a row of 20 m poplars is a wall
+        /// across the exit of the corner — the driver would be reading the outer row through the gaps in
+        /// the inner one. Real avenues thin out on the inside of bends for the same reason.</para>
+        /// </summary>
+        private const float AvenueOpenRadius = 260f;
+
+        /// <summary>
+        /// Walks the road once and lists where the avenue trees go.
+        ///
+        /// <para>Skips the inside of tight bends, and does no ground, water or keep-out testing at all —
+        /// those are questions about a place rather than about the road, and the tile that owns the
+        /// station is the one holding the height field when it draws it.</para>
+        /// </summary>
+        private static Vector2[] AvenueStations(IRoadPath road)
+        {
+            if (road == null || road.Length < AvenueSpacing)
+            {
+                return System.Array.Empty<Vector2>();
+            }
+
+            var stations = new List<Vector2>(1024);
+
+            for (float at = AvenueSpacing; at < road.Length - AvenueSpacing; at += AvenueSpacing)
+            {
+                Vector3 centre = road.GetPositionAtDistance(at);
+                Vector3 right = road.GetRightAtDistance(at);
+
+                float radius = road.GetRadiusAtDistance(at, 10f);
+                float curvature = road.GetSignedCurvatureAtDistance(at, 10f);
+
+                // Positive curvature turns towards the right, so the inside of the bend is the right.
+                bool tight = radius < AvenueOpenRadius;
+                bool skipRight = tight && curvature > 0f;
+                bool skipLeft = tight && curvature < 0f;
+
+                if (!skipRight)
+                {
+                    Vector3 on = centre + right * AvenueOffset;
+                    stations.Add(new Vector2(on.x, on.z));
+                }
+
+                if (!skipLeft)
+                {
+                    Vector3 on = centre - right * AvenueOffset;
+                    stations.Add(new Vector2(on.x, on.z));
+                }
+            }
+
+            return stations.ToArray();
+        }
 
         /// <summary>
         /// How far a point is clear of the nearest town street's paved edge, metres. Negative means it is
@@ -527,6 +656,13 @@ namespace Horizon.World
         private const int TuftSpecies = 3;
         private const int BoulderSpecies = 4;
 
+        // Their own numbers, and they have to be. Hash(gx, gz, species) is what separates one scatter's
+        // candidate grid from another's; reuse a number and the orchard comes up planted exactly where
+        // the spruces already are.
+        private const int OrchardSpecies = 5;
+        private const int BaleSpecies = 6;
+        private const int PoplarSpecies = 7;
+
         /// <summary>
         /// How far above a water surface a plant still counts as standing in it, metres.
         ///
@@ -550,7 +686,8 @@ namespace Horizon.World
             in VegetationShape shape,
             VegetationContext context,
             string meshName,
-            out VegetationStats stats)
+            out VegetationStats stats,
+            LandRegion region = null)
         {
             stats = new VegetationStats();
 
@@ -559,10 +696,31 @@ namespace Horizon.World
             float originX = key.Column * tileSize;
             float originZ = key.Row * tileSize;
 
-            ScatterTrees(buffer, field, terrainShape, shape, context, originX, originZ, tileSize, stats);
+            // Asked once for the tile rather than per candidate: the region's weight is a smooth field
+            // and cannot appear inside 168 m, and the query walks a bucket grid.
+            LandRegion tileRegion =
+                region != null && region.Reaches(originX + tileSize * 0.5f, originZ + tileSize * 0.5f,
+                    tileSize * 0.5f * Mathf.Sqrt(2f))
+                    ? region
+                    : null;
+
+            ScatterTrees(buffer, field, terrainShape, shape, context, originX, originZ, tileSize, stats,
+                tileRegion);
             ScatterShrubs(buffer, field, terrainShape, shape, context, originX, originZ, tileSize, stats);
             ScatterTufts(buffer, field, terrainShape, shape, context, originX, originZ, tileSize, stats);
-            ScatterBoulders(buffer, field, terrainShape, shape, context, originX, originZ, tileSize, stats);
+            ScatterBoulders(buffer, field, terrainShape, shape, context, originX, originZ, tileSize, stats,
+                tileRegion);
+
+            if (tileRegion != null)
+            {
+                ScatterOrchard(buffer, field, terrainShape, shape, context, originX, originZ, tileSize,
+                    stats, tileRegion);
+                ScatterBales(buffer, field, terrainShape, shape, context, originX, originZ, tileSize,
+                    stats, tileRegion);
+                BuildFieldBoundaries(buffer, field, terrainShape, context, originX, originZ, tileSize,
+                    stats, tileRegion);
+                PlantAvenue(buffer, field, terrainShape, context, originX, originZ, tileSize, stats);
+            }
 
             stats.Triangles = buffer.TriangleCount;
             stats.Flips = buffer.FlipCount;
@@ -584,7 +742,8 @@ namespace Horizon.World
             float originX,
             float originZ,
             float tileSize,
-            VegetationStats stats)
+            VegetationStats stats,
+            LandRegion region)
         {
             float cell = shape.TreeCellSize;
             float minSlopeCosine = Mathf.Cos(shape.TreeMaxSlopeDegrees * Mathf.Deg2Rad);
@@ -638,6 +797,18 @@ namespace Horizon.World
                         continue;
                     }
 
+                    // In a farmed region most of the wood was cleared long ago, and what is left is
+                    // hedgerow and copse. Thinning here rather than with a bigger cell size keeps the
+                    // clumping — so the survivors stand in stands, the way trees left on farmland do,
+                    // instead of being spread evenly at low density like an orchard nobody planted.
+                    float regionWeight = region != null ? region.Weight(x, z) : 0f;
+
+                    if (regionWeight > 0f
+                        && !random.Chance(Mathf.Lerp(1f, region.WildTreeChance, regionWeight)))
+                    {
+                        continue;
+                    }
+
                     float climb = context.ClimbFraction(point.y);
                     float treeLine = shape.TreeLineHeight
                                      + (Clump(x, z, 0.004f, 71.3f) - 0.5f) * 2f * shape.TreeLineJitter;
@@ -668,6 +839,19 @@ namespace Horizon.World
 
                     PlantPlacement placement = Place(point, normal, ref random, scale);
 
+                    // The region overrules the mountain's own mix, and this is the single change that
+                    // does most of the work. ClimbFraction is normalised against the pass, so down here
+                    // it never leaves 0..0.2, coniferBias is nought, and the line below pins the spruce
+                    // probability at its floor of 0.45 — half the trees in the orchard country came out
+                    // alpine. Below, the wood is broadleaf and it is autumn.
+                    if (regionWeight > 0.5f)
+                    {
+                        PlantMeshes.AddBroadleaf(buffer, placement, PlantMeshes.AutumnCanopySubmesh);
+                        stats.Broadleaves++;
+                        Record(stats, toRoad, context, x, z);
+                        continue;
+                    }
+
                     // Even the valley floor keeps a good share of spruce — this is a mountain, and a pure
                     // broadleaf band at the bottom would read as a different country from the top.
                     if (random.Next() < Mathf.Lerp(0.45f, 1f, coniferBias))
@@ -684,6 +868,375 @@ namespace Horizon.World
                     Record(stats, toRoad, context, x, z);
                 }
             }
+        }
+
+        /// <summary>
+        /// The avenue: a poplar every eighteen metres either side of the country road.
+        ///
+        /// <para><b>This is the region's signature, and it is a road-follower rather than a scatter for
+        /// exactly that reason.</b> Scattered trees at any density read as country; two rows at even
+        /// spacing read as a road somebody planted, and they stay readable at a distance where the trees
+        /// themselves are four pixels tall. Nothing else in this world tells the driver where they are
+        /// from a kilometre away.</para>
+        ///
+        /// <para>Emitted per tile out of the context's precomputed list, so the avenue streams with the
+        /// ground under it instead of becoming one five-kilometre mesh that can never unload.</para>
+        /// </summary>
+        private static void PlantAvenue(
+            VegetationMeshBuffer buffer,
+            MountainField field,
+            in TerrainShape terrainShape,
+            VegetationContext context,
+            float originX,
+            float originZ,
+            float tileSize,
+            VegetationStats stats)
+        {
+            IReadOnlyList<Vector2> stations = context.Avenue;
+
+            for (int i = 0; i < stations.Count; i++)
+            {
+                Vector2 at = stations[i];
+
+                if (at.x < originX || at.x >= originX + tileSize
+                    || at.y < originZ || at.y >= originZ + tileSize)
+                {
+                    continue;
+                }
+
+                // A viewpoint with an avenue across it is a lay-by. IsBlocked answers for the town
+                // keep-outs and the tunnels in the same call.
+                if (context.IsBlocked(at.x, at.y, true))
+                {
+                    continue;
+                }
+
+                TerrainTileBuilder.SampleSurface(field, terrainShape, at.x, at.y,
+                    out Vector3 point, out Vector3 normal);
+
+                if (field.IsUnderWater(at.x, at.y, point.y, WaterFreeboard))
+                {
+                    continue;
+                }
+
+                var random = new PlantRandom(Hash(i, 0, PoplarSpecies));
+
+                // Upright, not leaning with the slope. A poplar is the one tree here whose whole job is
+                // to be a vertical line, and a row of them each tipped a few degrees with the ground is
+                // a row of them that no longer rhymes.
+                var placement = new PlantPlacement(
+                    point, Vector3.up, random.Range(0f, Mathf.PI * 2f), random.Range(0.9f, 1.08f),
+                    random.NextSeed());
+
+                PlantMeshes.AddPoplar(buffer, placement);
+                stats.Poplars++;
+                Record(stats, field.DistanceToRoad(at.x, at.y), context, at.x, at.y);
+            }
+        }
+
+        /// <summary>
+        /// Orchard rows: fruit trees on a grid laid in the fields' own frame, on about one field in five.
+        ///
+        /// <para>Rows rather than a scatter, and on the field grid rather than a grid of their own. A
+        /// planted row is the difference between land somebody works and land nobody has cleared, and it
+        /// costs nothing extra because the boundaries and the ground colour are already using this
+        /// frame.</para>
+        /// </summary>
+        private static void ScatterOrchard(
+            VegetationMeshBuffer buffer,
+            MountainField field,
+            in TerrainShape terrainShape,
+            in VegetationShape shape,
+            VegetationContext context,
+            float originX,
+            float originZ,
+            float tileSize,
+            VegetationStats stats,
+            LandRegion region)
+        {
+            const float alongRow = 6f;
+            const float betweenRows = 7f;
+
+            FieldRange(region, originX, originZ, tileSize,
+                out float minU, out float maxU, out float minV, out float maxV);
+
+            int fromU = Mathf.FloorToInt(minU / betweenRows);
+            int toU = Mathf.CeilToInt(maxU / betweenRows);
+            int fromV = Mathf.FloorToInt(minV / alongRow);
+            int toV = Mathf.CeilToInt(maxV / alongRow);
+
+            float minSlopeCosine = Mathf.Cos(shape.TreeMaxSlopeDegrees * Mathf.Deg2Rad);
+
+            for (int gv = fromV; gv <= toV; gv++)
+            {
+                for (int gu = fromU; gu <= toU; gu++)
+                {
+                    var random = new PlantRandom(Hash(gu, gv, OrchardSpecies));
+
+                    // Barely jittered. An orchard whose trees wander is a wood, and the whole point of
+                    // this pass is the row.
+                    Vector2 plan = region.FromField(
+                        (gu + 0.5f) * betweenRows + random.Range(-0.12f, 0.12f) * betweenRows,
+                        (gv + 0.5f) * alongRow + random.Range(-0.12f, 0.12f) * alongRow);
+
+                    float x = plan.x;
+                    float z = plan.y;
+
+                    if (!Owns(x, z, originX, originZ, tileSize))
+                    {
+                        continue;
+                    }
+
+                    if (region.Weight(x, z) < 0.55f)
+                    {
+                        continue;
+                    }
+
+                    // One field in five, and never on ploughed or stubbled ground — an orchard standing
+                    // in a furrowed field is two land uses on one parcel.
+                    if (region.ParcelValue(x, z, 23u) > 0.2f || region.Parcel(x, z) >= 2)
+                    {
+                        continue;
+                    }
+
+                    float toRoad = field.DistanceToRoad(x, z);
+                    if (toRoad < 25f)
+                    {
+                        continue;
+                    }
+
+                    if (context.IsBlocked(x, z, true))
+                    {
+                        continue;
+                    }
+
+                    TerrainTileBuilder.SampleSurface(field, terrainShape, x, z,
+                        out Vector3 point, out Vector3 normal);
+
+                    if (field.IsUnderWater(x, z, point.y, WaterFreeboard) || normal.y < minSlopeCosine)
+                    {
+                        continue;
+                    }
+
+                    PlantMeshes.AddFruitTree(buffer, Place(point, normal, ref random, random.Range(0.9f, 1.1f)));
+                    stats.FruitTrees++;
+                    Record(stats, toRoad, context, x, z);
+                }
+            }
+        }
+
+        /// <summary>Round bales, thinly, and only on the fields that have been cut.</summary>
+        private static void ScatterBales(
+            VegetationMeshBuffer buffer,
+            MountainField field,
+            in TerrainShape terrainShape,
+            in VegetationShape shape,
+            VegetationContext context,
+            float originX,
+            float originZ,
+            float tileSize,
+            VegetationStats stats,
+            LandRegion region)
+        {
+            const float cell = 26f;
+
+            int fromX = Mathf.FloorToInt(originX / cell);
+            int toX = Mathf.CeilToInt((originX + tileSize) / cell);
+            int fromZ = Mathf.FloorToInt(originZ / cell);
+            int toZ = Mathf.CeilToInt((originZ + tileSize) / cell);
+
+            float minSlopeCosine = Mathf.Cos(shape.TuftMaxSlopeDegrees * Mathf.Deg2Rad);
+
+            for (int gz = fromZ; gz <= toZ; gz++)
+            {
+                for (int gx = fromX; gx <= toX; gx++)
+                {
+                    if (!OwnsCell(gx, gz, cell, originX, originZ, tileSize))
+                    {
+                        continue;
+                    }
+
+                    var random = new PlantRandom(Hash(gx, gz, BaleSpecies));
+                    float x = (gx + 0.5f) * cell + random.Range(-0.45f, 0.45f) * cell;
+                    float z = (gz + 0.5f) * cell + random.Range(-0.45f, 0.45f) * cell;
+
+                    // Stubble only: a bale is what is left after a field is cut, so it says which field
+                    // was cut. On pasture it would just be a lump.
+                    if (region.Weight(x, z) < 0.55f || region.Parcel(x, z) != 2)
+                    {
+                        continue;
+                    }
+
+                    if (!random.Chance(0.45f) || field.DistanceToRoad(x, z) < 18f)
+                    {
+                        continue;
+                    }
+
+                    if (context.IsBlocked(x, z, false))
+                    {
+                        continue;
+                    }
+
+                    TerrainTileBuilder.SampleSurface(field, terrainShape, x, z,
+                        out Vector3 point, out Vector3 normal);
+
+                    if (field.IsUnderWater(x, z, point.y, WaterFreeboard) || normal.y < minSlopeCosine)
+                    {
+                        continue;
+                    }
+
+                    EbentalMeshes.AddHayBale(buffer, Place(point, normal, ref random, 1f));
+                    stats.HayBales++;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Walls and fences on the field boundaries.
+        ///
+        /// <para><b>The colours alone are not enough and this is why.</b> A patchwork of tints is only
+        /// visible while the ground faces the camera; the moment it tilts away, shading swamps it and the
+        /// fields dissolve. A line of stone on the boundary is an edge, and an edge survives any angle —
+        /// which is what actually makes the valley read as farmed from the driver's seat rather than only
+        /// from overhead.</para>
+        ///
+        /// <para>Each tile draws only the part of a boundary inside itself, so runs abut across tile
+        /// seams and nothing is built twice.</para>
+        /// </summary>
+        private static void BuildFieldBoundaries(
+            VegetationMeshBuffer buffer,
+            MountainField field,
+            in TerrainShape terrainShape,
+            VegetationContext context,
+            float originX,
+            float originZ,
+            float tileSize,
+            VegetationStats stats,
+            LandRegion region)
+        {
+            FieldRange(region, originX, originZ, tileSize,
+                out float minU, out float maxU, out float minV, out float maxV);
+
+            // The two families of boundary line: constant u, and constant v.
+            for (int axis = 0; axis < 2; axis++)
+            {
+                float pitch = axis == 0 ? region.PitchAcross : region.PitchAlong;
+                float from = axis == 0 ? minU : minV;
+                float to = axis == 0 ? maxU : maxV;
+
+                float spanFrom = axis == 0 ? minV : minU;
+                float spanTo = axis == 0 ? maxV : maxU;
+
+                for (int line = Mathf.FloorToInt(from / pitch); line <= Mathf.CeilToInt(to / pitch); line++)
+                {
+                    float at = line * pitch;
+
+                    // Not every boundary is walled. A field with a hedge line on every side of it is a
+                    // maze; about half of them keeps the grid legible without fencing the whole valley.
+                    float kind = region.CellValue(line, axis, 41u);
+                    if (kind > 0.62f)
+                    {
+                        continue;
+                    }
+
+                    var run = new List<Vector3>(24);
+
+                    const float step = 5f;
+                    for (float along = Mathf.Floor(spanFrom / step) * step; along <= spanTo; along += step)
+                    {
+                        Vector2 plan = axis == 0
+                            ? region.FromField(at, along)
+                            : region.FromField(along, at);
+
+                        bool inside = plan.x >= originX && plan.x < originX + tileSize
+                                      && plan.y >= originZ && plan.y < originZ + tileSize;
+
+                        bool usable = inside
+                                      && region.Weight(plan.x, plan.y) > 0.55f
+                                      && field.DistanceToRoad(plan.x, plan.y) > 16f
+                                      && !context.IsBlocked(plan.x, plan.y, false);
+
+                        if (usable)
+                        {
+                            TerrainTileBuilder.SampleSurface(field, terrainShape, plan.x, plan.y,
+                                out Vector3 point, out Vector3 normal);
+
+                            usable = !field.IsUnderWater(plan.x, plan.y, point.y, WaterFreeboard)
+                                     && normal.y > 0.72f;
+
+                            if (usable)
+                            {
+                                run.Add(point);
+                                continue;
+                            }
+                        }
+
+                        Flush(buffer, run, kind, stats);
+                    }
+
+                    Flush(buffer, run, kind, stats);
+                }
+            }
+        }
+
+        /// <summary>Emits an accumulated boundary run and clears it, so a break in the ground breaks the wall.</summary>
+        private static void Flush(
+            VegetationMeshBuffer buffer, List<Vector3> run, float kind, VegetationStats stats)
+        {
+            if (run.Count >= 3)
+            {
+                uint seed = (uint)(run[0].x * 13.7f + run[0].z * 7.1f + 1u);
+
+                if (kind < 0.42f)
+                {
+                    EbentalMeshes.AddDryStoneWall(buffer, run.ToArray(), seed);
+                }
+                else
+                {
+                    EbentalMeshes.AddPostAndRail(buffer, run.ToArray(), seed);
+                }
+
+                stats.WallRuns++;
+            }
+
+            run.Clear();
+        }
+
+        /// <summary>The tile's extent in the region's field frame, from its four corners.</summary>
+        private static void FieldRange(
+            LandRegion region,
+            float originX,
+            float originZ,
+            float tileSize,
+            out float minU,
+            out float maxU,
+            out float minV,
+            out float maxV)
+        {
+            minU = float.MaxValue;
+            maxU = float.MinValue;
+            minV = float.MaxValue;
+            maxV = float.MinValue;
+
+            for (int corner = 0; corner < 4; corner++)
+            {
+                float x = originX + ((corner & 1) == 0 ? 0f : tileSize);
+                float z = originZ + ((corner & 2) == 0 ? 0f : tileSize);
+
+                region.ToField(x, z, out float u, out float v);
+
+                minU = Mathf.Min(minU, u);
+                maxU = Mathf.Max(maxU, u);
+                minV = Mathf.Min(minV, v);
+                maxV = Mathf.Max(maxV, v);
+            }
+        }
+
+        /// <summary>Whether a world position falls in this tile. The rotated grids cannot use OwnsCell.</summary>
+        private static bool Owns(float x, float z, float originX, float originZ, float tileSize)
+        {
+            return x >= originX && x < originX + tileSize
+                   && z >= originZ && z < originZ + tileSize;
         }
 
         private static void ScatterShrubs(
@@ -857,7 +1410,8 @@ namespace Horizon.World
             float originX,
             float originZ,
             float tileSize,
-            VegetationStats stats)
+            VegetationStats stats,
+            LandRegion region)
         {
             float cell = shape.BoulderCellSize;
             float steepCosine = Mathf.Cos(shape.BoulderMinSlopeDegrees * Mathf.Deg2Rad);
@@ -908,6 +1462,14 @@ namespace Horizon.World
                     bool steep = normal.y < steepCosine;
                     bool high = context.ClimbFraction(point.y) > shape.TreeLineHeight;
                     float chance = steep || high ? 0.7f : 0.1f;
+
+                    // Erratics get cleared off farmland — that is what the walls are built out of. Not to
+                    // nothing, because the odd one on a bank is exactly the detail that says the field
+                    // was won from somewhere.
+                    if (region != null)
+                    {
+                        chance *= Mathf.Lerp(1f, 0.2f, region.Weight(x, z));
+                    }
 
                     if (!random.Chance(chance))
                     {

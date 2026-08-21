@@ -508,7 +508,7 @@ namespace Horizon.World
         }
 
         /// <summary>
-        /// The four bodies inside the existing road corridor. None of them costs a terrain tile.
+        /// The bodies inside the existing road corridor. None of them costs a terrain tile.
         ///
         /// <para>The rivers are the point of the exercise: both viaducts were drawn with 280 and
         /// 320 m of span and nine to twenty-two metres of air under them, and they have been standing
@@ -559,6 +559,18 @@ namespace Horizon.World
             // road is invisible to every other check in the build, because the road mesh is laid from
             // the course and never asks the ground anything.
             WaterPlan.Lake("Bergsee", new Vector2(640f, 330f),
+                radius: 70f, bankEase: 45f, depth: 4f),
+
+            // Inside the loop the Ebental road makes around it, and sited from the loop rather than
+            // typed — see EbentalCourse.LakeCentre for why the centre of the bend is the one place a
+            // lake can go there without the road running into it.
+            //
+            // The radius is the Bergsee's, and it is picked against the road rather than for looks.
+            // The carriageway runs 150 m out from this centre and its paving stops 143 m out; 70 m of
+            // water plus 45 m of bank reaches 115, so there are 28 m of dry shore between the water's
+            // carving and the tarmac. At the 95 m first drawn that margin was three metres, which is a
+            // verge the bank is still being dug out from under.
+            WaterPlan.Lake("Auensee", EbentalCourse.LakeCentre,
                 radius: 70f, bankEase: 45f, depth: 4f),
         };
     }

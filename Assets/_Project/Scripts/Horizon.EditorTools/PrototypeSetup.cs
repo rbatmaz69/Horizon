@@ -1037,6 +1037,33 @@ namespace Horizon.EditorTools
             roadChunk.RecalculateBounds();
             roadChunk.SetBounds(roadChunk.Center, 100000f);
 
+            // --- The country road on into the Ebental, carrying on where the pass runs out. Built with
+            // the pass's own cross-section rather than a wider one: it is the same class of road, and a
+            // change of width at the join would read as a change of country.
+            var ebentalPathObject = new GameObject("EbentalRoadPath");
+            ebentalPathObject.transform.SetParent(worldRoot.transform, false);
+            RoadPath ebentalPath = ebentalPathObject.AddComponent<RoadPath>();
+
+            RoadCourse ebentalCourse = EbentalCourse.Build();
+            ebentalPath.SetControlPoints(ebentalCourse.ControlPoints);
+            ReportCourse(ebentalCourse, ebentalPath, "Ebental road");
+
+            Mesh ebentalMesh = RoadMeshBuilder.BuildRoad(ebentalPath, roadShape, "EbentalRoadMesh");
+            ebentalMesh = HorizonAssetUtility.ReplaceAsset(
+                ebentalMesh, GeneratedFolder + "/EbentalRoadMesh.asset");
+
+            GameObject ebentalObject = CreateMeshObject(worldRoot.transform, "EbentalRoad", ebentalMesh,
+                new[] { materials.RoadSurface, materials.RoadShoulder });
+
+            WorldChunk ebentalChunk = ebentalObject.AddComponent<WorldChunk>();
+            ebentalChunk.RecalculateBounds();
+            ebentalChunk.SetBounds(ebentalChunk.Center, 100000f);
+
+            // The region the country road runs through, hung off the road itself rather than off a box
+            // of coordinates — see LandRegion for why a rectangle here would recolour a hairpin of the
+            // pass. Everything that gives the Ebental its own look reads this.
+            LandRegion ebental = LandRegion.Ebental(ebentalPath);
+
             // --- The motorway. One authored median line, two carriageways offset from it, and a link
             // road down to the foot of the pass. The centreline is never paved.
             RoadShape motorwayShape = RoadShape.Autobahn;
@@ -1171,6 +1198,12 @@ namespace Horizon.EditorTools
             var roads = new[]
             {
                 new MountainField.FieldRoad(path),
+
+                // Without this line the Ebental road is a ribbon laid over nothing: tiles are listed
+                // around whatever the field calls a road, so the corridor — and the ground the Auensee
+                // is dug into — arrives with the road rather than as a region somebody adds by hand.
+                new MountainField.FieldRoad(ebentalPath),
+
                 new MountainField.FieldRoad(westbound, motorwayCourse),
                 new MountainField.FieldRoad(eastbound, motorwayCourse),
                 new MountainField.FieldRoad(linkPath),
@@ -1281,6 +1314,7 @@ namespace Horizon.EditorTools
 
 
             ValidateRoadClearance(path, roadShape, field, course);
+            ValidateRoadClearance(ebentalPath, roadShape, field, ebentalCourse, "Ebental");
             ValidateRoadClearance(westbound, motorwayShape, field, motorwayCourse, "Westbound");
             ValidateRoadClearance(eastbound, motorwayShape, field, motorwayCourse, "Eastbound");
             ValidateBridges(westbound, field, motorwayCourse);
@@ -1333,7 +1367,8 @@ namespace Horizon.EditorTools
                 new Vector3(1500f, 200f, 1500f));
 
             BuildTerrainTiles(worldRoot.transform, path, roadShape, course, field, terrainShape,
-                towns, materials, litRenderers, litSlotStart, litSlots, litSlotGroups, seaBand);
+                towns, materials, litRenderers, litSlotStart, litSlots, litSlotGroups, seaBand,
+                new[] { new MountainField.FieldRoad(ebentalPath, ebentalCourse) }, ebental, ebentalPath);
             ValidateLandmarks(field, course, path, talheim.Plan);
             MarkTownLandmarks(worldRoot.transform, talheim.Network, talheim.Plan);
             Phase(clock, "terrain, vegetation and buildings");
@@ -1376,6 +1411,16 @@ namespace Horizon.EditorTools
             BuildGuardRails(worldRoot.transform, linkPath, roadShape, field, linkCourse,
                 materials, "MotorwayLink");
 
+            // The Ebental road gets both, and the posts are the half that matters. It has one blind
+            // crest with an 84-degree left immediately behind it, and a line of posts running round
+            // that bend is the only thing standing between the driver and a corner they cannot see the
+            // exit of — see EbentalCourse.CrestFallGrade.
+            BuildGuardRails(worldRoot.transform, ebentalPath, roadShape, field, ebentalCourse,
+                materials, "EbentalRoad");
+
+            BuildDelineatorPosts(worldRoot.transform, ebentalPath, roadShape, field, ebentalCourse,
+                materials, "EbentalRoad");
+
             // --- Seeburg's harbour. After the water, because every height in it is measured off the
             // surface that was resolved there, and after the terrain, because the promenade rail is laid
             // on ground that has to exist first.
@@ -1390,7 +1435,8 @@ namespace Horizon.EditorTools
                 motorwayPath, motorwayShape, AutobahnCourse.CarriagewayOffset,
                 System.Array.IndexOf(towns, hochstadt), HochstadtLayout.GatewayNode,
                 linkPath, roadShape, rampCapOnMedian, rampMergeOnMedian,
-                coastPath, roadShape, System.Array.IndexOf(towns, seeburg), seeburgGateway);
+                coastPath, roadShape, System.Array.IndexOf(towns, seeburg), seeburgGateway,
+                ebentalPath, roadShape);
 
             // After the routes exist, because the phase the lenses show is read off the same asset the
             // traffic obeys — which is the whole reason a light cannot be green at a junction cars are
@@ -1404,6 +1450,7 @@ namespace Horizon.EditorTools
 
             // After every builder and before the car exists — otherwise the car is the obstruction.
             ValidateDriveableCorridor(path, "the pass", 1.3f, 4f);
+            ValidateDriveableCorridor(ebentalPath, "the Ebental road", 1.3f, 4f);
             ValidateDriveableCorridor(westbound, "the westbound carriageway", 1.3f, 4f);
             ValidateDriveableCorridor(eastbound, "the eastbound carriageway", 1.3f, 4f);
             ValidateDriveableCorridor(linkPath, "the motorway link", 1.3f, 4f);
@@ -1426,7 +1473,8 @@ namespace Horizon.EditorTools
             // Counted after every builder and before the car, at the streamer's own radius and again at
             // the first pressure valve, so the question "would 450 m help, and by how much" is answered
             // in the log rather than by trying it.
-            List<Vector3> stations = DrawCallStations(path, motorwayPath, arterialPath, seeburgAxis);
+            List<Vector3> stations = DrawCallStations(
+                path, motorwayPath, arterialPath, seeburgAxis, ebentalPath);
             ReportDrawCallBudget(worldRoot.transform, stations, streamer.LoadRadius);
             ReportDrawCallBudget(worldRoot.transform, stations, 450f);
 
@@ -1511,7 +1559,8 @@ namespace Horizon.EditorTools
             // the Bootstrap scene — the menu that offers them lives there and has no way to ask a road
             // anything.
             List<SpawnPoint> spawns = BuildSpawnTable(
-                path, roadShape, motorwayPath, motorwayShape, arterialPath, seeburgAxis, rideHeight);
+                path, roadShape, motorwayPath, motorwayShape, arterialPath, seeburgAxis,
+                ebentalPath, ebentalCourse, rideHeight);
 
             EditorSceneManager.SaveScene(scene, WorldScenePath);
             return spawns;
@@ -1532,9 +1581,11 @@ namespace Horizon.EditorTools
             in RoadShape motorwayShape,
             RoadPath arterial,
             RoadPath seeburgAxis,
+            RoadPath ebental,
+            RoadCourse ebentalCourse,
             float rideHeight)
         {
-            var spawns = new List<SpawnPoint>(5);
+            var spawns = new List<SpawnPoint>(6);
 
             void Add(string name, IRoadPath path, float distance, float across, float lift)
             {
@@ -1569,6 +1620,17 @@ namespace Horizon.EditorTools
             // mirror rather than behind the camera. The right-hand lane here is the inland one, so the
             // water is out of the driver's window from the moment the scene loads.
             Add("Seeburg", seeburgAxis, SeeburgCourse.BasinAlong + 60f, 4f, rideHeight);
+
+            // On the Ebental crest, facing the way the road falls away from it. Chosen over the lake or
+            // the valley floor because it is the one place on that road where both halves of it are
+            // visible at once — and because arriving there is what the rest of the road is arranged
+            // around.
+            //
+            // Taken from the viewpoint the course already marks there, not from HighestDistance: this
+            // road's highest point is its first metre, where it comes off the pass at 37 m, and the
+            // crest is a local rise of eighteen metres a third of the way along. A summit walk would
+            // put the player back at the join facing away from everything.
+            Add("Ebental", ebental, ViewpointDistance(ebentalCourse, "Hochwiese"), passLane, rideHeight);
 
             return spawns;
         }
@@ -1700,6 +1762,32 @@ namespace Horizon.EditorTools
         }
 
         /// <summary>Distance along a path of its highest point, sampled every 10 m.</summary>
+        /// <summary>
+        /// Where a named viewpoint sits along its course.
+        ///
+        /// <para>Used instead of a literal for the same reason every other spawn is a distance rather
+        /// than a coordinate: the viewpoint is placed by the walk that builds the road, so retuning the
+        /// road moves both together. Returns the middle of the course if the name is not there, which
+        /// is a visible wrong answer rather than a spawn at the origin.</para>
+        /// </summary>
+        private static float ViewpointDistance(RoadCourse course, string name)
+        {
+            for (int i = 0; i < course.Features.Count; i++)
+            {
+                RoadFeature feature = course.Features[i];
+
+                if (feature.Kind == RoadFeatureKind.Viewpoint && feature.Name == name)
+                {
+                    return feature.StartDistance;
+                }
+            }
+
+            Debug.LogWarning($"[Horizon] No viewpoint named '{name}' on this course, so the spawn that "
+                             + "wanted it has been put halfway along instead.");
+
+            return course.PlannedLength * 0.5f;
+        }
+
         private static float HighestDistance(IRoadPath path)
         {
             float best = 0f;
@@ -3407,7 +3495,10 @@ namespace Horizon.EditorTools
             List<int> townSlotStart,
             List<int> townSlots,
             List<int> townSlotGroups,
-            Bounds seaBand)
+            Bounds seaBand,
+            IReadOnlyList<MountainField.FieldRoad> otherRoads,
+            LandRegion region,
+            IRoadPath avenueRoad)
         {
             // One region per settlement rather than one big box round the lot: the corridor is widened
             // where a town is, and a rectangle spanning both would drag in every tile of open country
@@ -3439,8 +3530,12 @@ namespace Horizon.EditorTools
                     towns[i].Shape.PlotClearance, towns[i].Shape.TreeKeepOut);
             }
 
+            // The pass is handed in on its own because the tree line is measured against it — see the
+            // note on the constructor. Every other road is in for its viewpoints, which have to be kept
+            // clear of trees or they are lay-bys with a hedge in front of them.
             var vegetationContext = new VegetationContext(
-                path, course, vegetationShape, settlements);
+                path, course, vegetationShape, settlements, otherRoads,
+                region != null ? avenueRoad : null);
             var vegetationTotal = new VegetationStats();
             int heaviestTile = 0;
             string heaviestTileName = "none";
@@ -3497,7 +3592,7 @@ namespace Horizon.EditorTools
                 }
                 else
                 {
-                    Mesh mesh = TerrainTileBuilder.BuildTile(key, field, terrainShape, name);
+                    Mesh mesh = TerrainTileBuilder.BuildTile(key, field, terrainShape, name, region);
                     totalTriangles += mesh.triangles.Length / 3;
                     shoreTriangles += CountShore(mesh);
 
@@ -3526,7 +3621,7 @@ namespace Horizon.EditorTools
 
                 Mesh plants = VegetationBuilder.BuildTile(
                     key, field, terrainShape, vegetationShape, vegetationContext,
-                    name + "_Plants", out VegetationStats stats);
+                    name + "_Plants", out VegetationStats stats, region);
 
                 if (plants != null)
                 {
@@ -3694,7 +3789,9 @@ namespace Horizon.EditorTools
             IRoadPath coast,
             RoadShape coastShape,
             int coastEndTown,
-            int coastEndNode)
+            int coastEndNode,
+            IRoadPath country,
+            RoadShape countryShape)
         {
             var networks = new StreetNetwork[towns.Count];
 
@@ -3720,7 +3817,8 @@ namespace Horizon.EditorTools
                 networks, trunk, trunkShape, highway, highwayShape, carriagewayOffset,
                 highwayEndTown, highwayEndNode,
                 link, linkShape, rampCapDistance, rampMergeDistance, plans,
-                coast, coastShape, coastEndTown, coastEndNode);
+                coast, coastShape, coastEndTown, coastEndNode,
+                country, countryShape);
             routes = HorizonAssetUtility.ReplaceAsset(routes, GeneratedFolder + "/TrafficNetwork.asset");
 
             CarMeshBuilder.CarProfile[] profiles = CarMeshBuilder.TrafficProfiles;
@@ -4254,9 +4352,10 @@ namespace Horizon.EditorTools
         /// cars and almost nothing else.</para>
         /// </summary>
         private static List<Vector3> DrawCallStations(
-            RoadPath path, RoadPath motorway, RoadPath arterial, RoadPath seeburgAxis)
+            RoadPath path, RoadPath motorway, RoadPath arterial, RoadPath seeburgAxis,
+            RoadPath ebental)
         {
-            var stations = new List<Vector3>(15);
+            var stations = new List<Vector3>(17);
 
             float[] fractions = { 0.06f, 0.30f, 0.55f, 0.78f, 0.95f };
             for (int i = 0; i < fractions.Length; i++)
@@ -4286,6 +4385,15 @@ namespace Horizon.EditorTools
             {
                 stations.Add(arterial.GetPositionAtDistance(arterial.Length * 0.15f));
                 stations.Add(arterial.GetPositionAtDistance(arterial.Length * 0.5f));
+            }
+
+            if (ebental != null)
+            {
+                // The crest and the lake loop. Open country, so these are the cheapest stations in the
+                // report — which is the point of having them: if the Ebental road is anywhere near the
+                // budget, something has gone wrong with the vegetation rather than with the buildings.
+                stations.Add(ebental.GetPositionAtDistance(ebental.Length * 0.5f));
+                stations.Add(ebental.GetPositionAtDistance(ebental.Length * 0.7f));
             }
 
             if (seeburgAxis != null)
@@ -5578,6 +5686,12 @@ namespace Horizon.EditorTools
                       + $"{stats.Shrubs} shrubs, {stats.Tufts} grass tufts, {stats.Boulders} boulders, "
                       + $"{stats.Snags} snags — {stats.Triangles} triangles, heaviest tile "
                       + $"{heaviestTileName} at {heaviestTile}. Tree line around {treeLine:0} m.");
+
+            // The region's own, counted apart. An avenue that failed to plant is invisible in a total —
+            // five hundred trees against a hundred thousand is a rounding error — and it is the one
+            // thing in the world whose absence nothing else would report.
+            Debug.Log($"[Horizon] Ebental: {stats.Poplars} avenue poplars, {stats.FruitTrees} fruit trees, "
+                      + $"{stats.WallRuns} field boundaries, {stats.HayBales} bales.");
 
             float minimum = roadShape.OuterHalfWidth + 1f;
             if (stats.ClosestToRoad < minimum)

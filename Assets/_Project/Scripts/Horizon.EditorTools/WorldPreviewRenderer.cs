@@ -347,6 +347,8 @@ namespace Horizon.EditorTools
                     }
                 }
 
+                CaptureEbental(camera, directory);
+
                 // Obliquely from above, not straight down: a plan view of this terrain is a single flat
                 // colour, because every top face catches the sun at the same angle and nothing casts a
                 // silhouette. The tilt is what makes the tree line and the clearings visible at all.
@@ -609,7 +611,148 @@ namespace Horizon.EditorTools
         /// shots of the same field, and nothing said so, because a foggy render of a field looks exactly
         /// like a foggy render of a field.
         /// </summary>
+        /// <summary>
+        /// The Ebental's own stations: along the road, out of the avenue, and the two that answer
+        /// whether the region reads as its own place.
+        ///
+        /// <para>Silently does nothing before the country road exists, so this can be merged ahead of
+        /// the landscape it exists to photograph.</para>
+        /// </summary>
+        private static void CaptureEbental(Camera camera, string directory)
+        {
+            RoadPath road = FindEbentalRoad();
+            if (road == null)
+            {
+                return;
+            }
+
+            float length = road.Length;
+
+            for (int i = 0; i < Stations.Length; i++)
+            {
+                float distance = length * Stations[i];
+                Vector3 position = road.GetPositionAtDistance(distance);
+                Vector3 forward = road.GetDirectionAtDistance(distance);
+
+                camera.fieldOfView = 60f;
+                camera.farClipPlane = 900f;
+                camera.transform.position = position - forward * 9f + Vector3.up * 4f;
+                camera.transform.rotation = Quaternion.LookRotation(
+                    (forward + Vector3.down * 0.14f).normalized, Vector3.up);
+
+                Capture(camera, Path.Combine(directory, $"WorldPreview_Ebental_{i + 1}_at{distance:0}m.png"));
+            }
+
+            // Rebuilt rather than read off the scene, the same way the pass's viewpoint shot does it: the
+            // course is deterministic and the scene's RoadPath came from this same call.
+            RoadCourse course = EbentalCourse.Build();
+
+            float crestAt = -1f;
+            for (int i = 0; i < course.Features.Count; i++)
+            {
+                if (course.Features[i].Kind == RoadFeatureKind.Viewpoint
+                    && course.Features[i].Name == "Hochwiese")
+                {
+                    crestAt = Mathf.Min(course.Features[i].StartDistance, length);
+                    break;
+                }
+            }
+
+            if (crestAt < 0f)
+            {
+                return;
+            }
+
+            // Out of the avenue, in the direction of travel, on the long rising straight. This is the
+            // shot the poplars exist for: a row of them only works if it draws the eye down the road,
+            // and no view from above can answer that.
+            float avenueAt = length * 0.33f;
+            Vector3 avenue = road.GetPositionAtDistance(avenueAt);
+            Vector3 avenueForward = road.GetDirectionAtDistance(avenueAt);
+
+            camera.fieldOfView = 55f;
+            camera.transform.position = avenue - avenueForward * 11f + Vector3.up * 2.6f;
+            camera.transform.rotation = Quaternion.LookRotation(
+                (avenueForward + Vector3.down * 0.05f).normalized, Vector3.up);
+            Capture(camera, Path.Combine(directory, "WorldPreview_Ebental_Avenue.png"));
+
+            // From the crest back down the valley it just climbed out of, fog off. The acceptance shot
+            // for the whole region: at 900 m the individual trees are gone and what is left is field
+            // colour and the line of the avenue, which is exactly what has to carry the place.
+            Vector3 from = road.GetPositionAtDistance(crestAt);
+            Vector3 to = road.GetPositionAtDistance(Mathf.Max(0f, crestAt - 900f));
+
+            bool fogWasOn = RenderSettings.fog;
+            float farWas = camera.farClipPlane;
+            RenderSettings.fog = false;
+
+            try
+            {
+                camera.fieldOfView = 48f;
+                camera.farClipPlane = Mathf.Max(farWas, Vector3.Distance(from, to) * 3f);
+                camera.transform.position = from + Vector3.up * 40f;
+                camera.transform.rotation = Quaternion.LookRotation(
+                    to - camera.transform.position, Vector3.up);
+                Capture(camera, Path.Combine(directory, "WorldPreview_Ebental_FromTheCrest.png"));
+
+                // And straight down over the middle of the region. A plan view of *relief* is a flat
+                // colour and worth nothing — see the overview below — but the fields here are colour
+                // rather than relief, so this is the one place a plan view is the right instrument.
+                Vector3 planAt = road.GetPositionAtDistance(length * 0.5f);
+
+                camera.fieldOfView = 60f;
+                camera.transform.position = planAt + Vector3.up * 620f;
+                camera.transform.rotation = Quaternion.LookRotation(Vector3.down, Vector3.forward);
+                Capture(camera, Path.Combine(directory, "WorldPreview_Ebental_Plan.png"));
+            }
+            finally
+            {
+                RenderSettings.fog = fogWasOn;
+                camera.farClipPlane = farWas;
+            }
+        }
+
+        /// <summary>
+        /// The pass, by the name <c>PrototypeSetup</c> gives its GameObject.
+        ///
+        /// <para><b>By name, and it has to be.</b> This used to take the longest <see cref="RoadPath"/>
+        /// in the scene, which was the pass for exactly as long as the pass was the only road. The
+        /// motorway is 8,515 m against its 5,990, so every shot below has been standing on the motorway
+        /// since the day that was built — including the ones that seat a camera at
+        /// <c>MountainPassCourse.TownStartDistance</c>, a distance that means nothing on it. A picture
+        /// of the wrong road is worse than no picture, because nobody checks a photograph's caption.</para>
+        /// </summary>
         private static RoadPath FindTrunkRoad()
+        {
+            return FindRoad("RoadPath") ?? LongestRoad();
+        }
+
+        /// <summary>The country road out of the Ebental, or null before it has been built.</summary>
+        private static RoadPath FindEbentalRoad()
+        {
+            return FindRoad("EbentalRoadPath");
+        }
+
+        private static RoadPath FindRoad(string objectName)
+        {
+            RoadPath[] paths = Object.FindObjectsByType<RoadPath>(FindObjectsSortMode.None);
+
+            for (int i = 0; i < paths.Length; i++)
+            {
+                if (paths[i].name == objectName)
+                {
+                    return paths[i];
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// The fallback: whatever road is longest. Only reached in a scene whose objects are not the
+        /// ones the rebuild tool makes, where any road at all beats an error.
+        /// </summary>
+        private static RoadPath LongestRoad()
         {
             RoadPath[] paths = Object.FindObjectsByType<RoadPath>(FindObjectsSortMode.None);
 

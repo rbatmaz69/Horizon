@@ -398,7 +398,29 @@ namespace Horizon.World
         public const int UndergrowthSubmesh = 3;
         public const int RockSubmesh = 4;
 
-        public const int SubmeshCount = 5;
+        /// <summary>
+        /// The Ebental's own colours. Five more slots, and they are free.
+        ///
+        /// <para><see cref="MergeTinted"/> folds every submesh that has a colour into the lowest one that
+        /// does, so a species with an entry in <see cref="FoliageTints"/> costs no draw call, no material
+        /// and no extra chunk — it costs one more empty list per tile, which <see cref="VegetationMeshBuffer.ToMesh"/>
+        /// throws away again. That is the whole reason a region can have its own palette at all.</para>
+        ///
+        /// <para>The one thing that must not be done here is adding a slot with a <c>null</c> tint. Rock
+        /// is the only one, deliberately, and it is the reason a tile with boulders on it costs two draw
+        /// calls instead of one.</para>
+        /// </summary>
+        public const int PoplarSubmesh = 5;
+
+        public const int OrchardSubmesh = 6;
+
+        public const int AutumnCanopySubmesh = 7;
+
+        public const int StrawSubmesh = 8;
+
+        public const int StoneSubmesh = 9;
+
+        public const int SubmeshCount = 10;
 
         /// <summary>
         /// The colour each plant submesh is tinted with when they are merged, or null to keep its own
@@ -422,6 +444,18 @@ namespace Horizon.World
             tints[ConiferSubmesh] = new Color(0.16f, 0.29f, 0.22f);
             tints[BroadleafSubmesh] = new Color(0.43f, 0.53f, 0.24f);
             tints[UndergrowthSubmesh] = new Color(0.32f, 0.44f, 0.22f);
+
+            // The Ebental. Gold, rust and amber against a world that is otherwise entirely between 0.16
+            // and 0.53 of green — the contrast is the point, and it is the cheapest kind there is.
+            tints[PoplarSubmesh] = new Color(0.85f, 0.63f, 0.24f);
+            tints[OrchardSubmesh] = new Color(0.71f, 0.38f, 0.18f);
+            tints[AutumnCanopySubmesh] = new Color(0.80f, 0.60f, 0.25f);
+
+            // Straw and limestone. Not foliage, but they ride the same merge for the same reason, and a
+            // dry-stone wall on the boulders' untinted slot would have cost every tile with a wall on it
+            // a second draw call.
+            tints[StrawSubmesh] = new Color(0.83f, 0.75f, 0.50f);
+            tints[StoneSubmesh] = new Color(0.62f, 0.59f, 0.52f);
 
             return tints;
         }
@@ -459,8 +493,20 @@ namespace Horizon.World
             }
         }
 
-        /// <summary>A broadleaf: a stem with a jittered eight-sided blob on top. About 28 triangles.</summary>
+        /// <summary>A broadleaf: a stem with a jittered eight-sided blob on top. 44 triangles.</summary>
         public static void AddBroadleaf(VegetationMeshBuffer buffer, in PlantPlacement place)
+        {
+            AddBroadleaf(buffer, place, BroadleafSubmesh);
+        }
+
+        /// <summary>
+        /// The same tree in another colour.
+        ///
+        /// <para>One mesh, two palettes. The Ebental's woods are the same species as the valley's below
+        /// the pass — what makes them autumn is the leaf colour and nothing else, and re-authoring the
+        /// geometry to say so would be forty more triangles to maintain for no visible gain.</para>
+        /// </summary>
+        public static void AddBroadleaf(VegetationMeshBuffer buffer, in PlantPlacement place, int canopySubmesh)
         {
             var random = new PlantRandom(place.Seed);
 
@@ -473,8 +519,83 @@ namespace Horizon.World
             AddTube(buffer, place, BarkSubmesh, 6, trunkRadius, trunkRadius * 0.8f,
                 -Burial, trunkHeight + canopyRadius * 0.3f, phase);
 
-            AddCanopy(buffer, place, BroadleafSubmesh, 8, canopyRadius,
+            AddCanopy(buffer, place, canopySubmesh, 8, canopyRadius,
                 trunkHeight * 0.75f, height, phase, 0.24f, ref random);
+        }
+
+        /// <summary>
+        /// A Lombardy poplar: a bare stem under three stacked spindles, 18 to 22 m tall and under four
+        /// across. About 48 triangles.
+        ///
+        /// <para><b>The proportion is the entire species.</b> Nothing else in this world is more than
+        /// four times as tall as it is wide, so at any distance where a spruce has become a dark blob a
+        /// poplar is still a vertical stroke — and a row of vertical strokes at even spacing is the one
+        /// thing in a landscape that reads instantly as planted by somebody. That is what the avenue is
+        /// for, and why this is thin rather than merely tall.</para>
+        ///
+        /// <para><b>Four spindles, and they overlap by more than half.</b> Three at a quarter's overlap
+        /// was tried and came back as a stack of diamonds on a pole: each spindle showed its own apex and
+        /// its own waist, so the tree read as three objects rather than one. A poplar has no waist at
+        /// all — it is a single flame — and the only way to get that out of stacked bipyramids is to bury
+        /// every internal apex inside the skirt of the tier above it. Eight sides rather than six for the
+        /// same reason: at this slenderness a hexagon shows its flats as facets down the silhouette.</para>
+        /// </summary>
+        public static void AddPoplar(VegetationMeshBuffer buffer, in PlantPlacement place)
+        {
+            var random = new PlantRandom(place.Seed);
+
+            float height = random.Range(18f, 22f);
+            float radius = height * random.Range(0.075f, 0.092f);
+            float trunkHeight = height * 0.15f;
+            float trunkRadius = height * random.Range(0.016f, 0.021f);
+            float phase = random.Range(0f, Mathf.PI * 2f);
+
+            AddTube(buffer, place, BarkSubmesh, 6, trunkRadius, trunkRadius * 0.75f,
+                -Burial, trunkHeight * 1.7f, phase);
+
+            const int tiers = 4;
+            float from = trunkHeight * 0.9f;
+            float span = height - from;
+
+            for (int tier = 0; tier < tiers; tier++)
+            {
+                // Each tier covers half the tree and they step by a fifth of it, so any one apex sits
+                // deep inside its neighbour.
+                float bottomY = from + span * (tier * 0.19f);
+                float topY = from + span * Mathf.Min(1f, 0.52f + tier * 0.19f);
+                float ringY = Mathf.Lerp(bottomY, topY, 0.44f);
+
+                // Barely tapering. The tip is the only place a poplar narrows, and it does it late.
+                float tierRadius = radius * (tier < tiers - 1 ? 1f - tier * 0.07f : 0.55f);
+
+                AddBlob(buffer, place, PoplarSubmesh, 8, tierRadius,
+                    ringY, topY, bottomY, phase + tier * 0.55f, 0.12f, ref random);
+            }
+        }
+
+        /// <summary>
+        /// A fruit tree: a short stem under one wide flat crown, four to five metres. About 28 triangles.
+        ///
+        /// <para>Deliberately squat — wider than it is tall above the stem. An orchard is read from the
+        /// road as a low even ceiling in rows, and a tree with a tall crown breaks the ceiling and turns
+        /// the rows back into a wood.</para>
+        /// </summary>
+        public static void AddFruitTree(VegetationMeshBuffer buffer, in PlantPlacement place)
+        {
+            var random = new PlantRandom(place.Seed);
+
+            float height = random.Range(3.2f, 4.4f);
+            float trunkHeight = height * random.Range(0.30f, 0.38f);
+            float trunkRadius = height * random.Range(0.045f, 0.06f);
+            float crownRadius = height * random.Range(0.38f, 0.48f);
+            float phase = random.Range(0f, Mathf.PI * 2f);
+
+            AddTube(buffer, place, BarkSubmesh, 6, trunkRadius, trunkRadius * 0.85f,
+                -Burial, trunkHeight + crownRadius * 0.25f, phase);
+
+            AddBlob(buffer, place, OrchardSubmesh, 8, crownRadius,
+                trunkHeight + (height - trunkHeight) * 0.38f, height, trunkHeight * 0.7f,
+                phase, 0.22f, ref random);
         }
 
         /// <summary>A low bush: one squashed blob, no stem. About 12 triangles.</summary>

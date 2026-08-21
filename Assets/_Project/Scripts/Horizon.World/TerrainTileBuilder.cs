@@ -284,7 +284,8 @@ namespace Horizon.World
             TerrainTileKey key,
             MountainField field,
             in TerrainShape shape,
-            string meshName)
+            string meshName,
+            LandRegion region = null)
         {
             float tileSize = TileSize(shape);
             int cells = Mathf.Max(2, Mathf.RoundToInt(tileSize / shape.CellSize));
@@ -320,6 +321,12 @@ namespace Horizon.World
             // walks a list.
             bool nearWater = TouchesWater(field, originX, originZ, tileSize);
 
+            // Asked once for the tile, for the same reason: a region is a smooth field and its weight
+            // cannot jump inside 168 m, so a tile that is nowhere near one can skip the whole business
+            // per triangle rather than per tile. Sampled at the four corners and the middle, because a
+            // tile can clip the edge of a region with its centre well outside it.
+            LandRegion tileRegion = TouchesRegion(region, originX, originZ, tileSize) ? region : null;
+
             for (int row = 0; row < cells; row++)
             {
                 for (int column = 0; column < cells; column++)
@@ -334,16 +341,16 @@ namespace Horizon.World
                     if (splitForward)
                     {
                         AddTriangle(vertices, normals, uvs, colours, triangles, rockThreshold,
-                            field, nearWater, c00, c01, c11);
+                            field, nearWater, tileRegion, c00, c01, c11);
                         AddTriangle(vertices, normals, uvs, colours, triangles, rockThreshold,
-                            field, nearWater, c00, c11, c10);
+                            field, nearWater, tileRegion, c00, c11, c10);
                     }
                     else
                     {
                         AddTriangle(vertices, normals, uvs, colours, triangles, rockThreshold,
-                            field, nearWater, c00, c01, c10);
+                            field, nearWater, tileRegion, c00, c01, c10);
                         AddTriangle(vertices, normals, uvs, colours, triangles, rockThreshold,
-                            field, nearWater, c01, c11, c10);
+                            field, nearWater, tileRegion, c01, c11, c10);
                     }
                 }
             }
@@ -457,6 +464,7 @@ namespace Horizon.World
             float rockThreshold,
             MountainField field,
             bool nearWater,
+            LandRegion region,
             Vector3 a,
             Vector3 b,
             Vector3 c)
@@ -497,17 +505,32 @@ namespace Horizon.World
             // thing by construction — the ease runs forty to seventy metres for a drop of a few — so a
             // face at the water that does read as steep is a spit or a cut, and grey rock there breaks
             // the shoreline into pieces rather than describing it.
-            Color32 tint = normal.y < rockThreshold ? RockTint : GrassTint;
+            bool steep = normal.y < rockThreshold;
+            Color32 tint = steep ? RockTint : GrassTint;
+
+            // The centroid, not a corner: this is one flat-shaded triangle with one colour, and asking
+            // at a corner makes the answer depend on which corner the winding happened to put first,
+            // which is how you get single triangles of beach out in a meadow — or one field's colour on
+            // a sliver of the next one's.
+            Vector3 centre = (a + b + c) * (1f / 3f);
+
+            if (region != null)
+            {
+                float weight = region.Weight(centre.x, centre.z);
+
+                if (weight > 0f)
+                {
+                    Color32 regional = steep ? region.Ground.Rock : FieldTint(region, centre);
+                    tint = Color32.Lerp(tint, regional, weight);
+                }
+            }
 
             if (nearWater)
             {
-                // The centroid, not a corner: this is one flat-shaded triangle with one colour, and
-                // asking at a corner makes the tint depend on which corner the winding happened to put
-                // first, which is how you get single triangles of beach out in a meadow.
-                Vector3 centre = (a + b + c) * (1f / 3f);
-
                 if (field.IsShore(centre.x, centre.z, centre.y, ShoreHeight, ShoreReach))
                 {
+                    // Over everything, region included. A shore is a shore in any country, and a
+                    // ploughed field running to a waterline reads as a bug rather than as a bank.
                     tint = SandTint;
                 }
             }
@@ -519,6 +542,37 @@ namespace Horizon.World
             triangles.Add(baseIndex);
             triangles.Add(baseIndex + 1);
             triangles.Add(baseIndex + 2);
+        }
+
+        /// <summary>
+        /// The colour of the field a point stands in, falling back to the region's own meadow where the
+        /// palette carries no fields.
+        /// </summary>
+        private static Color32 FieldTint(LandRegion region, Vector3 at)
+        {
+            int parcel = region.Parcel(at.x, at.z);
+
+            return parcel < 0 ? region.Ground.Grass : region.Ground.Fields[parcel];
+        }
+
+        /// <summary>
+        /// Whether a region reaches this tile at all, asked once against the tile's bounding circle.
+        ///
+        /// <para>The circle rather than the corners: sampling the weight at five points can miss a
+        /// region that clips one corner of a 168 m tile, and a tile that quietly kept the world's colours
+        /// while its neighbour changed is a seam through a meadow.</para>
+        /// </summary>
+        private static bool TouchesRegion(LandRegion region, float originX, float originZ, float tileSize)
+        {
+            if (region == null)
+            {
+                return false;
+            }
+
+            float half = tileSize * 0.5f;
+
+            // Half the diagonal, so the circle contains the square.
+            return region.Reaches(originX + half, originZ + half, half * Mathf.Sqrt(2f));
         }
     }
 }

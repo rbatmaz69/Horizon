@@ -70,7 +70,29 @@ namespace Horizon.World
             ArrivalOffset = walked.ControlPoints[walked.ControlPoints.Count - 1];
             ArrivalTurn = probe.HeadingDegrees;
             ArrivalSpan = walked.PlannedLength;
+
+            // And the far end, measured the same way the motorway measures its own. The pass used to
+            // be the one road in the world that simply stopped; EbentalCourse is grafted onto this
+            // point, and it has to follow the run-out whenever the descent is retuned rather than
+            // being typed beside it.
+            var full = new RoadCourseBuilder(StartPoint, StartHeading);
+            Append(full);
+
+            RoadCourse course = full.Build();
+            EndPoint = course.ControlPoints[course.ControlPoints.Count - 1];
+            EndHeading = full.HeadingDegrees;
         }
+
+        /// <summary>
+        /// Where the pass runs out, at the foot of the descent.
+        ///
+        /// <para>Public for the same reason <see cref="StartPoint"/> is: something is grafted onto it.
+        /// See <see cref="EbentalCourse"/>.</para>
+        /// </summary>
+        public static Vector3 EndPoint { get; }
+
+        /// <summary>Heading there, facing on down the valley. 0 faces +Z, increasing turns towards +X.</summary>
+        public static float EndHeading { get; }
 
         /// <summary>
         /// Length of the arrival road prepended to the pass, metres. Everything downstream of it — the
@@ -143,6 +165,17 @@ namespace Horizon.World
         /// </summary>
         public static RoadCourse Build()
         {
+            var builder = new RoadCourseBuilder(StartPoint, StartHeading);
+            Append(builder);
+            return builder.Build();
+        }
+
+        /// <summary>
+        /// The shape itself, so the probe in the static constructor and the real walk cannot drift
+        /// apart. Two copies of a road are two roads.
+        /// </summary>
+        private static void Append(RoadCourseBuilder builder)
+        {
             // The arrival road is grafted on in front of the pass rather than merged into it: it is
             // started from whatever position and heading puts its *end* exactly on the old start point,
             // facing the way that point used to face. The five kilometres below are therefore unchanged
@@ -150,7 +183,6 @@ namespace Horizon.World
             // and the only thing that moves is where along the course each of them falls, by
             // ApproachLength. Re-deriving a hand-tuned switchback stack to make room for a town would be
             // a poor trade for a rigid transform.
-            var builder = new RoadCourseBuilder(StartPoint, StartHeading);
             AppendArrival(builder);
 
             // --- Valley approach, and the town that sits on it. This and the run-out are the only two
@@ -228,8 +260,6 @@ namespace Horizon.World
             builder.Straight(140f, -4f);
             builder.Turn(260f, 24f, -2f);
             builder.Straight(160f, -1.5f);
-
-            return builder.Build();
         }
     }
 }

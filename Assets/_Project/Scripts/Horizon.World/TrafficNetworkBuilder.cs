@@ -141,7 +141,9 @@ namespace Horizon.World
             IRoadPath coast = null,
             RoadShape coastShape = default,
             int coastEndTown = -1,
-            int coastEndNode = -1)
+            int coastEndNode = -1,
+            IRoadPath country = null,
+            RoadShape countryShape = default)
         {
             var lanes = new LaneBuffer();
 
@@ -167,6 +169,19 @@ namespace Horizon.World
             int highwayWestNode = nodeCount + 2;
             int highwayEastNode = nodeCount + 3;
             nodeCount += 4;
+
+            // And one where the country road runs out. It needs a junction only at that end: the other
+            // end is the trunk road's own far end, the same metre of tarmac and therefore the same node,
+            // which is how the coast road joins the motorway and how the two become one drive rather
+            // than two roads that happen to touch.
+            bool continues = country != null && trunk != null;
+
+            int countryEndNode = -1;
+            if (continues)
+            {
+                countryEndNode = nodeCount;
+                nodeCount += 1;
+            }
 
             // And a fifth where the ramp meets the motorway, when there is one. It is a junction in every
             // sense the rest of this file means: lanes end there and connectors take over, which is what
@@ -233,6 +248,11 @@ namespace Horizon.World
                 }
             }
 
+            if (continues)
+            {
+                nodeAt[countryEndNode] = country.GetPositionAtDistance(country.Length);
+            }
+
             if (merging)
             {
                 // On the nearside lane itself, not on the median: this is the point the ramp's lane and
@@ -263,6 +283,16 @@ namespace Horizon.World
 
             AddTrunkLanes(networks[0], trunk, trunkShape, roadStartNode, roadEndNode,
                 lanes, entryNode, exitNode);
+
+            if (continues)
+            {
+                // No network, and that is not a shortcut. The cut list exists to break a trunk lane at
+                // the junctions a town puts on it, and it reads each node's AlongTrunk — a distance
+                // measured along the road that town sits on. Handing in a settlement that sits on a
+                // different road would cut this one at distances that mean nothing here.
+                AddTrunkLanes(null, country, countryShape, roadEndNode, countryEndNode,
+                    lanes, entryNode, exitNode);
+            }
 
             if (coastJoinsATown)
             {
@@ -460,6 +490,11 @@ namespace Horizon.World
         /// <para>Cut rather than run end to end, because a lane has to stop where a connector takes over —
         /// and a car that could drive straight past a junction on an unbroken lane would have no way to
         /// turn off it, which would leave the town's five entrances as decoration.</para>
+        ///
+        /// <para><paramref name="network"/> may be null, for a road with no settlement on it at all. The
+        /// cuts come from each node's <c>AlongTrunk</c>, which is a distance measured along the road that
+        /// town sits on — so the alternative to null is a road cut at distances belonging to a different
+        /// road.</para>
         /// </summary>
         private static void AddTrunkLanes(
             StreetNetwork network,
@@ -480,7 +515,7 @@ namespace Horizon.World
             var cutAt = new List<float>(8) { 0f };
             var cutGap = new List<float>(8) { 0f };
 
-            for (int i = 0; i < network.Nodes.Count; i++)
+            for (int i = 0; network != null && i < network.Nodes.Count; i++)
             {
                 StreetNode node = network.Nodes[i];
                 if (!node.OnTrunkRoad || node.Degree == 0)
