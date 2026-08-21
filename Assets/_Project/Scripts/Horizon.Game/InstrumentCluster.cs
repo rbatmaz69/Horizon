@@ -135,8 +135,13 @@ namespace Horizon.Game
             }
 
             // Absolute rpm over full scale, not the idle-rebased fraction EngineAudio uses for its
-            // pitch curve. A real tacho sits just above zero at idle, and idle is where this engine
-            // sits — EngineRpm is clamped to the idle speed and never falls below it.
+            // pitch curve. A real tacho sits just above zero at idle, and idle is where a running
+            // engine sits — EngineRpm is held at the idle speed for as long as it is running.
+            //
+            // A dry tank is the one case where it falls further, all the way to zero, and this dial
+            // needs no help to show it: the needle is already chasing EngineRpm, so it drops to the
+            // stop over about a quarter of a second. That is a stopped engine, read at a glance,
+            // without a warning light to design.
             ShowSpeed(Mathf.RoundToInt(vehicle.SpeedKmh));
             ShowGear(vehicle.Gear);
         }

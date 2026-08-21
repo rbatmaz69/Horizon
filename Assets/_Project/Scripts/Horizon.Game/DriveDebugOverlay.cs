@@ -22,6 +22,7 @@ namespace Horizon.Game
         [SerializeField] private DriveInputRouter inputRouter;
 
         private VehicleController vehicle;
+        private FuelTank fuel;
         private TimeOfDayController timeOfDay;
         private TrafficDirector traffic;
         private Vector3 spawnPosition;
@@ -79,6 +80,21 @@ namespace Horizon.Game
                 string gear = vehicle.Gear == 0 ? "R" : vehicle.Gear.ToString();
                 string shifting = vehicle.IsShifting ? "  shifting" : string.Empty;
                 GUILayout.Label($"gear {gear}   {vehicle.EngineRpm:0} rpm{shifting}");
+
+                // Litres and the burn behind them. The gauge only ever shows a fraction, so this is the
+                // one place the actual numbers can be read against what an engine of this size ought to
+                // be using — which is the check that says whether the model is sane or merely plausible.
+                if (fuel == null)
+                {
+                    fuel = vehicle.GetComponent<FuelTank>();
+                }
+
+                if (fuel != null)
+                {
+                    string dry = fuel.IsDry ? "  DRY" : fuel.IsReserve ? "  reserve" : string.Empty;
+                    GUILayout.Label($"fuel {fuel.Litres:0.0}/{fuel.Capacity:0} l"
+                                  + $"   {fuel.LitresPerHour:0.0} l/h{dry}");
+                }
 
                 // The camera FOV, the rig offset and the engine load are all driven off this one
                 // number, and none of them can be tuned against a value that only exists in the

@@ -784,6 +784,20 @@ namespace Horizon.EditorTools
 
             HorizonAssetUtility.AssertReferenceAssigned(controller, "config");
 
+            // The tank, and the two references pointed at each other. The controller asks the tank
+            // whether there is fuel before it will accept a throttle command; the tank asks the
+            // controller what work the engine is doing. Both are explicit rather than resolved in Awake,
+            // which is the habit everything else on this prefab follows.
+            FuelTank fuelTank = root.AddComponent<FuelTank>();
+            HorizonAssetUtility.Configure(fuelTank, serialized =>
+                serialized.FindProperty("vehicle").objectReferenceValue = controller);
+
+            HorizonAssetUtility.Configure(controller, serialized =>
+                serialized.FindProperty("fuel").objectReferenceValue = fuelTank);
+
+            HorizonAssetUtility.AssertReferenceAssigned(fuelTank, "vehicle");
+            HorizonAssetUtility.AssertReferenceAssigned(controller, "fuel");
+
             // On the chassis rather than on a body, unlike the tailpipes: the wheels belong to the car
             // and do not change when the garage swaps a shell over them. Built after the controller so
             // the reference can be explicit instead of resolved in Awake.

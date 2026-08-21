@@ -166,8 +166,9 @@ the garage changes car while the game is running.
 
 The needle reads **absolute rpm over full scale**, not the idle-rebased fraction `EngineAudio.Revs`
 exposes. That fraction is zero at idle, which is right for a pitch curve and wrong for a dial: a real
-tacho sits just above zero when the engine is running, and `EngineRpm` is clamped so it never falls
-below idle anyway.
+tacho sits just above zero when the engine is running, and `EngineRpm` is held at idle whenever the
+engine is running. The one case where it is not is an empty tank — see the fuel section — and there
+the needle falling all the way to the stop is the point rather than an exception.
 
 Text in a HUD allocates. `label.text = $"{speed:0}"` makes a string every frame the number changes,
 which above walking pace is most of them — so the numbers come out of a prebuilt table and are

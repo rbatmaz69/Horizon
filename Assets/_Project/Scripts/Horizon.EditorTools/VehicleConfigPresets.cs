@@ -129,6 +129,8 @@ namespace Horizon.EditorTools
                     // to make up for it, and enough grip left that it still corners like the coupé it is
                     // underneath.
                     config.Mass = 1420f;
+                    // A wagon carries its tank under a longer floor, so it gets more of one.
+                    config.FuelCapacityLitres = 62f;
                     config.CenterOfMass = new Vector3(0f, -0.26f, 0.02f);
                     config.RollDamping = 2.7f;
                     config.PitchDamping = 1.1f;
@@ -155,6 +157,8 @@ namespace Horizon.EditorTools
                     // a corner and lift on the way out. The anti-roll bar is not a tuning choice, it is
                     // what stops that ending on its roof.
                     config.Mass = 1950f;
+                    // A van's range is the point of a van.
+                    config.FuelCapacityLitres = 75f;
                     config.CenterOfMass = new Vector3(0f, -0.10f, 0.10f);
                     config.RollDamping = 3.4f;
                     config.PitchDamping = 1.5f;
@@ -212,6 +216,8 @@ namespace Horizon.EditorTools
                     // five. Willing to step out and slow to come back — the handbrake figures are low so
                     // it swings rather than stops.
                     config.Mass = 1750f;
+                    // Under the bed, and sized for the distances a pickup is bought for.
+                    config.FuelCapacityLitres = 78f;
                     config.CenterOfMass = new Vector3(0f, -0.18f, -0.05f);
                     config.RollDamping = 3.0f;
                     config.PitchDamping = 1.3f;
@@ -253,6 +259,8 @@ namespace Horizon.EditorTools
                     // what speed you have, because getting it back takes a while. Plenty of grip and a lot
                     // of lock to spend it with.
                     config.Mass = 980f;
+                    // Small car, small tank — and the least thirsty engine here to drink from it.
+                    config.FuelCapacityLitres = 45f;
                     config.CenterOfMass = new Vector3(0f, -0.32f, 0.04f);
                     config.RollDamping = 2.2f;
                     config.PitchDamping = 0.9f;
@@ -322,6 +330,8 @@ namespace Horizon.EditorTools
                     // the band, then everything at once: a car that rewards being kept on the boil is a
                     // car where the gearbox matters, which nothing else in the garage can say.
                     config.Mass = 1560f;
+                    // Enough for the coupe's appetite, which at 8000 rpm is considerable.
+                    config.FuelCapacityLitres = 60f;
                     config.CenterOfMass = new Vector3(0f, -0.32f, 0.02f);
                     config.RollDamping = 2.4f;
                     config.PitchDamping = 1.0f;
@@ -380,6 +390,7 @@ namespace Horizon.EditorTools
                     // same output, one drives out of a slide and the other has to be driven through it,
                     // and DrivenAxle is nearly the whole of the difference.
                     config.Mass = 1570f;
+                    config.FuelCapacityLitres = 58f;
                     config.CenterOfMass = new Vector3(0f, -0.34f, 0f);
                     config.RollDamping = 2.3f;
                     config.PitchDamping = 1.0f;
@@ -440,6 +451,7 @@ namespace Horizon.EditorTools
                     // whole brief: a garage of ten cars needs one that simply does what it is asked, or
                     // there is no baseline for the other nine to be interesting against.
                     config.Mass = 1120f;
+                    config.FuelCapacityLitres = 52f;
                     config.CenterOfMass = new Vector3(0f, -0.28f, 0.03f);
                     config.RollDamping = 2.6f;
                     config.PitchDamping = 1.1f;
@@ -482,6 +494,7 @@ namespace Horizon.EditorTools
                     // spend — a small six in a small car with a rear axle that gives up before the front
                     // does. Where the saloon understeers politely, this one rotates.
                     config.Mass = 1080f;
+                    config.FuelCapacityLitres = 50f;
                     config.CenterOfMass = new Vector3(0f, -0.29f, -0.02f);
                     config.RollDamping = 2.3f;
                     config.PitchDamping = 1.0f;
@@ -539,6 +552,8 @@ namespace Horizon.EditorTools
                     // than this. Do not raise the bar further if it still leans — a stiffer bar lifts the
                     // inside wheel and takes grip away. Lower the centre of mass instead.
                     config.Mass = 2400f;
+                    // The biggest tank in the fleet, under the biggest vehicle, feeding the heaviest right foot.
+                    config.FuelCapacityLitres = 80f;
                     config.CenterOfMass = new Vector3(0f, -0.08f, 0.04f);
                     config.RollDamping = 3.8f;
                     config.PitchDamping = 1.7f;

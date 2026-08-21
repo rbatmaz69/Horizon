@@ -80,7 +80,7 @@ namespace Horizon.Vehicle
         /// bump the assets keep the short travel and the soft bar together, which is the one combination
         /// that rolls.</para>
         /// </summary>
-        public const int CurrentVersion = 8;
+        public const int CurrentVersion = 9;
 
         /// <summary>
         /// Which set of meanings this asset's numbers were chosen under.
@@ -190,6 +190,21 @@ namespace Horizon.Vehicle
         public float IdleRpm = 750f;
 
         public float RedlineRpm = 5800f;
+
+        /// <summary>
+        /// How much fuel the car carries, litres.
+        ///
+        /// <para><b>The only part of the fuel model that is per-car data.</b> Everything else
+        /// <see cref="FuelTank"/> needs it already derives from fields that are here for the physics —
+        /// the torque curve and the peak give it the work being done, and the burn falls out of that. A
+        /// tank size does not: a van's is bigger than a hatchback's because it is a bigger vehicle, not
+        /// because of anything else on this asset, so it is the one number that has to be written
+        /// down.</para>
+        ///
+        /// <para>55 is an ordinary saloon's tank, and the fastback is the identity case every other
+        /// body is a delta from — see <c>VehicleConfigPresets</c>.</para>
+        /// </summary>
+        public float FuelCapacityLitres = 55f;
 
         [Header("Engine voice")]
 

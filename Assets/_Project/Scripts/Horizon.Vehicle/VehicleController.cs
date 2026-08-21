@@ -22,6 +22,10 @@ namespace Horizon.Vehicle
 
         [SerializeField] private LayerMask groundMask = ~0;
 
+        [Tooltip("The tank this engine drinks from. Left empty the car simply never runs out, which is "
+               + "what every scene that predates the tank does.")]
+        [SerializeField] private FuelTank fuel;
+
         /// <summary>
         /// The fastest the suspension is allowed to be told it is moving, metres per second. See the
         /// note where it is used — it is a guard on a finite difference across a step in the road, not a
@@ -135,6 +139,31 @@ namespace Horizon.Vehicle
 
         /// <summary>Engine speed in rpm. Comes from the wheels through the gearbox, not from a guess.</summary>
         public float EngineRpm => engineRpm;
+
+        /// <summary>
+        /// Torque the engine is making right now, Nm at the crank — before the gearbox multiplies it.
+        ///
+        /// <para>Published rather than left inside <see cref="UpdateDrivetrain"/> because
+        /// <see cref="FuelTank"/> needs exactly this number and a second copy of the expression would be
+        /// a second thing to disagree. It is the torque curve, the peak and the pedal folded together,
+        /// which is why the tank can burn fuel against load without reading the input at all.</para>
+        ///
+        /// <para><b>Zero on every path that makes no torque</b>, not merely on the one that computes it:
+        /// mid-shift the drivetrain is disconnected and on the limiter the spark is cut. A value left
+        /// standing from the frame before would have the tank burning fuel for work the engine is
+        /// demonstrably not doing, at the exact moments the driver can hear that it is not.</para>
+        /// </summary>
+        public float EngineTorqueNm { get; private set; }
+
+        /// <summary>
+        /// True when there is a tank fitted and it is empty.
+        ///
+        /// <para>Read by <see cref="FixedUpdate"/> to cut the throttle, and worth stating plainly: this
+        /// is the only thing in the vehicle that fuel does. It does not scale grip, or damp the body, or
+        /// touch the brakes — an engine that has stopped simply stops pushing, and the car rolls exactly
+        /// as it always did with the driver off the pedal.</para>
+        /// </summary>
+        public bool IsOutOfFuel => fuel != null && fuel.IsDry;
 
         /// <summary>Selected gear: 1-based forwards, 0 while reversing.</summary>
         public int Gear => reversing ? 0 : gearIndex + 1;
@@ -483,6 +512,18 @@ namespace Horizon.Vehicle
                 brake = 0f;
             }
 
+            // A dry tank is a dead engine, and a dead engine is exactly a driver who cannot press the
+            // pedal any more. Cutting the command here rather than zeroing the drive force further down
+            // keeps that true all the way through: the gearbox still selects, the rev counter still
+            // reads what the wheels are turning the engine at, and the brakes and steering are
+            // untouched. What the player gets is a car that coasts, which is what running out of fuel
+            // actually feels like.
+            if (IsOutOfFuel)
+            {
+                throttle = 0f;
+                reverse = 0f;
+            }
+
             // Published because the pedal alone cannot tell the two apart, and anything downstream that
             // treats reversing as braking gets it wrong — brake lights being the obvious one.
             BrakeInput = brake;
@@ -674,6 +715,11 @@ namespace Horizon.Vehicle
         /// </summary>
         private float UpdateDrivetrain(float deltaTime, float throttle, float reverse, float brake)
         {
+            // Cleared up front so that every early return below leaves it honest. There are three of
+            // them — mid-shift, over the limiter, and no pedal at all — and each is a moment the engine
+            // makes nothing; see the note on the property.
+            EngineTorqueNm = 0f;
+
             if (shiftTimer > 0f)
             {
                 shiftTimer -= deltaTime;
@@ -700,7 +746,25 @@ namespace Horizon.Vehicle
                 config.IdleRpm,
                 config.RedlineRpm);
 
-            if (!reversing && shiftTimer <= 0f)
+            // A stopped engine is the one case where the idle floor above is wrong. Everywhere else it
+            // is right — a running engine never falls below its idle speed, and clamping there is what
+            // keeps the rev counter off zero and the engine note alive at a standstill. But with no fuel
+            // there is no combustion holding it up: what is left is the wheels back-driving it through
+            // the gearbox, so the needle follows `geared` down and reaches zero when the car does.
+            // Without this the tacho sits at idle and the exhaust keeps burbling next to a car the
+            // driver cannot move, which reads as a broken throttle rather than an empty tank.
+            if (IsOutOfFuel)
+            {
+                engineRpm = Mathf.Min(engineRpm, geared);
+            }
+
+            // A stalled engine is held out of the shift logic, and it is not a detail. The thresholds
+            // below compare engine speed against a downshift rpm, and an engine falling towards zero is
+            // under every one of them — so the box would walk itself down to first while the car coasts.
+            // That is wrong on its own terms, and it also feeds back: `geared` is the ratio times the
+            // wheel speed, so first gear at 100 km/h reads a very high number, and the needle that had
+            // just fallen to zero would swing back up. A car that stalls holds the gear it stalled in.
+            if (!IsOutOfFuel && !reversing && shiftTimer <= 0f)
             {
                 // Shift points move with the pedal. A fixed threshold is a full-throttle threshold, and
                 // applying it to a trailing throttle is what leaves the car pinned near the redline in a
@@ -780,6 +844,8 @@ namespace Horizon.Vehicle
             {
                 return 0f;
             }
+
+            EngineTorqueNm = engineTorque;
 
             float wheelForce = engineTorque * driveRatio * config.DrivetrainEfficiency / config.WheelRadius;
 
