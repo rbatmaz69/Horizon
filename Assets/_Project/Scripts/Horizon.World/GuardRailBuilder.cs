@@ -43,6 +43,21 @@ namespace Horizon.World
         private const float BridgeClearance = 8f;
 
         /// <summary>
+        /// How far either side of a filling station the verge is left bare, metres.
+        ///
+        /// <para>A forecourt's frontage is open by construction — that is how a car gets onto it — so a
+        /// line of posts across the entrance is a line of posts through the entrance. 45 covers the
+        /// apron's 26 m half-length with enough either side for the taper.</para>
+        ///
+        /// <para>It takes out both verges rather than only the station's own. Threading a side through
+        /// this walk would mean a side on every call that reaches it, for the sake of a rail on the far
+        /// shoulder of a stretch that was chosen in the first place for being straight and level — which
+        /// is to say, for being somewhere there is nothing to fall off.</para>
+        /// </summary>
+        private const float ForecourtClearance = 45f;
+
+
+        /// <summary>
         /// Builds every rail on the course as one mesh. Returns null when nothing is exposed enough to
         /// need one.
         ///
@@ -98,7 +113,8 @@ namespace Horizon.World
                 // the gap between them.
                 bool covered = course != null
                                && (course.IsCoveredOrNear(distance, PortalClearance)
-                                   || course.IsBridged(distance, BridgeClearance));
+                                   || course.IsBridged(distance, BridgeClearance)
+                                   || course.IsForecourt(distance, ForecourtClearance));
 
                 for (int side = 0; side < 2; side++)
                 {

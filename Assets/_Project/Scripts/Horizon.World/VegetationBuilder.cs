@@ -93,6 +93,17 @@ namespace Horizon.World
         private readonly Vector3[] viewpoints;
 
         /// <summary>
+        /// Where the filling stations stand, in plan.
+        ///
+        /// <para>Its own list rather than a seventh entry in <see cref="viewpoints"/>, because the two
+        /// keep out different things. A viewpoint only stops what gets in the way of looking, so grass
+        /// and bushes are welcome in front of it and only trees are turned away — that is what the
+        /// <c>tallOnly</c> gate on it means. A forecourt is a concrete slab, and nothing grows out of
+        /// concrete.</para>
+        /// </summary>
+        private readonly Vector3[] pads;
+
+        /// <summary>
         /// Where the avenue trees stand, in plan.
         ///
         /// <para>Worked out once here rather than per tile, exactly as the blockers and the viewpoints
@@ -102,6 +113,7 @@ namespace Horizon.World
         private readonly Vector2[] avenue;
         private readonly float blockerRadius;
         private readonly float viewpointRadius;
+        private readonly float padRadius;
 
         /// <summary>
         /// Every settlement in the world, each with its own streets, squares and plots.
@@ -215,6 +227,7 @@ namespace Horizon.World
         {
             blockerRadius = shape.TunnelExclusion;
             viewpointRadius = shape.ViewpointClearing;
+            padRadius = shape.FuelStationClearing;
 
             int count = settlements != null ? settlements.Count : 0;
             towns = new TownKeepOut[count];
@@ -302,22 +315,24 @@ namespace Horizon.World
 
             var covered = new List<Vector3>(128);
             var views = new List<Vector3>(8);
+            var forecourts = new List<Vector3>(8);
 
-            AddFeatures(path, course, shape, covered, views);
+            AddFeatures(path, course, shape, covered, views, forecourts);
 
             for (int i = 0; others != null && i < others.Count; i++)
             {
-                AddFeatures(others[i].Path, others[i].Course, shape, covered, views);
+                AddFeatures(others[i].Path, others[i].Course, shape, covered, views, forecourts);
             }
 
             blockers = covered.ToArray();
             viewpoints = views.ToArray();
+            pads = forecourts.ToArray();
             avenue = AvenueStations(avenueRoad);
 
             LowestElevation = course != null ? course.LowestElevation : 0f;
             SummitElevation = course != null ? course.Summit.y : LowestElevation + 1f;
 
-            hasBlockers = blockers.Length > 0 || viewpoints.Length > 0;
+            hasBlockers = blockers.Length > 0 || viewpoints.Length > 0 || pads.Length > 0;
             if (!hasBlockers)
             {
                 return;
@@ -330,18 +345,26 @@ namespace Horizon.World
 
             Encapsulate(blockers, blockerRadius);
             Encapsulate(viewpoints, viewpointRadius);
+            Encapsulate(pads, padRadius);
         }
 
         /// <summary>
-        /// Reads one road's features into the two keep-out lists: a clearing at every viewpoint, and a
-        /// run of blockers along everything roofed.
+        /// Reads one road's features into the three keep-out lists: a clearing at every viewpoint, a
+        /// paved area at every filling station, and a run of blockers along everything roofed.
+        ///
+        /// <para><b>The last branch is a catch-all, and that is the thing to know before adding a
+        /// feature kind.</b> Anything not named above it is treated as a tunnel body — a capsule of the
+        /// full <c>TunnelExclusion</c> width running <c>TunnelEndMargin</c> past both ends, blocking
+        /// every species including grass. A new kind that forgets to declare itself here does not fail;
+        /// it quietly carves a hole in the world.</para>
         /// </summary>
         private static void AddFeatures(
             IRoadPath path,
             RoadCourse course,
             in VegetationShape shape,
             List<Vector3> covered,
-            List<Vector3> views)
+            List<Vector3> views,
+            List<Vector3> forecourts)
         {
             if (path != null && course != null)
             {
@@ -352,6 +375,17 @@ namespace Horizon.World
                     if (feature.Kind == RoadFeatureKind.Viewpoint)
                     {
                         views.Add(path.GetPositionAtDistance(
+                            Mathf.Clamp(feature.StartDistance, 0f, path.Length)));
+                        continue;
+                    }
+
+                    // A forecourt is not a tunnel either, and for the sharper of the two reasons: the
+                    // capsule below would run 30 m past each end of a feature that has no length, so a
+                    // station would clear nearly twice the ground it stands on. Its own list, its own
+                    // radius, and unlike a viewpoint it stops grass as well — see VegetationContext.
+                    if (feature.Kind == RoadFeatureKind.FuelStation)
+                    {
+                        forecourts.Add(path.GetPositionAtDistance(
                             Mathf.Clamp(feature.StartDistance, 0f, path.Length)));
                         continue;
                     }
@@ -599,6 +633,14 @@ namespace Horizon.World
             }
 
             if (WithinAny(blockers, blockerRadius, x, z))
+            {
+                return true;
+            }
+
+            // Unconditional, not under tallOnly: see the note on the field. Tested before the
+            // viewpoints because it is the cheaper of the two — six points against as many as ten —
+            // and because it rejects outright rather than only for trees.
+            if (WithinAny(pads, padRadius, x, z))
             {
                 return true;
             }

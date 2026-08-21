@@ -98,6 +98,11 @@ namespace Horizon.World
                + "of it is not a viewpoint.")]
         public float ViewpointClearing;
 
+        [Tooltip("Nothing at all grows within this of a filling station, metres — grass included, which "
+               + "is what separates it from a viewpoint. A forecourt is paved.\n\n"
+               + "Must cover the apron FuelStationMeshes lays, or plants come up through the concrete.")]
+        public float FuelStationClearing;
+
         [Tooltip("Above the tree line, the band in which dead snags appear, as a fraction of the climb.")]
         public float SnagBand;
 
@@ -177,6 +182,12 @@ namespace Horizon.World
             TunnelExclusion = 58f,
             TunnelEndMargin = 30f,
             ViewpointClearing = 38f,
+
+            // 30 against an apron half-diagonal of about 27 m, so the paving is covered with a little
+            // to spare and the scatter closes back in immediately outside it. Deliberately tighter than
+            // the viewpoint's 38: a viewpoint is clearing a sight line, which reaches, and this is
+            // clearing a slab, which does not.
+            FuelStationClearing = 30f,
 
             SnagBand = 0.12f,
             SnagChance = 0.12f,
