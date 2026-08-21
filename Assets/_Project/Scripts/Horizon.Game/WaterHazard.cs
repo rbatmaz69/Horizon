@@ -199,7 +199,14 @@ namespace Horizon.Game
             return best;
         }
 
-        /// <summary>Back onto the nearest road, facing the way it runs.</summary>
+        /// <summary>
+        /// Back onto the nearest road, facing the way it runs.
+        ///
+        /// <para>Deliberately does <b>not</b> fill the tank, unlike the pause menu's Respawn. Being
+        /// fished out of a lake is not a fuel stop, and a car that ran dry and then rolled into the
+        /// water has two separate problems — this fixes the one it is about. The other is one tap
+        /// away.</para>
+        /// </summary>
         private void Recover()
         {
             if (routes == null)

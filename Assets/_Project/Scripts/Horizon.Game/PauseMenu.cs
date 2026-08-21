@@ -60,6 +60,7 @@ namespace Horizon.Game
         private const string LegacyTiltRangeKey = "Horizon.TiltRangeDegrees";
 
         private VehicleController vehicle;
+        private Horizon.Vehicle.FuelTank fuel;
         private TimeOfDayController timeOfDay;
         private Horizon.Core.ChaseCamera chaseCamera;
         private Horizon.World.TrafficNetwork routes;
@@ -221,6 +222,7 @@ namespace Horizon.Game
             // suspension, and a car dropped somewhere else still carrying 200 km/h of it arrives
             // sideways. It is also what the respawn button has always used.
             vehicle.Teleport(point.Position, point.Rotation);
+            FillTank();
 
             // The new place becomes what the respawn button means, or "put the car back" would send you
             // to a village you left twenty kilometres ago.
@@ -242,6 +244,38 @@ namespace Horizon.Game
             PlayerChoices.Spawn = index;
             PlayerChoices.Save();
             Resume();
+        }
+
+        /// <summary>
+        /// Brims the tank, wherever the car has just been put.
+        ///
+        /// <para><b>Because a respawn that leaves the tank empty is not a recovery.</b> Every path that
+        /// calls this exists to get the player out of a situation they cannot drive out of, and an empty
+        /// tank is exactly such a situation — put back on the road, pointing the right way, still unable
+        /// to move.</para>
+        ///
+        /// <para><b>It is also why the fuel level is never saved.</b> A run always begins by placing the
+        /// car: <c>StartScreen.Drive</c> calls <c>ApplyPlace</c>, which calls <see cref="MoveTo"/>. So
+        /// the tank is full at the start of every session no matter what, and a PlayerPrefs key for it
+        /// would be a value written on every quit and overwritten before it could ever be read. A
+        /// returning player is never handed a car that will not move and no explanation of why.</para>
+        /// </summary>
+        private void FillTank()
+        {
+            if (vehicle == null)
+            {
+                return;
+            }
+
+            if (fuel == null)
+            {
+                fuel = vehicle.GetComponent<Horizon.Vehicle.FuelTank>();
+            }
+
+            if (fuel != null)
+            {
+                fuel.FillFully();
+            }
         }
 
         /// <summary>
@@ -420,6 +454,7 @@ namespace Horizon.Game
             }
 
             vehicle.Teleport(position, rotation);
+            FillTank();
             SnapCamera();
             Resume();
         }
