@@ -34,7 +34,9 @@ namespace Horizon.Game
         [Tooltip("Hidden with everything else while paused, so it cannot be leaned on through the menu.")]
         [SerializeField] private GameObject handbrake;
 
-        [Tooltip("The rev counter. Shown in every control scheme — it is a readout, not a control.")]
+        [Tooltip("The instrument cluster — rev counter and fuel gauge. The whole group, so a dial "
+               + "added to it is hidden and shown with the rest for free. Shown in every control "
+               + "scheme: these are readouts, not controls.")]
         [SerializeField] private GameObject instruments;
 
         private bool paused;

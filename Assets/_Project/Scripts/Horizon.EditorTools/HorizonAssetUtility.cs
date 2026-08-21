@@ -803,6 +803,35 @@ namespace Horizon.EditorTools
                     return Mathf.Max(lever, knob);
                 }
 
+                // A filling-station pump: a body with a display punched out of it, a plinth under it,
+                // and the hose arm hooked over its shoulder down to a nozzle.
+                //
+                // The pair is the point. A nozzle on its own does not read at forty units — it is a bent
+                // stick — and a plain box is a box; what says "pump" is a box with an arm beside it.
+                // The display is a *subtraction*, which is what the Min against (1 - panel) does: these
+                // are coverage values, so cutting costs exactly what unioning costs and there is no
+                // third primitive to write.
+                //
+                // Every number here was arrived at by drawing the thing and looking at it, at forty
+                // units and again at twenty. That is the only way these are ever settled — see the note
+                // on the throttle and brake pair, which went the same way.
+                case "fuel":
+                {
+                    float body = Bar(u + 0.28f, v - 0.02f, 0.30f, 0.56f, 0f, pixel);
+                    float panel = Bar(u + 0.28f, v - 0.28f, 0.17f, 0.15f, 0f, pixel);
+                    float plinth = Bar(u + 0.28f, v + 0.58f, 0.40f, 0.13f, 0f, pixel);
+
+                    float arm = Bar(u - 0.40f, v - 0.04f, 0.075f, 0.44f, 0f, pixel);
+                    float link = Bar(u - 0.09f, v - 0.34f, 0.34f, 0.075f, 0f, pixel);
+                    float nozzle = Bar(u - 0.40f, v + 0.46f, 0.16f, 0.11f, 0f, pixel);
+
+                    float pump = Mathf.Max(
+                        Mathf.Max(body, plinth),
+                        Mathf.Max(Mathf.Max(arm, link), nozzle));
+
+                    return Mathf.Min(pump, 1f - panel);
+                }
+
                 // Two bars: pause.
                 case "pause":
                     return Mathf.Max(

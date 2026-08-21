@@ -72,6 +72,7 @@ namespace Horizon.EditorTools
             public Sprite Brake;
             public Sprite Handbrake;
             public Sprite Pause;
+            public Sprite Fuel;
         }
 
         private static Glyphset Glyphs;
@@ -109,6 +110,7 @@ namespace Horizon.EditorTools
                 Throttle = HorizonAssetUtility.LoadOrCreateGlyphSprite($"{SpriteFolder}/UI_Throttle.png", "throttle"),
                 Brake = HorizonAssetUtility.LoadOrCreateGlyphSprite($"{SpriteFolder}/UI_Brake.png", "brake"),
                 Handbrake = HorizonAssetUtility.LoadOrCreateGlyphSprite($"{SpriteFolder}/UI_Handbrake.png", "handbrake"),
+                Fuel = HorizonAssetUtility.LoadOrCreateGlyphSprite($"{SpriteFolder}/UI_Fuel.png", "fuel"),
                 Pause = HorizonAssetUtility.LoadOrCreateGlyphSprite($"{SpriteFolder}/UI_Pause.png", "pause"),
             };
 
@@ -403,11 +405,13 @@ namespace Horizon.EditorTools
         }
 
         /// <summary>
-        /// The rev counter, in the top-right corner.
+        /// The instruments, in the top-right corner: the rev counter, and the fuel gauge beside it.
         ///
         /// <para><b>The one corner that was free.</b> The wheel owns the bottom left, the throttle
         /// slider owns the whole right-hand column from y=300 up, and the pause button sits top left.
-        /// Anywhere else and a gauge would either be under a thumb or on top of a control.</para>
+        /// Anywhere else and a gauge would either be under a thumb or on top of a control — which is
+        /// why the fuel dial, when it arrived, went beside the tacho rather than into a corner of its
+        /// own. See <see cref="BuildFuelDial"/> for the arithmetic that says it fits.</para>
         ///
         /// <para>Nothing here is tappable — <c>raycastTarget</c> is off on every graphic. A 300-unit
         /// square of raycast target parked in a corner swallows taps without any sign that it did, and
@@ -510,8 +514,103 @@ namespace Horizon.EditorTools
                 HorizonAssetUtility.SetObjectArray(serialized, "tickLabels", tickLabels);
             });
 
+            BuildFuelDial(group.transform, ring, needleSprite, tickSprite);
+
             return group;
         }
+
+        /// <summary>
+        /// The fuel gauge, tucked in beside the rev counter.
+        ///
+        /// <para><b>Not in a corner of its own, because there is not one left.</b> The wheel owns the
+        /// bottom left, the slider owns the whole right-hand column from y=300 up, the pause button sits
+        /// top left, and the rev counter has the top right. So this shares the top right and reads as
+        /// part of the same cluster, which is what it is.</para>
+        ///
+        /// <para><b>It does share a horizontal band with the brake column, and that is fine.</b> The
+        /// brake sits at <see cref="InnerColumnX"/> −365 spanning x −465…−265; this dial spans −540…−370
+        /// and overlaps it. They are 415 units apart vertically — this ends 265 down from the top, the
+        /// brake begins 680 down. The right-hand grid's rule is about what a thumb rests on, and nothing
+        /// in the top strip is under a thumb. Left here in writing so that the overlap in x is not
+        /// "fixed" by somebody reading the grid's note without the heights.</para>
+        ///
+        /// <para>170 across against the tacho's 300: it is the secondary instrument and should look
+        /// like one, and the 30-unit gap between the two rims is what stops them reading as one lozenge.
+        /// On the narrowest canvas Android produces — 4:3, so 1440 units wide — its left edge sits at
+        /// x=900 against a pause button ending at 145, which is 755 units of clearance.</para>
+        /// </summary>
+        private static void BuildFuelDial(
+            Transform parent, Sprite ring, Sprite needleSprite, Sprite tickSprite)
+        {
+            const float fuelDialSize = 170f;
+
+            RectTransform dial = Panel(parent, "FuelDial", ring, ControlTint,
+                new Vector2(1f, 1f), new Vector2(1f, 1f),
+                new Vector2(fuelDialSize, fuelDialSize), new Vector2(-455f, -180f));
+
+            Untargeted(dial, Image.Type.Simple);
+
+            RectTransform reserve = Panel(dial, "Reserve", ring, RedlineTint,
+                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                new Vector2(fuelDialSize, fuelDialSize), Vector2.zero);
+
+            Image reserveImage = Untargeted(reserve, Image.Type.Filled);
+            reserveImage.fillMethod = Image.FillMethod.Radial360;
+            reserveImage.fillOrigin = (int)Image.Origin360.Top;
+            reserveImage.fillClockwise = false;
+            reserveImage.fillAmount = 0f;
+
+            // Five: E, a quarter, a half, three quarters, F. FuelGauge places them and never moves
+            // them again — unlike the tacho's, they do not depend on which car is being driven.
+            var tickMarks = new RectTransform[FuelDialMarks];
+
+            for (int i = 0; i < FuelDialMarks; i++)
+            {
+                tickMarks[i] = Panel(dial, $"FuelTick{i}", tickSprite, GlyphTint,
+                    new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                    new Vector2(13f, 18f), Vector2.zero);
+
+                Untargeted(tickMarks[i], Image.Type.Simple);
+            }
+
+            // Only the two ends are captioned, and they are captions rather than readouts — written
+            // here, wired to nothing, never touched again. A gauge marked 0 to 60 would be a gauge that
+            // had to know how big this car's tank was, which is the whole thing this dial avoids.
+            CentreLabel(dial, "Empty", "E", 18, new Vector2(-52f, -34f), new Vector2(24f, 24f),
+                new Color(1f, 1f, 1f, 0.75f));
+            CentreLabel(dial, "Full", "F", 18, new Vector2(52f, -34f), new Vector2(24f, 24f),
+                new Color(1f, 1f, 1f, 0.75f));
+
+            RectTransform pump = Panel(dial, "Pump", Glyphs.Fuel, GlyphTint,
+                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                new Vector2(40f, 40f), new Vector2(0f, 36f));
+
+            Image pumpImage = Untargeted(pump, Image.Type.Simple);
+
+            RectTransform needle = Panel(dial, "FuelNeedle", needleSprite, NeedleTint,
+                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                new Vector2(fuelDialSize, fuelDialSize), Vector2.zero);
+
+            Untargeted(needle, Image.Type.Simple);
+
+            FuelGauge gauge = dial.gameObject.AddComponent<FuelGauge>();
+
+            HorizonAssetUtility.Configure(gauge, serialized =>
+            {
+                serialized.FindProperty("needle").objectReferenceValue = needle;
+                serialized.FindProperty("reserveArc").objectReferenceValue = reserveImage;
+                serialized.FindProperty("pumpGlyph").objectReferenceValue = pumpImage;
+
+                HorizonAssetUtility.SetObjectArray(serialized, "tickMarks", tickMarks);
+            });
+
+            HorizonAssetUtility.AssertReferenceAssigned(gauge, "needle");
+            HorizonAssetUtility.AssertReferenceAssigned(gauge, "reserveArc");
+            HorizonAssetUtility.AssertReferenceAssigned(gauge, "pumpGlyph");
+        }
+
+        /// <summary>Marks on the fuel dial: E, a quarter, a half, three quarters, F.</summary>
+        private const int FuelDialMarks = 5;
 
         /// <summary>How many marks the dial pool holds. The Coupe revs to 8000, so 0..8.</summary>
         private const int MaxDialMarks = 9;
