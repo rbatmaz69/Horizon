@@ -142,7 +142,16 @@ namespace Horizon.World
 
             // --- The fast half kilometre. Uphill, which is what keeps it from being a place to simply
             // hold the throttle down.
-            builder.Straight(520f, 1.4f);
+            //
+            // Split 180 + 340 so the filling station sits inside it rather than on either end. Both
+            // divide by the 10 m point spacing, so the road is unchanged.
+            builder.Straight(180f, 1.4f);
+
+            // On the valley floor at the start of the fast stretch, which is the one genuinely open
+            // piece of this road — everywhere else is either bending or on the crest. Left-hand side,
+            // away from the Bergsee.
+            builder.AddFuelStation("Auenhof", -1f);
+            builder.Straight(340f, 1.4f);
             builder.Turn(400f, 46f, 2f);
             builder.Straight(160f, CrestGrade);
             builder.AddViewpoint("Hochwiese");

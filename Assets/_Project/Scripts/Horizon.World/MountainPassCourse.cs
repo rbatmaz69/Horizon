@@ -190,7 +190,18 @@ namespace Horizon.World
             // houses and climbs out of them.
             builder.Straight(PassFirstStraight, 1f);
             builder.Turn(220f, -28f, 1f);
-            builder.Straight(120f, 1.5f);
+            // Split 60 + 60 only so the filling station lands in the middle of this straight rather
+            // than on the corner at the end of it. The control points are unchanged: Straight emits one
+            // every 10 m and both halves divide by 10, so the road is the same road.
+            builder.Straight(60f, 1.5f);
+
+            // The last fuel before the pass, which is a thing every real mountain road has and for the
+            // same reason: above this point are thirty switchbacks and no flat ground to build on. Past
+            // the last of Talheim's houses and at the foot of the climb, at 1.5 % and dead straight —
+            // which is as good as this course gets below the summit.
+            builder.AddFuelStation("Tankstelle Talheim", 1f);
+            builder.Straight(60f, 1.5f);
+
             builder.AddFeature(RoadFeatureKind.Village, TownStartDistance, TownEndDistance, "Talheim");
 
             // --- Climb.
@@ -234,7 +245,18 @@ namespace Horizon.World
             // --- Summit. Somewhere to stop, which the concept asks for and the view earns.
             builder.Straight(70f, 2.5f);
             builder.AddViewpoint("Passhöhe");
-            builder.Straight(110f, 0f);
+
+            // 50 + 60 rather than 110, for the reason given at the Talheim station: it puts the forecourt
+            // inside the level stretch instead of on the bend that ends it, and 50 and 60 both divide by
+            // the 10 m point spacing, so the geometry does not move.
+            builder.Straight(50f, 0f);
+
+            // The only dead-level ground on the mountain, which is what a forecourt needs — everything
+            // else here is between 2.5 and 9.5 %. Far enough past the viewpoint that the two are not
+            // fighting over the same piece of hillside, and on the mountain side of the road so the drop
+            // and the view stay unbuilt-on.
+            builder.AddFuelStation("Passhöhe Raststätte", 1f);
+            builder.Straight(60f, 0f);
             builder.Turn(180f, 34f, -1f);
 
             // --- Descent.

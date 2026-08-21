@@ -120,7 +120,12 @@ namespace Horizon.World
         {
             builder.Straight(FirstRun, Grade);
             builder.Turn(BendRadius, -34f, Grade);
-            builder.Straight(300f, Grade);
+            // 150 + 150 around the last fuel before Seeburg. Short of the bay, so the viewpoint keeps
+            // its own piece of shoreline, and on the landward side — the water side of this road is the
+            // reason to drive it.
+            builder.Straight(150f, Grade);
+            builder.AddFuelStation("Bucht Tankstelle", -1f);
+            builder.Straight(150f, Grade);
             builder.Turn(BendRadius, 44f, Grade);
 
             // Where the bay opens up: the second bend finishes pointing at the water, and this is the

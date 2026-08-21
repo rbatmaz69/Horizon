@@ -235,7 +235,13 @@ namespace Horizon.World
             builder.Straight(PortalApproach, 0.2f);
 
             builder.Turn(1200f, -20f, 0.5f);
-            builder.Straight(640f, 0.4f);
+
+            // 300 + 340 around the westbound services. Well past the Steinbergtunnel's portal and well
+            // short of the Wiesentalbrücke's abutment, which is the only stretch on this leg with room
+            // for one. Side −1 is the westbound carriageway — see CarriagewayOffset.
+            builder.Straight(300f, 0.4f);
+            builder.AddFuelStation("Raststätte Steinberg", -1f);
+            builder.Straight(340f, 0.4f);
 
             // Level across the span. A bridge is built flat here not because real ones are, but because
             // the deck, the piers and the parapet are all measured off the carriageway, and a grade
@@ -260,7 +266,12 @@ namespace Horizon.World
             builder.Straight(320f, 0f);
             builder.AddFeature(RoadFeatureKind.Bridge, bridgeStart, builder.Distance, "Talbrücke Hochfeld");
 
-            builder.Straight(420f, 0.2f);
+            // 200 + 220 around the eastbound services, on the far side of the viaduct from them. A
+            // motorway's two carriageways cannot share a forecourt, and this course is their centreline,
+            // so each side gets its own — this one at +1, the eastbound.
+            builder.Straight(200f, 0.2f);
+            builder.AddFuelStation("Raststätte Hochfeld", 1f);
+            builder.Straight(220f, 0.2f);
             builder.Turn(1150f, 18f, -0.3f);
             builder.Straight(600f, -0.4f);
 

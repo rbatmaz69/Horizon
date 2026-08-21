@@ -42,6 +42,24 @@ namespace Horizon.World
         /// parapet, and is exactly where running off the edge matters most.</para>
         /// </summary>
         Bridge = 4,
+
+        /// <summary>
+        /// A filling station. Zero length marks the pump island, exactly as
+        /// <see cref="Viewpoint"/> marks a point — what actually stands there is laid out around it by
+        /// <c>FuelStationBuilder</c>, the way a village's houses come from <c>TownPlan</c> rather than
+        /// from this enum.
+        ///
+        /// <para>Not counted by <see cref="RoadCourse.IsCovered"/> either: a forecourt has a canopy but
+        /// no tunnel, and the carriageway beside it still wants its clearance checked. It gets its own
+        /// predicate, <see cref="RoadCourse.IsForecourt"/>, because what a forecourt suppresses — the
+        /// guard rail and the delineator posts across its frontage — is not what a roof suppresses.</para>
+        ///
+        /// <para><b>This is the one feature kind that cares which side of the road it is on</b>, which
+        /// is what <see cref="RoadFeature.Side"/> is for. A tunnel is the road; a forecourt is beside
+        /// it, and the motorway's two carriageways are one course, so without a side there would be no
+        /// way to say which of them a station belongs to.</para>
+        /// </summary>
+        FuelStation = 5,
     }
 
     /// <summary>A stretch of the course that something is built on or into.</summary>
@@ -52,12 +70,25 @@ namespace Horizon.World
         public readonly float EndDistance;
         public readonly string Name;
 
-        public RoadFeature(RoadFeatureKind kind, float startDistance, float endDistance, string name)
+        /// <summary>
+        /// Which side of the road it stands on: −1 left, +1 right, 0 for anything with no side — which
+        /// is everything except <see cref="RoadFeatureKind.FuelStation"/>.
+        ///
+        /// <para>A side and not a distance across, deliberately. How far off the centreline a forecourt
+        /// sits is a function of the carriageway's own half-width and the depth of the apron, both of
+        /// which belong to the builder; a course that wrote down 24.75 m would be a course that had to
+        /// be re-typed the day <c>RoadShape.OuterHalfWidth</c> moved.</para>
+        /// </summary>
+        public readonly float Side;
+
+        public RoadFeature(
+            RoadFeatureKind kind, float startDistance, float endDistance, string name, float side = 0f)
         {
             Kind = kind;
             StartDistance = startDistance;
             EndDistance = endDistance;
             Name = name;
+            Side = side;
         }
 
         public float Length => EndDistance - StartDistance;
@@ -176,6 +207,33 @@ namespace Horizon.World
                 RoadFeature feature = features[i];
 
                 if (feature.Kind == RoadFeatureKind.Bridge
+                    && distance >= feature.StartDistance - margin
+                    && distance <= feature.EndDistance + margin)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// True within <paramref name="margin"/> of a filling station.
+        ///
+        /// <para>Guard rails and delineator posts read this. A forecourt's frontage is open by
+        /// construction — that is how a car gets onto it — and a line of posts across the entrance is a
+        /// line of posts <i>through</i> the entrance. Both verges are suppressed rather than only the
+        /// station's own: expressing a one-sided skip would mean threading a side through loops that
+        /// have never needed one, for the sake of a rail on the far shoulder of a stretch that was
+        /// chosen for being straight and level in the first place.</para>
+        /// </summary>
+        public bool IsForecourt(float distance, float margin = 0f)
+        {
+            for (int i = 0; i < features.Count; i++)
+            {
+                RoadFeature feature = features[i];
+
+                if (feature.Kind == RoadFeatureKind.FuelStation
                     && distance >= feature.StartDistance - margin
                     && distance <= feature.EndDistance + margin)
                 {
@@ -368,6 +426,24 @@ namespace Horizon.World
         public RoadCourseBuilder AddViewpoint(string name)
         {
             features.Add(new RoadFeature(RoadFeatureKind.Viewpoint, traveled, traveled, name));
+            return this;
+        }
+
+        /// <summary>
+        /// Marks a filling station at the current distance, on the given side.
+        ///
+        /// <para>Placed by where it falls in the walk rather than by a distance somebody counted, for
+        /// the same reason the viewpoints are: the courses are retuned, and a literal 1150 would rot the
+        /// first time a bend above it changed radius. Where a station has to sit part-way along a
+        /// straight, split the straight — two of 300 and 340 emit exactly the same control points as one
+        /// of 640, because the spacing divides both.</para>
+        /// </summary>
+        /// <param name="side">−1 for the left of the direction of travel, +1 for the right.</param>
+        public RoadCourseBuilder AddFuelStation(string name, float side)
+        {
+            features.Add(
+                new RoadFeature(RoadFeatureKind.FuelStation, traveled, traveled, name, Mathf.Sign(side)));
+
             return this;
         }
 
