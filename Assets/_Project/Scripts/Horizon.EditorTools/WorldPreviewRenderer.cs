@@ -961,6 +961,35 @@ namespace Horizon.EditorTools
                             continue;
                         }
 
+                        // The aisles, from where a car turns in. Straight down would be the obvious
+                        // shot and is useless: the canopy roof is 22 by 11 metres of opaque deck
+                        // directly over the paint, so an overhead sees a rectangle and two stripe ends.
+                        // This sits under the canopy's leading edge instead, which is both the only
+                        // angle the marks are visible from and the angle the driver has.
+                        Vector3 in3 = bounds.center - from;
+                        in3.y = 0f;
+
+                        // Six and a half metres up and a third of the way in. Above head height so the
+                        // ground is not foreshortened into nothing, and shallow enough that the sight
+                        // line still passes under the canopy's leading edge at 4.6 m rather than over
+                        // the roof — which is the whole difficulty with photographing this.
+                        Vector3 over = new Vector3(from.x, bounds.min.y + 6.5f, from.z) + in3 * 0.32f;
+                        var floor = new Vector3(bounds.center.x, bounds.min.y, bounds.center.z);
+
+                        camera.transform.SetPositionAndRotation(
+                            over, Quaternion.LookRotation((floor - over).normalized, Vector3.up));
+
+                        Capture(camera, Path.Combine(
+                            directory, $"WorldPreview_FuelStation_Bays{suffix}.png"));
+
+                        // And one from directly above anyway, because it is the only view that would
+                        // show paint creeping onto the sloped entry ramp at the frontage.
+                        camera.transform.SetPositionAndRotation(
+                            bounds.center + Vector3.up * 52f, Quaternion.Euler(90f, 0f, 0f));
+
+                        Capture(camera, Path.Combine(
+                            directory, $"WorldPreview_FuelStation_Above{suffix}.png"));
+
                         camera.transform.position = new Vector3(
                             bounds.center.x, bounds.min.y + 1.6f, bounds.center.z)
                             - (bounds.center - from).normalized * 6f;

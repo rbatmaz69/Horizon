@@ -273,8 +273,15 @@ namespace Horizon.World
 
             AddApron(buffer, site);
             AddCanopy(buffer, site);
-            AddPumps(buffer, site, ref random);
+
+            // AddPumps hands back its own dice roll rather than AddBays asking for it again. One
+            // PlantRandom drawn in order is what makes a station reproducible, and the price of that is
+            // that anything downstream of a roll has to be told the answer: a second PlantRandom(Seed)
+            // would draw in a different order and paint an aisle beside an island that is not there.
+            bool thirdIsland = AddPumps(buffer, site, ref random);
+
             AddShop(buffer, site, ref random);
+            AddBays(buffer, site, thirdIsland);
             AddTotem(buffer, site);
         }
 
@@ -400,7 +407,8 @@ namespace Horizon.World
         }
 
         /// <summary>Two islands under the canopy, two pumps on each.</summary>
-        private static void AddPumps(
+        /// <returns>Whether the third island was rolled, which the bay paint has to know.</returns>
+        private static bool AddPumps(
             VegetationMeshBuffer buffer, in StationSite site, ref PlantRandom random)
         {
             Vector3 centre = site.Centre + site.Outward * 1.5f;
@@ -432,11 +440,101 @@ namespace Horizon.World
             // A third island where there is room for it, so seven stations are not one station seven
             // times. The Talheim and Passhöhe pads are the same size as the motorway's, and a service
             // area on a trunk road ought to look busier than one on a mountain.
-            if (random.Chance(0.5f))
+            if (!random.Chance(0.5f))
             {
-                Vector3 at = centre + site.Outward * 7.4f;
-                AddBox(buffer, TrimSubmesh, at, site.Forward, site.Outward, 5f, 1.1f, 0.18f);
+                return false;
             }
+
+            Vector3 third = centre + site.Outward * 7.4f;
+            AddBox(buffer, TrimSubmesh, third, site.Forward, site.Outward, 5f, 1.1f, 0.18f);
+            return true;
+        }
+
+        /// <summary>
+        /// The painted aisles, which are what say where to stop.
+        ///
+        /// <para><b>Per aisle, not per pump.</b> An aisle is exactly one car wide and runs parallel to
+        /// the road, so it is the space a car is actually in — and from it a driver can reach a pump on
+        /// each hand. Marking the pumps instead would mark two things a car cannot occupy.</para>
+        ///
+        /// <para>The positions are read off where <see cref="AddPumps"/> put the islands rather than
+        /// written down again: the canopy centre is 1.5 m out, the islands sit ±2.6 either side of it
+        /// with a 1.1 m half-depth, so in metres from the site centre they occupy −2.2…0.0 and 3.0…5.2,
+        /// and the third, when it is rolled, 7.8…10.0. What is left between them is the aisles.</para>
+        ///
+        /// <para>Each gets two lines down its edges and a bar across the middle. The lines run three
+        /// metres past the islands at both ends, which is a lead-in funnel where a car enters — and the
+        /// bar divides fore from aft, putting one bay beside each pump. Six triangles an aisle.</para>
+        /// </summary>
+        private static void AddBays(VegetationMeshBuffer buffer, in StationSite site, bool thirdIsland)
+        {
+            AddBay(buffer, site, -5.0f, -2.2f);
+            AddBay(buffer, site, 0f, 3.0f);
+
+            if (thirdIsland)
+            {
+                AddBay(buffer, site, 5.2f, 7.8f);
+            }
+        }
+
+        /// <summary>One aisle's paint, between two island edges given in metres of Outward.</summary>
+        private static void AddBay(
+            VegetationMeshBuffer buffer, in StationSite site, float low, float high)
+        {
+            // 24 cm, wider than the 10-to-15 a real bay is painted at. This world is read at speed and
+            // from a car, and the same argument the town's markings make about a 14 cm kerb applies:
+            // the geometry that is technically correct is below the width at which anything registers.
+            const float lineHalf = 0.12f;
+            const float inset = 0.10f;
+            const float reach = 8f;
+
+            float left = low + inset + lineHalf;
+            float right = high - inset - lineHalf;
+
+            AddStripe(buffer, site, left - lineHalf, left + lineHalf, -reach, reach);
+            AddStripe(buffer, site, right - lineHalf, right + lineHalf, -reach, reach);
+            AddStripe(buffer, site, left, right, -lineHalf, lineHalf);
+        }
+
+        /// <summary>
+        /// One painted rectangle, laid on the slab.
+        ///
+        /// <para><b>A constant lift is legitimate here and would not be on a road.</b> The technique is
+        /// <c>TownStreetBuilder</c>'s, and so is the trap: paint lifted a flat 1.5 cm over a carriageway
+        /// with a 6 cm crown sat <i>underneath</i> the asphalt on every marked street in the town, which
+        /// is what commit 08aba1f had to unpick with a height that follows the camber. This slab has no
+        /// camber — <see cref="AddApron"/> emits it as a single flat quad and
+        /// <c>FuelStationBuilder.AddPadSamples</c> levels the ground under it flat across and level
+        /// along — so there is nothing to follow, and that is why the machinery is absent rather than
+        /// forgotten.</para>
+        ///
+        /// <para>Two centimetres, the motorway merge's figure and its argument: it beats the depth
+        /// buffer outright and is a twentieth of the suspension's travel at rest, so a raycast wheel
+        /// crossing a stripe cannot feel the step.</para>
+        ///
+        /// <para>Nothing here comes near the entry ramp, and by construction rather than by care: the
+        /// paint stays inside ±8 m along and −5…8 across, while the ramp starts at −19.5 across. Nine
+        /// metres of flat slab separate them, and it would take <see cref="ApronHalfDepth"/> shrinking
+        /// below about 9 to close that.</para>
+        /// </summary>
+        private static void AddStripe(
+            VegetationMeshBuffer buffer,
+            in StationSite site,
+            float acrossFrom,
+            float acrossTo,
+            float alongFrom,
+            float alongTo)
+        {
+            const float lift = 0.02f;
+
+            Vector3 top = site.Centre + Vector3.up * lift;
+
+            Vector3 a = top + site.Forward * alongFrom + site.Outward * acrossFrom;
+            Vector3 b = top + site.Forward * alongTo + site.Outward * acrossFrom;
+            Vector3 c = top + site.Forward * alongTo + site.Outward * acrossTo;
+            Vector3 d = top + site.Forward * alongFrom + site.Outward * acrossTo;
+
+            buffer.AddQuadFacing(MarkingSubmesh, a, b, c, d, Vector3.up);
         }
 
         /// <summary>The shop, at the back of the forecourt with its glazing towards the pumps.</summary>

@@ -6329,7 +6329,7 @@ namespace Horizon.EditorTools
                 materials.RoadTint,      // Apron
                 materials.BuildingTint,  // Structure
                 materials.BuildingTint,  // Trim
-                materials.BuildingTint,  // Marking
+                materials.RoadTint,      // Marking — paint on a road, so road smoothness if ever untinted
                 materials.WindowDay,     // Lit — TownLights swaps this after dusk
                 materials.SignFace,      // Sign — registered with nothing, bright always
             };
