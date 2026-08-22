@@ -792,6 +792,12 @@ namespace Horizon.Vehicle
                     gearIndex++;
                     shiftTimer = config.ShiftTime;
                 }
+                else if (command >= KickdownDemand && gearIndex > 0
+                         && TryKickdown(wheelRpm, upshiftRpm, out int kicked))
+                {
+                    gearIndex = kicked;
+                    shiftTimer = config.ShiftTime;
+                }
                 else if (engineRpm <= downshiftRpm && gearIndex > 0)
                 {
                     // Downshifts go straight to the right gear instead of walking down to it.
@@ -860,6 +866,99 @@ namespace Horizon.Vehicle
             }
 
             return wheelForce / Mathf.Max(1, config.DrivenWheelCount);
+        }
+
+        /// <summary>
+        /// How hard the driver has to ask before the box will drop a gear it has no rpm reason to drop.
+        ///
+        /// <para>0.85 is the detent. A real automatic's kickdown is a switch under the end of the pedal
+        /// travel, not a proportional thing, and that is the right model here: below this the box is
+        /// left alone to short-shift and cruise, and past it the driver has unambiguously asked for
+        /// everything the car has.</para>
+        /// </summary>
+        private const float KickdownDemand = 0.85f;
+
+        /// <summary>
+        /// How much more thrust a lower gear must offer before it is worth the shift.
+        ///
+        /// <para>Six per cent. Two adjacent gears are often within a percent or two of each other at a
+        /// given road speed, and a box that took every one of those would shuffle continuously for
+        /// nothing — while each shift costs <see cref="VehicleConfig.ShiftTime"/> of no drive at all,
+        /// so a marginal downshift is a loss twice over.</para>
+        /// </summary>
+        private const float KickdownGain = 1.06f;
+
+        /// <summary>
+        /// How far below the upshift point a candidate gear has to land, as a fraction of it.
+        ///
+        /// <para>Nine tenths, and the tenth is not caution — it is the difference between the right gear
+        /// and one that is right for half a second. Allowing a candidate all the way to the upshift point
+        /// let the box answer a floored pedal at 129 km/h by dropping two gears into fourth at 5240 rpm,
+        /// which pulls seven per cent harder than fifth and then hits the upshift 0.6 s later. Six
+        /// hundred milliseconds of extra thrust, bought with another <see cref="VehicleConfig.ShiftTime"/>
+        /// of none at all: measurably slower, and it feels like the box changing its mind. With the
+        /// headroom it goes to fifth and stays there.</para>
+        /// </summary>
+        private const float KickdownHeadroom = 0.90f;
+
+        /// <summary>
+        /// Picks the gear that would actually pull hardest at this road speed, if it is not this one.
+        ///
+        /// <para><b>The gap this fills.</b> Every other rule in the box is about engine speed, and engine
+        /// speed cannot tell a sixth gear that is right from one that is wrong. Run fourth to the redline
+        /// at 133 km/h, lift, and the part-throttle rule short-shifts up through fifth into sixth — which
+        /// is correct, and is what a driver lifting off wants. But it leaves the engine at 3272 rpm, and
+        /// the downshift threshold is 2100. Get back on the throttle and nothing happens: the box has no
+        /// rpm reason to move, so it sits in top making three quarters of the thrust fifth would give,
+        /// and the car does not accelerate.</para>
+        ///
+        /// <para><b>Chosen by thrust, not by a shift map.</b> Wheel force is engine torque times the
+        /// ratio, and the torque curve is already on the config — so the question "which gear pulls
+        /// hardest here" has an actual answer rather than a table of speeds somebody tuned. The final
+        /// drive and the wheel radius are common to every candidate and drop out of the comparison.</para>
+        ///
+        /// <para><b>The ceiling is what keeps it from hunting.</b> A gear is only a candidate if it lands
+        /// a clear <see cref="KickdownHeadroom"/> below the same <paramref name="upshiftRpm"/> the rule
+        /// above would upshift at; without that the box drops into gears it has to leave again almost
+        /// immediately. Lower gears only ever rev higher, so the walk can stop at the first one that
+        /// fails.</para>
+        /// </summary>
+        private bool TryKickdown(float wheelRpm, float upshiftRpm, out int gear)
+        {
+            gear = gearIndex;
+
+            float best = ThrustInGear(gearIndex, wheelRpm) * KickdownGain;
+
+            for (int candidate = gearIndex - 1; candidate >= 0; candidate--)
+            {
+                float rpm = wheelRpm * config.RatioForGear(candidate) * config.FinalDrive;
+                if (rpm >= upshiftRpm * KickdownHeadroom)
+                {
+                    break;
+                }
+
+                float thrust = ThrustInGear(candidate, wheelRpm);
+                if (thrust > best)
+                {
+                    best = thrust;
+                    gear = candidate;
+                }
+            }
+
+            return gear != gearIndex;
+        }
+
+        /// <summary>
+        /// Wheel force a gear would make at this road speed, in units that only mean anything against
+        /// each other.
+        /// </summary>
+        private float ThrustInGear(int gear, float wheelRpm)
+        {
+            float ratio = Mathf.Abs(config.RatioForGear(gear));
+            float rpm = wheelRpm * ratio * config.FinalDrive;
+            float fraction = Mathf.Clamp01(rpm / Mathf.Max(1f, config.RedlineRpm));
+
+            return Mathf.Max(0f, config.TorqueByRpm.Evaluate(fraction)) * ratio;
         }
 
         private void UpdateWheel(
