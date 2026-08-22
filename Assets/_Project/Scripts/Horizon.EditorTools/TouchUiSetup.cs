@@ -515,8 +515,54 @@ namespace Horizon.EditorTools
             });
 
             BuildFuelDial(group.transform, ring, needleSprite, tickSprite);
+            BuildFuelNotice(group.transform);
 
             return group;
+        }
+
+        /// <summary>
+        /// The line that appears when the tank is low, along the top edge.
+        ///
+        /// <para><b>The last free strip on the screen.</b> The pause button owns the top left corner and
+        /// the instruments the top right; between them, across the middle of the top edge, nothing has
+        /// ever been. It is also where a notification conventionally goes and nowhere near a thumb.</para>
+        ///
+        /// <para>Inside the instruments group rather than in one of its own, which is what keeps it off
+        /// the start screen and hides it with the rest of the HUD on pause — see
+        /// <c>TouchControlsHud</c>. It is a readout, and this is where the readouts live.</para>
+        ///
+        /// <para>760 wide centred: on the narrowest canvas Android produces, 4:3 at 1440 units, that
+        /// spans x 340…1100 against a pause button ending at 145.</para>
+        /// </summary>
+        private static void BuildFuelNotice(Transform parent)
+        {
+            Sprite box = HorizonAssetUtility.LoadOrCreateUiSprite($"{SpriteFolder}/UI_Box.png");
+
+            RectTransform notice = Panel(parent, "FuelNotice", box, PanelTint,
+                new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
+                new Vector2(760f, 68f), new Vector2(0f, -56f));
+
+            Untargeted(notice, Image.Type.Sliced);
+
+            Text line = LabelOn(notice, string.Empty, 28, GlyphTint);
+
+            // The component goes on the group, not on the panel it hides. A MonoBehaviour that switched
+            // off its own GameObject would stop being updated at the same moment, and would then have no
+            // way to switch it back on — the notice would appear once and never leave. The group stays
+            // up for as long as the HUD does; the panel under it is what comes and goes.
+            FuelNotice component = parent.gameObject.AddComponent<FuelNotice>();
+
+            HorizonAssetUtility.Configure(component, serialized =>
+            {
+                serialized.FindProperty("panel").objectReferenceValue = notice.gameObject;
+                serialized.FindProperty("label").objectReferenceValue = line;
+            });
+
+            HorizonAssetUtility.AssertReferenceAssigned(component, "panel");
+            HorizonAssetUtility.AssertReferenceAssigned(component, "label");
+
+            // Nothing to say yet.
+            notice.gameObject.SetActive(false);
         }
 
         /// <summary>

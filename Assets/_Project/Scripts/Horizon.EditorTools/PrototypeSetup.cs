@@ -1467,6 +1467,8 @@ namespace Horizon.EditorTools
             BuildFuelStations(worldRoot.transform, fuelStations, field, materials,
                 litRenderers, litSlotStart, litSlots, litSlotGroups);
 
+            BuildFillingStations(worldRoot.transform, fuelStations);
+
             // --- Seeburg's harbour. After the water, because every height in it is measured off the
             // surface that was resolved there, and after the terrain, because the promenade rail is laid
             // on ground that has to exist first.
@@ -6497,6 +6499,54 @@ namespace Horizon.EditorTools
                                  + "there, which is the map doing it to them rather than them doing it "
                                  + "to themselves. Add a station, or accept it deliberately.");
             }
+        }
+
+        /// <summary>
+        /// Bakes the pump positions in for the runtime.
+        ///
+        /// <para>Baked rather than derived, exactly as the water is: the courses that know where the
+        /// stations go are build-time objects and are not in a player build at all.</para>
+        ///
+        /// <para>The point recorded is the <b>pumps</b>, not the middle of the forecourt — offset out
+        /// from the centre by the same 1.5 m the canopy is. Parking at a pump is what makes a station
+        /// somewhere you arrive at rather than a stretch of road that happens to refill you, and a reach
+        /// measured from the middle of the slab would let a car fuel from the far corner of it.</para>
+        /// </summary>
+        private static void BuildFillingStations(
+            Transform parent, IReadOnlyList<FuelStationMeshes.StationSite> sites)
+        {
+            if (sites == null || sites.Count == 0)
+            {
+                return;
+            }
+
+            var pumpsObject = new GameObject("FillingStations");
+            pumpsObject.transform.SetParent(parent, false);
+
+            var records = new List<FillingStations.Station>(sites.Count);
+
+            for (int i = 0; i < sites.Count; i++)
+            {
+                FuelStationMeshes.StationSite site = sites[i];
+
+                records.Add(new FillingStations.Station
+                {
+                    Name = site.Name,
+                    Pumps = site.Centre + site.Outward * 1.5f,
+
+                    // 9 m: comfortably more than the 5 m island so nobody has to be precise about where
+                    // they stop, and well short of the apron's 17 m half-depth so that being on the
+                    // forecourt is not the same as being at a pump.
+                    Radius = 9f,
+                });
+            }
+
+            FillingStations pumps = pumpsObject.AddComponent<FillingStations>();
+            pumps.SetStations(records);
+            EditorUtility.SetDirty(pumps);
+
+            Debug.Log($"[Horizon] Filling stations: {records.Count} sets of pumps baked in. Stopping "
+                      + "within 9 m of one fills the tank.");
         }
 
         /// <summary>How far the finished ground rises and falls under one forecourt, metres.</summary>
