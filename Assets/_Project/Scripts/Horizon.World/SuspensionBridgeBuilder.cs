@@ -120,10 +120,24 @@ namespace Horizon.World
         private const float AnchorHalfDepth = 6f;
         private const float AnchorHeight = 7f;
 
-        /// <summary>Spacing of the lamp beads along a cable, metres.</summary>
-        private const float BeadSpacing = 44f;
+        /// <summary>
+        /// Spacing of the lamp beads along a cable, metres.
+        ///
+        /// <para>Twenty-six, down from forty-four. At the wider spacing the night shot came back with
+        /// four visible lights on a kilometre of cable, which is a dark bridge with a fault on it rather
+        /// than a lit one — and a bridge lit along its cables is most of the reason anybody photographs
+        /// one. The beads are cheap: two dozen boxes a side against five thousand triangles of
+        /// structure.</para>
+        /// </summary>
+        private const float BeadSpacing = 26f;
 
-        private const float BeadHalf = 0.42f;
+        private const float BeadHalf = 0.5f;
+
+        /// <summary>Spacing of the lamp standards along the deck, metres.</summary>
+        private const float LampSpacing = 48f;
+
+        /// <summary>Height of a lamp standard above the parapet coping.</summary>
+        private const float LampHeight = 5.2f;
 
         /// <summary>
         /// Builds every suspension span on a course as one mesh, or returns null if it has none.
@@ -225,6 +239,7 @@ namespace Horizon.World
 
                 AddHangers(buffer, path, roadShape, westTower, mainSpan, sign * offset, shape);
                 AddBeads(buffer, cable);
+                AddDeckLamps(buffer, path, roadShape, feature, sign);
             }
         }
 
@@ -424,6 +439,43 @@ namespace Horizon.World
                 }
 
                 AddTube(buffer, SteelSubmesh, new[] { top, foot }, HangerHalf);
+            }
+        }
+
+        /// <summary>
+        /// Lamp standards along the parapet, one side's worth.
+        ///
+        /// <para>Not decoration: without them the deck at night is a kilometre of unlit asphalt with a
+        /// shape overhead, and the one place in the world where the driver has no verge, no hedge and no
+        /// horizon to judge position against. Every real crossing of this size is lit for the same
+        /// reason. They stand on the parapet rather than beside it, because there is no verge to stand
+        /// on.</para>
+        /// </summary>
+        private static void AddDeckLamps(
+            VegetationMeshBuffer buffer,
+            IRoadPath path,
+            in RoadShape roadShape,
+            in RoadFeature feature,
+            float sign)
+        {
+            int count = Mathf.Max(1, Mathf.RoundToInt(feature.Length / LampSpacing));
+
+            for (int i = 1; i < count; i++)
+            {
+                float distance = feature.StartDistance + feature.Length * i / count;
+
+                Sample(path, roadShape, distance, out Vector3 centre, out Vector3 right, out Vector3 up);
+                Vector3 along = Vector3.Cross(up, right).normalized;
+
+                Vector3 seat = centre
+                               + right * (roadShape.OuterHalfWidth * sign)
+                               - up * roadShape.ShoulderDrop
+                               + up * BridgeBuilder.ParapetHeight;
+
+                // The column is steel and dark; only the head is on the bright slot, or a lamp post is a
+                // strip light standing on the parapet.
+                AddBox(buffer, SteelSubmesh, seat, right, along, up, 0.16f, LampHeight, 0.16f);
+                AddBox(buffer, LampSubmesh, seat + up * LampHeight, right, along, up, 0.42f, 0.45f, 0.7f);
             }
         }
 

@@ -303,6 +303,19 @@ at four pixels, which no ground colour can claim). It hangs off the **same road*
 begins at the eastern anchorage, because what separates the two countries is 1250 m of bridge rather
 than a different piece of tarmac — that is what `LandRegion.StartAlong` is for.
 
+Traffic reaches it through `TrafficNetworkBuilder.OnwardRoad`: the trunk road runs into the country
+road runs into the Kalkgrat runs into the Meerenge, four courses that are one drive, each joining the
+previous at a node they share. Past two, chaining them as their own pairs of arguments stopped scaling.
+
+**`CheckLanesFollowTheTrunkRoad` measured every trunk lane against the pass alone, which made it a
+check that always failed** — thousands of samples "outside the carriageway" by kilometres, on roads
+that were correct — and therefore one nobody would read when it caught the fault it exists for. It now
+takes the nearest of every paved road.
+
+The deck is lit: a lamp standard every 48 m and a bead on the cables every 26. Not decoration — it is
+the one place in the world with no verge, no hedge and no horizon to judge position against, and at
+the first spacing the night shot came back with four lights on a kilometre of cable.
+
 `Tools > Horizon > Render Strait Preview` photographs all of it, day and night. Every fault above was
 found there and by nothing else.
 

@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Horizon.World;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -57,10 +58,11 @@ namespace Horizon.EditorTools
 
             try
             {
-                StreetNetwork[] streets = RebuildNetwork(out scratch, out RoadPath trunk);
+                StreetNetwork[] streets = RebuildNetwork(
+                    out scratch, out RoadPath trunk, out RoadPath[] trunkRoads);
 
                 CheckLanesFollowTheirStreets(routes, streets);
-                CheckLanesFollowTheTrunkRoad(routes, trunk);
+                CheckLanesFollowTheTrunkRoad(routes, trunkRoads);
                 CheckConnectorsAreFlush(routes);
                 CheckNothingIsStranded(routes);
                 CheckConnectorsClearBuildings(routes);
@@ -294,7 +296,8 @@ namespace Horizon.EditorTools
         /// <para>The bound is the carriageway's half-width, not the paved width including shoulders. A
         /// lane on the gravel is the thing being looked for.</para>
         /// </summary>
-        private static void CheckLanesFollowTheTrunkRoad(TrafficNetwork routes, RoadPath trunk)
+        private static void CheckLanesFollowTheTrunkRoad(
+            TrafficNetwork routes, IReadOnlyList<RoadPath> trunks)
         {
             RoadShape shape = RoadShape.Default;
 
@@ -311,12 +314,29 @@ namespace Horizon.EditorTools
                 }
 
                 lanes++;
-                float near = -1f;
+
+                // One cached cursor per road, reset at the start of every lane. NearestApproach walks
+                // forward from the last answer, and a cursor left where another lane finished sends the
+                // first sample of this one off looking at the wrong end of the road.
+                var near = new float[trunks.Count];
+                for (int p = 0; p < near.Length; p++)
+                {
+                    near[p] = -1f;
+                }
 
                 for (int i = 0; i < routes.SampleCount(lane); i++)
                 {
                     Vector3 at = routes.SampleAt(lane, i);
-                    float over = NearestApproach(trunk, at, ref near) - shape.HalfWidth;
+
+                    // The nearest carriageway, not a nominated one: a lane belongs to whichever road it
+                    // was baked onto, and this file has no way of knowing which that was.
+                    float over = float.MaxValue;
+                    for (int p = 0; p < trunks.Count; p++)
+                    {
+                        over = Mathf.Min(over, NearestApproach(trunks[p], at, ref near[p]));
+                    }
+
+                    over -= shape.HalfWidth;
 
                     if (over > 0f)
                     {
@@ -592,7 +612,8 @@ namespace Horizon.EditorTools
         /// caching it in a static would leave a hidden object holding forty <c>RoadPath</c> components
         /// alive between runs.</para>
         /// </summary>
-        private static StreetNetwork[] RebuildNetwork(out GameObject scratch, out RoadPath trunk)
+        private static StreetNetwork[] RebuildNetwork(
+            out GameObject scratch, out RoadPath trunk, out RoadPath[] trunkRoads)
         {
             scratch = new GameObject("TrafficValidatorScratch") { hideFlags = HideFlags.HideAndDontSave };
 
@@ -612,6 +633,35 @@ namespace Horizon.EditorTools
 
             RoadPath arterial = arterialObject.AddComponent<RoadPath>();
             arterial.SetControlPoints(HochstadtCourse.Build().ControlPoints);
+
+            // Every paved road a Trunk-kind lane can be baked onto, not just the pass.
+            //
+            // <b>Without this the check was dead.</b> It measured every trunk lane in the world against
+            // the one road it had been handed, so the moment the country road was chained on it started
+            // reporting thousands of samples "outside the carriageway" — by kilometres, on roads that
+            // were perfectly correct. A check that always fails is a check nobody reads, and it can no
+            // longer catch the fault it exists for: a lane baked against the wrong RoadShape.
+            // A local, because a local function may not touch an `out` parameter.
+            Transform under = scratch.transform;
+
+            RoadPath Paved(string name, RoadCourse from)
+            {
+                var host = new GameObject(name);
+                host.transform.SetParent(under, false);
+
+                RoadPath built = host.AddComponent<RoadPath>();
+                built.SetControlPoints(from.ControlPoints);
+                return built;
+            }
+
+            trunkRoads = new[]
+            {
+                trunk,
+                Paved("Ebental", EbentalCourse.Build()),
+                Paved("Coast", CoastCourse.Build()),
+                Paved("Kalkgrat", KalkgratCourse.Build()),
+                Paved("Meerenge", MeerengeCourse.Build()),
+            };
 
             return new[]
             {

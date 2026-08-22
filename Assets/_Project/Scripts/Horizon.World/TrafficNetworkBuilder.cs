@@ -24,6 +24,27 @@ namespace Horizon.World
     /// </summary>
     public static class TrafficNetworkBuilder
     {
+        /// <summary>
+        /// One more road chained onto the end of the last one, for traffic purposes.
+        ///
+        /// <para><b>A list rather than two more parameters, because the chain got long.</b> The trunk road
+        /// runs into the country road runs into the Kalkgrat runs into the Meerenge — four courses that are
+        /// one drive — and each of the first two arrived as its own pair of arguments. Past two that stops
+        /// scaling, and every one of them is handled identically: one junction where it runs out, and one
+        /// lane each way from the previous road's end node to it.</para>
+        /// </summary>
+        public readonly struct OnwardRoad
+        {
+            public readonly IRoadPath Path;
+            public readonly RoadShape Shape;
+
+            public OnwardRoad(IRoadPath path, in RoadShape shape)
+            {
+                Path = path;
+                Shape = shape;
+            }
+        }
+
         /// <summary>Target spacing between lane samples, metres.</summary>
         private const float SampleSpacing = 2.5f;
 
@@ -143,7 +164,8 @@ namespace Horizon.World
             int coastEndTown = -1,
             int coastEndNode = -1,
             IRoadPath country = null,
-            RoadShape countryShape = default)
+            RoadShape countryShape = default,
+            IReadOnlyList<OnwardRoad> onward = null)
         {
             var lanes = new LaneBuffer();
 
@@ -186,7 +208,19 @@ namespace Horizon.World
             // And a fifth where the ramp meets the motorway, when there is one. It is a junction in every
             // sense the rest of this file means: lanes end there and connectors take over, which is what
             // turns two roads arriving at the same place into traffic that gives way to itself.
-            bool merging = link != null && highway != null && rampMergeDistance >= 0f
+            // And one apiece for whatever carries on past the country road. Same shape as the line
+            // above and for the same reason: each of these joins the previous one at a node they share,
+            // so the whole chain is one drive rather than a row of roads that happen to touch.
+            int onwardCount = continues && onward != null ? onward.Count : 0;
+            var onwardEndNode = new int[onwardCount];
+
+            for (int i = 0; i < onwardCount; i++)
+            {
+                onwardEndNode[i] = nodeCount;
+                nodeCount += 1;
+            }
+
+                        bool merging = link != null && highway != null && rampMergeDistance >= 0f
                            && rampMergeDistance < highway.Length;
 
             int interchangeNode = -1;
@@ -251,6 +285,12 @@ namespace Horizon.World
             if (continues)
             {
                 nodeAt[countryEndNode] = country.GetPositionAtDistance(country.Length);
+
+                for (int i = 0; i < onwardCount; i++)
+                {
+                    nodeAt[onwardEndNode[i]] =
+                        onward[i].Path.GetPositionAtDistance(onward[i].Path.Length);
+                }
             }
 
             if (merging)
@@ -292,6 +332,18 @@ namespace Horizon.World
                 // different road would cut this one at distances that mean nothing here.
                 AddTrunkLanes(null, country, countryShape, roadEndNode, countryEndNode,
                     lanes, entryNode, exitNode);
+
+                // Chained: each starts at the node the one before it ended on. No network for any of
+                // them either, for the reason above — none has a settlement whose junctions could cut it.
+                int previous = countryEndNode;
+
+                for (int i = 0; i < onwardCount; i++)
+                {
+                    AddTrunkLanes(null, onward[i].Path, onward[i].Shape, previous, onwardEndNode[i],
+                        lanes, entryNode, exitNode);
+
+                    previous = onwardEndNode[i];
+                }
             }
 
             if (coastJoinsATown)

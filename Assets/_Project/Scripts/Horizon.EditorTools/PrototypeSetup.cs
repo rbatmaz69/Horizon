@@ -1689,7 +1689,15 @@ namespace Horizon.EditorTools
                 System.Array.IndexOf(towns, hochstadt), HochstadtLayout.GatewayNode,
                 linkPath, roadShape, rampCapOnMedian, rampMergeOnMedian,
                 coastPath, roadShape, System.Array.IndexOf(towns, seeburg), seeburgGateway,
-                ebentalPath, roadShape);
+                ebentalPath, roadShape,
+                // On past the Ebental, in the order they are driven. Traffic on the crossing is half of
+                // what that structure is for: an empty bridge reads as a monument and a bridge with cars
+                // on it reads as a road somebody built for a reason.
+                new[]
+                {
+                    new TrafficNetworkBuilder.OnwardRoad(kalkgratPath, roadShape),
+                    new TrafficNetworkBuilder.OnwardRoad(meerengePath, roadShape),
+                });
 
             // After the routes exist, because the phase the lenses show is read off the same asset the
             // traffic obeys — which is the whole reason a light cannot be green at a junction cars are
@@ -4117,7 +4125,8 @@ namespace Horizon.EditorTools
             int coastEndTown,
             int coastEndNode,
             IRoadPath country,
-            RoadShape countryShape)
+            RoadShape countryShape,
+            IReadOnlyList<TrafficNetworkBuilder.OnwardRoad> onward)
         {
             var networks = new StreetNetwork[towns.Count];
 
@@ -4144,7 +4153,7 @@ namespace Horizon.EditorTools
                 highwayEndTown, highwayEndNode,
                 link, linkShape, rampCapDistance, rampMergeDistance, plans,
                 coast, coastShape, coastEndTown, coastEndNode,
-                country, countryShape);
+                country, countryShape, onward);
             routes = HorizonAssetUtility.ReplaceAsset(routes, GeneratedFolder + "/TrafficNetwork.asset");
 
             CarMeshBuilder.CarProfile[] profiles = CarMeshBuilder.TrafficProfiles;
