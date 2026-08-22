@@ -6634,6 +6634,16 @@ namespace Horizon.EditorTools
                     // they stop, and well short of the apron's 17 m half-depth so that being on the
                     // forecourt is not the same as being at a pump.
                     Radius = 9f,
+
+                    // The slab, so the runtime can tell "on a forecourt" from "at a pump" — see the
+                    // note on Station.Centre for why that has to be a rectangle. Baked as numbers rather
+                    // than read back out of FuelStationMeshes at run time: this record is a bake, and a
+                    // bake that reaches into a builder's constants changes meaning when the builder does.
+                    Centre = site.Centre,
+                    Forward = site.Forward,
+                    Outward = site.Outward,
+                    HalfLength = FuelStationMeshes.ApronHalfLength,
+                    HalfDepth = FuelStationMeshes.ApronHalfDepth,
                 });
             }
 

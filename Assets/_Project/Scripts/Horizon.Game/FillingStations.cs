@@ -41,6 +41,26 @@ namespace Horizon.Game
             public Vector3 Pumps;
 
             public float Radius;
+
+            /// <summary>
+            /// Centre of the forecourt slab — not of the pumps — and the frame it lies in.
+            ///
+            /// <para><b>A rectangle, and it has to be.</b> "Is the car on a forecourt" is a much larger
+            /// question than "is it at a pump", and the obvious answer — a bigger radius — is wrong in a
+            /// way that would have been embarrassing: the slab is 52 m by 34, so a circle holding it is
+            /// 31 m across, and 31 m from the pumps <i>along the road</i> is the carriageway. Every car
+            /// that drove past a station at speed would have been told to pull up to a pump.</para>
+            ///
+            /// <para>Two dot products in plan against the slab's own axes answers it exactly, for eight
+            /// multiplies a station a step. The class already argues that a direct test beats an
+            /// authored volume; this is that argument one step further.</para>
+            /// </summary>
+            public Vector3 Centre;
+
+            public Vector3 Forward;
+            public Vector3 Outward;
+            public float HalfLength;
+            public float HalfDepth;
         }
 
         [SerializeField]
@@ -77,6 +97,15 @@ namespace Horizon.Game
 
         /// <summary>True while fuel is actually going in. The gauge's needle is the other half of this.</summary>
         public bool IsFilling { get; private set; }
+
+        /// <summary>Within reach of a station's pumps, at whatever speed.</summary>
+        public bool IsAtPump { get; private set; }
+
+        /// <summary>At a pump and slow enough to be arriving rather than passing.</summary>
+        public bool IsStopped { get; private set; }
+
+        /// <summary>Anywhere on a forecourt slab. See <see cref="Station.Centre"/> for why it is not a radius.</summary>
+        public bool IsOnForecourt { get; private set; }
 
         /// <summary>
         /// The nearest station's name, and whether it is ahead of the car or behind it.
@@ -131,13 +160,20 @@ namespace Horizon.Game
 
                 if (tank == null)
                 {
+                    Clear();
                     return;
                 }
             }
 
-            bool atPump = IsAtPump(vehicle.transform.position) && vehicle.SpeedKmh <= parkSpeedKmh;
+            Vector3 at = vehicle.transform.position;
 
-            standing = atPump ? standing + Time.fixedDeltaTime : 0f;
+            // All three written every step and cleared on every early return, so none of them can be
+            // left standing from a frame in which they were true.
+            IsAtPump = WithinPumps(at);
+            IsOnForecourt = IsAtPump || OnForecourt(at);
+            IsStopped = IsAtPump && vehicle.SpeedKmh <= parkSpeedKmh;
+
+            standing = IsStopped ? standing + Time.fixedDeltaTime : 0f;
 
             if (standing < settleSeconds || tank.Fraction01 >= 1f)
             {
@@ -149,13 +185,49 @@ namespace Horizon.Game
             tank.Fill(litresPerSecond * Time.fixedDeltaTime);
         }
 
+        private void Clear()
+        {
+            IsFilling = false;
+            IsAtPump = false;
+            IsStopped = false;
+            IsOnForecourt = false;
+            standing = 0f;
+        }
+
+        /// <summary>Whether the car is standing on any station's slab.</summary>
+        private bool OnForecourt(Vector3 at)
+        {
+            for (int i = 0; i < stations.Count; i++)
+            {
+                Station station = stations[i];
+
+                if (station.HalfLength <= 0f)
+                {
+                    continue;
+                }
+
+                float dx = at.x - station.Centre.x;
+                float dz = at.z - station.Centre.z;
+
+                float along = dx * station.Forward.x + dz * station.Forward.z;
+                float across = dx * station.Outward.x + dz * station.Outward.z;
+
+                if (Mathf.Abs(along) <= station.HalfLength && Mathf.Abs(across) <= station.HalfDepth)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         /// <summary>
         /// Whether the car is standing within reach of any station's pumps.
         ///
         /// <para>Plan distance, ignoring height, so a forecourt is not missed because the slab sits a
         /// third of a metre above the road it was measured from.</para>
         /// </summary>
-        private bool IsAtPump(Vector3 at)
+        private bool WithinPumps(Vector3 at)
         {
             for (int i = 0; i < stations.Count; i++)
             {
