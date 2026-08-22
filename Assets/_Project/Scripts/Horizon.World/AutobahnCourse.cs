@@ -236,11 +236,17 @@ namespace Horizon.World
 
             builder.Turn(1200f, -20f, 0.5f);
 
-            // 300 + 340 around the westbound services. Well past the Steinbergtunnel's portal and well
-            // short of the Wiesentalbrücke's abutment, which is the only stretch on this leg with room
-            // for one. Side −1 is the westbound carriageway — see CarriagewayOffset.
+            // 300 + 340 around a service area. Well past the Steinbergtunnel's portal and well short of
+            // the Wiesentalbrücke's abutment, which is the only stretch on this leg with room for one.
+            //
+            // A pair, one each side, because that is what a motorway service area is and because the
+            // alternative was measured: with a single station per leg the eastbound carriageway ran 6.2 km
+            // from its start before it passed a pump, and the westbound one 300 m away was no use to it.
+            // Named separately after the tunnel and the viaduct they sit between, the way the German
+            // ones are.
             builder.Straight(300f, 0.4f);
             builder.AddFuelStation("Raststätte Steinberg", -1f);
+            builder.AddFuelStation("Raststätte Wiesental", 1f);
             builder.Straight(340f, 0.4f);
 
             // Level across the span. A bridge is built flat here not because real ones are, but because
@@ -266,11 +272,12 @@ namespace Horizon.World
             builder.Straight(320f, 0f);
             builder.AddFeature(RoadFeatureKind.Bridge, bridgeStart, builder.Distance, "Talbrücke Hochfeld");
 
-            // 200 + 220 around the eastbound services, on the far side of the viaduct from them. A
-            // motorway's two carriageways cannot share a forecourt, and this course is their centreline,
-            // so each side gets its own — this one at +1, the eastbound.
+            // 200 + 220 around the second service area, on the far side of the Talbrücke from it. A
+            // motorway's two carriageways cannot share a forecourt — this course is their centreline, so
+            // each side gets its own — and both are here for the reason given at Steinberg.
             builder.Straight(200f, 0.2f);
             builder.AddFuelStation("Raststätte Hochfeld", 1f);
+            builder.AddFuelStation("Raststätte Ohlenberg", -1f);
             builder.Straight(220f, 0.2f);
             builder.Turn(1150f, 18f, -0.3f);
             builder.Straight(600f, -0.4f);

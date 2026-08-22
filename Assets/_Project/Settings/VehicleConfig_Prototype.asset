@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 2e6c54b425c874741ae73be512ddf6a2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Horizon.Vehicle::Horizon.Vehicle.VehicleConfig
-  Version: 8
+  Version: 9
   Mass: 1250
   CenterOfMass: {x: 0, y: -0.3, z: 0.05}
   LinearDamping: 0.06
@@ -88,6 +88,7 @@ MonoBehaviour:
     m_RotationOrder: 4
   IdleRpm: 750
   RedlineRpm: 5800
+  FuelCapacityLitres: 55
   EngineFundamentalHz: 48
   Cylinders: 8
   Layout: 1
