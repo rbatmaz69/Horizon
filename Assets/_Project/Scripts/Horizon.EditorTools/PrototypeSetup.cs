@@ -6490,16 +6490,23 @@ namespace Horizon.EditorTools
                 }
             }
 
+            // Quoted against hard driving, not against a cruise. A tank cruised gently covers 147 km,
+            // which is six times the whole world's road network and would make any gap look harmless —
+            // and cruising gently is not what anyone is doing when they run out.
             Debug.Log($"[Horizon] Filling stations: {counted} on the courses. Longest stretch without one "
                       + $"is {worstGap / 1000f:0.00} km, on {worstGapOn} — against a tank that covers "
-                      + "about 37 km at a steady 100 km/h and 12 km spent climbing the pass.");
+                      + "about 20 km driven hard and 147 km cruised.");
 
+            // Six kilometres, and it is no longer a stranding threshold — at 20 km of hard-driving range
+            // the map cannot strand anybody any more. What it now measures is whether the world feels
+            // inhabited: a road you can drive for six kilometres without passing a pump is a road with
+            // nothing on it, which is a different complaint and still worth hearing.
             if (worstGap > 6000f)
             {
                 Debug.LogWarning($"[Horizon] {worstGap / 1000f:0.0} km on {worstGapOn} without a pump. "
-                                 + "A driver who set off with the needle already low can be stranded "
-                                 + "there, which is the map doing it to them rather than them doing it "
-                                 + "to themselves. Add a station, or accept it deliberately.");
+                                 + "Not far enough to strand anyone since the burn was slowed, but far "
+                                 + "enough that the road reads as empty. Add a station, or accept it "
+                                 + "deliberately.");
             }
         }
 

@@ -183,14 +183,21 @@ three. `EngineTorqueNm` is published by the controller rather than recomputed �
 three paths that make no torque (mid-shift, on the limiter, off the throttle), or the tank bills the
 driver for work they can hear the engine is not doing.
 
-**The burn is scaled by 20, and the number is not a taste.** Honest physics gives a 55-litre tank
+**The burn is scaled by 5, and the number is not a taste.** Honest physics gives a 55-litre tank
 about 750 km against a world twenty-five kilometres wide, so at 1 the stations would be scenery. The
-world's own clock was the obvious reference — `DayLengthMinutes` is 24, so the sun already runs at
+world's own clock looks like the obvious reference — `DayLengthMinutes` is 24, so the sun runs at
 60 — but 60 does not work for fuel: burn rises with the *cube* of speed through the drag term, so a
-compression that is brisk at a cruise is savage flat out, and a tank emptied in ninety seconds. At 20
-ordinary driving is about twenty minutes, one in-game day. Distance is not compressed, so any
-l/100 km figure derived from this would read twenty times too high — which is why the dial shows a
-level and nothing on screen prints that number.
+compression that is brisk at a cruise is savage flat out, and a tank emptied in ninety seconds.
+
+**20 was the first answer and it was also wrong, in the way worth remembering.** It was calibrated
+against a steady 100 km/h, where it gave a comfortable twenty-two minutes — but holding 100 km/h asks
+about eight per cent of the engine, and nobody plays this way. Half throttle at 3000 rpm burns five
+times as much and emptied a tank in **four minutes**. Calibrate against the driving style the game
+actually gets, not against the one that is easy to compute. At 5 that is about 17 minutes, 8 flat
+out, and an hour and a half if genuinely cruised; the gentle-to-hard spread is left as the physics
+has it, because that spread is the feature. Distance is not compressed, so any l/100 km figure
+derived from this would read five times too high — which is why the dial shows a level and nothing on
+screen prints that number.
 
 **The tank is never saved, and does not need to be.** Every run begins by placing the car
 (`StartScreen.Drive` → `ApplyPlace` → `PauseMenu.MoveTo`), and placing the car fills it. Respawn does

@@ -37,26 +37,32 @@ namespace Horizon.Vehicle
         /// twenty-five kilometres of road. At 1 the tank would never once need filling and the stations
         /// would be scenery.</para>
         ///
-        /// <para><b>Why 20, when the sun runs at 60.</b> The world's clock was the obvious place to
-        /// look — <c>TimeOfDayController.DayLengthMinutes</c> is 24, so a day passes in 24 real minutes
-        /// and everything else here is already sixty times life. Fuel at sixty does not work, and the
-        /// reason is worth writing down: burn rises with the cube of speed through the drag term, so a
-        /// compression that is merely brisk at a cruise is savage at the top end. At 60 a tank lasted
-        /// twelve minutes at 100 km/h and <i>ninety seconds</i> flat out, which does not read as a
-        /// thirsty car, it reads as a broken one.</para>
+        /// <para><b>Why not 60, which is what the sun runs at.</b> The world's clock was the obvious
+        /// place to look — <c>TimeOfDayController.DayLengthMinutes</c> is 24, so a day passes in 24 real
+        /// minutes. It does not work for fuel, and the reason is worth keeping: burn rises with the
+        /// <i>cube</i> of speed through the drag term, so a compression that is merely brisk at a cruise
+        /// is savage at the top end. At 60 a tank lasted ninety seconds flat out, which does not read as
+        /// a thirsty car, it reads as a broken one.</para>
         ///
-        /// <para>At 20 the measured figures are: about 22 minutes at a steady 100 km/h, twelve minutes
-        /// of climbing the pass on the throttle, four minutes at 200 km/h down the motorway, and rather
-        /// over an hour left idling. Ordinary mixed driving lands near twenty minutes — about one
-        /// in-game day, which is the rhythm this was aiming for. The spread between gentle and hard is
-        /// left exactly as the physics has it, because that spread is the whole feature.</para>
+        /// <para><b>And why 20 was still wrong, which is the part to actually learn from.</b> 20 was
+        /// chosen against a steady 100 km/h in sixth, where it gave a comfortable twenty-two minutes.
+        /// But a car holding 100 km/h on a level road is asking for about 47 Nm out of 570 — eight per
+        /// cent load — and nobody plays this game that way. Half throttle at 3000 rpm, which is simply
+        /// what driving looks like, is 280 Nm and burns five times as much: at 20 that emptied a tank in
+        /// <b>four minutes</b>. The calibration was not slightly out, it was measured against the wrong
+        /// row of the table.</para>
+        ///
+        /// <para>At 5, on the fastback: about 17 minutes at half throttle, 8 flat out, 15 at a sustained
+        /// 200 km/h down the motorway, an hour and a half if it is genuinely cruised, and over ten hours
+        /// left idling. The spread between gentle and hard is left exactly as the physics has it,
+        /// because that spread is the whole feature — only the scale moved.</para>
         ///
         /// <para>Note what is <i>not</i> compressed: distance. The car still covers real metres at real
-        /// speed, so consumption expressed per 100 km would come out twenty times too large and read as
+        /// speed, so consumption expressed per 100 km would come out five times too large and read as
         /// nonsense. That is why the dial shows a level and nothing on screen ever prints a
         /// l/100 km figure.</para>
         /// </summary>
-        [SerializeField] private float burnScale = 20f;
+        [SerializeField] private float burnScale = 5f;
 
         /// <summary>
         /// Litres per hour at idle, per Nm of peak torque, plus a floor.
