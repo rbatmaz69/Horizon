@@ -1390,8 +1390,14 @@ namespace Horizon.EditorTools
                 depth: SeeburgCourse.BasinDepth,
                 surfaceY: seaLevel));
 
+            // Every road that carries a bridge a river could be laid across, not just the motorway.
+            var bridgeRoads = new[]
+            {
+                new WaterPlanner.BridgeRoad(motorwayPath, motorwayCourse),
+            };
+
             WaterBody[] waters = WaterPlanner.Resolve(
-                waterPlans, field, motorwayPath, motorwayCourse, out string waterReport);
+                waterPlans, field, bridgeRoads, out string waterReport);
 
             field.SetWater(waters);
             ValidateWater(waters, field, roads, towns);
@@ -1455,7 +1461,8 @@ namespace Horizon.EditorTools
                 new Vector3(1500f, 200f, 1500f));
 
             BuildTerrainTiles(worldRoot.transform, path, roadShape, course, field, terrainShape,
-                towns, materials, litRenderers, litSlotStart, litSlots, litSlotGroups, seaBand,
+                towns, materials, litRenderers, litSlotStart, litSlots, litSlotGroups,
+                new[] { seaBand },
                 new[] { new MountainField.FieldRoad(ebentalPath, ebentalCourse) }, ebental, ebentalPath,
                 ForecourtCentres(fuelStations));
             ValidateLandmarks(field, course, path, talheim.Plan);
@@ -3599,7 +3606,7 @@ namespace Horizon.EditorTools
             List<int> townSlotStart,
             List<int> townSlots,
             List<int> townSlotGroups,
-            Bounds seaBand,
+            IReadOnlyList<Bounds> waterBands,
             IReadOnlyList<MountainField.FieldRoad> otherRoads,
             LandRegion region,
             IRoadPath avenueRoad,
@@ -3607,14 +3614,20 @@ namespace Horizon.EditorTools
         {
             // One region per settlement rather than one big box round the lot: the corridor is widened
             // where a town is, and a rectangle spanning both would drag in every tile of open country
-            // between them. The sea's band is one more of the same.
-            var extraRegions = new Bounds[towns.Count + 1];
+            // between them. The water bands are more of the same, and there is a list of them rather
+            // than one because the two seas are at opposite ends of the world and a box containing both
+            // would contain everything in between.
+            int bandCount = waterBands != null ? waterBands.Count : 0;
+            var extraRegions = new Bounds[towns.Count + bandCount];
             for (int i = 0; i < towns.Count; i++)
             {
                 extraRegions[i] = towns[i].Footprint;
             }
 
-            extraRegions[towns.Count] = seaBand;
+            for (int i = 0; i < bandCount; i++)
+            {
+                extraRegions[towns.Count + i] = waterBands[i];
+            }
 
             List<TerrainTileKey> tiles = TerrainTileBuilder.ListTiles(
                 field, terrainShape, terrainShape.CorridorWidth, extraRegions);

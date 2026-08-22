@@ -20,17 +20,35 @@ namespace Horizon.World
         /// <summary>How many points around a basin's edge are sampled to find its rim.</summary>
         private const int RimSamples = 48;
 
+        /// <summary>One road a river may be laid across, and the course to find its bridge on.</summary>
+        public readonly struct BridgeRoad
+        {
+            public readonly IRoadPath Path;
+            public readonly RoadCourse Course;
+
+            public BridgeRoad(IRoadPath path, RoadCourse course)
+            {
+                Path = path;
+                Course = course;
+            }
+        }
+
         /// <summary>
         /// Resolves every plan, and writes a line per body into <paramref name="report"/>.
         ///
         /// <para><paramref name="field"/> must not have had <c>SetWater</c> called on it yet, or the
         /// rim of the first body is sampled through the basin of the second.</para>
+        ///
+        /// <para><b>A list of roads rather than the motorway.</b> For as long as the only bridges in the
+        /// world were the two viaducts on the autobahn, taking that one course was the same thing as
+        /// taking all of them and one parameter was cheaper than a list. The crossing over the Meerenge
+        /// is on a different road, and a river that cannot find its bridge does not fail — it logs a
+        /// warning and is silently skipped, which is a strait that is simply not there.</para>
         /// </summary>
         public static WaterBody[] Resolve(
             IReadOnlyList<WaterPlan> plans,
             MountainField field,
-            IRoadPath motorway,
-            RoadCourse motorwayCourse,
+            IReadOnlyList<BridgeRoad> roads,
             out string report)
         {
             var bodies = new List<WaterBody>(plans.Count);
@@ -41,13 +59,14 @@ namespace Horizon.World
                 WaterPlan plan = plans[i];
 
                 Vector2[] spine = plan.Kind == WaterKind.River
-                    ? RiverSpine(plan, motorway, motorwayCourse)
+                    ? RiverSpine(plan, roads)
                     : new[] { plan.Centre };
 
                 if (spine == null)
                 {
                     Debug.LogWarning($"[Horizon] Water '{plan.Name}' names a bridge "
-                                     + $"'{plan.BridgeName}' that is not on the motorway. Skipped.");
+                                     + $"'{plan.BridgeName}' that is on none of the "
+                                     + $"{(roads != null ? roads.Count : 0)} roads offered. Skipped.");
                     continue;
                 }
 
@@ -80,27 +99,45 @@ namespace Horizon.World
         /// a reservoir — see the note in <see cref="WaterShape"/>.</para>
         /// </summary>
         private static Vector2[] RiverSpine(
-            in WaterPlan plan, IRoadPath road, RoadCourse course)
+            in WaterPlan plan, IReadOnlyList<BridgeRoad> roads)
         {
-            if (road == null || course == null)
+            if (roads == null)
             {
                 return null;
             }
 
+            IRoadPath road = null;
             float at = -1f;
 
-            for (int i = 0; i < course.Features.Count; i++)
+            for (int r = 0; r < roads.Count && at < 0f; r++)
             {
-                RoadFeature feature = course.Features[i];
+                BridgeRoad candidate = roads[r];
 
-                if (feature.Kind == RoadFeatureKind.Bridge && feature.Name == plan.BridgeName)
+                if (candidate.Path == null || candidate.Course == null)
                 {
-                    at = (feature.StartDistance + feature.EndDistance) * 0.5f;
-                    break;
+                    continue;
+                }
+
+                for (int i = 0; i < candidate.Course.Features.Count; i++)
+                {
+                    RoadFeature feature = candidate.Course.Features[i];
+
+                    // Either kind of bridge carries a river. A suspension span is the only structure in
+                    // the world with open water under it by design rather than by accident, so it would
+                    // be a strange one to leave out of the search that places water.
+                    bool carried = feature.Kind == RoadFeatureKind.Bridge
+                                   || feature.Kind == RoadFeatureKind.Suspension;
+
+                    if (carried && feature.Name == plan.BridgeName)
+                    {
+                        road = candidate.Path;
+                        at = (feature.StartDistance + feature.EndDistance) * 0.5f;
+                        break;
+                    }
                 }
             }
 
-            if (at < 0f)
+            if (road == null || at < 0f)
             {
                 return null;
             }

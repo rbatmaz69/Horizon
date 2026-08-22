@@ -295,13 +295,27 @@ namespace Horizon.World
             BedScale = bedScale;
         }
 
-        /// <summary>A river under a named bridge, crossing the road it spans.</summary>
+        /// <summary>
+        /// A river under a named bridge, crossing the road it spans.
+        ///
+        /// <para><b>The two optional arguments exist for the strait</b>, which is a river by every
+        /// mechanic that matters — a spine, a half-width, and a place taken from the bridge over it —
+        /// and is nothing like one in scale. A corridor river is 50 m across and 4 m deep under a
+        /// viaduct in a valley: its default 1.5 m of freeboard is measured against a valley floor, and a
+        /// bed dish as wide as the channel is the right shape when the channel is that narrow. Neither
+        /// holds at 1200 m across. The rim under a crossing is dropped from the shelf and therefore
+        /// carries the coarse field's own noise, so the freeboard has to be large enough that one lucky
+        /// low sample cannot put the waterline in the coast road; and a dish spread over 600 m is
+        /// uniformly pale for the whole of the part anybody sees, which is exactly why
+        /// <see cref="Sea"/> was given a bed scale of its own.</para>
+        /// </summary>
         public static WaterPlan River(
             string name, string bridgeName, float halfWidth, float bankEase, float reach,
-            float skewDegrees, float depth)
+            float skewDegrees, float depth, float freeboard = 1.5f, float bedScale = 0f)
         {
             return new WaterPlan(name, WaterKind.River, bridgeName, Vector2.zero,
-                halfWidth, bankEase, reach, skewDegrees, depth, 1.5f);
+                halfWidth, bankEase, reach, skewDegrees, depth, freeboard,
+                bedScale: bedScale);
         }
 
         /// <summary>A lake at a place, as a centre and a radius.</summary>
