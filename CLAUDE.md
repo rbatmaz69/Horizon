@@ -174,6 +174,41 @@ Text in a HUD allocates. `label.text = $"{speed:0}"` makes a string every frame 
 which above walking pace is most of them — so the numbers come out of a prebuilt table and are
 assigned only when the integer moves. Anything else added to this dial has to do the same.
 
+## Fuel
+
+`FuelTank` lives in `Horizon.Vehicle` because an empty tank has to cut the throttle, and throttle is
+consumed inside `VehicleController`. It burns from **work done**, not from a speed table: power is
+`EngineTorqueNm × rpm`, so speed, revs and driving style all fall out of one expression instead of
+three. `EngineTorqueNm` is published by the controller rather than recomputed — and is cleared on the
+three paths that make no torque (mid-shift, on the limiter, off the throttle), or the tank bills the
+driver for work they can hear the engine is not doing.
+
+**The burn is scaled by 20, and the number is not a taste.** Honest physics gives a 55-litre tank
+about 750 km against a world twenty-five kilometres wide, so at 1 the stations would be scenery. The
+world's own clock was the obvious reference — `DayLengthMinutes` is 24, so the sun already runs at
+60 — but 60 does not work for fuel: burn rises with the *cube* of speed through the drag term, so a
+compression that is brisk at a cruise is savage flat out, and a tank emptied in ninety seconds. At 20
+ordinary driving is about twenty minutes, one in-game day. Distance is not compressed, so any
+l/100 km figure derived from this would read twenty times too high — which is why the dial shows a
+level and nothing on screen prints that number.
+
+**The tank is never saved, and does not need to be.** Every run begins by placing the car
+(`StartScreen.Drive` → `ApplyPlace` → `PauseMenu.MoveTo`), and placing the car fills it. Respawn does
+the same, because a respawn that leaves you unable to move is not a recovery.
+
+A station is a `RoadFeatureKind.FuelStation` on a course, beside the tunnels and the viewpoints —
+never a scene object. It is the only feature kind with a `Side`, because the motorway's two
+carriageways are one course. Its pad is fed into `MountainField` **before the field is built**; do
+that after and the apron comes out perfectly flat, hovering over a hillside, with nothing complaining.
+`ValidateFuelStations` measures the longest stretch without a pump and warns past 6 km — it caught a
+6.2 km run on the eastbound carriageway on the first build, which is why the motorway services are
+paired.
+
+`Tools > Horizon > Render Fuel Station Preview` photographs all of them from the road, day and night,
+plus one from under a canopy. Both bugs that survived every other check were found by looking at
+those pictures: bushes growing through a forecourt, and a lit soffit that turned out to be 240 square
+metres of pure white over the driver's head.
+
 ## Updating
 
 The game is sideloaded, so nothing tells a player that a release happened. `Horizon.Updates` asks
