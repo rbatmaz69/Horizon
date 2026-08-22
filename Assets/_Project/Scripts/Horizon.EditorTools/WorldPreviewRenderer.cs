@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.IO;
 using Horizon.Atmosphere;
 using Horizon.World;
@@ -841,6 +842,201 @@ namespace Horizon.EditorTools
         /// one, so what this frames is what shipped, not what was planned. Tiles are clustered because a
         /// body spans several of them and one shot per tile would be sixteen pictures of the same river.</para>
         /// </summary>
+        /// <summary>
+        /// Every filling station, photographed from the road that serves it — once in daylight and once
+        /// at night.
+        ///
+        /// <para><b>The night pass is the half that matters.</b> A station's canopy soffit, shop glazing
+        /// and sign face are registered with <c>TownLights</c>, which swaps their material after dusk.
+        /// Nothing in the build reports that wiring being wrong: get the lit submesh index from its
+        /// constant instead of from what <c>ToMesh</c> kept and the sign is simply the wrong colour
+        /// after dark and unremarkable before it. This is the only place that failure is visible.</para>
+        ///
+        /// <para>The camera is put on the road side by finding the nearest point on any carriageway in
+        /// the scene and standing there. That is the view being designed for — a driver arriving — and
+        /// not an architectural elevation of a thing nobody sees from that angle.</para>
+        /// </summary>
+        [MenuItem("Tools/Horizon/Render Fuel Station Preview", priority = 44)]
+        public static void RenderFuelStations()
+        {
+            Scene scene = SceneManager.GetSceneByPath(WorldScenePath);
+            bool openedHere = !scene.isLoaded;
+
+            if (openedHere)
+            {
+                scene = EditorSceneManager.OpenScene(WorldScenePath, OpenSceneMode.Additive);
+            }
+
+            var stations = new List<MeshRenderer>();
+            var all = Object.FindObjectsByType<MeshRenderer>(FindObjectsSortMode.None);
+            var roads = new List<RoadPath>(Object.FindObjectsByType<RoadPath>(FindObjectsSortMode.None));
+
+            for (int i = 0; i < all.Length; i++)
+            {
+                if (all[i].name.StartsWith("FuelStation", System.StringComparison.Ordinal))
+                {
+                    stations.Add(all[i]);
+                }
+            }
+
+            if (stations.Count == 0)
+            {
+                Debug.LogError("[Horizon] No filling stations in the world scene. Run Rebuild Prototype "
+                               + "Scene first.");
+                return;
+            }
+
+            var clock = Object.FindFirstObjectByType<TimeOfDayController>();
+            var lights = Object.FindFirstObjectByType<TownLights>();
+
+            float hoursWere = clock != null ? clock.TimeOfDayHours : 0f;
+            bool runningWas = clock != null && clock.Running;
+
+            var cameraObject = new GameObject("FuelStationPreviewCamera");
+
+            try
+            {
+                Camera camera = cameraObject.AddComponent<Camera>();
+                camera.clearFlags = CameraClearFlags.Skybox;
+                camera.fieldOfView = 55f;
+                camera.nearClipPlane = 0.3f;
+                camera.farClipPlane = 900f;
+                camera.enabled = false;
+
+                string directory = Directory.GetParent(Application.dataPath).FullName;
+
+                for (int pass = 0; pass < 2; pass++)
+                {
+                    bool night = pass == 1;
+
+                    if (clock != null)
+                    {
+                        clock.Running = false;
+                        clock.TimeOfDayHours = night ? NightHours : 16.5f;
+                        clock.Apply();
+                    }
+
+                    // In the same frame as the capture and with no Update between, which is what Refresh
+                    // is for — see the note in RenderNight.
+                    lights?.Refresh();
+
+                    for (int i = 0; i < stations.Count; i++)
+                    {
+                        MeshRenderer station = stations[i];
+                        Bounds bounds = station.bounds;
+
+                        if (!TryRoadSide(roads, bounds.center, out Vector3 from))
+                        {
+                            continue;
+                        }
+
+                        camera.transform.position = from + Vector3.up * 3f;
+                        camera.transform.rotation = Quaternion.LookRotation(
+                            (bounds.center - from).normalized, Vector3.up);
+
+                        string suffix = night ? "_Night" : string.Empty;
+                        Capture(camera, Path.Combine(
+                            directory, $"WorldPreview_{station.name}{suffix}.png"));
+
+                        // And once from under the canopy, which is the only place the soffit is seen at
+                        // all: from the road it is edge-on and subtends a couple of degrees. It is also
+                        // 240 square metres of unlit white after dusk, parked directly above the driver's
+                        // head — a thing that has to be looked at rather than reasoned about.
+                        if (i != 0)
+                        {
+                            continue;
+                        }
+
+                        camera.transform.position = new Vector3(
+                            bounds.center.x, bounds.min.y + 1.6f, bounds.center.z)
+                            - (bounds.center - from).normalized * 6f;
+
+                        camera.transform.rotation = Quaternion.LookRotation(
+                            ((bounds.center - from).normalized + Vector3.up * 0.35f).normalized,
+                            Vector3.up);
+
+                        Capture(camera, Path.Combine(
+                            directory, $"WorldPreview_FuelStation_Forecourt{suffix}.png"));
+                    }
+                }
+
+                Debug.Log($"[Horizon] Filling stations: {stations.Count} photographed from the road, day "
+                          + "and night. In the night shots the canopy soffit, the shop glazing and the "
+                          + "sign face must be lit — dark ones mean the lit submesh was registered by its "
+                          + "constant rather than by the slot ToMesh kept.");
+            }
+            finally
+            {
+                if (clock != null)
+                {
+                    clock.TimeOfDayHours = hoursWere;
+                    clock.Running = runningWas;
+                    clock.Apply();
+                    lights?.Refresh();
+                }
+
+                Object.DestroyImmediate(cameraObject);
+
+                if (openedHere)
+                {
+                    EditorSceneManager.CloseScene(scene, true);
+                }
+            }
+        }
+
+        /// <summary>
+        /// A standing point on the nearest carriageway to <paramref name="target"/>, set back far enough
+        /// to hold a forecourt in frame.
+        ///
+        /// <para>Coarse sweep only. This runs on a menu press over a handful of stations, so the cost of
+        /// walking every road at 20 m is nothing, and being a metre out does not change a photograph.</para>
+        /// </summary>
+        private static bool TryRoadSide(List<RoadPath> roads, Vector3 target, out Vector3 from)
+        {
+            from = Vector3.zero;
+
+            Vector3 best = Vector3.zero;
+            Vector3 bestForward = Vector3.forward;
+            float bestSqr = float.MaxValue;
+
+            for (int r = 0; r < roads.Count; r++)
+            {
+                RoadPath road = roads[r];
+                if (road == null || road.Length <= 0f)
+                {
+                    continue;
+                }
+
+                for (float at = 0f; at <= road.Length; at += 20f)
+                {
+                    Vector3 on = road.GetPositionAtDistance(at);
+                    float sqr = (on - target).sqrMagnitude;
+
+                    if (sqr < bestSqr)
+                    {
+                        bestSqr = sqr;
+                        best = on;
+                        bestForward = road.GetDirectionAtDistance(at);
+                    }
+                }
+            }
+
+            if (bestSqr == float.MaxValue)
+            {
+                return false;
+            }
+
+            // Backed off along the road rather than pushed away across it: standing on the carriageway
+            // looking sideways is the one view a driver never has.
+            //
+            // 26 m and not further. At forty the whole forecourt is in frame and the canopy is edge-on —
+            // its soffit subtends about two degrees, so the lit ceiling that is the point of the thing at
+            // night is a sliver. This is roughly where a driver decides to pull in, and it is the angle
+            // that shows whether they would want to.
+            from = best - bestForward * 26f;
+            return true;
+        }
+
         [MenuItem("Tools/Horizon/Render Water Preview", priority = 43)]
         public static void RenderWater()
         {

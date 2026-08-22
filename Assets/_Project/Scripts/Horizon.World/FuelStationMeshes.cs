@@ -33,7 +33,7 @@ namespace Horizon.World
         public const int TrimSubmesh = 2;
 
         /// <summary>
-        /// The sign's face, the shop's glazing and the pumps' displays.
+        /// The canopy's light strips, the sign's face, the shop's glazing and the pumps' displays.
         ///
         /// <para>Left untinted so it survives <c>MergeTinted</c> on a submesh of its own, exactly as
         /// <c>HarbourMeshes.LanternSubmesh</c> does: a colour baked into a vertex cannot be swapped, and
@@ -183,6 +183,32 @@ namespace Horizon.World
             // says what this place is from further away than any of the detail under it.
             AddRim(buffer, TrimSubmesh, deck, site.Forward, site.Outward,
                 CanopyHalfLength, CanopyHalfDepth, -FasciaDepth);
+
+            // Light in the soffit — three strips, not the whole ceiling.
+            //
+            // The whole ceiling was tried first, on the reasoning that a forecourt canopy reads as a lit
+            // plane at night. It does in life, because the light falls out of it onto everything below.
+            // Here it cannot: the lit slot is an unlit material, so a 22-by-11-metre panel of it is 240
+            // square metres of pure white filling half the screen the moment the car pulls under, with
+            // the pumps in silhouette against it. It looked like a hole in the world rather than like a
+            // roof, and no amount of tinting fixes a surface that emits and does not illuminate.
+            //
+            // Three narrow luminaires are what a real canopy actually has, and they work here for the
+            // same reason the town's lamp heads do: small bright things read as lights. About a
+            // twentieth of the area, and the soffit around them stays structure.
+            Vector3 soffit = deck - Vector3.up * 0.02f;
+            Vector3 a = site.Forward * (CanopyHalfLength - 1.2f);
+
+            for (int i = -1; i <= 1; i++)
+            {
+                Vector3 across = site.Outward * (i * CanopyHalfDepth * 0.55f);
+                Vector3 w = site.Outward * 0.32f;
+
+                buffer.AddQuadFacing(LitSubmesh,
+                    soffit - a + across - w, soffit + a + across - w,
+                    soffit + a + across + w, soffit - a + across + w,
+                    Vector3.down);
+            }
 
             for (int i = 0; i < 4; i++)
             {

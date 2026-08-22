@@ -1408,7 +1408,8 @@ namespace Horizon.EditorTools
 
             BuildTerrainTiles(worldRoot.transform, path, roadShape, course, field, terrainShape,
                 towns, materials, litRenderers, litSlotStart, litSlots, litSlotGroups, seaBand,
-                new[] { new MountainField.FieldRoad(ebentalPath, ebentalCourse) }, ebental, ebentalPath);
+                new[] { new MountainField.FieldRoad(ebentalPath, ebentalCourse) }, ebental, ebentalPath,
+                ForecourtCentres(fuelStations));
             ValidateLandmarks(field, course, path, talheim.Plan);
             MarkTownLandmarks(worldRoot.transform, talheim.Network, talheim.Plan);
             Phase(clock, "terrain, vegetation and buildings");
@@ -3553,7 +3554,8 @@ namespace Horizon.EditorTools
             Bounds seaBand,
             IReadOnlyList<MountainField.FieldRoad> otherRoads,
             LandRegion region,
-            IRoadPath avenueRoad)
+            IRoadPath avenueRoad,
+            IReadOnlyList<Vector3> forecourts)
         {
             // One region per settlement rather than one big box round the lot: the corridor is widened
             // where a town is, and a rectangle spanning both would drag in every tile of open country
@@ -3590,7 +3592,7 @@ namespace Horizon.EditorTools
             // clear of trees or they are lay-bys with a hedge in front of them.
             var vegetationContext = new VegetationContext(
                 path, course, vegetationShape, settlements, otherRoads,
-                region != null ? avenueRoad : null);
+                region != null ? avenueRoad : null, forecourts);
             var vegetationTotal = new VegetationStats();
             int heaviestTile = 0;
             string heaviestTileName = "none";
@@ -6547,6 +6549,26 @@ namespace Horizon.EditorTools
 
             Debug.Log($"[Horizon] Filling stations: {records.Count} sets of pumps baked in. Stopping "
                       + "within 9 m of one fills the tank.");
+        }
+
+        /// <summary>
+        /// Just the centres, for the vegetation scatter.
+        ///
+        /// <para>The scatter needs a point and a radius and nothing else, and it lives in a module that
+        /// has never heard of a filling station. Handing it the whole site would mean teaching it
+        /// what one is.</para>
+        /// </summary>
+        private static List<Vector3> ForecourtCentres(
+            IReadOnlyList<FuelStationMeshes.StationSite> sites)
+        {
+            var centres = new List<Vector3>(sites.Count);
+
+            for (int i = 0; i < sites.Count; i++)
+            {
+                centres.Add(sites[i].Centre);
+            }
+
+            return centres;
         }
 
         /// <summary>How far the finished ground rises and falls under one forecourt, metres.</summary>

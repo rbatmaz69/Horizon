@@ -183,11 +183,13 @@ namespace Horizon.World
             TunnelEndMargin = 30f,
             ViewpointClearing = 38f,
 
-            // 30 against an apron half-diagonal of about 27 m, so the paving is covered with a little
-            // to spare and the scatter closes back in immediately outside it. Deliberately tighter than
-            // the viewpoint's 38: a viewpoint is clearing a sight line, which reaches, and this is
-            // clearing a slab, which does not.
-            FuelStationClearing = 30f,
+            // The apron is 26 m by 17 m from its centre, so its corners are 31.1 m out. 34 covers them
+            // with enough over for the scatter's own grid to land outside rather than on the edge.
+            //
+            // Measured from the centre of the *forecourt*, not from the road — see VegetationContext.
+            // Deliberately tighter than the viewpoint's 38 all the same: a viewpoint is clearing a sight
+            // line, which reaches, and this is clearing a slab, which does not.
+            FuelStationClearing = 34f,
 
             SnagBand = 0.12f,
             SnagChance = 0.12f,

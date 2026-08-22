@@ -223,7 +223,8 @@ namespace Horizon.World
             in VegetationShape shape,
             IReadOnlyList<TownSource> settlements = null,
             IReadOnlyList<MountainField.FieldRoad> others = null,
-            IRoadPath avenueRoad = null)
+            IRoadPath avenueRoad = null,
+            IReadOnlyList<Vector3> forecourts = null)
         {
             blockerRadius = shape.TunnelExclusion;
             viewpointRadius = shape.ViewpointClearing;
@@ -315,18 +316,27 @@ namespace Horizon.World
 
             var covered = new List<Vector3>(128);
             var views = new List<Vector3>(8);
-            var forecourts = new List<Vector3>(8);
 
-            AddFeatures(path, course, shape, covered, views, forecourts);
+            AddFeatures(path, course, shape, covered, views);
 
             for (int i = 0; others != null && i < others.Count; i++)
             {
-                AddFeatures(others[i].Path, others[i].Course, shape, covered, views, forecourts);
+                AddFeatures(others[i].Path, others[i].Course, shape, covered, views);
             }
 
             blockers = covered.ToArray();
             viewpoints = views.ToArray();
-            pads = forecourts.ToArray();
+
+            // Handed in rather than read off the courses, and it has to be: a forecourt's centre is a
+            // carriageway half-width, a verge gap and an apron half-depth out from the road, and the
+            // first of those is different on the motorway from on the pass. Deriving it here would mean
+            // a second copy of FuelStationBuilder's arithmetic that agreed with the first until one of
+            // them was edited.
+            //
+            // Getting it wrong is not subtle and was not caught by any check: keyed on the road point
+            // instead, a 30 m radius reached 30 m from the centreline while the apron reached 43, and
+            // bushes came up through the far third of the concrete. It took a photograph to see.
+            pads = forecourts != null ? new List<Vector3>(forecourts).ToArray() : new Vector3[0];
             avenue = AvenueStations(avenueRoad);
 
             LowestElevation = course != null ? course.LowestElevation : 0f;
@@ -363,8 +373,7 @@ namespace Horizon.World
             RoadCourse course,
             in VegetationShape shape,
             List<Vector3> covered,
-            List<Vector3> views,
-            List<Vector3> forecourts)
+            List<Vector3> views)
         {
             if (path != null && course != null)
             {
@@ -380,13 +389,14 @@ namespace Horizon.World
                     }
 
                     // A forecourt is not a tunnel either, and for the sharper of the two reasons: the
-                    // capsule below would run 30 m past each end of a feature that has no length, so a
-                    // station would clear nearly twice the ground it stands on. Its own list, its own
-                    // radius, and unlike a viewpoint it stops grass as well — see VegetationContext.
+                    // capsule below would run its full end margin past both ends of a feature that has
+                    // no length at all, so a station would block nearly twice the ground it stands on.
+                    //
+                    // Nothing is recorded here. Where the forecourt actually is comes in through the
+                    // constructor, because only the caller knows how wide the road under it is — see the
+                    // note on `pads`. This branch exists purely so the catch-all below never sees one.
                     if (feature.Kind == RoadFeatureKind.FuelStation)
                     {
-                        forecourts.Add(path.GetPositionAtDistance(
-                            Mathf.Clamp(feature.StartDistance, 0f, path.Length)));
                         continue;
                     }
 
