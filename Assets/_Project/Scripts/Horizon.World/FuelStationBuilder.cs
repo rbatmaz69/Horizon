@@ -173,6 +173,32 @@ namespace Horizon.World
         }
 
         /// <summary>
+        /// One road, with the index that answers "how far is this point from it" quickly.
+        ///
+        /// <para>Paired because the two questions the pad has to ask need both halves:
+        /// <see cref="RoadProximity"/> gives the distance and how far along, and only the path can then
+        /// say how high the carriageway is there.</para>
+        /// </summary>
+        public readonly struct NearbyRoad
+        {
+            public readonly IRoadPath Path;
+            public readonly RoadProximity Near;
+
+            /// <summary>Half-width of the paved surface plus its verge, metres.</summary>
+            public readonly float Corridor;
+
+            public readonly string Name;
+
+            public NearbyRoad(IRoadPath path, in RoadShape shape, string name)
+            {
+                Path = path;
+                Near = new RoadProximity(path);
+                Corridor = shape.OuterHalfWidth;
+                Name = name;
+            }
+        }
+
+        /// <summary>
         /// Level samples for one station's pad, in the shape <c>MountainField</c> takes them.
         ///
         /// <para>Flat across and level along, at the height of the carriageway beside it. A pad that
@@ -183,11 +209,26 @@ namespace Horizon.World
         /// the field interpolates between what it is told, so a flattened square with untouched ground
         /// abutting it meets the hillside at a vertical face. Lifting the ring towards the natural ground
         /// gives the blend somewhere to happen. Same idea as <c>TownShape</c>'s skirt.</para>
+        ///
+        /// <para><b>No sample is ever placed inside a carriageway's corridor, and that is not a nicety.</b>
+        /// The skirt ring reaches back to within 4.75 m of the station's own centreline — inside the
+        /// 6.75 m the road actually occupies — and it is lifted 35 cm. So every station was pushing a
+        /// 28 cm lip of terrain up through the edge of its own asphalt, which the clearance check
+        /// reported and which is exactly the kind of number that gets read as noise. A road's own shelf
+        /// has to win wherever there is a road; everywhere else the pad may say what it likes.</para>
         /// </summary>
-        public static void AddPadSamples(in FuelStationMeshes.StationSite site, List<Vector3> samples)
+        public static void AddPadSamples(
+            in FuelStationMeshes.StationSite site,
+            List<Vector3> samples,
+            IReadOnlyList<NearbyRoad> roads = null)
         {
             const float pitch = 4f;
             const float skirtLift = 0.35f;
+
+            // A little wider than the paved surface, because the terrain builder drops a shelf either
+            // side of it and a sample landing on that shelf fights with it just as one on the asphalt
+            // would.
+            const float corridorMargin = 3f;
 
             float halfLength = FuelStationMeshes.ApronHalfLength + pitch;
             float halfDepth = FuelStationMeshes.ApronHalfDepth + pitch;
@@ -205,10 +246,101 @@ namespace Horizon.World
                                  + site.Forward * (a * pitch)
                                  + site.Outward * (d * pitch);
 
+                    if (OnAnyRoad(roads, at, corridorMargin))
+                    {
+                        continue;
+                    }
+
                     at.y = site.Centre.y + (skirt ? skirtLift : 0f);
                     samples.Add(at);
                 }
             }
+        }
+
+        private static bool OnAnyRoad(IReadOnlyList<NearbyRoad> roads, Vector3 at, float margin)
+        {
+            for (int i = 0; roads != null && i < roads.Count; i++)
+            {
+                roads[i].Near.Nearest(at.x, at.z, out float distance, out float _);
+
+                if (distance <= roads[i].Corridor + margin)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Whether this station's pad would bury a road, and which one.
+        ///
+        /// <para><b>The failure this exists for is a mountain with a road inside it.</b> A pad is
+        /// levelled at its own carriageway's height, and on a switchback stack the leg below can pass
+        /// within forty metres in plan and fifteen below in height — so a 60 by 42 metre platform laid
+        /// at the summit drops fifteen metres of rock straight through the road underneath it. Nothing
+        /// in the build says so in a way anyone reads: the road clearance check reports a number among
+        /// eighty others, the terrain comes out perfectly formed, and the first sign is a wall across
+        /// the carriageway on the way down.</para>
+        ///
+        /// <para>Skipping the samples over the road is not a fix for this — it leaves the road running
+        /// through a slot with fifteen-metre walls a few metres either side. The only fix is to put the
+        /// station somewhere else, so this reports rather than repairs.</para>
+        /// </summary>
+        /// <param name="drop">How far below the pad a road may sit before it counts as buried, metres.</param>
+        /// <param name="reach">
+        /// How far past the pad's own edge its samples still pull the ground, metres.
+        ///
+        /// <para>Not a fudge factor and not optional: <c>MountainField</c> says a level sample "behaves
+        /// exactly like a road sample — the shelf forms around it", and that shelf is a whole
+        /// <c>TerrainShape.VergeWidth</c> wide. So a pad reaches a good twenty-four metres further than
+        /// its own rectangle in every direction, which is exactly the mistake the first version of this
+        /// check made: it tested the rectangle, found the pass eight metres outside it, and reported
+        /// nothing while eleven metres of rock stood in the road.</para>
+        /// </param>
+        public static bool PadBuriesRoad(
+            in FuelStationMeshes.StationSite site,
+            IReadOnlyList<NearbyRoad> roads,
+            float drop,
+            float reach,
+            out string what,
+            out float worst)
+        {
+            const float step = 4f;
+
+            what = null;
+            worst = 0f;
+
+            float halfLength = FuelStationMeshes.ApronHalfLength + step + reach;
+            float halfDepth = FuelStationMeshes.ApronHalfDepth + step + reach;
+
+            for (int i = 0; roads != null && i < roads.Count; i++)
+            {
+                NearbyRoad road = roads[i];
+
+                for (float at = 0f; at <= road.Path.Length; at += step)
+                {
+                    Vector3 on = road.Path.GetPositionAtDistance(at);
+
+                    Vector3 offset = on - site.Centre;
+                    float along = offset.x * site.Forward.x + offset.z * site.Forward.z;
+                    float across = offset.x * site.Outward.x + offset.z * site.Outward.z;
+
+                    if (Mathf.Abs(along) > halfLength || Mathf.Abs(across) > halfDepth)
+                    {
+                        continue;
+                    }
+
+                    float below = site.Centre.y - on.y;
+                    if (below > drop && below > worst)
+                    {
+                        worst = below;
+                        what = $"{road.Name} at {at:0} m along it";
+                    }
+                }
+            }
+
+            return what != null;
         }
 
         /// <summary>

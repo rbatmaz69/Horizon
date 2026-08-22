@@ -1237,9 +1237,38 @@ namespace Horizon.EditorTools
                 FuelStationBuilder.Sites(eastbound, motorwayCourse, motorwayShape, 1f));
             fuelStations.AddRange(FuelStationBuilder.Sites(coastPath, coastCourse, roadShape));
 
+            // Every carriageway in the world, so a pad can be kept off all of them and not merely off
+            // the one it belongs to. The pass is the case that matters: its switchbacks stack legs
+            // forty metres apart in plan and fifteen in height, so a platform at the summit is directly
+            // over the road below it.
+            var padRoads = new[]
+            {
+                new FuelStationBuilder.NearbyRoad(path, roadShape, "the pass"),
+                new FuelStationBuilder.NearbyRoad(ebentalPath, roadShape, "the Ebental road"),
+                new FuelStationBuilder.NearbyRoad(westbound, motorwayShape, "the westbound carriageway"),
+                new FuelStationBuilder.NearbyRoad(eastbound, motorwayShape, "the eastbound carriageway"),
+                new FuelStationBuilder.NearbyRoad(linkPath, roadShape, "the motorway link"),
+                new FuelStationBuilder.NearbyRoad(coastPath, roadShape, "the coast road"),
+            };
+
             for (int i = 0; i < fuelStations.Count; i++)
             {
-                FuelStationBuilder.AddPadSamples(fuelStations[i], levelSamples);
+                FuelStationMeshes.StationSite site = fuelStations[i];
+
+                // Two metres of tolerance: a pad is levelled at its own carriageway's height and the
+                // road runs on a grade through it, so its far end is legitimately a little below the
+                // near one. Anything past that is a different road.
+                if (FuelStationBuilder.PadBuriesRoad(
+                        site, padRoads, 2f, terrainShape.VergeWidth, out string buried, out float deep))
+                {
+                    Debug.LogError($"[Horizon] '{site.Name}' cannot stand here. Its forecourt has to be "
+                                   + $"levelled, and doing that drops {deep:0.0} m of ground onto "
+                                   + $"{buried} — which puts a wall across a carriageway that nothing "
+                                   + "else in this build will complain about. Move it in the course "
+                                   + "table, or take it out.");
+                }
+
+                FuelStationBuilder.AddPadSamples(site, levelSamples, padRoads);
             }
 
             Phase(clock, "roads and street networks");

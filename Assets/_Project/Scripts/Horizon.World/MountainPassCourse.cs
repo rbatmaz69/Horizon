@@ -245,18 +245,7 @@ namespace Horizon.World
             // --- Summit. Somewhere to stop, which the concept asks for and the view earns.
             builder.Straight(70f, 2.5f);
             builder.AddViewpoint("Passhöhe");
-
-            // 50 + 60 rather than 110, for the reason given at the Talheim station: it puts the forecourt
-            // inside the level stretch instead of on the bend that ends it, and 50 and 60 both divide by
-            // the 10 m point spacing, so the geometry does not move.
-            builder.Straight(50f, 0f);
-
-            // The only dead-level ground on the mountain, which is what a forecourt needs — everything
-            // else here is between 2.5 and 9.5 %. Far enough past the viewpoint that the two are not
-            // fighting over the same piece of hillside, and on the mountain side of the road so the drop
-            // and the view stay unbuilt-on.
-            builder.AddFuelStation("Passhöhe Raststätte", 1f);
-            builder.Straight(60f, 0f);
+            builder.Straight(110f, 0f);
             builder.Turn(180f, 34f, -1f);
 
             // --- Descent.
@@ -281,7 +270,24 @@ namespace Horizon.World
             // --- Run-out into the far valley.
             builder.Straight(140f, -4f);
             builder.Turn(260f, 24f, -2f);
-            builder.Straight(160f, -1.5f);
+
+            // Split 80 + 80 to sit the station in the middle of the last straight rather than on either
+            // end of it. Both halves divide by the 10 m point spacing, so the road is unchanged.
+            builder.Straight(80f, -1.5f);
+
+            // The pass's second station, and it is down here rather than at the summit for a reason
+            // worth writing down, because the summit is the obvious place and it cannot work.
+            //
+            // A forecourt has to be levelled, and MountainField levels by planting samples that behave
+            // like road samples — so each one forms a shelf a whole verge width around itself, about
+            // twenty-four metres. On a switchback stack that reaches the leg below: a platform at the
+            // summit dropped 20 m of ground onto the carriageway at 3312 m and walled the road off.
+            // Shrinking the pad does not help, because the reach is the verge and not the pad.
+            //
+            // The run-out is the only other place on this road with both a straight and open ground
+            // beside it — the mountain has finished by here, so there is no leg underneath to bury.
+            builder.AddFuelStation("Tankstelle Passfuß", 1f);
+            builder.Straight(80f, -1.5f);
         }
     }
 }
