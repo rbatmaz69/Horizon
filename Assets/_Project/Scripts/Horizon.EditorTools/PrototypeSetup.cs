@@ -1547,7 +1547,7 @@ namespace Horizon.EditorTools
             // Shifted towards the corniche rather than centred on the deck, for that reason. Positive
             // across at the crossing points down the channel towards the coast road, because the deck
             // runs square to the water.
-            const float ShownTowardsCorniche = 1900f;
+            const float ShownTowardsCorniche = 2700f;
             const float ShownBeyondCrossing = 700f;
 
             Vector3 crossingMiddle = meerengePath.GetPositionAtDistance(MeerengeCourse.CrossingMiddle);

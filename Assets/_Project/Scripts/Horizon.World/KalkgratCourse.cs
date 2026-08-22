@@ -14,17 +14,32 @@ namespace Horizon.World
     /// and the work is all in the throttle. The descent then does the reverse.</para>
     ///
     /// <para><b>The descent is not a second pass, and the difference is the radius.</b> The pass lives
-    /// on 20 m hairpins taken at walking pace; nothing here is under 38 m. That is fast enough to
-    /// carry speed between the corners and tight enough that they have to be braked for — and where
-    /// the pass has a mountain on the outside of every bend, this has a drop. The gallery and the
-    /// ravine viaduct are there because the road genuinely has nowhere else to go, not as decoration.</para>
+    /// on 20 m hairpins taken at walking pace; nothing here is under 38 m. That is fast enough to carry
+    /// speed between the corners and tight enough that they have to be braked for.</para>
     ///
-    /// <para><b>The tunnel is a shutter, not a feature.</b> Everything this road is built for is on the
-    /// far side of the Kalkgrat — the water, the far shore, and the towers standing in it. Two hundred
-    /// and eighty metres of rock means none of it is visible until the portal, and then all of it is
-    /// at once. <see cref="RevealDistance"/> is where that happens, and
-    /// <c>WorldPreviewRenderer</c> photographs it, because if the reveal does not read from the
-    /// driver's seat then the span or the fog is wrong and no other picture will say so.</para>
+    /// <para><b>How steep the ground comes out is set by the legs, not by the corners.</b>
+    /// <see cref="MountainField"/> derives the mountain from the road, so the slope between two stacked
+    /// legs is decided by how far apart they are in plan. The first version kept the open corners and
+    /// gave them 180–240 m legs, which stacked about 150 m apart and produced a broad hillside the
+    /// gallery sat on top of like a lump rather than being cut into. The legs are now 90–140 m and the
+    /// corners are untouched: the descent still turns at 38 to 70 m where the pass turns at 20, and it
+    /// falls down something worth putting a gallery on.</para>
+    ///
+    /// <para>The legs are also what decides where the road comes out. At 220 m each it reached the coast
+    /// at 13 m, and the corniche below ran barely thirty metres over the water with a wall of trees in
+    /// between — see <see cref="MeerengeCourse"/> for what that cost. At 130 the descent gives back a
+    /// hundred metres instead of a hundred and fifty, and the coast road starts on a shelf.</para>
+    ///
+    /// <para><b>The tunnel marks the crest. It does not reveal anything, and that is worth writing
+    /// down because it was built to.</b> The idea was one frame at the portal holding the strait, the
+    /// far shore and the towers together — and the first set of preview shots showed it cannot work.
+    /// The crossing is five kilometres from here in a straight line against a 600 m far plane with a
+    /// fog wall inside it. Nothing in this world is ever revealed from further than about half a
+    /// kilometre, so any set-piece built on distance is one nobody will see. The sea arrives on the
+    /// corniche and the bridge arrives on the last corner before it; this is a bore through the top of
+    /// a climb, which is what it looks like and enough for it to be.
+    /// <see cref="RevealDistance"/> stays published because it is still the frame to photograph and
+    /// the place to put a car when the descent is being tuned.</para>
     ///
     /// <para><b>It ends provisionally</b>, the way the Ebental's own end does, and publishes
     /// <see cref="EndPoint"/> and <see cref="EndHeading"/> so <see cref="MeerengeCourse"/> can be
@@ -167,18 +182,20 @@ namespace Horizon.World
 
             builder.Straight(PortalApproach, -1.4f);
 
-            // Everything on the far side of the ridge arrives here, in one frame. See the class note.
+            // Out of the rock and straight onto the top of the descent. See the class note for what
+            // this viewpoint does and does not show — the sea is five kilometres away and the fog is at
+            // six hundred metres, so what is in frame here is the Steilufer falling away.
             RevealDistance = builder.Distance;
-            builder.AddViewpoint("Meerkanzel");
+            builder.AddViewpoint("Steilkanzel Nord");
 
             // --- Down the Steilufer. The hairpins alternate, so the stack rotates down the face rather
             // than spiralling into itself — the same rule the pass's switchbacks obey and for the same
             // reason: the terrain takes its height from the nearest carriageway, and two legs stacked
             // in plan bury the lower one.
             builder.Turn(60f, -104f, HairpinGrade);
-            builder.Straight(220f, DescentGrade);
+            builder.Straight(130f, DescentGrade);
             builder.Turn(45f, 128f, HairpinGrade);
-            builder.Straight(180f, DescentGrade);
+            builder.Straight(110f, DescentGrade);
 
             // Roofed on the uphill side and open to the drop, which is the one thing a gallery is for.
             // On a straight, like every portal on this road.
@@ -186,9 +203,9 @@ namespace Horizon.World
             builder.Straight(120f, DescentGrade);
             builder.AddFeature(RoadFeatureKind.Gallery, galleryStart, builder.Distance, "Klippengalerie");
 
-            builder.Straight(140f, DescentGrade);
+            builder.Straight(90f, DescentGrade);
             builder.Turn(TightRadius, -136f, HairpinGrade);
-            builder.Straight(160f, DescentGrade);
+            builder.Straight(100f, DescentGrade);
 
             // Level across the span, for the reason AutobahnCourse gives at its own viaducts: the deck,
             // the piers and the parapet are all measured off the carriageway, and a grade across the
@@ -197,14 +214,14 @@ namespace Horizon.World
             builder.Straight(180f, 0f);
             builder.AddFeature(RoadFeatureKind.Bridge, bridgeStart, builder.Distance, "Schluchtbrücke");
 
-            builder.Straight(140f, DescentGrade);
+            builder.Straight(90f, DescentGrade);
             builder.Turn(52f, 122f, HairpinGrade);
-            builder.Straight(240f, DescentGrade);
+            builder.Straight(140f, DescentGrade);
             builder.Turn(70f, -110f, HairpinGrade);
-            builder.Straight(200f, DescentGrade);
+            builder.Straight(120f, DescentGrade);
 
-            // The last corner of the descent, and the first place the coast is seen from sea level
-            // rather than from above it.
+            // The last corner of the descent, where the road comes back down to the level the coast
+            // road runs at.
             builder.AddViewpoint("Steilkanzel");
 
             // --- Run-out along the shore. The only straight, near-level ground between the crest and

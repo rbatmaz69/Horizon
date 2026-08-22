@@ -98,6 +98,23 @@ namespace Horizon.World
                + "of it is not a viewpoint.")]
         public float ViewpointClearing;
 
+        /// <summary>
+        /// How far back from open water trees are kept off the bank, metres.
+        ///
+        /// <para><b>This is what makes a coast road a coast road.</b> Nothing here ever kept a plant off
+        /// a shore — only out of the water itself — so every bank in the world came up wooded right to
+        /// the waterline, and from a road three hundred metres back the sea was behind a wall of
+        /// canopy. The picture that found it is <c>WorldPreview_Strait_4_Corniche</c>, which was a
+        /// photograph of a forest taken from a road named for the water it cannot see.</para>
+        ///
+        /// <para><b>Clamped to each body's own bank ease by <see cref="MountainField.IsShore"/>, which
+        /// is why one number is safe for a 1200 m strait and a 70 m tarn.</b> What it really says is
+        /// "no trees on a bank", and a bank is as wide as that body made it: 340 m on the Meerenge,
+        /// 25 m at the Talheimer See. Shrubs, tufts and boulders are deliberately left alone — a bare
+        /// bank is as wrong as a wooded one, and none of them is tall enough to stand in a view.</para>
+        /// </summary>
+        public float ShoreTreeClearing;
+
         [Tooltip("Nothing at all grows within this of a filling station, metres — grass included, which "
                + "is what separates it from a viewpoint. A forecourt is paved.\n\n"
                + "Must cover the apron FuelStationMeshes lays, or plants come up through the concrete.")]
@@ -182,6 +199,10 @@ namespace Horizon.World
             TunnelExclusion = 58f,
             TunnelEndMargin = 30f,
             ViewpointClearing = 38f,
+
+            // Large on purpose: MountainField.IsShore clamps it to each body's own bank, so what this
+            // actually asks for is "the whole bank, whatever that body's bank is". See the field.
+            ShoreTreeClearing = 400f,
 
             // The apron is 26 m by 17 m from its centre, so its corners are 31.1 m out. 34 covers them
             // with enough over for the scatter's own grid to land outside rather than on the edge.

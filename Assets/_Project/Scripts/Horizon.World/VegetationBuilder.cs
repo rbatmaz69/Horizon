@@ -837,9 +837,14 @@ namespace Horizon.World
                     TerrainTileBuilder.SampleSurface(field, terrainShape, x, z,
                         out Vector3 point, out Vector3 normal);
 
-                    // Nothing grows in a river. The basin was carved into the ground the scatter reads,
-                    // so without this every body of water comes up wooded — see MountainField.IsUnderWater.
-                    if (field.IsUnderWater(x, z, point.y, WaterFreeboard))
+                    // Nothing grows in a river, and nothing tall grows on its bank either. The first
+                    // test is the basin — carved into the ground this scatter reads, so without it every
+                    // body of water comes up wooded. The second is the bank, and it is a separate
+                    // question: a tree standing beside the waterline is not in the water and passes the
+                    // first test perfectly, which is how every shore in the world ended up with a wall
+                    // of canopy on it. See VegetationShape.ShoreTreeClearing.
+                    if (field.IsUnderWater(x, z, point.y, WaterFreeboard)
+                        || field.IsShore(x, z, point.y, WaterFreeboard, shape.ShoreTreeClearing))
                     {
                         continue;
                     }

@@ -734,6 +734,18 @@ namespace Horizon.EditorTools
             return FindRoad("EbentalRoadPath");
         }
 
+        /// <summary>The road over the Kalkgrat, or null before it has been built.</summary>
+        private static RoadPath FindKalkgratRoad()
+        {
+            return FindRoad("KalkgratRoadPath");
+        }
+
+        /// <summary>The coast road along the Meerenge and over it.</summary>
+        private static RoadPath FindMeerengeRoad()
+        {
+            return FindRoad("MeerengeRoadPath");
+        }
+
         private static RoadPath FindRoad(string objectName)
         {
             RoadPath[] paths = Object.FindObjectsByType<RoadPath>(FindObjectsSortMode.None);
@@ -856,6 +868,282 @@ namespace Horizon.EditorTools
         /// the scene and standing there. That is the view being designed for — a driver arriving — and
         /// not an architectural elevation of a thing nobody sees from that angle.</para>
         /// </summary>
+        /// <summary>
+        /// The Kalkgrat, the Steilufer and the crossing, day and night.
+        ///
+        /// <para><b>Nine framings, and the first one is the whole feature.</b> Everything on that leg is
+        /// arranged so that the sea, the coast and the towers arrive together in the frame at the exit
+        /// portal of the Kalkgrattunnel. If that shot does not read, the span is wrong or the fog is —
+        /// and no number in the build log can tell the difference, because both produce a structure that
+        /// measures perfectly and cannot be seen.</para>
+        ///
+        /// <para>The rest are the questions a suspension bridge raises that a viaduct does not: does the
+        /// deck hold both towers at once, does a tower read as standing <i>in</i> water rather than on
+        /// it, do the hangers reach the parapet, and does the silhouette hold from the far shore. The
+        /// profile shot turns the fog off, because it is taken from further away than any driver ever
+        /// stands and with it on the answer is a wall of orange either way.</para>
+        ///
+        /// <para>The night pass is not decoration. The beacons and the cable beads are the one thing in
+        /// this structure on an always-bright material, and the failure they are guarding against — a
+        /// lit part that comes out painted road-asphalt in daylight — shows in the <i>day</i> shots, not
+        /// the night ones. Both passes have to be looked at together.</para>
+        /// </summary>
+        [MenuItem("Tools/Horizon/Render Strait Preview", priority = 45)]
+        public static void RenderStrait()
+        {
+            Scene scene = SceneManager.GetSceneByPath(WorldScenePath);
+            bool openedHere = !scene.isLoaded;
+
+            if (openedHere)
+            {
+                scene = EditorSceneManager.OpenScene(WorldScenePath, OpenSceneMode.Additive);
+            }
+
+            RoadPath kalkgrat = FindKalkgratRoad();
+            RoadPath meerenge = FindMeerengeRoad();
+
+            if (kalkgrat == null || meerenge == null)
+            {
+                Debug.LogError("[Horizon] No Kalkgrat or Meerenge road in the world scene. Run Rebuild "
+                               + "Prototype Scene first.");
+                return;
+            }
+
+            var clock = Object.FindFirstObjectByType<TimeOfDayController>();
+            var lights = Object.FindFirstObjectByType<TownLights>();
+
+            float hoursWere = clock != null ? clock.TimeOfDayHours : 0f;
+            bool runningWas = clock != null && clock.Running;
+
+            string directory = Directory.GetParent(Application.dataPath).FullName;
+            var cameraObject = new GameObject("StraitPreviewCamera");
+
+            try
+            {
+                Camera camera = cameraObject.AddComponent<Camera>();
+                camera.clearFlags = CameraClearFlags.Skybox;
+                camera.enabled = false;
+
+                for (int pass = 0; pass < 2; pass++)
+                {
+                    bool night = pass == 1;
+                    string suffix = night ? "_Night" : string.Empty;
+
+                    if (clock != null)
+                    {
+                        // Stopped and applied in the same frame as the capture: no Update runs in edit
+                        // mode, so a clock left running is a clock that never ticks.
+                        clock.Running = false;
+                        clock.TimeOfDayHours = night ? NightHours : 16.5f;
+                        clock.Apply();
+                    }
+
+                    if (lights != null)
+                    {
+                        lights.Refresh();
+                    }
+
+                    CaptureStrait(camera, kalkgrat, meerenge, directory, suffix);
+                }
+            }
+            finally
+            {
+                Object.DestroyImmediate(cameraObject);
+
+                if (clock != null)
+                {
+                    clock.TimeOfDayHours = hoursWere;
+                    clock.Running = runningWas;
+                    clock.Apply();
+                }
+
+                if (lights != null)
+                {
+                    lights.Refresh();
+                }
+
+                if (openedHere)
+                {
+                    EditorSceneManager.CloseScene(scene, true);
+                }
+            }
+
+            Debug.Log("[Horizon] Strait preview written beside the project. Look for: the descent "
+                      + "falling away in _Portal; a gallery with an underside in _Gallery; water out of "
+                      + "the right-hand window in _Corniche, which is the shot this leg lives or dies "
+                      + "by; the towers arriving over the trees in _Approach; both of them in one frame "
+                      + "from _Deck; a tower standing in the strait rather than beside it in _Tower; "
+                      + "hangers that reach the parapet in _Profile; and in the day shots, nothing on "
+                      + "the structure painted the colour of the road.");
+        }
+
+        private static void CaptureStrait(
+            Camera camera, RoadPath kalkgrat, RoadPath meerenge, string directory, string suffix)
+        {
+            // Rebuilt rather than read off the scene, the way the Ebental's shots do it: the courses are
+            // deterministic and the scene's paths came from these same calls.
+            RoadCourse meerengeCourse = MeerengeCourse.Build();
+            RoadCourse kalkgratCourse = KalkgratCourse.Build();
+
+            // Standing on the carriageway looking sideways is the one view a driver never has, so every
+            // road shot here is taken from behind and a little above the bonnet line — the same framing
+            // TryRoadSide argues for at the filling stations.
+            void FromRoad(RoadPath road, float at, float back, float lift, float pitch, string name)
+            {
+                float distance = Mathf.Clamp(at, 0f, road.Length);
+                Vector3 on = road.GetPositionAtDistance(distance);
+                Vector3 forward = road.GetDirectionAtDistance(distance);
+
+                camera.fieldOfView = 60f;
+                camera.farClipPlane = 900f;
+                camera.nearClipPlane = 0.3f;
+                camera.transform.position = on - forward * back + Vector3.up * lift;
+                camera.transform.rotation = Quaternion.LookRotation(
+                    (forward + Vector3.up * pitch).normalized, Vector3.up);
+
+                Capture(camera, Path.Combine(directory, $"WorldPreview_Strait_{name}{suffix}.png"));
+            }
+
+            // 1. Out of the Kalkgrattunnel, driver's eye, looking down the road.
+            //
+            // This shot was framed as the reveal of the strait, and it cannot be: the crossing is five
+            // kilometres from here in a straight line against a 600 m far plane with a fog wall inside
+            // it. Nothing in this world is ever revealed from more than about half a kilometre away.
+            // What the portal actually opens onto is the top of the descent, which is what to look for.
+            FromRoad(kalkgrat, KalkgratCourse.RevealDistance + 12f, 9f, 2.4f, -0.03f, "1_Portal");
+
+            // 2. The gallery, from just short of it. The shot that catches a roof with no underside.
+            float galleryAt = FeatureStart(kalkgratCourse, RoadFeatureKind.Gallery, "Klippengalerie");
+            FromRoad(kalkgrat, galleryAt, 55f, 2.4f, 0f, "2_Gallery");
+
+            // 3. The descent from above, so the hairpin stack can be read as a stack. Fog off: at two
+            // kilometres it is tuned to hide the draw distance from a car, and with it on this shot
+            // came back a wall of orange whatever the road underneath was doing.
+            {
+                Vector3 top = kalkgrat.GetPositionAtDistance(
+                    Mathf.Min(KalkgratCourse.RevealDistance + 60f, kalkgrat.Length));
+                Vector3 foot = kalkgrat.GetPositionAtDistance(kalkgrat.Length * 0.95f);
+
+                bool fogWasOn = RenderSettings.fog;
+                RenderSettings.fog = false;
+
+                try
+                {
+                    camera.fieldOfView = 55f;
+                    camera.farClipPlane = 4000f;
+                    camera.transform.position = top + Vector3.up * 260f;
+                    camera.transform.rotation = Quaternion.LookRotation(
+                        foot - camera.transform.position, Vector3.up);
+                    Capture(camera, Path.Combine(directory, $"WorldPreview_Strait_3_Descent{suffix}.png"));
+                }
+                finally
+                {
+                    RenderSettings.fog = fogWasOn;
+                }
+            }
+
+            // 4. The corniche, at the bay. The water is on the right of this road for its whole length,
+            // so this is the shot that says whether it is a coast road or a lane with a rumour of sea.
+            FromRoad(meerenge, ViewpointOn(meerengeCourse, "Steilbucht") - 140f, 9f, 2.4f, -0.02f,
+                "4_Corniche");
+
+            // 5. The approach, from the last corner before the deck.
+            FromRoad(meerenge, MeerengeCourse.CrossingStart - 260f, 9f, 2.4f, 0.02f, "5_Approach");
+
+            // 6. On the deck, a third of the way over: near tower overhead, far tower ahead.
+            FromRoad(meerenge, MeerengeCourse.CrossingStart + MeerengeCourse.StructureLength * 0.33f,
+                9f, 2.4f, 0.06f, "6_Deck");
+
+            // 7. The western tower from out on the water, low down. Whether a tower stands *in* the
+            // strait or merely beside it is the one question no shot from the deck can answer — from up
+            // there its own foot is directly below and out of frame, which is what the first attempt at
+            // this framing came back as: a shaft and a lot of sky.
+            {
+                float at = MeerengeCourse.CrossingStart + MeerengeCourse.SideSpan;
+                Vector3 tower = meerenge.GetPositionAtDistance(Mathf.Clamp(at, 0f, meerenge.Length));
+                Vector3 alongChannel = meerenge.GetRightAtDistance(Mathf.Clamp(at, 0f, meerenge.Length));
+                Vector3 acrossChannel = meerenge.GetDirectionAtDistance(Mathf.Clamp(at, 0f, meerenge.Length));
+
+                // Out along the water and a little towards mid-channel, so the shaft is seen against the
+                // strait rather than against the bank it is nearest to.
+                camera.fieldOfView = 55f;
+                camera.farClipPlane = 1200f;
+                camera.transform.position = tower
+                                            + alongChannel * 330f
+                                            + acrossChannel * 190f
+                                            + Vector3.down * (tower.y - 12f);
+                camera.transform.rotation = Quaternion.LookRotation(
+                    tower - camera.transform.position, Vector3.up);
+                Capture(camera, Path.Combine(directory, $"WorldPreview_Strait_7_Tower{suffix}.png"));
+            }
+
+            // 8. From the far shore's viewpoint, back at the whole thing.
+            {
+                float at = ViewpointOn(meerengeCourse, "Köprü Bakışı");
+                Vector3 on = meerenge.GetPositionAtDistance(Mathf.Clamp(at, 0f, meerenge.Length));
+                Vector3 middle = meerenge.GetPositionAtDistance(
+                    Mathf.Clamp(MeerengeCourse.CrossingMiddle, 0f, meerenge.Length));
+
+                camera.fieldOfView = 55f;
+                camera.farClipPlane = 3000f;
+                camera.transform.position = on + Vector3.up * 6f;
+                camera.transform.rotation = Quaternion.LookRotation(
+                    middle - camera.transform.position, Vector3.up);
+                Capture(camera, Path.Combine(directory, $"WorldPreview_Strait_8_FarShore{suffix}.png"));
+            }
+
+            // 9 and 10. The silhouette, square on from over the water, and the strait from above. Fog
+            // off for both: they are taken from further out than any driver stands, and with it on the
+            // answer is a wall of orange whatever the structure looks like.
+            {
+                float at = MeerengeCourse.CrossingMiddle;
+                Vector3 middle = meerenge.GetPositionAtDistance(Mathf.Clamp(at, 0f, meerenge.Length));
+                Vector3 alongChannel = meerenge.GetRightAtDistance(Mathf.Clamp(at, 0f, meerenge.Length));
+
+                bool fogWasOn = RenderSettings.fog;
+                RenderSettings.fog = false;
+
+                try
+                {
+                    camera.fieldOfView = 42f;
+                    camera.farClipPlane = 6000f;
+                    camera.transform.position = middle + alongChannel * 1450f + Vector3.up * 30f;
+                    camera.transform.rotation = Quaternion.LookRotation(
+                        middle - camera.transform.position, Vector3.up);
+                    Capture(camera, Path.Combine(directory, $"WorldPreview_Strait_9_Profile{suffix}.png"));
+
+                    camera.fieldOfView = 60f;
+                    camera.transform.position = middle + Vector3.up * 1500f;
+                    camera.transform.rotation = Quaternion.LookRotation(Vector3.down, Vector3.forward);
+                    Capture(camera, Path.Combine(directory, $"WorldPreview_Strait_10_Above{suffix}.png"));
+                }
+                finally
+                {
+                    RenderSettings.fog = fogWasOn;
+                }
+            }
+        }
+
+        /// <summary>Where a named feature of a kind begins, or zero if the course has no such thing.</summary>
+        private static float FeatureStart(RoadCourse course, RoadFeatureKind kind, string name)
+        {
+            for (int i = 0; i < course.Features.Count; i++)
+            {
+                if (course.Features[i].Kind == kind && course.Features[i].Name == name)
+                {
+                    return course.Features[i].StartDistance;
+                }
+            }
+
+            return 0f;
+        }
+
+        /// <summary>Where a named viewpoint stands on a course.</summary>
+        private static float ViewpointOn(RoadCourse course, string name)
+        {
+            return FeatureStart(course, RoadFeatureKind.Viewpoint, name);
+        }
+
         [MenuItem("Tools/Horizon/Render Fuel Station Preview", priority = 44)]
         public static void RenderFuelStations()
         {

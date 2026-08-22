@@ -83,26 +83,40 @@ namespace Horizon.World
         /// <summary>Half the open channel, metres. The strait is twice this across.</summary>
         public const float ChannelHalfWidth = 600f;
 
-        /// <summary>Over how many metres beyond the waterline the bank climbs back to natural ground.</summary>
-        public const float ChannelBankEase = 140f;
+        /// <summary>
+        /// Over how many metres beyond the waterline the bank climbs back to natural ground.
+        ///
+        /// <para>Wide, and for a reason that has nothing to do with the water: it is what the coast road
+        /// looks over. At 140 m the ground stayed at road height until the last moment and then fell,
+        /// which from a car 300 m back is a flat field with trees on it and no sea behind them. Easing
+        /// the drop out to 240 puts most of that ground on a downward slope, and a slope is something
+        /// you see over.</para>
+        ///
+        /// <para><b>It has to reach as far as the road, and that is a geometric condition rather than a
+        /// taste.</b> The bank is a smoothstep, so it is convex in its middle: with the road 300 m back
+        /// and the bank only 240 m wide, the line of sight from the driver's seat to the waterline
+        /// passes <i>below</i> the bank's own crown at about half way. The ground itself was hiding the
+        /// water. Once the bank reaches past the road, everything between the two is one continuous
+        /// fall and there is nothing left to look over.</para>
+        /// </summary>
+        public const float ChannelBankEase = 340f;
 
         /// <summary>
         /// How far the channel runs either side of the crossing, metres.
         ///
-        /// <para><b>Nineteen hundred, and the number is set by the coast road rather than by the
-        /// strait.</b> A river's reach only has to fill the valley its bridge spans; this one has to
-        /// still be there two kilometres south of the crossing, because that is where the corniche is
-        /// and a coast road with no coast in it is a country lane. At 1100 the water ran out level with
-        /// the ramp and the median distance from the corniche to the waterline was a kilometre — past
-        /// the fog wall, so the sea was not merely far away, it was absent. At 1900 that median is about
-        /// 500 m, which is hazy and present, and the far end of the channel is well outside anything the
-        /// player can see from the road.</para>
+        /// <para><b>Set by the coast road, not by the strait.</b> A corridor river only has to fill the
+        /// valley its bridge spans; this one has to still be there two and a half kilometres south of
+        /// the crossing, because that is where the corniche is. It was 1100 first and then 1900, and
+        /// the pictures killed both: at 1100 the median distance from the coast road to the waterline
+        /// was a kilometre and at 1900 it was still 500 m, and past the 600 m far plane the sea is not
+        /// far away, it is absent. The shot that settled it is <c>WorldPreview_Strait_4_Corniche</c>,
+        /// which came back a picture of a forest.</para>
         ///
-        /// <para>The first kilometre of this course is still not a coast road, and is not meant to be:
-        /// it is the run-out off the Steilufer <i>reaching</i> the coast. The water arrives at the first
-        /// cape.</para>
+        /// <para>The first seven hundred metres of this course is still not a coast road, and is not
+        /// meant to be: it is the run-out off the Steilufer <i>reaching</i> the coast. The water arrives
+        /// at the first cape and stays for the rest of the road.</para>
         /// </summary>
-        public const float ChannelReach = 1900f;
+        public const float ChannelReach = 2600f;
 
         /// <summary>Degrees off square the channel crosses the deck at. A dead-square one reads as a cut.</summary>
         public const float ChannelSkew = 6f;
@@ -112,13 +126,16 @@ namespace Horizon.World
         /// <summary>
         /// How far the surface sits below the lowest point of its own rim, metres.
         ///
-        /// <para>Six rather than the 1.5 the corridor rivers use, and the reason is that this rim is not
-        /// a valley floor. The ground under the crossing is dropped from the shelf — that is what makes
-        /// it a bridge — so what the rim sampler finds out there is the coarse field, which carries ±30 m
-        /// of its own noise. Six metres of freeboard is what stops one lucky low sample putting the
-        /// waterline within a metre of the corniche.</para>
+        /// <para>Six was enough to stop the water leaking, which is what freeboard is for on a river in
+        /// a valley, and nothing like enough here. Everything in this world takes its height from the
+        /// roads, so the strait's rim sits at whatever height the coast road does — and with six metres
+        /// of freeboard the sea came out level with the verge. Twenty-four gives the shore a fall worth
+        /// the name, and the corniche something to be above.</para>
+        ///
+        /// <para>It is still solved rather than typed: the rim is sampled before anything is carved, so
+        /// this is a promise about ground that exists.</para>
         /// </summary>
-        public const float ChannelFreeboard = 6f;
+        public const float ChannelFreeboard = 24f;
 
         /// <summary>
         /// Over how many metres in from the edge the bed reaches full depth. See <c>WaterBody.BedScale</c>.
@@ -139,10 +156,10 @@ namespace Horizon.World
         /// </summary>
         public static SuspensionShape Crossing => new SuspensionShape(SideSpan, TowerRise, CableSag);
 
-        private const float CornicheGrade = -0.6f;
+        private const float CornicheGrade = -0.4f;
 
-        /// <summary>Grade of the climb onto the crossing, percent. Taken along the shore, not inland.</summary>
-        private const float RampGrade = 5.4f;
+        /// <summary>Grade of the short rise onto the crossing, percent.</summary>
+        private const float RampGrade = 2.4f;
 
         private const float PortalApproach = 60f;
 
@@ -187,11 +204,18 @@ namespace Horizon.World
         private static void Append(RoadCourseBuilder builder)
         {
             // --- The corniche. Water on the right for its whole length, rock on the left, and nothing
-            // tighter than 300 m — after the Steilufer this road is meant to be somewhere the throttle
+            // tighter than 500 m — after the Steilufer this road is meant to be somewhere the throttle
             // goes back down and stays there.
+            //
+            // <b>Every heading here is held within about fifteen degrees of the channel's own.</b> That
+            // is not a styling rule, it is the whole reason this is a coast road: WaterPlanner lays the
+            // spine square to the deck plus the skew, so the strait's axis is fixed by the crossing, and
+            // a coast road that wanders relative to it opens and closes its distance to the water by
+            // more than a kilometre over its length. The first version swung between −8° and +26° and
+            // came back, in the pictures, as a forest with no sea in it anywhere.
             builder.Straight(260f, -0.9f);
-            builder.Turn(380f, 22f, CornicheGrade);
-            builder.Straight(220f, CornicheGrade);
+            builder.Turn(600f, 16f, CornicheGrade);
+            builder.Straight(200f, CornicheGrade);
 
             // Two capes, bored rather than driven round. They are short on purpose: at ninety metres a
             // bore is over in three seconds, which is exactly what a headland tunnel on a coast road is
@@ -202,7 +226,7 @@ namespace Horizon.World
             builder.AddFeature(RoadFeatureKind.Tunnel, capeStart, builder.Distance, "Möwenkap");
             builder.Straight(PortalApproach, -0.4f);
 
-            builder.Turn(300f, -34f, CornicheGrade);
+            builder.Turn(500f, -22f, CornicheGrade);
 
             // 180 + 200 around the station. Landward side — the water side of this road is the reason
             // to drive it, which is the same argument CoastCourse makes at Bucht Tankstelle.
@@ -210,7 +234,7 @@ namespace Horizon.World
             builder.AddFuelStation("Tankstelle Steilbucht", -1f);
             builder.Straight(200f, CornicheGrade);
 
-            builder.Turn(340f, 26f, -0.4f);
+            builder.Turn(520f, 20f, -0.4f);
 
             builder.Straight(PortalApproach, -0.3f);
             capeStart = builder.Distance;
@@ -218,26 +242,27 @@ namespace Horizon.World
             builder.AddFeature(RoadFeatureKind.Tunnel, capeStart, builder.Distance, "Felskap");
             builder.Straight(PortalApproach, -0.3f);
 
-            builder.Turn(420f, -18f, -0.4f);
+            builder.Turn(560f, -16f, -0.4f);
             builder.Straight(200f, -0.3f);
 
             // The bay. The last place on this road at eye level with the water — everything past here
-            // is climbing, and the next view of the strait is from 59 m up.
+            // is climbing, and the next view of the strait is from fifty-eight metres up.
             builder.AddViewpoint("Steilbucht");
 
-            // --- Up to deck height, and taken along the coast rather than inland. See the class note:
-            // the distance the corniche has to stand back from the water is the length of everything
-            // between the last corner and the anchorage, so this climb spends its metres going north
-            // instead of east.
-            builder.Turn(360f, 24f, 1.8f);
+            // --- Onto the deck, and it is a rise rather than a ramp. The Steilufer now stops on the
+            // shelf the corniche runs along, about fifty metres over the water, so the crossing is
+            // already nearly at road height and there is nothing left to climb.
+            //
+            // That is the second reason to end the descent high, and it is the one that matters more.
+            // Every metre of ramp is a metre the corniche behind it has to stand further back from its
+            // own water — the deck's middle is where the channel is centred, and the structure's own
+            // half-length already spends 625 m of that budget. The kilometre of ramp this replaces put
+            // the coast road half a kilometre from the sea.
+            builder.Turn(600f, 14f, 1.6f);
             builder.Straight(240f, RampGrade);
-            builder.Turn(500f, -20f, RampGrade);
-            builder.Straight(260f, RampGrade);
-            builder.Turn(420f, 20f, RampGrade);
-            builder.Straight(200f, 3f);
 
             // --- Onto the axis of the crossing, and level from here to the far anchorage.
-            builder.Turn(240f, 66f, 1.2f);
+            builder.Turn(240f, 74f, 1.4f);
 
             CrossingStart = builder.Distance;
             builder.Straight(StructureLength, 0f);
