@@ -203,6 +203,23 @@ screen prints that number.
 (`StartScreen.Drive` → `ApplyPlace` → `PauseMenu.MoveTo`), and placing the car fills it. Respawn does
 the same, because a respawn that leaves you unable to move is not a recovery.
 
+**A station has to be findable, and three separate things had to be right before it was.** Its sign
+face and its canopy luminaires are on a submesh of their own with a plain bright material and no
+`TownLights` registration, because every `LitGroup` swaps between a day material and a night one and
+these are the two things on a forecourt that look the same at noon as at midnight. Sharing the lit
+slot painted them `M_Lane` — road asphalt — all day, since that is what `LitGroup.Lamps` uses so a
+street lamp's pool of light can vanish into the carriageway. The board is also *broadside* to the
+road: `AddBox`'s half-length runs along its `forward` argument, and getting that the wrong way round
+presents a 16 cm edge to the only person who will ever read it. And an advance sign stands 250 m
+back, because the totem at the entrance only helps somebody who has already arrived.
+
+**The forecourt says what to do.** Painted aisles between the pump islands — laid-on geometry at the
+motorway merge's 2 cm lift, legitimate here only because the slab has no camber, which is the trap
+`08aba1f` had to unpick on the town streets. And a line at the top of the screen: pull up, stop,
+refuelling, full. `FillingStations` tells them apart with a **rectangle** against the slab's own axes,
+not a radius — a circle big enough to hold a 52 × 34 m slab reaches the carriageway, and would prompt
+every car that drove past.
+
 A station is a `RoadFeatureKind.FuelStation` on a course, beside the tunnels and the viewpoints —
 never a scene object. It is the only feature kind with a `Side`, because the motorway's two
 carriageways are one course. Its pad is fed into `MountainField` **before the field is built**; do
@@ -212,9 +229,11 @@ that after and the apron comes out perfectly flat, hovering over a hillside, wit
 paired.
 
 `Tools > Horizon > Render Fuel Station Preview` photographs all of them from the road, day and night,
-plus one from under a canopy. Both bugs that survived every other check were found by looking at
-those pictures: bushes growing through a forecourt, and a lit soffit that turned out to be 240 square
-metres of pure white over the driver's head.
+on the approach past the advance sign, and from under the canopy. **Every fault this feature has had
+was found in those pictures and by nothing else** — bushes growing through a forecourt, a lit soffit
+that was 240 square metres of pure white over the driver's head, a canopy with no underside at all
+(what looked like a dark ceiling was sky), a sign painted with asphalt, and a sign turned edge-on.
+The build reported none of them. Look at the pictures.
 
 ## Updating
 
