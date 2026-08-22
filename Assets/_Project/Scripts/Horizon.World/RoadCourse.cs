@@ -60,6 +60,25 @@ namespace Horizon.World
         /// way to say which of them a station belongs to.</para>
         /// </summary>
         FuelStation = 5,
+
+        /// <summary>
+        /// A stretch carried on cables slung between two towers, rather than on piers under the deck.
+        ///
+        /// <para><b>Why this is a kind of its own and not a long <see cref="Bridge"/>.</b> The two
+        /// agree about everything the rest of the world asks — <see cref="RoadCourse.IsBridged"/>
+        /// reports both, so the terrain drops its shelf under both, the guard rails stand off both and
+        /// the water check permits open water under both. They disagree about exactly one thing, and it
+        /// is <c>BridgeBuilder</c>'s: a viaduct plants a pier pair every forty metres, and a pier pair
+        /// every forty metres across a shipping channel is the one structure this feature exists to
+        /// avoid. <c>BridgeBuilder</c> therefore still matches on <see cref="Bridge"/> alone, and
+        /// <c>SuspensionBridgeBuilder</c> matches on this.</para>
+        ///
+        /// <para>Everything a span of this kind needs beyond its two ends — how high the towers stand,
+        /// how far apart, how deep the cable hangs — is the builder's, for the reason
+        /// <see cref="RoadFeature.Side"/> gives: a course that wrote those down would be a course to be
+        /// re-typed the day the structure was retuned.</para>
+        /// </summary>
+        Suspension = 6,
     }
 
     /// <summary>A stretch of the course that something is built on or into.</summary>
@@ -189,8 +208,13 @@ namespace Horizon.World
         }
 
         /// <summary>
-        /// True if <paramref name="distance"/> falls on a bridge, optionally widened by
+        /// True if <paramref name="distance"/> falls on a bridge of either kind — a viaduct on piers
+        /// or a <see cref="RoadFeatureKind.Suspension"/> span — optionally widened by
         /// <paramref name="margin"/> at each end.
+        ///
+        /// <para>Both kinds, and that is the whole reason the distinction between them is safe to make.
+        /// Every caller here is asking the same question — is the ground under this stretch the road's
+        /// business — and for both the answer is no. Only the two builders care which is which.</para>
         ///
         /// <para>Separate from <see cref="IsCovered"/> rather than folded into it, because the two
         /// questions have opposite answers for the same callers. A tunnel says "there is a roof, put no
@@ -206,7 +230,10 @@ namespace Horizon.World
             {
                 RoadFeature feature = features[i];
 
-                if (feature.Kind == RoadFeatureKind.Bridge
+                bool carried = feature.Kind == RoadFeatureKind.Bridge
+                               || feature.Kind == RoadFeatureKind.Suspension;
+
+                if (carried
                     && distance >= feature.StartDistance - margin
                     && distance <= feature.EndDistance + margin)
                 {

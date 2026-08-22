@@ -15,6 +15,12 @@ namespace Horizon.World
     /// Build a bridge without marking the feature and you get an elegant structure sitting on a solid
     /// embankment, which is the failure mode to recognise.</para>
     ///
+    /// <para><b>Matches <see cref="RoadFeatureKind.Bridge"/> alone, never
+    /// <see cref="RoadFeatureKind.Suspension"/>.</b> <see cref="RoadCourse.IsBridged"/> reports both,
+    /// because everything else in the world wants them treated alike; the piers below are the one thing
+    /// that does not, and a pier pair every forty metres across a shipping channel is what the other
+    /// kind exists to avoid. <c>SuspensionBridgeBuilder</c> takes those spans.</para>
+    ///
     /// <para>Measured first and built second, the same two-pass shape as
     /// <see cref="GuardRailBuilder"/>: every pier has to know how far it is falling before any geometry
     /// exists, because a pier is a different object at 4 m and at 40 m, and the deck it hangs from is
