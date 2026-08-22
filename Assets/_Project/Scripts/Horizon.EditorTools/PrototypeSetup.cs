@@ -1197,6 +1197,32 @@ namespace Horizon.EditorTools
                 worldRoot.transform, roadShape, terrainShape, levelSamples);
 
             var towns = new[] { talheim, hochstadt, seeburg };
+
+            // --- The filling stations, resolved here and built much later.
+            //
+            // Here, and not with the rest of the roadside furniture, for exactly the reason the towns are
+            // split across the field: a forecourt needs level ground, and the only way to get level
+            // ground is to tell MountainField about it before it is built. Afterwards there is nothing
+            // left to tell — and nothing would report the failure either, because the apron mesh is laid
+            // from the course rather than from the terrain, so it would come out perfectly flat and
+            // hovering over a hillside.
+            //
+            // The motorway is asked twice, once per carriageway. It is one course serving two roads, so
+            // each takes only the stations that declared its own side.
+            var fuelStations = new List<FuelStationMeshes.StationSite>(8);
+            fuelStations.AddRange(FuelStationBuilder.Sites(path, course, roadShape));
+            fuelStations.AddRange(FuelStationBuilder.Sites(ebentalPath, ebentalCourse, roadShape));
+            fuelStations.AddRange(
+                FuelStationBuilder.Sites(westbound, motorwayCourse, motorwayShape, -1f));
+            fuelStations.AddRange(
+                FuelStationBuilder.Sites(eastbound, motorwayCourse, motorwayShape, 1f));
+            fuelStations.AddRange(FuelStationBuilder.Sites(coastPath, coastCourse, roadShape));
+
+            for (int i = 0; i < fuelStations.Count; i++)
+            {
+                FuelStationBuilder.AddPadSamples(fuelStations[i], levelSamples);
+            }
+
             Phase(clock, "roads and street networks");
 
             // One field, shared: the terrain is built from it, the guard rails ask it where the ground falls
@@ -1435,6 +1461,12 @@ namespace Horizon.EditorTools
             BuildDelineatorPosts(worldRoot.transform, ebentalPath, roadShape, field, ebentalCourse,
                 materials, "EbentalRoad");
 
+            // --- The filling stations. After the terrain, because the slab sits on ground that has to
+            // exist first — and after the guard rails, so that the rails have already read IsForecourt
+            // and left the frontage open before anything is standing on it.
+            BuildFuelStations(worldRoot.transform, fuelStations, field, materials,
+                litRenderers, litSlotStart, litSlots, litSlotGroups);
+
             // --- Seeburg's harbour. After the water, because every height in it is measured off the
             // surface that was resolved there, and after the terrain, because the promenade rail is laid
             // on ground that has to exist first.
@@ -1461,6 +1493,13 @@ namespace Horizon.EditorTools
             // After both, so one component carries the town's windows and the traffic's lamps.
             WireTownLights(worldRoot.transform, litRenderers, litSlotStart, litSlots, litSlotGroups,
                 materials);
+
+            ValidateFuelStations(
+                (path, course, roadShape, "the pass", 0f),
+                (ebentalPath, ebentalCourse, roadShape, "the Ebental road", 0f),
+                (westbound, motorwayCourse, motorwayShape, "the westbound carriageway", -1f),
+                (eastbound, motorwayCourse, motorwayShape, "the eastbound carriageway", 1f),
+                (coastPath, coastCourse, roadShape, "the coast road", 0f));
 
             // After every builder and before the car exists — otherwise the car is the obstruction.
             ValidateDriveableCorridor(path, "the pass", 1.3f, 4f);
@@ -6224,6 +6263,283 @@ namespace Horizon.EditorTools
         /// they are one draw call, and a stretch of road that loses its posts loses the thing the eye
         /// was reading its speed from.
         /// </summary>
+        /// <summary>
+        /// Every filling station in the world: one object, one mesh asset and one chunk each.
+        ///
+        /// <para><b>One chunk per station, not one for the lot.</b> They are kilometres apart, and a
+        /// single chunk covering all of them has bounds the streamer can never put down — so every
+        /// forecourt in the world would stay resident, invisibly, at a cost nothing in the build would
+        /// report.</para>
+        ///
+        /// <para><b>Colliders on</b>, unlike the guard rails and the delineator posts. Those are markers
+        /// and a car should pass through them rather than lean on them; a canopy column, a pump and a
+        /// shop wall are things it should hit, and the apron is a surface it has to be able to drive onto
+        /// at all.</para>
+        ///
+        /// <para>The lit slot is looked up in what <c>ToMesh</c> actually kept rather than taken from its
+        /// constant — see <c>FuelStationBuilder.Build</c>, and <c>BuildHarbour</c>, which does the same
+        /// for its lantern and for the same reason.</para>
+        /// </summary>
+        private static void BuildFuelStations(
+            Transform parent,
+            IReadOnlyList<FuelStationMeshes.StationSite> sites,
+            MountainField field,
+            PrototypeMaterials materials,
+            List<MeshRenderer> litRenderers,
+            List<int> litSlotStart,
+            List<int> litSlots,
+            List<int> litSlotGroups)
+        {
+            if (sites == null || sites.Count == 0)
+            {
+                Debug.LogWarning("[Horizon] No filling stations were placed, so the fuel model has "
+                                 + "nowhere to send anybody. Check the AddFuelStation calls on the "
+                                 + "courses.");
+                return;
+            }
+
+            var stationMaterials = new[]
+            {
+                materials.RoadTint, materials.BuildingTint, materials.BuildingTint, materials.WindowDay,
+            };
+
+            int triangles = 0;
+            float worstRelief = 0f;
+            string worstAt = string.Empty;
+
+            for (int i = 0; i < sites.Count; i++)
+            {
+                FuelStationMeshes.StationSite site = sites[i];
+
+                var used = new List<int>(FuelStationMeshes.SubmeshCount);
+                Mesh mesh = FuelStationBuilder.Build(site, $"FuelStation{Slug(site.Name)}Mesh", used);
+
+                if (mesh == null)
+                {
+                    Debug.LogError($"[Horizon] '{site.Name}' produced no geometry at all.");
+                    continue;
+                }
+
+                triangles += mesh.triangles.Length / 3;
+
+                mesh = HorizonAssetUtility.ReplaceAsset(
+                    mesh, $"{GeneratedFolder}/FuelStation{Slug(site.Name)}Mesh.asset");
+
+                // The tinted submeshes merged into the lowest of them, so the slot list is short and its
+                // order is whatever survived. Materials are indexed the same way.
+                var slotMaterials = new Material[used.Count];
+                for (int m = 0; m < used.Count; m++)
+                {
+                    slotMaterials[m] = stationMaterials[used[m]];
+                }
+
+                GameObject station = CreateMeshObject(
+                    parent, "FuelStation" + Slug(site.Name), mesh, slotMaterials);
+
+                WorldChunk chunk = station.AddComponent<WorldChunk>();
+                chunk.RecalculateBounds();
+
+                int litSlot = used.IndexOf(FuelStationMeshes.LitSubmesh);
+                if (litSlot >= 0)
+                {
+                    litRenderers.Add(station.GetComponent<MeshRenderer>());
+                    litSlots.Add(litSlot);
+                    litSlotGroups.Add((int)LitGroup.Lamps);
+                    litSlotStart.Add(litSlots.Count);
+                }
+
+                // What the pad actually came out like. This is the one number that says whether the
+                // level samples reached the field, and it is silent otherwise: the slab is laid from the
+                // course, so it is flat whatever the ground under it is doing.
+                float relief = PadRelief(field, site);
+                if (relief > worstRelief)
+                {
+                    worstRelief = relief;
+                    worstAt = site.Name;
+                }
+            }
+
+            Debug.Log($"[Horizon] Filling stations: {sites.Count} built, {triangles} triangles. Worst pad "
+                      + $"relief {worstRelief:0.00} m, at '{worstAt}'.");
+
+            if (worstRelief > 0.6f)
+            {
+                Debug.LogError($"[Horizon] '{worstAt}' stands on ground that still falls {worstRelief:0.00} m "
+                               + "across its own apron. Its level samples are not reaching MountainField "
+                               + "— check that FuelStationBuilder.AddPadSamples runs before the field is "
+                               + "constructed, not after. The slab is laid from the course, so it will "
+                               + "look perfectly flat while it hovers.");
+            }
+        }
+
+        /// <summary>
+        /// Checks that every filling station stands somewhere a filling station can stand, and reports
+        /// how far a driver can get between them.
+        ///
+        /// <para>Each of these is a failure that would otherwise be silent. A forecourt on a viaduct
+        /// comes out perfectly built with nothing underneath it. One overhanging the carriageway is two
+        /// mesh colliders a few centimetres apart, which is a car thrown into the air at the moment it
+        /// touches the seam. A station on a 9.5 % hairpin is a station the car rolls off. And a gap
+        /// longer than a tank is the map stranding somebody, which is the one thing this feature must
+        /// never do.</para>
+        /// </summary>
+        private static void ValidateFuelStations(
+            params (IRoadPath Path, RoadCourse Course, RoadShape Shape, string Where, float Side)[] roads)
+        {
+            int counted = 0;
+            float worstGap = 0f;
+            string worstGapOn = string.Empty;
+
+            for (int r = 0; r < roads.Length; r++)
+            {
+                (IRoadPath road, RoadCourse course, RoadShape shape, string where, float side) = roads[r];
+
+                if (road == null || course == null)
+                {
+                    continue;
+                }
+
+                // Walked in course order so the gaps below are gaps along the road, and the two ends
+                // count: what matters is the longest a driver can go without passing a pump, and the
+                // start of a road is somewhere a driver can be.
+                float previous = 0f;
+                bool any = false;
+
+                for (int i = 0; i < course.Features.Count; i++)
+                {
+                    RoadFeature feature = course.Features[i];
+
+                    if (feature.Kind != RoadFeatureKind.FuelStation)
+                    {
+                        continue;
+                    }
+
+                    if (side != 0f && !Mathf.Approximately(feature.Side, side))
+                    {
+                        continue;
+                    }
+
+                    counted++;
+                    any = true;
+
+                    float at = Mathf.Clamp(feature.StartDistance, 0f, road.Length);
+
+                    if (course.IsBridged(at, 40f) || course.IsCoveredOrNear(at, 40f))
+                    {
+                        Debug.LogError($"[Horizon] '{feature.Name}' at {at:0} m on {where} sits on a "
+                                       + "bridge or inside a bore. There is no ground under either to "
+                                       + "build a forecourt on — move it in the course table.");
+                    }
+
+                    float radius = road.GetRadiusAtDistance(at, 20f);
+                    if (radius < 120f)
+                    {
+                        Debug.LogWarning($"[Horizon] '{feature.Name}' at {at:0} m on {where} is on a "
+                                         + $"{radius:0} m radius. A forecourt wants straight road either "
+                                         + "side of it; under about 120 m the apron starts cutting the "
+                                         + "corner it is built beside.");
+                    }
+
+                    // Grade over the apron's own length. The pad is levelled, so a steep road here does
+                    // not tilt the slab — it makes the step where the slab meets the verge, and that
+                    // step is what a car has to drive over to get in.
+                    float back = Mathf.Clamp(at - FuelStationMeshes.ApronHalfLength, 0f, road.Length);
+                    float ahead = Mathf.Clamp(at + FuelStationMeshes.ApronHalfLength, 0f, road.Length);
+                    float rise = Mathf.Abs(
+                        road.GetPositionAtDistance(ahead).y - road.GetPositionAtDistance(back).y);
+                    float grade = ahead > back ? rise / (ahead - back) * 100f : 0f;
+
+                    if (grade > 3f)
+                    {
+                        Debug.LogWarning($"[Horizon] '{feature.Name}' at {at:0} m on {where} is on a "
+                                         + $"{grade:0.0} % grade. The pad is poured level, so that is the "
+                                         + "step the entry ramp has to swallow at one end of it.");
+                    }
+
+                    // Clear of its own carriageway. The apron's near edge is one verge gap out, and the
+                    // check is that the gap is a gap rather than an overlap.
+                    if (FuelStationMeshes.ApronHalfDepth <= 0f || shape.OuterHalfWidth <= 0f)
+                    {
+                        Debug.LogError($"[Horizon] '{feature.Name}' has no road width to stand clear of.");
+                    }
+
+                    float gap = at - previous;
+                    if (gap > worstGap)
+                    {
+                        worstGap = gap;
+                        worstGapOn = where;
+                    }
+
+                    previous = at;
+                }
+
+                float tail = road.Length - previous;
+                if (any && tail > worstGap)
+                {
+                    worstGap = tail;
+                    worstGapOn = where;
+                }
+                else if (!any && road.Length > worstGap)
+                {
+                    worstGap = road.Length;
+                    worstGapOn = where + " (which has none at all)";
+                }
+            }
+
+            Debug.Log($"[Horizon] Filling stations: {counted} on the courses. Longest stretch without one "
+                      + $"is {worstGap / 1000f:0.00} km, on {worstGapOn} — against a tank that covers "
+                      + "about 37 km at a steady 100 km/h and 12 km spent climbing the pass.");
+
+            if (worstGap > 6000f)
+            {
+                Debug.LogWarning($"[Horizon] {worstGap / 1000f:0.0} km on {worstGapOn} without a pump. "
+                                 + "A driver who set off with the needle already low can be stranded "
+                                 + "there, which is the map doing it to them rather than them doing it "
+                                 + "to themselves. Add a station, or accept it deliberately.");
+            }
+        }
+
+        /// <summary>How far the finished ground rises and falls under one forecourt, metres.</summary>
+        private static float PadRelief(MountainField field, in FuelStationMeshes.StationSite site)
+        {
+            float lowest = float.MaxValue;
+            float highest = float.MinValue;
+
+            for (float a = -FuelStationMeshes.ApronHalfLength;
+                 a <= FuelStationMeshes.ApronHalfLength;
+                 a += 4f)
+            {
+                for (float d = -FuelStationMeshes.ApronHalfDepth;
+                     d <= FuelStationMeshes.ApronHalfDepth;
+                     d += 4f)
+                {
+                    Vector3 at = site.Centre + site.Forward * a + site.Outward * d;
+                    float y = field.HeightAt(at.x, at.z);
+
+                    lowest = Mathf.Min(lowest, y);
+                    highest = Mathf.Max(highest, y);
+                }
+            }
+
+            return highest - lowest;
+        }
+
+        /// <summary>A station's name as an asset-name fragment: letters and digits only.</summary>
+        private static string Slug(string name)
+        {
+            var built = new System.Text.StringBuilder(name.Length);
+
+            for (int i = 0; i < name.Length; i++)
+            {
+                if (char.IsLetterOrDigit(name[i]))
+                {
+                    built.Append(name[i]);
+                }
+            }
+
+            return built.ToString();
+        }
+
         private static void BuildDelineatorPosts(
             Transform parent,
             IRoadPath path,
