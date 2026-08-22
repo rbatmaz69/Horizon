@@ -121,9 +121,13 @@ namespace Horizon.World
             // east, and this is the one instruction that decides the world does not simply close into
             // a ring here.
             //
-            // Split 140 + 160 around the station: both divide by the 10 m point spacing, so the road is
-            // unchanged.
-            builder.Straight(140f, 1.6f);
+            // Split 300 + 100 around the station, and the 300 is not a taste. A station's advance sign
+            // stands 250 m back up its own road and the search gives up rather than moving closer — so
+            // a station inside the first 250 m of a course has nowhere to put one, and the build says
+            // so. At 140 m in, which is where this sat first, the sign would have had to stand on the
+            // Ebental, which is a different course this one cannot see. Both halves divide by the 10 m
+            // point spacing, so the road is unchanged either way.
+            builder.Straight(300f, 1.6f);
 
             // The last fuel before the Kalkgrat, and it is here for the reason Tankstelle Passfuß is
             // where it is. Above this point the road climbs for three and a half kilometres and then
@@ -132,7 +136,7 @@ namespace Horizon.World
             // a whole verge width in every direction. On a 6 % climb that is a shelf standing two
             // metres proud of the carriageway it serves.
             builder.AddFuelStation("Tankstelle Kalkgratfuß", -1f);
-            builder.Straight(160f, 1.6f);
+            builder.Straight(100f, 1.6f);
 
             builder.Turn(420f, -30f, 3f);
             builder.Straight(260f, ClimbGrade);

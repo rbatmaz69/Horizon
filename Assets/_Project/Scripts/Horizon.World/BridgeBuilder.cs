@@ -60,7 +60,14 @@ namespace Horizon.World
         /// </summary>
         private const float MinimumPier = 2.5f;
 
-        internal const float ParapetHeight = 1.1f;
+        /// <summary>
+        /// Height of the parapet above the shoulder line, metres.
+        ///
+        /// <para>Public because it is the top of the thing a hanger lands on, and
+        /// <c>ValidateSuspensionBridges</c> — which lives in the editor assembly — has to know whether
+        /// the cable clears it.</para>
+        /// </summary>
+        public const float ParapetHeight = 1.1f;
         internal const float ParapetThickness = 0.35f;
 
         /// <summary>

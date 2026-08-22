@@ -1097,6 +1097,48 @@ namespace Horizon.EditorTools
             // pass. Everything that gives the Ebental its own look reads this.
             LandRegion ebental = LandRegion.Ebental(ebentalPath);
 
+            // --- On over the Kalkgrat and down the Steilufer, carrying on where the Ebental runs out.
+            // Same cross-section again, for the reason the Ebental keeps the pass's: a change of width
+            // at a join reads as a change of country, and none of these is a different class of road.
+            var kalkgratPathObject = new GameObject("KalkgratRoadPath");
+            kalkgratPathObject.transform.SetParent(worldRoot.transform, false);
+            RoadPath kalkgratPath = kalkgratPathObject.AddComponent<RoadPath>();
+
+            RoadCourse kalkgratCourse = KalkgratCourse.Build();
+            kalkgratPath.SetControlPoints(kalkgratCourse.ControlPoints);
+            ReportCourse(kalkgratCourse, kalkgratPath, "Kalkgrat road");
+
+            Mesh kalkgratMesh = RoadMeshBuilder.BuildRoad(kalkgratPath, roadShape, "KalkgratRoadMesh");
+            kalkgratMesh = HorizonAssetUtility.ReplaceAsset(
+                kalkgratMesh, GeneratedFolder + "/KalkgratRoadMesh.asset");
+
+            GameObject kalkgratObject = CreateMeshObject(worldRoot.transform, "KalkgratRoad",
+                kalkgratMesh, new[] { materials.RoadSurface, materials.RoadShoulder });
+
+            WorldChunk kalkgratChunk = kalkgratObject.AddComponent<WorldChunk>();
+            kalkgratChunk.RecalculateBounds();
+            kalkgratChunk.SetBounds(kalkgratChunk.Center, 100000f);
+
+            // --- The coast road along the Meerenge, the crossing, and the first of the far shore.
+            var meerengePathObject = new GameObject("MeerengeRoadPath");
+            meerengePathObject.transform.SetParent(worldRoot.transform, false);
+            RoadPath meerengePath = meerengePathObject.AddComponent<RoadPath>();
+
+            RoadCourse meerengeCourse = MeerengeCourse.Build();
+            meerengePath.SetControlPoints(meerengeCourse.ControlPoints);
+            ReportCourse(meerengeCourse, meerengePath, "Meerenge road");
+
+            Mesh meerengeMesh = RoadMeshBuilder.BuildRoad(meerengePath, roadShape, "MeerengeRoadMesh");
+            meerengeMesh = HorizonAssetUtility.ReplaceAsset(
+                meerengeMesh, GeneratedFolder + "/MeerengeRoadMesh.asset");
+
+            GameObject meerengeObject = CreateMeshObject(worldRoot.transform, "MeerengeRoad",
+                meerengeMesh, new[] { materials.RoadSurface, materials.RoadShoulder });
+
+            WorldChunk meerengeChunk = meerengeObject.AddComponent<WorldChunk>();
+            meerengeChunk.RecalculateBounds();
+            meerengeChunk.SetBounds(meerengeChunk.Center, 100000f);
+
             // --- The motorway. One authored median line, two carriageways offset from it, and a link
             // road down to the foot of the pass. The centreline is never paved.
             RoadShape motorwayShape = RoadShape.Autobahn;
@@ -1236,6 +1278,8 @@ namespace Horizon.EditorTools
             fuelStations.AddRange(
                 FuelStationBuilder.Sites(eastbound, motorwayCourse, motorwayShape, 1f));
             fuelStations.AddRange(FuelStationBuilder.Sites(coastPath, coastCourse, roadShape));
+            fuelStations.AddRange(FuelStationBuilder.Sites(kalkgratPath, kalkgratCourse, roadShape));
+            fuelStations.AddRange(FuelStationBuilder.Sites(meerengePath, meerengeCourse, roadShape));
 
             // Every carriageway in the world, so a pad can be kept off all of them and not merely off
             // the one it belongs to. The pass is the case that matters: its switchbacks stack legs
@@ -1249,6 +1293,8 @@ namespace Horizon.EditorTools
                 new FuelStationBuilder.NearbyRoad(eastbound, motorwayShape, "the eastbound carriageway"),
                 new FuelStationBuilder.NearbyRoad(linkPath, roadShape, "the motorway link"),
                 new FuelStationBuilder.NearbyRoad(coastPath, roadShape, "the coast road"),
+                new FuelStationBuilder.NearbyRoad(kalkgratPath, roadShape, "the Kalkgrat road"),
+                new FuelStationBuilder.NearbyRoad(meerengePath, roadShape, "the Meerenge road"),
             };
 
             for (int i = 0; i < fuelStations.Count; i++)
@@ -1301,6 +1347,13 @@ namespace Horizon.EditorTools
                 // ground the sea will be dug into — arrives with the road rather than as a region
                 // somebody has to remember to add.
                 new MountainField.FieldRoad(coastPath),
+
+                // Both of these hand over their course as well as their path, and both need to. The
+                // Kalkgrat has a viaduct across a ravine and the Meerenge has the crossing, and without
+                // the course the field knows about neither — it would carry the valley floor up to the
+                // Schluchtbrücke's deck, and lay a sixty-metre causeway across the strait.
+                new MountainField.FieldRoad(kalkgratPath, kalkgratCourse),
+                new MountainField.FieldRoad(meerengePath, meerengeCourse),
             };
 
             var field = new MountainField(roads, terrainShape, 4f, levelSamples);
@@ -1394,7 +1447,27 @@ namespace Horizon.EditorTools
             var bridgeRoads = new[]
             {
                 new WaterPlanner.BridgeRoad(motorwayPath, motorwayCourse),
+                new WaterPlanner.BridgeRoad(meerengePath, meerengeCourse),
             };
+
+            // And the Meerenge. A river by every mechanic that matters — a spine, a half-width, and a
+            // place taken from the bridge over it — which is why it is not a second Sea. The difference
+            // is load-bearing: a sea *sets* the ground under it and a river only caps it, and the ground
+            // under this crossing is the coarse field interpolating a deck sixty metres up. The cap
+            // shaves that hump away; setting would drag the banks down with it.
+            //
+            // Everything here is read from the course rather than typed beside it, so the water follows
+            // the crossing whenever the crossing is retuned. See MeerengeCourse for each number.
+            waterPlans.Add(WaterPlan.River(
+                "Boğaz",
+                MeerengeCourse.BridgeName,
+                halfWidth: MeerengeCourse.ChannelHalfWidth,
+                bankEase: MeerengeCourse.ChannelBankEase,
+                reach: MeerengeCourse.ChannelReach,
+                skewDegrees: MeerengeCourse.ChannelSkew,
+                depth: MeerengeCourse.ChannelDepth,
+                freeboard: MeerengeCourse.ChannelFreeboard,
+                bedScale: MeerengeCourse.ChannelBedScale));
 
             WaterBody[] waters = WaterPlanner.Resolve(
                 waterPlans, field, bridgeRoads, out string waterReport);
@@ -1409,9 +1482,12 @@ namespace Horizon.EditorTools
 
             ValidateRoadClearance(path, roadShape, field, course);
             ValidateRoadClearance(ebentalPath, roadShape, field, ebentalCourse, "Ebental");
+            ValidateRoadClearance(kalkgratPath, roadShape, field, kalkgratCourse, "Kalkgrat");
+            ValidateRoadClearance(meerengePath, roadShape, field, meerengeCourse, "Meerenge");
             ValidateRoadClearance(westbound, motorwayShape, field, motorwayCourse, "Westbound");
             ValidateRoadClearance(eastbound, motorwayShape, field, motorwayCourse, "Eastbound");
             ValidateBridges(westbound, field, motorwayCourse);
+            ValidateBridges(kalkgratPath, field, kalkgratCourse);
             // The second half of every town: street meshes onto the finished terrain, then blocks and
             // plots seated on it.
             // The lens renderers, in the same counts-to-offsets shape TownLights uses. Declared before
@@ -1460,10 +1536,44 @@ namespace Horizon.EditorTools
                 frontMiddle + seaward * 320f,
                 new Vector3(1500f, 200f, 1500f));
 
+            // The Meerenge's own band, for the same reason and sized by the same question: how far does
+            // the water have to reach before its edge is behind the fog rather than in front of it.
+            //
+            // Not the whole channel, and that is the saving. It runs 1900 m either side of the deck,
+            // but only the southern half has a road beside it — the corniche — and north of the crossing
+            // nothing can be seen past the fog wall anyway. A band over the full 3800 m would be four
+            // hundred tiles of water nobody ever gets within a kilometre of.
+            //
+            // Shifted towards the corniche rather than centred on the deck, for that reason. Positive
+            // across at the crossing points down the channel towards the coast road, because the deck
+            // runs square to the water.
+            const float ShownTowardsCorniche = 1900f;
+            const float ShownBeyondCrossing = 700f;
+
+            Vector3 crossingMiddle = meerengePath.GetPositionAtDistance(MeerengeCourse.CrossingMiddle);
+            Vector3 downTheChannel = meerengePath.GetRightAtDistance(MeerengeCourse.CrossingMiddle);
+
+            var straitSection = new Vector3(
+                MeerengeCourse.ChannelHalfWidth * 2f + MeerengeCourse.ChannelBankEase * 2f + 500f,
+                200f,
+                0f);
+
+            var straitBand = new Bounds(crossingMiddle, straitSection);
+            straitBand.Encapsulate(
+                new Bounds(crossingMiddle + downTheChannel * ShownTowardsCorniche, straitSection));
+            straitBand.Encapsulate(
+                new Bounds(crossingMiddle - downTheChannel * ShownBeyondCrossing, straitSection));
+
             BuildTerrainTiles(worldRoot.transform, path, roadShape, course, field, terrainShape,
                 towns, materials, litRenderers, litSlotStart, litSlots, litSlotGroups,
-                new[] { seaBand },
-                new[] { new MountainField.FieldRoad(ebentalPath, ebentalCourse) }, ebental, ebentalPath,
+                new[] { seaBand, straitBand },
+                new[]
+                {
+                    new MountainField.FieldRoad(ebentalPath, ebentalCourse),
+                    new MountainField.FieldRoad(kalkgratPath, kalkgratCourse),
+                    new MountainField.FieldRoad(meerengePath, meerengeCourse),
+                },
+                ebental, ebentalPath,
                 ForecourtCentres(fuelStations));
             ValidateLandmarks(field, course, path, talheim.Plan);
             MarkTownLandmarks(worldRoot.transform, talheim.Network, talheim.Plan);
@@ -1517,6 +1627,38 @@ namespace Horizon.EditorTools
             BuildDelineatorPosts(worldRoot.transform, ebentalPath, roadShape, field, ebentalCourse,
                 materials, "EbentalRoad");
 
+            // The Kalkgrat gets a tunnel, a gallery, a viaduct and both kinds of roadside furniture.
+            // The posts earn their place here more than anywhere else in the world: seven hairpins down
+            // a cliff, and on the outside of every one of them the ground simply stops.
+            BuildCoveredSections(worldRoot.transform, kalkgratPath, roadShape, kalkgratCourse, field,
+                materials);
+
+            BuildBridges(worldRoot.transform, kalkgratPath, roadShape, field, kalkgratCourse,
+                materials, "KalkgratRoad");
+
+            BuildGuardRails(worldRoot.transform, kalkgratPath, roadShape, field, kalkgratCourse,
+                materials, "KalkgratRoad");
+
+            BuildDelineatorPosts(worldRoot.transform, kalkgratPath, roadShape, field, kalkgratCourse,
+                materials, "KalkgratRoad");
+
+            // The Meerenge gets the two cape bores and the crossing. The rails and posts read
+            // IsBridged, which now reports a suspension span as well as a viaduct, so neither of them
+            // walks out over the water — the parapet on the deck is the structure's own.
+            BuildCoveredSections(worldRoot.transform, meerengePath, roadShape, meerengeCourse, field,
+                materials);
+
+            BuildSuspensionBridges(worldRoot.transform, meerengePath, roadShape, field, meerengeCourse,
+                MeerengeCourse.Crossing, materials, "MeerengeRoad");
+
+            BuildGuardRails(worldRoot.transform, meerengePath, roadShape, field, meerengeCourse,
+                materials, "MeerengeRoad");
+
+            BuildDelineatorPosts(worldRoot.transform, meerengePath, roadShape, field, meerengeCourse,
+                materials, "MeerengeRoad");
+
+            ValidateSuspensionBridges(meerengePath, field, meerengeCourse, MeerengeCourse.Crossing);
+
             // --- The filling stations. After the terrain, because the slab sits on ground that has to
             // exist first — and after the guard rails, so that the rails have already read IsForecourt
             // and left the frontage open before anything is standing on it.
@@ -1557,7 +1699,9 @@ namespace Horizon.EditorTools
                 (ebentalPath, ebentalCourse, roadShape, "the Ebental road", 0f),
                 (westbound, motorwayCourse, motorwayShape, "the westbound carriageway", -1f),
                 (eastbound, motorwayCourse, motorwayShape, "the eastbound carriageway", 1f),
-                (coastPath, coastCourse, roadShape, "the coast road", 0f));
+                (coastPath, coastCourse, roadShape, "the coast road", 0f),
+                (kalkgratPath, kalkgratCourse, roadShape, "the Kalkgrat road", 0f),
+                (meerengePath, meerengeCourse, roadShape, "the Meerenge road", 0f));
 
             // After every builder and before the car exists — otherwise the car is the obstruction.
             ValidateDriveableCorridor(path, "the pass", 1.3f, 4f);
@@ -1566,6 +1710,8 @@ namespace Horizon.EditorTools
             ValidateDriveableCorridor(eastbound, "the eastbound carriageway", 1.3f, 4f);
             ValidateDriveableCorridor(linkPath, "the motorway link", 1.3f, 4f);
             ValidateDriveableCorridor(coastPath, "the coast road", 1.3f, 4f);
+            ValidateDriveableCorridor(kalkgratPath, "the Kalkgrat road", 1.3f, 4f);
+            ValidateDriveableCorridor(meerengePath, "the Meerenge road", 1.3f, 4f);
             ReportCourse(seeburgCourse, seeburgAxis, "Seeburg axis");
             Phase(clock, "validation");
             int worstJunction = ValidateStreetNetwork(talheim.Network, path, roadShape);
@@ -1585,7 +1731,8 @@ namespace Horizon.EditorTools
             // the first pressure valve, so the question "would 450 m help, and by how much" is answered
             // in the log rather than by trying it.
             List<Vector3> stations = DrawCallStations(
-                path, motorwayPath, arterialPath, seeburgAxis, ebentalPath);
+                path, motorwayPath, arterialPath, seeburgAxis, ebentalPath,
+                kalkgratPath, meerengePath);
             ReportDrawCallBudget(worldRoot.transform, stations, streamer.LoadRadius);
             ReportDrawCallBudget(worldRoot.transform, stations, 450f);
 
@@ -1671,7 +1818,7 @@ namespace Horizon.EditorTools
             // anything.
             List<SpawnPoint> spawns = BuildSpawnTable(
                 path, roadShape, motorwayPath, motorwayShape, arterialPath, seeburgAxis,
-                ebentalPath, ebentalCourse, rideHeight);
+                ebentalPath, ebentalCourse, kalkgratPath, meerengePath, meerengeCourse, rideHeight);
 
             EditorSceneManager.SaveScene(scene, WorldScenePath);
             return spawns;
@@ -1694,9 +1841,12 @@ namespace Horizon.EditorTools
             RoadPath seeburgAxis,
             RoadPath ebental,
             RoadCourse ebentalCourse,
+            RoadPath kalkgrat,
+            RoadPath meerenge,
+            RoadCourse meerengeCourse,
             float rideHeight)
         {
-            var spawns = new List<SpawnPoint>(6);
+            var spawns = new List<SpawnPoint>(9);
 
             void Add(string name, IRoadPath path, float distance, float across, float lift)
             {
@@ -1742,6 +1892,22 @@ namespace Horizon.EditorTools
             // crest is a local rise of eighteen metres a third of the way along. A summit walk would
             // put the player back at the join facing away from everything.
             Add("Ebental", ebental, ViewpointDistance(ebentalCourse, "Hochwiese"), passLane, rideHeight);
+
+            // At the tunnel mouth on the Kalkgrat, facing the reveal. Everything about that road is
+            // arranged around this one frame, so it is the place to arrive at — and, less romantically,
+            // it is where anybody tuning the descent, the strait or the bridge needs to start, which
+            // would otherwise mean driving eleven kilometres from Talheim first.
+            Add("Kalkgrat", kalkgrat, KalkgratCourse.RevealDistance + 30f, passLane, rideHeight);
+
+            // On the corniche, at the bay, with the water out of the right-hand window.
+            Add("Küstenstraße", meerenge, ViewpointDistance(meerengeCourse, "Steilbucht") - 220f,
+                passLane, rideHeight);
+
+            // On the deck, a third of the way across — near enough to the western tower that it is
+            // overhead and far enough that the eastern one is in the windscreen.
+            Add("Boğaz Köprüsü", meerenge,
+                MeerengeCourse.CrossingStart + MeerengeCourse.StructureLength * 0.33f,
+                passLane, rideHeight);
 
             return spawns;
         }
@@ -4471,9 +4637,9 @@ namespace Horizon.EditorTools
         /// </summary>
         private static List<Vector3> DrawCallStations(
             RoadPath path, RoadPath motorway, RoadPath arterial, RoadPath seeburgAxis,
-            RoadPath ebental)
+            RoadPath ebental, RoadPath kalkgrat, RoadPath meerenge)
         {
-            var stations = new List<Vector3>(17);
+            var stations = new List<Vector3>(22);
 
             float[] fractions = { 0.06f, 0.30f, 0.55f, 0.78f, 0.95f };
             for (int i = 0; i < fractions.Length; i++)
@@ -4512,6 +4678,25 @@ namespace Horizon.EditorTools
                 // budget, something has gone wrong with the vegetation rather than with the buildings.
                 stations.Add(ebental.GetPositionAtDistance(ebental.Length * 0.5f));
                 stations.Add(ebental.GetPositionAtDistance(ebental.Length * 0.7f));
+            }
+
+            if (kalkgrat != null)
+            {
+                // The reveal and the middle of the descent. The first is the single most expensive frame
+                // on the road — a tunnel mouth, a coastline, a strait and a bridge arriving together —
+                // and it is the one place where being over budget would be felt rather than measured.
+                stations.Add(kalkgrat.GetPositionAtDistance(
+                    Mathf.Min(KalkgratCourse.RevealDistance, kalkgrat.Length)));
+                stations.Add(kalkgrat.GetPositionAtDistance(kalkgrat.Length * 0.8f));
+            }
+
+            if (meerenge != null)
+            {
+                // The corniche, and the middle of the deck. The crossing never streams out, so the deck
+                // is where its cost is unavoidable and therefore where it has to be counted.
+                stations.Add(meerenge.GetPositionAtDistance(meerenge.Length * 0.25f));
+                stations.Add(meerenge.GetPositionAtDistance(
+                    Mathf.Min(MeerengeCourse.CrossingMiddle, meerenge.Length)));
             }
 
             if (seeburgAxis != null)
@@ -6820,6 +7005,192 @@ namespace Horizon.EditorTools
         /// hit something rather than fall through the world, but a concave collider wrapped round piers
         /// forty metres below is a large amount of geometry nothing can ever reach.</para>
         /// </summary>
+        /// <summary>
+        /// The suspension crossing, on a chunk that never unloads.
+        ///
+        /// <para>Unlike a viaduct, and that is the only difference in this method. A viaduct is a
+        /// hundred metres of deck in a valley and is nothing to anybody standing more than a few hundred
+        /// metres away; this is the tallest structure in the world and the thing the whole leg is built
+        /// to arrive at, so it takes the treatment the road ribbons take rather than the one the filling
+        /// stations take. Streaming it out would be the towers vanishing from the coast road.</para>
+        /// </summary>
+        private static void BuildSuspensionBridges(
+            Transform parent,
+            IRoadPath path,
+            in RoadShape roadShape,
+            MountainField field,
+            RoadCourse course,
+            in SuspensionShape shape,
+            PrototypeMaterials materials,
+            string label)
+        {
+            var used = new List<int>();
+            Mesh mesh = SuspensionBridgeBuilder.Build(
+                path, roadShape, field, course, shape, used, "Suspension" + label);
+
+            if (mesh == null)
+            {
+                return;
+            }
+
+            int triangles = mesh.triangles.Length / 3;
+            mesh = HorizonAssetUtility.ReplaceAsset(
+                mesh, $"{GeneratedFolder}/Suspension{label}Mesh.asset");
+
+            var slots = new Material[used.Count];
+            for (int i = 0; i < used.Count; i++)
+            {
+                if (used[i] == SuspensionBridgeBuilder.LampSubmesh)
+                {
+                    // The one always-bright material in the build, and the beacons share it with the
+                    // filling station signs for the reason recorded there: a lit group swaps a day
+                    // material for a night one, and neither of these two things is ever unlit.
+                    slots[i] = materials.SignFace;
+                }
+                else if (used[i] == SuspensionBridgeBuilder.SteelSubmesh)
+                {
+                    slots[i] = materials.GuardRail;
+                }
+                else
+                {
+                    slots[i] = materials.Concrete;
+                }
+            }
+
+            GameObject bridge = CreateMeshObject(parent, "SuspensionBridges" + label, mesh, slots,
+                addCollider: false, markStatic: true);
+
+            WorldChunk chunk = bridge.AddComponent<WorldChunk>();
+            chunk.RecalculateBounds();
+            chunk.SetBounds(chunk.Center, 100000f);
+
+            Debug.Log($"[Horizon] Suspension bridges on {Where(label)}: {triangles} triangles, "
+                      + $"{used.Count} material slot(s), never streamed out.");
+        }
+
+        /// <summary>
+        /// Measures a suspension crossing against the four things that make it one, and says so.
+        ///
+        /// <para><see cref="ValidateBridges"/> does not cover this. It asks whether there is air under
+        /// the deck, which a causeway with towers on it would pass the moment
+        /// <c>MountainField.BridgeHeadroom</c> carved its nine metres. The questions here are different:
+        /// is there <i>water</i> under it, is there enough air over that water to be a shipping channel
+        /// rather than a jetty, does the cable stay above the parapet it is meant to be holding up, and
+        /// is the deck actually level.</para>
+        ///
+        /// <para>All four have the same failure mode, which is why they are worth measuring: each one
+        /// produces a structure that builds without complaint and is wrong in a way only a photograph
+        /// would show.</para>
+        /// </summary>
+        private static void ValidateSuspensionBridges(
+            IRoadPath path,
+            MountainField field,
+            RoadCourse course,
+            in SuspensionShape shape)
+        {
+            for (int i = 0; i < course.Features.Count; i++)
+            {
+                RoadFeature feature = course.Features[i];
+                if (feature.Kind != RoadFeatureKind.Suspension)
+                {
+                    continue;
+                }
+
+                const float step = 20f;
+
+                int stations = 0;
+                int overWater = 0;
+                float leastAir = float.MaxValue;
+                float leastOverWater = float.MaxValue;
+                float deepestGround = 0f;
+
+                for (float at = feature.StartDistance; at <= feature.EndDistance; at += step)
+                {
+                    Vector3 deck = path.GetPositionAtDistance(at);
+
+                    float air = deck.y - field.HeightAt(deck.x, deck.z);
+                    leastAir = Mathf.Min(leastAir, air);
+                    deepestGround = Mathf.Max(deepestGround, air);
+                    stations++;
+
+                    if (TryWaterUnder(field, deck.x, deck.z, out float surface))
+                    {
+                        overWater++;
+                        leastOverWater = Mathf.Min(leastOverWater, deck.y - surface);
+                    }
+                }
+
+                Vector3 west = path.GetPositionAtDistance(feature.StartDistance);
+                Vector3 east = path.GetPositionAtDistance(feature.EndDistance);
+                float grade = (east.y - west.y) / Mathf.Max(1f, feature.Length) * 100f;
+
+                float headroom = shape.TowerRise - shape.CableSag - BridgeBuilder.ParapetHeight;
+                float mainSpan = feature.Length - 2f * shape.SideSpan;
+
+                Debug.Log($"[Horizon] Suspension bridge '{feature.Name}': {feature.Length:0} m of "
+                          + $"structure, {mainSpan:0} m between the towers, {shape.TowerRise:0} m of "
+                          + $"tower over a deck {leastAir:0} to {deepestGround:0} m above the ground, "
+                          + $"water under {overWater} of {stations} stations"
+                          + (overWater > 0 ? $" with {leastOverWater:0.0} m of air over it" : string.Empty)
+                          + $", cable clearing the parapet by {headroom:0.0} m at mid-span, deck at "
+                          + $"{grade:0.00} %.");
+
+                if (overWater == 0)
+                {
+                    Debug.LogError(
+                        $"[Horizon] '{feature.Name}' has no water under any part of it. A suspension "
+                        + "bridge over dry land is nine hundred metres of cable spent on a field. Either "
+                        + "the channel's plan names a different bridge, or WaterPlanner was not given "
+                        + "the road this span is on.");
+                }
+                else if (leastOverWater < 40f)
+                {
+                    Debug.LogWarning(
+                        $"[Horizon] '{feature.Name}' passes {leastOverWater:0.0} m over the water at its "
+                        + "lowest, which is a jetty rather than a shipping channel and puts the towers "
+                        + "out of proportion with the thing they are standing in. The deck's height comes "
+                        + "from the ramp grade on the course; the water's comes from its own rim.");
+                }
+
+                // The cable is slung sag below the tower heads, so this is what is left over the rail at
+                // mid-span. Negative means the hangers are pushing up.
+                if (headroom < 3f)
+                {
+                    Debug.LogWarning(
+                        $"[Horizon] '{feature.Name}': the main cable comes within {headroom:0.0} m of the "
+                        + "parapet at mid-span. Sag is a tenth of the main span by convention, so either "
+                        + "the towers are too short for the span or the span is too long for the towers.");
+                }
+
+                if (Mathf.Abs(grade) > 1f)
+                {
+                    Debug.LogWarning(
+                        $"[Horizon] '{feature.Name}' falls {grade:0.00} % across the span. A suspension "
+                        + "deck is level: every height in the structure is measured off it, and a grade "
+                        + "here tilts the towers' own datum with it.");
+                }
+            }
+        }
+
+        /// <summary>The surface of whatever open water stands at a point, if any does.</summary>
+        private static bool TryWaterUnder(MountainField field, float x, float z, out float surface)
+        {
+            surface = 0f;
+
+            for (int i = 0; i < field.Water.Count; i++)
+            {
+                WaterBody body = field.Water[i];
+
+                if (body.Near(x, z) && body.DistanceOutside(x, z) <= 0f)
+                {
+                    surface = body.SurfaceY;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         private static void BuildBridges(
             Transform parent,
             IRoadPath path,
