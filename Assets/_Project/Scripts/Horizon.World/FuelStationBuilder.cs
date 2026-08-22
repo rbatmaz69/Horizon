@@ -31,6 +31,22 @@ namespace Horizon.World
         /// </summary>
         private const float VergeGap = 2f;
 
+        /// <summary>How far before a station its advance sign stands, metres.</summary>
+        private const float AdvanceDistance = 250f;
+
+        /// <summary>
+        /// And how far back it may be pushed when that spot is blocked.
+        ///
+        /// <para>600 and not 340, because the number has to be able to clear the thing most likely to
+        /// be in the way. The Talbrücke Hochfeld is 320 m of viaduct and both eastern motorway stations
+        /// sit 200 m past it, so a window that reached only 340 m back was entirely on the span and
+        /// those two got no sign at all. A motorway service signed from before the viaduct it stands
+        /// beyond is also simply what a real one looks like.</para>
+        /// </summary>
+        private const float AdvanceLimit = 600f;
+
+        private const float AdvanceStep = 10f;
+
         /// <summary>
         /// Where the stations on one course stand.
         ///
@@ -84,10 +100,76 @@ namespace Horizon.World
                 centre.y = on.y;
 
                 sites.Add(new FuelStationMeshes.StationSite(
-                    centre, forward, outward, offset, feature.Name, Seed(feature.Name)));
+                    centre, forward, outward, offset, feature.Name, Seed(feature.Name),
+                    ResolveSign(path, course, roadShape, at, feature.Side)));
             }
 
             return sites;
+        }
+
+        /// <summary>
+        /// Finds somewhere up the road to stand this station's advance sign.
+        ///
+        /// <para><b>The search only ever walks backwards.</b> From 250 m to 340 m, never closer — a
+        /// sign that has had to move still gives at least the warning it promised, whereas one nudged
+        /// forward to clear a portal would arrive after the turning it was announcing.</para>
+        ///
+        /// <para>It deliberately has <b>no keep-out against the delineator posts</b>, and that is worth
+        /// saying because it is the first thing a reader worries about. The posts stand 45 cm off the
+        /// shoulder and are a metre tall; this stands 3.5 m off it with its board starting 2.2 m up.
+        /// They cannot touch, and a sign standing behind a run of posts is what a real one looks
+        /// like.</para>
+        ///
+        /// <para>Water is the one hazard it cannot test. That needs <c>MountainField</c>, which does not
+        /// exist yet when this runs — see the class remarks — so the caller vetoes afterwards.</para>
+        /// </summary>
+        private static FuelStationMeshes.AdvanceSign ResolveSign(
+            IRoadPath path, RoadCourse course, in RoadShape roadShape, float stationAt, float side)
+        {
+            for (float back = AdvanceDistance; back <= AdvanceLimit; back += AdvanceStep)
+            {
+                float at = stationAt - back;
+
+                if (at < 0f)
+                {
+                    return default;
+                }
+
+                // A little more margin than the posts take, because this is a larger object standing
+                // further out: a sign at a portal mouth is inside the bore's own cut.
+                if (course.IsBridged(at, 12f) || course.IsCoveredOrNear(at, 35f))
+                {
+                    continue;
+                }
+
+                // Not on another station's frontage, which is deliberately kept open.
+                if (course.IsForecourt(at, 45f))
+                {
+                    continue;
+                }
+
+                // Square-on to a road that is turning under it is a sign aimed at the trees. The same
+                // radius the delineator posts call open.
+                if (path.GetRadiusAtDistance(at, 20f) < 90f)
+                {
+                    continue;
+                }
+
+                Vector3 on = path.GetPositionAtDistance(at);
+                Vector3 forward = path.GetDirectionAtDistance(at);
+                Vector3 outward = path.GetRightAtDistance(at) * Mathf.Sign(side);
+
+                Vector3 foot = on
+                               + outward * (roadShape.OuterHalfWidth
+                                            + FuelStationMeshes.AdvanceSignStandoff);
+
+                // Off the road's own line rather than off the terrain, for the reason SignBury exists.
+                foot.y = on.y - roadShape.ShoulderDrop;
+
+                return new FuelStationMeshes.AdvanceSign(foot, forward, outward, back);
+            }
+
+            return default;
         }
 
         /// <summary>
@@ -148,6 +230,30 @@ namespace Horizon.World
             var buffer = new VegetationMeshBuffer(FuelStationMeshes.SubmeshCount);
 
             FuelStationMeshes.AddStation(buffer, site);
+            buffer.MergeTinted(FuelStationMeshes.Tints());
+
+            return buffer.ToMesh(meshName, usedSubmeshes);
+        }
+
+        /// <summary>
+        /// The advance sign's own mesh, or null where this station has none.
+        ///
+        /// <para>Its own mesh and its own object rather than part of the station's, because the station
+        /// gets a <c>MeshCollider</c> and this must not. Every other piece of roadside furniture in the
+        /// world is pass-through — guard rails, delineator posts, trees — and a signpost with a collider
+        /// would be the one solid thing standing on a verge a car can otherwise drive across.</para>
+        /// </summary>
+        public static Mesh BuildAdvanceSign(
+            in FuelStationMeshes.StationSite site, string meshName, List<int> usedSubmeshes)
+        {
+            if (!site.Sign.Exists)
+            {
+                return null;
+            }
+
+            var buffer = new VegetationMeshBuffer(FuelStationMeshes.SubmeshCount);
+
+            FuelStationMeshes.AddAdvanceSign(buffer, site.Sign);
             buffer.MergeTinted(FuelStationMeshes.Tints());
 
             return buffer.ToMesh(meshName, usedSubmeshes);

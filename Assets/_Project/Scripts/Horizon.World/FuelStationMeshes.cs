@@ -124,6 +124,40 @@ namespace Horizon.World
             return tints;
         }
 
+        /// <summary>
+        /// A sign standing beside the road some way before the station it announces.
+        ///
+        /// <para>A second world frame on the same site, which is the one place this file's rule about
+        /// never learning where it is has to bend: the road curves over the 250 m between the sign and
+        /// the forecourt, so one frame cannot describe both ends. It comes from the same path and the
+        /// same side as the station, which is what keeps the two honest.</para>
+        /// </summary>
+        public readonly struct AdvanceSign
+        {
+            /// <summary>False where no spot up the road was clear enough to stand one.</summary>
+            public readonly bool Exists;
+
+            /// <summary>Ground at the base of the post.</summary>
+            public readonly Vector3 Foot;
+
+            public readonly Vector3 Forward;
+
+            /// <summary>Across the road towards the sign, side folded in.</summary>
+            public readonly Vector3 Outward;
+
+            /// <summary>How far upstream of the station it ended up, metres. For the build log.</summary>
+            public readonly float Distance;
+
+            public AdvanceSign(Vector3 foot, Vector3 forward, Vector3 outward, float distance)
+            {
+                Exists = true;
+                Foot = foot;
+                Forward = forward;
+                Outward = outward;
+                Distance = distance;
+            }
+        }
+
         /// <summary>Where one station stands and which way it faces.</summary>
         public readonly struct StationSite
         {
@@ -145,8 +179,12 @@ namespace Horizon.World
             public readonly string Name;
             public readonly uint Seed;
 
+            /// <summary>Its advance sign, if a clear spot was found for one.</summary>
+            public readonly AdvanceSign Sign;
+
             public StationSite(
-                Vector3 centre, Vector3 forward, Vector3 outward, float roadEdge, string name, uint seed)
+                Vector3 centre, Vector3 forward, Vector3 outward, float roadEdge, string name, uint seed,
+                AdvanceSign sign = default)
             {
                 Centre = centre;
                 Forward = forward;
@@ -154,8 +192,79 @@ namespace Horizon.World
                 RoadEdge = roadEdge;
                 Name = name;
                 Seed = seed;
+                Sign = sign;
+            }
+
+            /// <summary>
+            /// The same station with its sign dropped.
+            ///
+            /// <para>For the one hazard the course cannot see: <c>Sites</c> resolves signs before the
+            /// height field exists, so whether a spot is under water is a question only the caller can
+            /// answer, and only later.</para>
+            /// </summary>
+            public StationSite WithoutSign()
+            {
+                return new StationSite(Centre, Forward, Outward, RoadEdge, Name, Seed);
             }
         }
+
+        /// <summary>How far the sign's post stands from the carriageway's paved edge, metres.</summary>
+        private const float SignStandoff = 3.5f;
+
+        private const float SignBoardHalf = 1.5f;
+        private const float SignBoardDeep = 0.16f;
+        private const float SignBoardTall = 1.8f;
+
+        /// <summary>Bottom edge of the board above the ground, so its top reaches 4 m.</summary>
+        private const float SignBoardFoot = 2.2f;
+
+        private const float SignPostHalf = 0.18f;
+
+        /// <summary>
+        /// How far below the road line the post is sunk, metres.
+        ///
+        /// <para>The ground is never queried for this. Within <c>TerrainShape.VergeWidth</c> — 24 m —
+        /// of any road sample the field returns a dead-flat shelf at the carriageway's height less
+        /// <c>RoadShelfDrop</c>, and a sign 10 m out is well inside that, so its foot is at most a
+        /// couple of decimetres out from a straight guess. Burying most of a metre of post swallows
+        /// that, and <see cref="AddBox"/> emits no bottom face to give it away.</para>
+        /// </summary>
+        private const float SignBury = 0.8f;
+
+        /// <summary>
+        /// The sign that stands up the road from a station, announcing it.
+        ///
+        /// <para><b>This is the object that answers "where are the filling stations".</b> The totem at
+        /// the entrance only helps somebody already level with the place; by then the decision to pull
+        /// in has been made or missed. This one is 250 m back, which is nine seconds at 100 km/h.</para>
+        ///
+        /// <para>Facing oncoming traffic, which is the whole difference between it and the totem, and
+        /// the frame is handed to <see cref="AddBox"/> swapped to get it: the board is 32 cm along the
+        /// road and 3 m across it, so its broad faces point up and down the carriageway.</para>
+        /// </summary>
+        public static void AddAdvanceSign(VegetationMeshBuffer buffer, in AdvanceSign sign)
+        {
+            if (!sign.Exists)
+            {
+                return;
+            }
+
+            Vector3 foot = sign.Foot - Vector3.up * SignBury;
+
+            AddBox(buffer, StructureSubmesh, foot, sign.Forward, sign.Outward,
+                SignPostHalf, SignPostHalf, SignBoardFoot + SignBury);
+
+            Vector3 board = sign.Foot + Vector3.up * SignBoardFoot;
+
+            AddBox(buffer, SignSubmesh, board, sign.Forward, sign.Outward,
+                SignBoardDeep, SignBoardHalf, SignBoardTall);
+
+            AddPictogram(buffer, board + Vector3.up * (SignBoardTall * 0.5f),
+                sign.Forward, sign.Outward, SignBoardDeep, 0.62f);
+        }
+
+        /// <summary>How far out from the paved edge a sign's post stands. Read by the resolver.</summary>
+        public static float AdvanceSignStandoff => SignStandoff;
 
         /// <summary>Lays one station into <paramref name="buffer"/>.</summary>
         public static void AddStation(VegetationMeshBuffer buffer, in StationSite site)

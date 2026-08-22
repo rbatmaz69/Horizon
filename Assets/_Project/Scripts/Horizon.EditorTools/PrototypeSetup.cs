@@ -6337,10 +6337,26 @@ namespace Horizon.EditorTools
             int triangles = 0;
             float worstRelief = 0f;
             string worstAt = string.Empty;
+            int signed = 0;
+            float nearestSign = float.MaxValue;
+            float furthestSign = 0f;
 
             for (int i = 0; i < sites.Count; i++)
             {
                 FuelStationMeshes.StationSite site = sites[i];
+
+                // The one hazard the sign resolver could not test: it runs before the height field
+                // exists, so whether a spot is standing in a lake is a question only answerable here.
+                // The coast road passes close enough to the water that this is a real case, not a guard.
+                if (site.Sign.Exists
+                    && field.IsUnderWater(site.Sign.Foot.x, site.Sign.Foot.z, site.Sign.Foot.y, 1.5f))
+                {
+                    Debug.LogWarning($"[Horizon] '{site.Name}' wanted its advance sign "
+                                     + $"{site.Sign.Distance:0} m back, and that lands in water. Built "
+                                     + "without one.");
+
+                    site = site.WithoutSign();
+                }
 
                 var used = new List<int>(FuelStationMeshes.SubmeshCount);
                 Mesh mesh = FuelStationBuilder.Build(site, $"FuelStation{Slug(site.Name)}Mesh", used);
@@ -6366,6 +6382,41 @@ namespace Horizon.EditorTools
 
                 GameObject station = CreateMeshObject(
                     parent, "FuelStation" + Slug(site.Name), mesh, slotMaterials);
+
+                // The sign, as a child, so it shares the station's chunk — the two are one place, and
+                // RecalculateBounds below walks children, which grows the radius to take it in. Built
+                // before that call for exactly that reason.
+                var signUsed = new List<int>(FuelStationMeshes.SubmeshCount);
+                Mesh signMesh = FuelStationBuilder.BuildAdvanceSign(
+                    site, $"FuelSign{Slug(site.Name)}Mesh", signUsed);
+
+                if (signMesh != null)
+                {
+                    signMesh = HorizonAssetUtility.ReplaceAsset(
+                        signMesh, $"{GeneratedFolder}/FuelSign{Slug(site.Name)}Mesh.asset");
+
+                    triangles += signMesh.triangles.Length / 3;
+
+                    var signMaterials = new Material[signUsed.Count];
+                    for (int m = 0; m < signUsed.Count; m++)
+                    {
+                        signMaterials[m] = stationMaterials[signUsed[m]];
+                    }
+
+                    CreateMeshObject(station.transform, "AdvanceSign", signMesh, signMaterials,
+                        addCollider: false);
+
+                    signed++;
+                    nearestSign = Mathf.Min(nearestSign, site.Sign.Distance);
+                    furthestSign = Mathf.Max(furthestSign, site.Sign.Distance);
+                }
+                else
+                {
+                    Debug.LogWarning($"[Horizon] '{site.Name}' has no advance sign: nowhere between "
+                                     + "250 and 600 m back is clear of a bore, a span, another "
+                                     + "station's frontage and a bend under 90 m. It can only be found "
+                                     + "by someone already level with it.");
+                }
 
                 WorldChunk chunk = station.AddComponent<WorldChunk>();
                 chunk.RecalculateBounds();
@@ -6394,8 +6445,13 @@ namespace Horizon.EditorTools
                 }
             }
 
+            string signs = signed == 0
+                ? "none carries an advance sign"
+                : $"{signed} of {sites.Count} carry an advance sign, at "
+                  + $"{nearestSign:0}–{furthestSign:0} m";
+
             Debug.Log($"[Horizon] Filling stations: {sites.Count} built, {triangles} triangles. Worst pad "
-                      + $"relief {worstRelief:0.00} m, at '{worstAt}'.");
+                      + $"relief {worstRelief:0.00} m, at '{worstAt}'. {signs}.");
 
             if (worstRelief > 0.6f)
             {

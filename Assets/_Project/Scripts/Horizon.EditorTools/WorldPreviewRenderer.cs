@@ -938,6 +938,20 @@ namespace Horizon.EditorTools
                         Capture(camera, Path.Combine(
                             directory, $"WorldPreview_{station.name}{suffix}.png"));
 
+                        // The approach: standing on the carriageway well back from the advance sign,
+                        // looking the way a driver is looking. This is the shot that answers "can you
+                        // tell where the filling stations are" — the only one that would catch a sign
+                        // facing backwards, standing on a viaduct, or lost in the trees.
+                        Transform sign = station.transform.Find("AdvanceSign");
+                        if (!night && sign != null
+                            && TryApproach(roads, sign.GetComponent<MeshRenderer>().bounds.center,
+                                bounds.center, out Vector3 eye, out Quaternion look))
+                        {
+                            camera.transform.SetPositionAndRotation(eye, look);
+                            Capture(camera, Path.Combine(
+                                directory, $"WorldPreview_{station.name}_Advance.png"));
+                        }
+
                         // And once from under the canopy, which is the only place the soffit is seen at
                         // all: from the road it is edge-on and subtends a couple of degrees. It is also
                         // 240 square metres of unlit white after dusk, parked directly above the driver's
@@ -985,13 +999,54 @@ namespace Horizon.EditorTools
         }
 
         /// <summary>
+        /// A driver's-eye view of an advance sign, taken from up the road behind it.
+        ///
+        /// <para>The direction to look is taken from the sign towards the station rather than from the
+        /// road's own forward, because a carriageway's forward is whichever way its course was walked
+        /// and half of them are walked against the traffic that uses them.</para>
+        /// </summary>
+        private static bool TryApproach(
+            List<RoadPath> roads, Vector3 sign, Vector3 station, out Vector3 eye, out Quaternion look)
+        {
+            eye = Vector3.zero;
+            look = Quaternion.identity;
+
+            // Standoff zero: this wants the road point beside the sign itself, and then to walk back
+            // from there along the direction of travel. Taking the default would apply that offset
+            // along the road's own forward first, which is whichever way its course happened to be
+            // walked — compounding two steps in possibly opposite directions, which is how the first
+            // version of this shot came out pointing at a village with the sign behind the camera.
+            if (!TryRoadSide(roads, sign, out Vector3 beside, 0f))
+            {
+                return false;
+            }
+
+            Vector3 travel = station - sign;
+            travel.y = 0f;
+
+            if (travel.sqrMagnitude < 1f)
+            {
+                return false;
+            }
+
+            travel.Normalize();
+
+            // 65 m back, which is where the board is still comfortably readable and the station behind
+            // it is in the same frame — the pair being legible together is the whole claim.
+            eye = beside - travel * 65f + Vector3.up * 1.6f;
+            look = Quaternion.LookRotation(travel, Vector3.up);
+            return true;
+        }
+
+        /// <summary>
         /// A standing point on the nearest carriageway to <paramref name="target"/>, set back far enough
         /// to hold a forecourt in frame.
         ///
         /// <para>Coarse sweep only. This runs on a menu press over a handful of stations, so the cost of
         /// walking every road at 20 m is nothing, and being a metre out does not change a photograph.</para>
         /// </summary>
-        private static bool TryRoadSide(List<RoadPath> roads, Vector3 target, out Vector3 from)
+        private static bool TryRoadSide(
+            List<RoadPath> roads, Vector3 target, out Vector3 from, float standoff = 26f)
         {
             from = Vector3.zero;
 
@@ -1033,7 +1088,7 @@ namespace Horizon.EditorTools
             // its soffit subtends about two degrees, so the lit ceiling that is the point of the thing at
             // night is a sliver. This is roughly where a driver decides to pull in, and it is the angle
             // that shows whether they would want to.
-            from = best - bestForward * 26f;
+            from = best - bestForward * standoff;
             return true;
         }
 
