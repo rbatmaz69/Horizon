@@ -235,6 +235,77 @@ that was 240 square metres of pure white over the driver's head, a canopy with n
 (what looked like a dark ceiling was sky), a sign painted with asphalt, and a sign turned edge-on.
 The build reported none of them. Look at the pictures.
 
+## The Meerenge
+
+The road on from the Ebental is two courses — `KalkgratCourse` climbs a ridge, bores through it and
+drops down the Steilufer; `MeerengeCourse` runs the coast, crosses a strait on a suspension bridge and
+carries on up the far shore. Twelve kilometres, which is half again what the world had.
+
+**Nothing in this world is revealed from more than about half a kilometre, and the leg was designed as
+if it were.** The Kalkgrattunnel was built as a shutter: 280 m of rock, and then the strait, the far
+shore and the towers arriving in one frame. The crossing is five kilometres from that portal, the
+camera's far plane is 600 m and the fog wall stands inside it. The set-piece was impossible and the
+build reported nothing — `WorldPreview_Strait_1_Portal` reported it. Any moment that depends on
+distance has this problem. The sea arrives on the corniche and the bridge on the last corner before it.
+
+**The coast road had no coast, and three separate things were hiding it.** This is the one worth
+reading before touching any of it again.
+
+- *Distance.* `WaterPlanner` lays a river's spine square to the deck of the bridge it is named for, so
+  the strait's axis is fixed by the crossing. A coast road that wanders relative to that axis opens and
+  closes its distance to the water by more than a kilometre over its length. Every heading on the
+  corniche is held within about fifteen degrees of the channel's own.
+- *Height.* Everything here takes its height from the roads, the strait's surface included, so a coast
+  road at sea level gets a sea at road level. The descent stops on a shelf about fifty metres up
+  instead of running down to the water, and `ChannelFreeboard` is 24 m rather than the 6 a river in a
+  valley needs.
+- *The bank, twice.* It is a smoothstep and therefore convex in its middle: with the road 300 m back
+  and the bank 240 m wide, the line of sight to the waterline passed *below* the bank's own crown and
+  the ground hid the water. The bank now reaches past the road. And nothing in this project had ever
+  kept a plant off a **shore** — only out of the water — so every bank in the world came up wooded to
+  the waterline. `VegetationShape.ShoreTreeClearing` is clamped per body by `MountainField.IsShore`,
+  which is why one number reads as "no trees on a bank" for a 1200 m strait and a 70 m tarn alike.
+
+**How steep a hillside comes out is set by the legs, not by the corners.** `MountainField` derives the
+mountain from the road, so the slope between two stacked switchback legs is decided by how far apart
+they are in plan. The pass turns at 20 m with 250 m legs and stacks them forty metres apart, which is
+its 65 % face. The Steilufer keeps open corners — 38 to 70 m — and got its fall from shortening the
+legs to 90–140 m. Open corners and a cliff are not the same knob.
+
+`RoadFeatureKind.Suspension` is a kind of its own and `IsBridged` reports it alongside `Bridge`, because
+every caller of that predicate is asking one question — is the ground under this stretch the road's
+business — and for both the answer is no. The two differ in exactly one place: `BridgeBuilder` plants a
+pier pair every forty metres, and a pier pair across a shipping channel is what the other kind exists to
+avoid. `SuspensionBridgeBuilder` shares that one's girder and parapet rather than copying them; a deck
+is a deck whatever is holding it up.
+
+**The main span is 950 m and not the 1074 of the bridge it is named after, and that number comes from
+the renderer.** Past about a kilometre between the towers there is no frame anywhere on the deck that
+holds both of them, and a suspension bridge whose shape you cannot see is a road with railings.
+
+The structure's dimensions live on `MeerengeCourse` and are passed to the builder as a
+`SuspensionShape`, because three things have to agree about where a tower stands: the course, which puts
+the anchorages on land by choosing the structure's length; the channel, whose half-width decides whether
+the towers rise out of water or out of a field; and the builder. A constant in the builder would be a
+fourth opinion, and the other three are the ones that go wrong silently.
+
+The beacons and the cable beads are on a submesh with a plain bright material and **no `TownLights`
+registration**, for the reason already recorded against the filling station signs. A bridge lit along
+its cables is most of why anybody photographs one.
+
+`ValidateSuspensionBridges` asks the four questions `ValidateBridges` cannot: is there water under it,
+is there enough air over that water to be a shipping channel, does the cable stay above the parapet it
+is holding up, and is the deck level. Each failure builds without complaint and shows only in a picture.
+
+Beyond the water is `LandRegion.Anadolu` — warm ground, red earth, and half the trees cypresses (the
+avenue's poplar mesh, scattered instead of planted in a row; a spire and a crown are still telling apart
+at four pixels, which no ground colour can claim). It hangs off the **same road** as the corniche and
+begins at the eastern anchorage, because what separates the two countries is 1250 m of bridge rather
+than a different piece of tarmac — that is what `LandRegion.StartAlong` is for.
+
+`Tools > Horizon > Render Strait Preview` photographs all of it, day and night. Every fault above was
+found there and by nothing else.
+
 ## Updating
 
 The game is sideloaded, so nothing tells a player that a release happened. `Horizon.Updates` asks

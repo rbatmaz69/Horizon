@@ -1139,6 +1139,13 @@ namespace Horizon.EditorTools
             meerengeChunk.RecalculateBounds();
             meerengeChunk.SetBounds(meerengeChunk.Center, 100000f);
 
+            // The far shore, hung off the same road the corniche is on and starting at the eastern
+            // anchorage. It has to be a distance along the road rather than a road of its own, because
+            // what separates the two countries here is 1250 m of bridge and not a different piece of
+            // tarmac — see LandRegion.StartAlong.
+            LandRegion anadolu = LandRegion.Anadolu(
+                meerengePath, MeerengeCourse.CrossingStart + MeerengeCourse.StructureLength);
+
             // --- The motorway. One authored median line, two carriageways offset from it, and a link
             // road down to the foot of the pass. The centreline is never paved.
             RoadShape motorwayShape = RoadShape.Autobahn;
@@ -1573,7 +1580,7 @@ namespace Horizon.EditorTools
                     new MountainField.FieldRoad(kalkgratPath, kalkgratCourse),
                     new MountainField.FieldRoad(meerengePath, meerengeCourse),
                 },
-                ebental, ebentalPath,
+                new[] { ebental, anadolu }, ebental, ebentalPath,
                 ForecourtCentres(fuelStations));
             ValidateLandmarks(field, course, path, talheim.Plan);
             MarkTownLandmarks(worldRoot.transform, talheim.Network, talheim.Plan);
@@ -3774,7 +3781,8 @@ namespace Horizon.EditorTools
             List<int> townSlotGroups,
             IReadOnlyList<Bounds> waterBands,
             IReadOnlyList<MountainField.FieldRoad> otherRoads,
-            LandRegion region,
+            IReadOnlyList<LandRegion> regions,
+            LandRegion avenueRegion,
             IRoadPath avenueRoad,
             IReadOnlyList<Vector3> forecourts)
         {
@@ -3819,7 +3827,7 @@ namespace Horizon.EditorTools
             // clear of trees or they are lay-bys with a hedge in front of them.
             var vegetationContext = new VegetationContext(
                 path, course, vegetationShape, settlements, otherRoads,
-                region != null ? avenueRoad : null, forecourts);
+                avenueRegion != null ? avenueRoad : null, forecourts);
             var vegetationTotal = new VegetationStats();
             int heaviestTile = 0;
             string heaviestTileName = "none";
@@ -3858,10 +3866,44 @@ namespace Horizon.EditorTools
             int shoreTriangles = 0;
             int drownedTiles = 0;
 
+            // One region per tile, picked by which of them reaches it.
+            //
+            // <b>They cannot overlap, and that is what makes one enough.</b> A region is a corridor
+            // about its own carriageway, 260 m wide at the outside, and the two in this world are five
+            // kilometres apart. Picking the first that reaches is therefore exact rather than a
+            // tie-break. A tile that a region reaches but whose weight is nought — everything west of
+            // the Meerenge's crossing, which shares its road with the far shore — comes out unchanged,
+            // which is the answer wanted there anyway.
+            // Read out here rather than inside: a local function may not touch an `in` parameter.
+            float regionTileSize = TerrainTileBuilder.TileSize(terrainShape);
+
+            LandRegion RegionFor(TerrainTileKey key)
+            {
+                if (regions == null)
+                {
+                    return null;
+                }
+
+                float half = regionTileSize * 0.5f;
+                float centreX = key.Column * regionTileSize + half;
+                float centreZ = key.Row * regionTileSize + half;
+
+                for (int r = 0; r < regions.Count; r++)
+                {
+                    if (regions[r] != null && regions[r].Reaches(centreX, centreZ, half * 1.5f))
+                    {
+                        return regions[r];
+                    }
+                }
+
+                return null;
+            }
+
             for (int i = 0; i < tiles.Count; i++)
             {
                 TerrainTileKey key = tiles[i];
                 string name = $"Terrain_{key.Column}_{key.Row}";
+                LandRegion region = RegionFor(key);
 
                 GameObject tileObject;
 

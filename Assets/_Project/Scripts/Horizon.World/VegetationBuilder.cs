@@ -763,7 +763,10 @@ namespace Horizon.World
             ScatterBoulders(buffer, field, terrainShape, shape, context, originX, originZ, tileSize, stats,
                 tileRegion);
 
-            if (tileRegion != null)
+            // Everything below this line is the furniture of worked land — planted rows, cut hay, walled
+            // boundaries — and it used to run for any region there was, because the only region there
+            // was happened to be farmland. See LandRegion.Farmed for what that put on the far shore.
+            if (tileRegion != null && tileRegion.Farmed)
             {
                 ScatterOrchard(buffer, field, terrainShape, shape, context, originX, originZ, tileSize,
                     stats, tileRegion);
@@ -903,10 +906,26 @@ namespace Horizon.World
                     // alpine. Below, the wood is broadleaf and it is autumn.
                     if (regionWeight > 0.5f)
                     {
-                        PlantMeshes.AddBroadleaf(buffer, placement, PlantMeshes.AutumnCanopySubmesh);
-                        stats.Broadleaves++;
-                        Record(stats, toRoad, context, x, z);
-                        continue;
+                        // A spire rather than a crown, where the region asks for them. The mesh is the
+                        // avenue's poplar: a poplar and a cypress are the same silhouette at any
+                        // distance either is seen from, and what makes these read as somewhere else is
+                        // that they are scattered instead of planted in a row. See
+                        // LandRegion.SpireChance.
+                        if (region.SpireChance > 0f && random.Next() < region.SpireChance)
+                        {
+                            PlantMeshes.AddPoplar(buffer, placement);
+                            stats.Poplars++;
+                            Record(stats, toRoad, context, x, z);
+                            continue;
+                        }
+
+                        if (region.AutumnCanopy)
+                        {
+                            PlantMeshes.AddBroadleaf(buffer, placement, PlantMeshes.AutumnCanopySubmesh);
+                            stats.Broadleaves++;
+                            Record(stats, toRoad, context, x, z);
+                            continue;
+                        }
                     }
 
                     // Even the valley floor keeps a good share of spruce — this is a mountain, and a pure

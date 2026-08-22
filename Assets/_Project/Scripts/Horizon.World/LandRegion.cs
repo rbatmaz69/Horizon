@@ -95,12 +95,20 @@ namespace Horizon.World
         private readonly float cosAngle;
         private readonly float sinAngle;
 
-        private LandRegion(string name, RoadProximity road, GroundPalette ground, float wildTreeChance)
+        private LandRegion(string name, RoadProximity road, GroundPalette ground, float wildTreeChance,
+            float startAlong = 0f,
+            float spireChance = 0f,
+            bool autumnCanopy = false,
+            bool farmed = false)
         {
             Name = name;
             this.road = road;
             Ground = ground;
             WildTreeChance = wildTreeChance;
+            StartAlong = startAlong;
+            SpireChance = spireChance;
+            AutumnCanopy = autumnCanopy;
+            Farmed = farmed;
 
             cosAngle = Mathf.Cos(FieldAngleDegrees * Mathf.Deg2Rad);
             sinAngle = Mathf.Sin(FieldAngleDegrees * Mathf.Deg2Rad);
@@ -118,6 +126,45 @@ namespace Horizon.World
         /// forest with rows in it. The triangles this frees are what pays for the avenue.</para>
         /// </summary>
         public float WildTreeChance { get; }
+
+        /// <summary>
+        /// How far along its own road the region begins, metres.
+        ///
+        /// <para><b>Exists because two regions can share a road.</b> Membership here is distance to the
+        /// region's own carriageway plus a fade over <see cref="EntryFade"/> of it, which is exactly
+        /// right while every region has a road to itself — and wrong the moment one road crosses from
+        /// one country into another. The Meerenge is one course from the coast road to the far shore,
+        /// and the thing that separates the two is 1250 m of bridge rather than a different piece of
+        /// tarmac. Measuring from a distance along the road puts the change where the change is.</para>
+        /// </summary>
+        public float StartAlong { get; }
+
+        /// <summary>
+        /// What share of this region's trees are spires rather than round crowns.
+        ///
+        /// <para>Cypresses, and they reuse the poplar the Ebental's avenue is planted from — a poplar
+        /// and a cypress are the same silhouette at the distance either is ever seen from, and a new
+        /// species would be a new mesh, a new submesh and a new tint for a shape the project already
+        /// has. What makes them read as somewhere else is that they are <i>scattered</i> rather than
+        /// planted in a row: the Ebental's poplars say a road was planted, and these say a hillside grew
+        /// this way.</para>
+        /// </summary>
+        public float SpireChance { get; }
+
+        /// <summary>Whether the round-crowned trees here are the autumn canopy. See <c>ScatterTrees</c>.</summary>
+        public bool AutumnCanopy { get; }
+
+        /// <summary>
+        /// Whether somebody farms here.
+        ///
+        /// <para><b>Not decoration, and the flag exists because leaving it out was a visible bug.</b>
+        /// Orchard rows, hay bales and walled field boundaries were run for any region at all, on the
+        /// reasonable-looking grounds that the only region was farmland. The far shore of the Meerenge
+        /// came back with post-and-rail fences and round bales on it — the vocabulary of an alpine
+        /// valley, laid over the one place in the world built to read as somewhere else. Whatever
+        /// eventually stands on a dry hillside, it is not a hay bale.</para>
+        /// </summary>
+        public bool Farmed { get; }
 
         /// <summary>The region the rest of the world is in: none of it, and the colours it already had.</summary>
         public static LandRegion None { get; } = new LandRegion(
@@ -154,7 +201,61 @@ namespace Horizon.World
                     new Color(0.50f, 0.54f, 0.28f),
                     new Color(0.48f, 0.40f, 0.31f),
                     fields),
-                wildTreeChance: 0.18f);
+                wildTreeChance: 0.18f,
+                autumnCanopy: true,
+                farmed: true);
+        }
+
+        /// <summary>
+        /// Anadolu: the far shore of the Meerenge, and the reason the bridge is worth crossing.
+        ///
+        /// <para><b>A bridge between two identical places is a long piece of road.</b> The crossing
+        /// works as a structure from the first day it was built, and the preview from the far bank
+        /// showed the fault immediately anyway: the same spruce, the same green, the same everything,
+        /// on both sides of a kilometre of water. What a threshold needs is something on the far side
+        /// that the near side does not have.</para>
+        ///
+        /// <para><b>Warm and dry, and the palette is the first half of it.</b> Where the Ebental is
+        /// meadow with worked fields cut into it, this is burnt grass with olive terraces and red earth
+        /// in it — the same trick, one climate over. The pasture tone deliberately does <i>not</i> sit
+        /// near the world's own green here, which is the opposite of the choice the Ebental made and
+        /// for the opposite reason: that region had to read as another part of the same country, and
+        /// this one has to read as another country.</para>
+        ///
+        /// <para><b>Cypresses are the second half, and they do the work at a distance.</b> Half the
+        /// trees here are spires, scattered rather than planted in a row — see
+        /// <see cref="SpireChance"/>. A round crown and a spire are still distinguishable when both are
+        /// four pixels tall, which is more than any ground colour can claim.</para>
+        ///
+        /// <para>It begins at the eastern anchorage rather than at the start of its road, because its
+        /// road is also the coast road on the other side of the water. See <see cref="StartAlong"/>.</para>
+        /// </summary>
+        public static LandRegion Anadolu(IRoadPath path, float startAlong)
+        {
+            var fields = new Color32[]
+            {
+                new Color(0.62f, 0.58f, 0.32f),  // burnt grass, the ground note of the far side
+                new Color(0.45f, 0.47f, 0.27f),  // olive terrace, the only green over here
+                new Color(0.74f, 0.62f, 0.36f),  // dry stubble
+                new Color(0.55f, 0.33f, 0.22f),  // red earth, and the accent nothing west of the water has
+            };
+
+            return new LandRegion(
+                "Anadolu",
+                new RoadProximity(path),
+                new GroundPalette(
+                    new Color(0.62f, 0.58f, 0.32f),
+                    new Color(0.56f, 0.42f, 0.30f),
+                    fields),
+                // Higher than the Ebental's 0.18: this is hillside rather than farmland, so the wood was
+                // never cleared off it — only ever thin because of the climate.
+                // Thin, and thinner than the Ebental's farmland for the opposite reason: nobody cleared
+                // this, it is simply dry. At 0.55 the far shore came out a cypress forest, which is a
+                // different wrong country rather than the right one — and put a tile over the vegetation
+                // budget while it was at it.
+                wildTreeChance: 0.32f,
+                startAlong: startAlong,
+                spireChance: 0.3f);
         }
 
         /// <summary>How much of this region applies at a point: 0 outside it, 1 well inside.</summary>
@@ -178,7 +279,8 @@ namespace Horizon.World
             // InverseLerp inside a SmoothStep, and a weight that is never positive is a region that
             // silently does nothing.
             float across = 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(CoreReach, EdgeReach, distance));
-            float entry = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0f, EntryFade, along));
+            float entry = Mathf.SmoothStep(
+                0f, 1f, Mathf.InverseLerp(StartAlong, StartAlong + EntryFade, along));
 
             return across * entry;
         }
