@@ -80,7 +80,7 @@ namespace Horizon.Vehicle
         /// bump the assets keep the short travel and the soft bar together, which is the one combination
         /// that rolls.</para>
         /// </summary>
-        public const int CurrentVersion = 9;
+        public const int CurrentVersion = 10;
 
         /// <summary>
         /// Which set of meanings this asset's numbers were chosen under.
@@ -99,7 +99,28 @@ namespace Horizon.Vehicle
         [Tooltip("Local centre of mass. Keep it low — this is the main defence against rolling over.")]
         public Vector3 CenterOfMass = new Vector3(0f, -0.30f, 0.05f);
 
-        public float LinearDamping = 0.06f;
+        /// <summary>
+        /// Rigidbody linear damping, and it is <b>zero on purpose</b>.
+        ///
+        /// <para>This car's resistance is meant to be two terms and is documented as two:
+        /// <see cref="RollingResistanceN"/>, constant, which is what a tyre actually does, and
+        /// <see cref="AeroDrag"/>, proportional to the square of speed, which is what air does. Unity's
+        /// damping is a third — proportional to speed itself — and it is neither of those.</para>
+        ///
+        /// <para><b>At 0.06 it was not a detail, it was the dominant force.</b> It scales with mass, so
+        /// at 50 m/s it was pulling three to five times as hard as the aerodynamic drag beside it, and
+        /// every car in the fleet topped out far below what its gearing allowed: the coupé at 161 km/h
+        /// against a geared 263, the liftback at 150 against 269. The note beside the aero force in
+        /// <c>VehicleController</c> records that applying drag four times over once capped the car at
+        /// 45 km/h; this was a fifth application that nobody had noticed.</para>
+        ///
+        /// <para><b>And it quietly disabled half of every speed-dependent curve.</b>
+        /// <see cref="TopSpeed"/> is the redline in top gear, and <c>SpeedNormalized</c> divides by it to
+        /// drive <see cref="SteeringBySpeed"/> and <see cref="LateralGrip"/>. A car that could only reach
+        /// 61 % of its own top speed never read past 0.61 of either curve, so the fast end of both was
+        /// authored, tuned and never once evaluated.</para>
+        /// </summary>
+        public float LinearDamping = 0f;
 
         [Tooltip("Rigidbody angular damping. Deliberately almost nothing — see RollDamping.\n\n"
                + "This was 1.2, and it is why the steering felt vague no matter how much lock was wound "
