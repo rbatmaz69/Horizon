@@ -130,6 +130,15 @@ namespace Horizon.World
         /// </summary>
         public const float ChannelBedScale = 220f;
 
+        /// <summary>
+        /// The structure's dimensions, in the form <see cref="SuspensionBridgeBuilder"/> takes them.
+        ///
+        /// <para>Assembled here rather than kept there because the course is what decides whether the
+        /// anchorages land on dry ground: <see cref="SideSpan"/> against
+        /// <see cref="ChannelHalfWidth"/> is that decision, and both numbers are above.</para>
+        /// </summary>
+        public static SuspensionShape Crossing => new SuspensionShape(SideSpan, TowerRise, CableSag);
+
         private const float CornicheGrade = -0.6f;
 
         /// <summary>Grade of the climb onto the crossing, percent. Taken along the shore, not inland.</summary>

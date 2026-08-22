@@ -40,10 +40,10 @@ namespace Horizon.World
         private const float PierSpacing = 40f;
 
         /// <summary>Cross-sections along the deck. Finer than the piers, so the soffit follows the road.</summary>
-        private const float DeckStep = 8f;
+        internal const float DeckStep = 8f;
 
         /// <summary>Depth of the girder below the carriageway, metres.</summary>
-        private const float GirderDepth = 2.2f;
+        internal const float GirderDepth = 2.2f;
 
         /// <summary>How far the girder is drawn in from the edge of the shoulder, each side.</summary>
         private const float GirderInset = 1.2f;
@@ -60,8 +60,8 @@ namespace Horizon.World
         /// </summary>
         private const float MinimumPier = 2.5f;
 
-        private const float ParapetHeight = 1.1f;
-        private const float ParapetThickness = 0.35f;
+        internal const float ParapetHeight = 1.1f;
+        internal const float ParapetThickness = 0.35f;
 
         /// <summary>
         /// Builds every bridge on a course as one mesh, or returns null if the course has none.
@@ -132,10 +132,17 @@ namespace Horizon.World
 
         /// <summary>
         /// The box girder: a closed tube swept along the deck, drawn in from the shoulder edge so the
-        /// carriageway visibly overhangs it. That overhang is most of what makes a viaduct read as one
+        /// carriageway visibly overhangs it.
+        ///
+        /// <para><b>Internal rather than private, and shared with
+        /// <see cref="SuspensionBridgeBuilder"/> rather than copied into it.</b> A stiffening girder and
+        /// a viaduct girder are the same object — a deck is a deck, whatever is holding it up — and the
+        /// half of a bridge that differs between the two kinds is entirely below or above it. The same
+        /// goes for the parapet, which is the part a driver actually looks at and which has no business
+        /// being two slightly different heights depending on the structure under it.</para> That overhang is most of what makes a viaduct read as one
         /// from below rather than as a slab on sticks.
         /// </summary>
-        private static void AddGirder(
+        internal static void AddGirder(
             VegetationMeshBuffer buffer,
             in RoadShape roadShape,
             Vector3[] centres,
@@ -198,7 +205,7 @@ namespace Horizon.World
                 top - across, top + across, top + across - drop, top - across - drop, outward);
         }
 
-        private static void AddParapets(
+        internal static void AddParapets(
             VegetationMeshBuffer buffer,
             in RoadShape roadShape,
             Vector3[] centres,
