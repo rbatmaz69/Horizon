@@ -33,15 +33,47 @@ namespace Horizon.World
         public const int TrimSubmesh = 2;
 
         /// <summary>
-        /// The canopy's light strips, the sign's face, the shop's glazing and the pumps' displays.
+        /// Paint on the forecourt: the bay outlines that say where to stop.
+        ///
+        /// <para>Geometry rather than a texture, which is what <c>TownStreetBuilder.MarkingSubmesh</c>
+        /// settled for every marking in the world that is not on the trunk road. Laid-on quads cost two
+        /// triangles a stripe and merge into the same tinted material as everything else here, so they
+        /// are free at the draw call.</para>
+        /// </summary>
+        public const int MarkingSubmesh = 3;
+
+        /// <summary>
+        /// The shop's glazing and the pumps' displays — the things that are dark glass by day and lit
+        /// after dusk.
         ///
         /// <para>Left untinted so it survives <c>MergeTinted</c> on a submesh of its own, exactly as
         /// <c>HarbourMeshes.LanternSubmesh</c> does: a colour baked into a vertex cannot be swapped, and
         /// swapping is the whole point of a lit slot.</para>
+        ///
+        /// <para><b>Registered under <c>LitGroup.Windows</c>, and not under <c>Lamps</c>.</b> It was
+        /// Lamps at first, which was a real bug rather than a preference: that group's day material is
+        /// <c>M_Lane</c>, the road's own asphalt, because a lamp's pool of light is meant to vanish into
+        /// the carriageway by day. Applied to a shop window it paints it tarmac. Windows gives dark
+        /// glass by day — right for glazing, right for an unlit pump display, and right for a luminaire
+        /// that is switched off.</para>
         /// </summary>
-        public const int LitSubmesh = 3;
+        public const int LitSubmesh = 4;
 
-        public const int SubmeshCount = 4;
+        /// <summary>
+        /// The sign faces, and the canopy's light strips — everything that is bright in both states.
+        ///
+        /// <para><b>Its own slot because no <c>LitGroup</c> can express what a sign does.</b> Every
+        /// group swaps between a day material and a night one, and an illuminated sign is the one thing
+        /// on a forecourt that looks the same at noon as at midnight. Registered with nothing, and given
+        /// a plain bright unlit material that never changes.</para>
+        ///
+        /// <para>This is most of why the stations were hard to find. The sign face used to share the lit
+        /// slot, so in daylight the object whose entire job is to advertise the place was painted with
+        /// road asphalt.</para>
+        /// </summary>
+        public const int SignSubmesh = 5;
+
+        public const int SubmeshCount = 6;
 
         /// <summary>Half the forecourt along the road, metres.</summary>
         public const float ApronHalfLength = 26f;
@@ -68,6 +100,17 @@ namespace Horizon.World
         private static readonly Color StructureColour = new Color(0.87f, 0.86f, 0.82f);
         private static readonly Color TrimColour = new Color(0.84f, 0.38f, 0.20f);
 
+        /// <summary>
+        /// Road paint. The motorway's value, restated rather than referenced.
+        ///
+        /// <para><c>RoadTextureBuilder.PaintBase</c> is the original and is Editor-only, so it cannot
+        /// compile into a player — the same bind <c>MotorwayMergeBuilder.SurfaceTints</c> is in, and it
+        /// restates this exact literal for the same reason. Take the motorway's and not the town
+        /// street's paler 0.82: using the wrong one of the two once laid a visibly paler strip down the
+        /// side of the motorway.</para>
+        /// </summary>
+        private static readonly Color MarkingColour = new Color(0.86f, 0.86f, 0.83f);
+
         /// <summary>One entry per submesh, null where it must keep its own material.</summary>
         public static Color?[] Tints()
         {
@@ -75,8 +118,9 @@ namespace Horizon.World
             tints[ApronSubmesh] = ApronColour;
             tints[StructureSubmesh] = StructureColour;
             tints[TrimSubmesh] = TrimColour;
+            tints[MarkingSubmesh] = MarkingColour;
 
-            // LitSubmesh stays null. See the constant.
+            // LitSubmesh and SignSubmesh stay null. See the constants.
             return tints;
         }
 
@@ -179,6 +223,19 @@ namespace Horizon.World
             AddBox(buffer, StructureSubmesh, deck, site.Forward, site.Outward,
                 CanopyHalfLength, CanopyHalfDepth, CanopyDeck);
 
+            // The underside, which AddBox does not give: it emits a top and four sides and no bottom,
+            // deliberately, because nothing else in this file is ever seen from below. A canopy is —
+            // by a driver who has stopped directly under it, which is the whole point of the object.
+            // Without this quad the roof over the pumps is a hole onto the sky with three light strips
+            // hanging in it, and at night that reads as a dark soffit rather than as the bug it is.
+            Vector3 alongDeck = site.Forward * CanopyHalfLength;
+            Vector3 acrossDeck = site.Outward * CanopyHalfDepth;
+
+            buffer.AddQuadFacing(StructureSubmesh,
+                deck - alongDeck - acrossDeck, deck - alongDeck + acrossDeck,
+                deck + alongDeck + acrossDeck, deck + alongDeck - acrossDeck,
+                Vector3.down);
+
             // The fascia hangs below the deck's edge on all four sides. It is the band of colour that
             // says what this place is from further away than any of the detail under it.
             AddRim(buffer, TrimSubmesh, deck, site.Forward, site.Outward,
@@ -195,7 +252,16 @@ namespace Horizon.World
             //
             // Three narrow luminaires are what a real canopy actually has, and they work here for the
             // same reason the town's lamp heads do: small bright things read as lights. About a
-            // twentieth of the area, and the soffit around them stays structure.
+            // twentieth of the area, and the soffit around them is the quad above.
+            //
+            // On the sign slot rather than the lit one, and it took two wrong answers to get here.
+            // LitGroup.Lamps is what a lamp head uses, and its day material is M_Lane — the road's own
+            // asphalt — because a pool of light has to vanish into the carriageway when it is off. It
+            // only vanishes when the surface it is painted on *is* the road; on a pale soffit it is a
+            // grey stripe. LitGroup.Windows is not right either: a diffuser that is switched off is
+            // white, not near-black glass. What a canopy luminaire actually is, is the same object as
+            // the sign — white by day, bright by night, one material for both — so it shares its slot
+            // and costs nothing.
             Vector3 soffit = deck - Vector3.up * 0.02f;
             Vector3 a = site.Forward * (CanopyHalfLength - 1.2f);
 
@@ -204,7 +270,7 @@ namespace Horizon.World
                 Vector3 across = site.Outward * (i * CanopyHalfDepth * 0.55f);
                 Vector3 w = site.Outward * 0.32f;
 
-                buffer.AddQuadFacing(LitSubmesh,
+                buffer.AddQuadFacing(SignSubmesh,
                     soffit - a + across - w, soffit + a + across - w,
                     soffit + a + across + w, soffit - a + across + w,
                     Vector3.down);
@@ -303,12 +369,81 @@ namespace Horizon.World
             AddBox(buffer, StructureSubmesh, foot, site.Forward, site.Outward,
                 0.32f, 0.32f, TotemHeight - 1.8f);
 
-            Vector3 panel = foot + Vector3.up * (TotemHeight - 0.9f);
+            Vector3 panel = foot + Vector3.up * (TotemHeight - 1.8f);
 
-            // Broadside to the road, so it is read by someone driving towards it rather than by someone
-            // standing on the forecourt looking back.
-            AddBox(buffer, LitSubmesh, panel - Vector3.up * 0.9f,
-                site.Forward, site.Outward, 1.5f, 0.16f, 1.8f);
+            // Broadside to the road — and it was not, which is half of why nobody could find these.
+            //
+            // AddBox's halfLength runs along `forward`, so the first version's 1.5 by 0.16 made a slab
+            // 3 m long down the road and 32 cm across it: broad faces pointing at the verge, and a
+            // sixteen-centimetre edge presented to the only person who was ever going to read it. The
+            // comment said broadside and the geometry did the opposite. Swapped, it is 32 cm along the
+            // road and 3 m across, which is a sign.
+            AddBox(buffer, SignSubmesh, panel, site.Forward, site.Outward, 0.16f, 1.5f, 1.8f);
+
+            AddPictogram(buffer, panel + Vector3.up * 0.9f, site.Forward, site.Outward, 0.16f, 0.62f);
+        }
+
+        /// <summary>
+        /// The pump symbol, standing proud of a sign face.
+        ///
+        /// <para><b>A bright blank rectangle says "something is coming"; it does not say "fuel".</b>
+        /// This world has bright rectangles in it already — lit windows, the totem, the shop front — so
+        /// a face with nothing on it is one more of those. There is no text to draw with: nothing in
+        /// this project renders a glyph in world space, and an atlas for four signs would be an art
+        /// pipeline for four signs.</para>
+        ///
+        /// <para>So it is three boxes in the dark trim colour, in the proportions the HUD's own pump
+        /// glyph settled on — see <c>HorizonAssetUtility.GlyphAlpha</c>'s "fuel" case, whose numbers
+        /// were arrived at by drawing it and looking at it at forty units and again at twenty. A body,
+        /// the hose arm beside it, and a plinth. Standing 4 cm off the face, which is the same trick
+        /// <c>TrafficSignalMeshes.LensProud</c> uses at 1.2 cm and for the same reason: two coplanar
+        /// surfaces are two surfaces fighting for the depth buffer.</para>
+        /// </summary>
+        /// <param name="faceHalfDepth">
+        /// Half the thickness of the panel this sits on, metres. It has to be passed in and not guessed:
+        /// the symbol goes <i>proud of the face</i>, and a version that measured from the panel's centre
+        /// instead put every bar inside the sign, where they were rendered exactly as asked and seen by
+        /// nobody.
+        /// </param>
+        /// <param name="scale">Half-height of the symbol, metres. It is drawn to a unit square.</param>
+        private static void AddPictogram(
+            VegetationMeshBuffer buffer,
+            Vector3 centre,
+            Vector3 forward,
+            Vector3 outward,
+            float faceHalfDepth,
+            float scale)
+        {
+            const float proud = 0.05f;
+            float standOff = faceHalfDepth + proud * 0.5f;
+
+            // Both faces of the sign carry it, so it reads whichever way the sign is turned.
+            for (int face = -1; face <= 1; face += 2)
+            {
+                Vector3 at = centre + forward * (standOff * face);
+
+                // Body, hose arm, plinth — laid out across `outward`, because that is the sign's width.
+                AddSymbolBar(buffer, at, forward, outward, proud, -0.28f * scale, 0.02f, 0.30f * scale, 0.58f * scale);
+                AddSymbolBar(buffer, at, forward, outward, proud, 0.40f * scale, 0.02f, 0.08f * scale, 0.44f * scale);
+                AddSymbolBar(buffer, at, forward, outward, proud, -0.28f * scale, -0.62f * scale, 0.40f * scale, 0.10f * scale);
+            }
+        }
+
+        /// <summary>One bar of the pump symbol: a flat box standing off the sign's face.</summary>
+        private static void AddSymbolBar(
+            VegetationMeshBuffer buffer,
+            Vector3 faceCentre,
+            Vector3 forward,
+            Vector3 outward,
+            float thickness,
+            float across,
+            float up,
+            float halfAcross,
+            float halfUp)
+        {
+            Vector3 at = faceCentre + outward * across + Vector3.up * (up - halfUp);
+
+            AddBox(buffer, TrimSubmesh, at, forward, outward, thickness * 0.5f, halfAcross, halfUp * 2f);
         }
 
         /// <summary>A box standing on <paramref name="foot"/> and rising <paramref name="height"/>.</summary>

@@ -156,6 +156,18 @@ namespace Horizon.EditorTools
             public readonly Material WindowDay;
             public readonly Material WindowNight;
             public readonly Material LampNight;
+
+            /// <summary>
+            /// A filling station's sign face. Unlit and bright, and it never changes.
+            ///
+            /// <para>Every other lit thing in the world is a pair — dark by day, glowing by night — and
+            /// <c>TownLights</c> swaps between them. A sign is the one thing on a forecourt that is
+            /// meant to look the same at noon as at midnight, so it is registered with nothing and
+            /// simply stays lit. Unlit so it holds its brightness once the sun is down and the fog has
+            /// swallowed everything else, which is the same argument <c>DelineatorReflector</c> makes
+            /// — and it is exactly when you most want to know there is fuel ahead.</para>
+            /// </summary>
+            public readonly Material SignFace;
             public readonly Material TailNight;
 
             /// <summary>An unlit traffic-light lens, and the three lit ones indexed by state.</summary>
@@ -312,6 +324,13 @@ namespace Horizon.EditorTools
                 LampNight = HorizonAssetUtility.LoadOrCreateUnlitMaterial(
                     MaterialsFolder + "/M_LampNight.mat", "M_LampNight",
                     new Color(1.90f, 1.72f, 1.28f));
+
+                // Warm near-white, and under 1 on every channel unlike the lamps above: those are light
+                // sources and are allowed to blow out, this is a painted panel catching the day. It has
+                // to read against a bright sky as well as against a black one.
+                SignFace = HorizonAssetUtility.LoadOrCreateUnlitMaterial(
+                    MaterialsFolder + "/M_SignFace.mat", "M_SignFace",
+                    new Color(0.98f, 0.94f, 0.86f));
 
                 // A lit tail lamp, which is not the same thing as M_LightRear: that one is the *off*
                 // state of the player's car, animated by a property block. An ambient car has no block —
@@ -6302,9 +6321,17 @@ namespace Horizon.EditorTools
                 return;
             }
 
+            // One entry per submesh, in FuelStationMeshes' own order. The first four are tinted and
+            // MergeTinted folds them into the lowest of them, so only the first is ever really used;
+            // the last two are the untinted slots and keep their own materials.
             var stationMaterials = new[]
             {
-                materials.RoadTint, materials.BuildingTint, materials.BuildingTint, materials.WindowDay,
+                materials.RoadTint,      // Apron
+                materials.BuildingTint,  // Structure
+                materials.BuildingTint,  // Trim
+                materials.BuildingTint,  // Marking
+                materials.WindowDay,     // Lit — TownLights swaps this after dusk
+                materials.SignFace,      // Sign — registered with nothing, bright always
             };
 
             int triangles = 0;
@@ -6346,9 +6373,13 @@ namespace Horizon.EditorTools
                 int litSlot = used.IndexOf(FuelStationMeshes.LitSubmesh);
                 if (litSlot >= 0)
                 {
+                    // Windows and not Lamps, and the difference is not cosmetic: Lamps' day material is
+                    // M_Lane, the road's own asphalt, because a lamp's pool of light has to vanish into
+                    // the carriageway when it is switched off. Applied to a shop window it paints it
+                    // tarmac — which is what it did, on every station, from sunrise to dusk.
                     litRenderers.Add(station.GetComponent<MeshRenderer>());
                     litSlots.Add(litSlot);
-                    litSlotGroups.Add((int)LitGroup.Lamps);
+                    litSlotGroups.Add((int)LitGroup.Windows);
                     litSlotStart.Add(litSlots.Count);
                 }
 
