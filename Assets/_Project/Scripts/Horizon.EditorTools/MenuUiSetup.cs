@@ -104,6 +104,8 @@ namespace Horizon.EditorTools
             HorizonAssetUtility.Configure(panels, serialized =>
                 HorizonAssetUtility.SetObjectArray(serialized, "panels", panelList.ToArray()));
 
+            ValidatePageHeights(panelList);
+
             HorizonAssetUtility.Configure(menu, serialized =>
             {
                 serialized.FindProperty("router").objectReferenceValue = router;
@@ -131,6 +133,7 @@ namespace Horizon.EditorTools
                 // nothing anywhere says so. The other four arrays below are Image[] for the same reason.
                 HorizonAssetUtility.SetObjectArray(serialized, "paintSwatches", paint.Backgrounds);
                 HorizonAssetUtility.SetObjectArray(serialized, "placeRows", place.Backgrounds);
+                serialized.FindProperty("placeList").objectReferenceValue = place.List;
                 HorizonAssetUtility.SetObjectArray(serialized, "weatherRows", conditions.WeatherBackgrounds);
                 HorizonAssetUtility.SetObjectArray(serialized, "qualityRows", quality.Backgrounds);
 
@@ -157,7 +160,7 @@ namespace Horizon.EditorTools
             WireConditions(conditions, start, menu, panels);
             WireControls(controls, menu, panels);
             WireQuality(quality, start, panels);
-            WirePaused(paused, menu, panels, pauseButton);
+            WirePaused(paused, start, menu, panels, pauseButton);
             WireUpdate(update, updates, panels);
 
             // Everything starts hidden. StartScreen shows its own first page in Start().
@@ -183,6 +186,69 @@ namespace Horizon.EditorTools
         /// button in the menu opens the page next to the one it names, and nothing anywhere reports an
         /// error.</para>
         /// </summary>
+        /// <summary>
+        /// Measures every page against the canvas it has to fit on, and says so.
+        ///
+        /// <para><b>The one thing about a menu that nothing else can see.</b> A page is as tall as its
+        /// rows and the canvas is 1080 units, so a page grows past the screen the moment somebody adds
+        /// the eighth thing to it — and what that looks like is not a broken layout but a page whose
+        /// first and last rows are missing, on a screen with no scroll bar to suggest otherwise. The
+        /// place page reached 1450 units at ten start points and the build reported a clean world.</para>
+        ///
+        /// <para>Against a margin rather than against 1080 exactly: the canvas scales to the screen, but
+        /// a phone's safe area is inset from it, and a page that fits with nothing to spare on a
+        /// reference canvas is a page that does not fit on a device with a notch.</para>
+        /// </summary>
+        private static void ValidatePageHeights(List<GameObject> panels)
+        {
+            // What SafeAreaPanel can be expected to leave of the 1080-unit reference height. In
+            // landscape a notch costs width rather than height and the home indicator costs a little of
+            // the bottom, so a thousand is the honest figure.
+            //
+            // <b>Not tighter than that, however tempting.</b> The front page and the garage have always
+            // stood at about 980 and have always worked; a threshold that flags them is a threshold
+            // that gets read once and then ignored, which is precisely how a page grew to 1450 units
+            // with nothing complaining.
+            const float Available = 1000f;
+
+            float tallest = 0f;
+            var tallestPage = MenuPage.Start;
+
+            for (int i = 0; i < panels.Count; i++)
+            {
+                var rect = (RectTransform)panels[i].transform;
+
+                // The pages are laid out by a VerticalLayoutGroup and a ContentSizeFitter, neither of
+                // which has run yet — a page built this frame reports whatever height it was created
+                // with until something rebuilds it.
+                LayoutRebuilder.ForceRebuildLayoutImmediate(rect);
+
+                float height = rect.rect.height;
+                if (height > tallest)
+                {
+                    tallest = height;
+                    tallestPage = (MenuPage)i;
+                }
+
+                if (height <= Available)
+                {
+                    continue;
+                }
+
+                Debug.LogWarning(
+                    $"[Horizon] Menu page '{(MenuPage)i}' is {height:0} units tall against about "
+                    + $"{Available:0} of usable canvas. Its top and bottom rows will be off the screen "
+                    + "and there is nothing on a menu page to scroll with. Either take rows out of it "
+                    + "or put the list part of it inside TouchUiSetup.ScrollList, the way the place "
+                    + "page does.");
+            }
+
+            // Reported and not only warned about, so a zero here says the measurement itself has stopped
+            // working rather than that every page suddenly fits.
+            Debug.Log($"[Horizon] Menu: {panels.Count} pages, tallest is '{tallestPage}' at "
+                      + $"{tallest:0} units against about {Available:0} of usable canvas.");
+        }
+
         private static void Register(List<GameObject> panels, MenuPage page, RectTransform panel)
         {
             if (panels.Count != (int)page)
@@ -405,11 +471,22 @@ namespace Horizon.EditorTools
         private sealed class PlacePage
         {
             public RectTransform Panel;
+            public ScrollRect List;
             public Button[] Rows;
             public Image[] Backgrounds;
             public Button Back;
         }
 
+        /// <summary>
+        /// Where to begin, as a scrolling list.
+        ///
+        /// <para><b>The one page whose length the world decides.</b> Every other page holds a fixed set
+        /// of settings, so <c>StackPanel</c>'s "as tall as its rows" is exactly right for them. This one
+        /// gains a row every time a leg of road is built, and at ten it stood 1450 units tall on a
+        /// 1080-unit canvas — its first and last places off the screen with no way to reach them, which
+        /// is what a menu with no scroll view looks like the moment somebody adds the eighth thing to
+        /// it. See <c>TouchUiSetup.ScrollList</c>; the title and Back stay outside it.</para>
+        /// </summary>
         private static PlacePage BuildPlacePage(
             RectTransform parent, Sprite box, IReadOnlyList<string> spawnNames)
         {
@@ -418,12 +495,15 @@ namespace Horizon.EditorTools
 
             TouchUiSetup.MenuLabel(page.Panel, "START", 44, 60f);
 
+            RectTransform list = TouchUiSetup.ScrollList(page.Panel, "Places", spawnNames.Count);
+            page.List = list.parent.GetComponent<ScrollRect>();
+
             page.Rows = new Button[spawnNames.Count];
             page.Backgrounds = new Image[spawnNames.Count];
 
             for (int i = 0; i < spawnNames.Count; i++)
             {
-                page.Rows[i] = TouchUiSetup.MenuButton(page.Panel, $"Place{i}", box, spawnNames[i]);
+                page.Rows[i] = TouchUiSetup.MenuButton(list, $"Place{i}", box, spawnNames[i]);
                 page.Backgrounds[i] = page.Rows[i].GetComponent<Image>();
             }
 
@@ -624,7 +704,11 @@ namespace Horizon.EditorTools
 
             BindPage(page.Garage, panels, MenuPage.Garage);
             BindPage(page.Paint, panels, MenuPage.Paint);
+
+            // Opening the place page also scrolls it to the place already chosen — see
+            // StartScreen.ShowChosenPlace for why that cannot be done once at startup instead.
             BindPage(page.Place, panels, MenuPage.Place);
+            Bind(page.Place, start, nameof(StartScreen.ShowChosenPlace));
             BindPage(page.Conditions, panels, MenuPage.Conditions);
             BindPage(page.Controls, panels, MenuPage.Controls);
             BindPage(page.Quality, panels, MenuPage.Quality);
@@ -710,7 +794,8 @@ namespace Horizon.EditorTools
         }
 
         private static void WirePaused(
-            PausedPage page, PauseMenu menu, MenuPanels panels, GameObject pauseButton)
+            PausedPage page, StartScreen start, PauseMenu menu, MenuPanels panels,
+            GameObject pauseButton)
         {
             Bind(pauseButton.GetComponent<Button>(), menu, nameof(PauseMenu.Toggle));
 
@@ -718,6 +803,7 @@ namespace Horizon.EditorTools
             Bind(page.Respawn, menu, nameof(PauseMenu.Respawn));
 
             BindPage(page.Place, panels, MenuPage.Place);
+            Bind(page.Place, start, nameof(StartScreen.ShowChosenPlace));
             BindPage(page.Garage, panels, MenuPage.Garage);
             BindPage(page.Conditions, panels, MenuPage.Conditions);
             BindPage(page.Controls, panels, MenuPage.Controls);

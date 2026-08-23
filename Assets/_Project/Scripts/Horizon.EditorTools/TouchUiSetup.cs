@@ -360,7 +360,7 @@ namespace Horizon.EditorTools
 
             var layout = panel.gameObject.AddComponent<VerticalLayoutGroup>();
             layout.padding = new RectOffset(60, 60, 46, 46);
-            layout.spacing = 22f;
+            layout.spacing = MenuRowSpacing;
             layout.childAlignment = TextAnchor.UpperCenter;
             layout.childControlWidth = true;
             layout.childControlHeight = true;
@@ -752,6 +752,9 @@ namespace Horizon.EditorTools
         /// <summary>Height of a tappable menu row. Comfortably over the 9 mm a fingertip needs.</summary>
         internal const float MenuRowHeight = 96f;
 
+        /// <summary>Gap between menu rows. Shared, so a scrolling list is pitched like the page it is in.</summary>
+        internal const float MenuRowSpacing = 22f;
+
         internal static Button MenuButton(RectTransform parent, string name, Sprite box, string caption)
         {
             RectTransform rect = Panel(parent, name, box, ControlTint,
@@ -764,6 +767,95 @@ namespace Horizon.EditorTools
             Button button = rect.gameObject.AddComponent<Button>();
             button.targetGraphic = rect.GetComponent<Image>();
             return button;
+        }
+
+        /// <summary>
+        /// How many rows a scrolling list shows before it starts scrolling.
+        ///
+        /// <para>Five, and the constraint is the canvas rather than taste. A page is a title, a list and
+        /// a Back button inside 46 of padding at each end, on a 1080-unit canvas that a phone's safe
+        /// area then eats into — call it a thousand usable. Five rows put the place page at 860. Six
+        /// put it at 978, which does fit, and which leaves it the same dozen units of margin the front
+        /// page has — on the one page whose length grows every time a road is built.</para>
+        /// </summary>
+        internal const int VisibleRows = 5;
+
+        /// <summary>
+        /// A list inside a menu page that scrolls when it is longer than the page.
+        ///
+        /// <para><b>Because a page whose length is decided by the world will outgrow the screen.</b>
+        /// <see cref="StackPanel"/> makes a panel exactly as tall as its rows, which is right while the
+        /// rows are a fixed set of settings and wrong for a list that grows every time a leg of road is
+        /// added: at ten start points the place page stood 1450 units tall on a 1080 canvas, so its
+        /// first and last rows were simply off the screen with no way to reach them.</para>
+        ///
+        /// <para><b>The title and the Back button stay outside it.</b> They belong to the page rather
+        /// than to the list, and a Back button that scrolls away is the same bug in a politer form.</para>
+        ///
+        /// <para>Returns the content transform — rows go into that, not into the viewport. The viewport
+        /// is what gets the mask and the fixed height; the content is what moves under it.</para>
+        /// </summary>
+        /// <param name="rows">How many rows the list will hold, so the viewport can be short if it is.</param>
+        internal static RectTransform ScrollList(RectTransform parent, string name, int rows)
+        {
+            var viewportObject = new GameObject(name, typeof(RectTransform));
+            viewportObject.transform.SetParent(parent, false);
+
+            var viewport = (RectTransform)viewportObject.transform;
+            viewport.anchorMin = new Vector2(0.5f, 0.5f);
+            viewport.anchorMax = new Vector2(0.5f, 0.5f);
+            viewport.pivot = new Vector2(0.5f, 0.5f);
+
+            int shown = Mathf.Clamp(rows, 1, VisibleRows);
+            float height = shown * MenuRowHeight + (shown - 1) * MenuRowSpacing;
+
+            viewport.sizeDelta = new Vector2(0f, height);
+            Row(viewportObject, height);
+
+            // RectMask2D rather than Mask: it needs no stencil buffer and no material of its own, which
+            // on a tile GPU is the difference between a clipped list and an extra full-screen pass.
+            viewportObject.AddComponent<RectMask2D>();
+
+            var contentObject = new GameObject("Content", typeof(RectTransform));
+            contentObject.transform.SetParent(viewport, false);
+
+            var content = (RectTransform)contentObject.transform;
+            content.anchorMin = new Vector2(0f, 1f);
+            content.anchorMax = new Vector2(1f, 1f);
+            content.pivot = new Vector2(0.5f, 1f);
+            content.offsetMin = Vector2.zero;
+            content.offsetMax = Vector2.zero;
+            content.sizeDelta = new Vector2(0f, 0f);
+
+            var layout = contentObject.AddComponent<VerticalLayoutGroup>();
+            layout.spacing = MenuRowSpacing;
+            layout.childAlignment = TextAnchor.UpperCenter;
+            layout.childControlWidth = true;
+            layout.childControlHeight = true;
+            layout.childForceExpandWidth = true;
+            layout.childForceExpandHeight = false;
+
+            var fitter = contentObject.AddComponent<ContentSizeFitter>();
+            fitter.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
+            fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+            ScrollRect scroll = viewportObject.AddComponent<ScrollRect>();
+            scroll.content = content;
+            scroll.viewport = viewport;
+            scroll.horizontal = false;
+            scroll.vertical = true;
+
+            // Clamped, not elastic: this is a list of seven things, and a rubber-band overshoot on a
+            // list that short reads as the panel coming loose.
+            scroll.movementType = ScrollRect.MovementType.Clamped;
+            scroll.inertia = true;
+            scroll.decelerationRate = 0.135f;
+
+            // A row is 96 units tall, so a wheel notch moving one row is the readable step. Touch drags
+            // do not use this — they move the content one-to-one with the finger.
+            scroll.scrollSensitivity = MenuRowHeight;
+
+            return content;
         }
 
         internal static Text MenuLabel(RectTransform parent, string caption, int fontSize, float height)

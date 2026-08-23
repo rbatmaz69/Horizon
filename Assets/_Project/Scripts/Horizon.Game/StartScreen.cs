@@ -49,6 +49,10 @@ namespace Horizon.Game
         [Tooltip("Row backgrounds on the place page.")]
         [SerializeField] private Image[] placeRows = new Image[0];
 
+        [Tooltip("The place page's scrolling list, so the chosen place can be brought into view. Null "
+               + "on a menu built before there were enough places to need one.")]
+        [SerializeField] private ScrollRect placeList;
+
         [SerializeField] private Image[] weatherRows = new Image[0];
         [SerializeField] private Image[] qualityRows = new Image[0];
 
@@ -291,6 +295,44 @@ namespace Horizon.Game
             SetText(placeLabel, NameOfPlace(PlayerChoices.SpawnIn(places)));
             SetText(weatherLabel, PlayerChoices.WeatherNames[(int)PlayerChoices.Weather]);
             SetText(qualityLabel, PlayerChoices.QualityNames[(int)PlayerChoices.Quality]);
+
+            ShowChosenPlace();
+        }
+
+        /// <summary>
+        /// Scrolls the place list so the chosen place is on the screen.
+        ///
+        /// <para><b>Because the list is longer than the window it is seen through.</b> A player whose
+        /// last start was the ninth place opens the page, sees the first six, and none of them is
+        /// highlighted — which reads as "nothing is selected" rather than as "scroll down". The
+        /// highlight has to be where the eye lands.</para>
+        ///
+        /// <para>Public and wired to the two buttons that open the page, as well as being called from
+        /// <see cref="RefreshAll"/>. The page is hidden when the screen first refreshes, and a
+        /// <c>ScrollRect</c> whose content has never been laid out has nothing to scroll — so doing it
+        /// only once, early, does it to a list of height zero.</para>
+        ///
+        /// <para>The layout is forced first for the same reason: the page is activated and this runs in
+        /// the same frame, before the canvas update that the content size fitter lives in.</para>
+        ///
+        /// <para>Position is set in the list's own normalised terms rather than by moving the content,
+        /// so it stays right whatever the row height and the row count turn out to be. Unity measures
+        /// vertical position from the bottom, which is why the fraction is subtracted from one.</para>
+        /// </summary>
+        public void ShowChosenPlace()
+        {
+            if (placeList == null || placeList.content == null || placeRows.Length < 2)
+            {
+                return;
+            }
+
+            int places = pauseMenu?.SpawnPoints != null ? pauseMenu.SpawnPoints.Count : placeRows.Length;
+            int chosen = PlayerChoices.SpawnIn(places);
+
+            LayoutRebuilder.ForceRebuildLayoutImmediate(placeList.content);
+
+            float span = Mathf.Max(1f, placeRows.Length - 1f);
+            placeList.verticalNormalizedPosition = 1f - Mathf.Clamp01(chosen / span);
         }
 
         /// <summary>
