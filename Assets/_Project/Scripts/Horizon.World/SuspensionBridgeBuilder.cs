@@ -106,6 +106,30 @@ namespace Horizon.World
         private const float TowerHalfAcross = 2.4f;
         private const float TowerHalfAlong = 3.2f;
 
+        /// <summary>
+        /// How much wider than the carriageway the deck is, each side, metres.
+        ///
+        /// <para><b>This is what gives the towers and the anchor blocks somewhere to stand that is not
+        /// the road.</b> Every structural offset here used to be
+        /// <c>roadShape.OuterHalfWidth + CableOffset</c> — one number, bemessen for a cable half a metre
+        /// thick and then handed to bodies several metres across. The tower foundation's inner face
+        /// landed exactly on the edge of the asphalt and the anchor block's landed two metres inside the
+        /// lane, as a seven-metre concrete wall on both sides of the entrance: six metres of clear
+        /// width on a road that is thirteen and a half wide, at the two points on the crossing where a
+        /// driver is already busy.</para>
+        ///
+        /// <para>Widening the deck is the honest fix rather than shuffling the blocks outboard of a
+        /// deck they would then overhang. A suspension deck <i>is</i> wider than the road on it —
+        /// footways, refuges, the stiffening girder's own width — and every real crossing puts its
+        /// towers in that margin. 2.6 m each side clears the 2.4 m tower half-section with room, and
+        /// puts the cable planes 20.5 m apart, which still reads as a bridge from the deck rather than
+        /// as two fences beside the road.</para>
+        /// </summary>
+        private const float DeckOverhang = 2.6f;
+
+        /// <summary>Gap between the parapet's outer face and an anchor block's inner face, metres.</summary>
+        private const float AnchorClearance = 0.6f;
+
         /// <summary>How far a tower foot is sunk below whatever it lands on, so it never floats.</summary>
         private const float FootBurial = 2.5f;
 
@@ -119,6 +143,9 @@ namespace Horizon.World
         private const float AnchorHalfWidth = 4.5f;
         private const float AnchorHalfDepth = 6f;
         private const float AnchorHeight = 7f;
+
+        /// <summary>How far below an anchor block's top face the back-stay enters it, metres.</summary>
+        private const float AnchorTopDrop = 1.2f;
 
         /// <summary>
         /// Spacing of the lamp beads along a cable, metres.
@@ -157,7 +184,8 @@ namespace Horizon.World
             RoadCourse course,
             in SuspensionShape shape,
             List<int> usedSubmeshes,
-            string meshName = "SuspensionBridgeMesh")
+            string meshName = "SuspensionBridgeMesh",
+            List<float> supports = null)
         {
             if (course == null)
             {
@@ -176,11 +204,96 @@ namespace Horizon.World
                     continue;
                 }
 
-                AddStructure(buffer, path, roadShape, field, feature, shape);
+                AddStructure(buffer, path, roadShape, field, feature, shape, supports);
                 any = true;
             }
 
             return any ? buffer.ToMesh(meshName, usedSubmeshes) : null;
+        }
+
+        /// <summary>
+        /// The deck this structure carries, which is wider than the road on it — see
+        /// <see cref="DeckOverhang"/>.
+        ///
+        /// <para>One function rather than a line in <see cref="AddStructure"/>, because three things
+        /// have to agree about it: what is built, what is solid, and what
+        /// <c>ValidateSuspensionBridges</c> measures the clear width against. That is the same reason
+        /// <c>SuspensionShape</c> is passed in rather than declared here.</para>
+        /// </summary>
+        public static RoadShape DeckShapeFor(in RoadShape roadShape)
+        {
+            RoadShape deck = roadShape;
+            deck.ShoulderWidth += DeckOverhang;
+            return deck;
+        }
+
+        /// <summary>Where the cable plane, and therefore each tower, stands.</summary>
+        public static float CableAxis(in RoadShape roadShape)
+        {
+            return DeckShapeFor(roadShape).OuterHalfWidth + CableOffset;
+        }
+
+        /// <summary>Where an anchor block's centre stands. Its own axis, not the cable's — see the class remarks.</summary>
+        public static float AnchorAxis(in RoadShape roadShape)
+        {
+            return DeckShapeFor(roadShape).OuterHalfWidth + BridgeBuilder.ParapetThickness
+                   + AnchorClearance + AnchorHalfWidth;
+        }
+
+        /// <summary>The inner face of each structural family, for the clear-width check to walk.</summary>
+        public static void InnerFaces(
+            in RoadShape roadShape,
+            out float towerFoundation,
+            out float towerShaft,
+            out float anchorBlock)
+        {
+            float cable = CableAxis(roadShape);
+            towerFoundation = cable - TowerHalfAcross;
+            towerShaft = cable - TowerHalfAcross * 0.8f;
+            anchorBlock = AnchorAxis(roadShape) - AnchorHalfWidth;
+        }
+
+        /// <summary>
+        /// The collision wall along the crossing's parapets.
+        ///
+        /// <para>Its own method rather than <see cref="BridgeBuilder.BuildParapetCollision"/> for one
+        /// reason: the parapet on this deck stands on <see cref="DeckShapeFor"/>'s wider edge, and a
+        /// wall built from the carriageway's width would be a solid barrier two and a half metres
+        /// inside the one the driver can see.</para>
+        /// </summary>
+        public static Mesh BuildParapetCollision(
+            IRoadPath path,
+            in RoadShape roadShape,
+            RoadCourse course,
+            string meshName = "SuspensionParapetCollisionMesh")
+        {
+            if (course == null)
+            {
+                return null;
+            }
+
+            RoadShape deckShape = DeckShapeFor(roadShape);
+            var buffer = new VegetationMeshBuffer(1);
+
+            for (int i = 0; i < course.Features.Count; i++)
+            {
+                RoadFeature feature = course.Features[i];
+                if (feature.Kind != RoadFeatureKind.Suspension || feature.Length <= 1f)
+                {
+                    continue;
+                }
+
+                BridgeBuilder.SampleBarrierLine(path, deckShape,
+                    feature.StartDistance, feature.EndDistance,
+                    out Vector3[] bases, out Vector3[] rights, out Vector3[] ups);
+
+                BridgeBuilder.AddBarrier(buffer, bases, rights, ups,
+                    deckShape.OuterHalfWidth,
+                    deckShape.OuterHalfWidth + BridgeBuilder.ParapetThickness,
+                    BridgeBuilder.ParapetHeight);
+            }
+
+            return buffer.IsEmpty ? null : buffer.ToMesh(meshName, new List<int>(1));
         }
 
         private static void AddStructure(
@@ -189,9 +302,12 @@ namespace Horizon.World
             in RoadShape roadShape,
             MountainField field,
             in RoadFeature feature,
-            in SuspensionShape shape)
+            in SuspensionShape shape,
+            List<float> supports)
         {
-            // --- The deck, exactly as a viaduct's is.
+            // --- The deck, exactly as a viaduct's is, except that it is wider than the road on it.
+            RoadShape deckShape = DeckShapeFor(roadShape);
+
             float span = feature.Length;
             int steps = Mathf.Max(2, Mathf.CeilToInt(span / BridgeBuilder.DeckStep) + 1);
 
@@ -202,11 +318,18 @@ namespace Horizon.World
             for (int step = 0; step < steps; step++)
             {
                 float distance = feature.StartDistance + span * step / (steps - 1);
-                Sample(path, roadShape, distance, out centres[step], out rights[step], out ups[step]);
+                Sample(path, deckShape, distance, out centres[step], out rights[step], out ups[step]);
             }
 
-            BridgeBuilder.AddGirder(buffer, roadShape, centres, rights, ups);
-            BridgeBuilder.AddParapets(buffer, roadShape, centres, rights, ups);
+            BridgeBuilder.AddGirder(buffer, deckShape, centres, rights, ups);
+
+            // The margin the widening opened up, laid as slab. Without it the road ribbon stops at the
+            // asphalt edge and the parapet stands 2.6 m further out over nothing — the girder has no
+            // top face, the carriageway is its top face.
+            BridgeBuilder.AddFootways(buffer, roadShape.OuterHalfWidth, deckShape.OuterHalfWidth,
+                deckShape, centres, rights, ups);
+
+            BridgeBuilder.AddParapets(buffer, deckShape, centres, rights, ups);
 
             // --- Where the towers stand. Clamped rather than trusted: a structure authored shorter than
             // two side spans would otherwise put its towers the wrong way round, which is a silent and
@@ -216,33 +339,111 @@ namespace Horizon.World
             float eastTower = feature.EndDistance - sideSpan;
             float mainSpan = eastTower - westTower;
 
-            float offset = roadShape.OuterHalfWidth + CableOffset;
+            // Three axes, not one. See DeckOverhang for what having only one of them cost.
+            float cableOffset = CableAxis(roadShape);
+            float anchorOffset = AnchorAxis(roadShape);
 
-            AddTower(buffer, path, roadShape, field, westTower, offset, shape.TowerRise);
-            AddTower(buffer, path, roadShape, field, eastTower, offset, shape.TowerRise);
+            // The blocks sit behind the deck ends rather than across them, so what stands beside the
+            // approach road is the block's flank and not its corner.
+            float westAnchor = feature.StartDistance - AnchorHalfDepth;
+            float eastAnchor = feature.EndDistance + AnchorHalfDepth;
 
-            AddAnchorage(buffer, path, roadShape, field, feature.StartDistance, offset);
-            AddAnchorage(buffer, path, roadShape, field, feature.EndDistance, offset);
+            AddTower(buffer, path, deckShape, field, westTower, cableOffset, shape.TowerRise);
+            AddTower(buffer, path, deckShape, field, eastTower, cableOffset, shape.TowerRise);
+
+            AddAnchorage(buffer, path, deckShape, field, westAnchor, anchorOffset);
+            AddAnchorage(buffer, path, deckShape, field, eastAnchor, anchorOffset);
+
+            // --- The side spans. A hundred and fifty metres of deck each, and until this they were held
+            // up by nothing at all: BridgeBuilder takes only RoadFeatureKind.Bridge, so no pier was ever
+            // built here, and the hangers hung from the main cable and therefore only between the
+            // towers. MountainField had meanwhile carved its nine metres of headroom under the whole
+            // structure, both kinds being IsBridged. The result was the road arriving at the crossing
+            // over an open hole. Piers where the ground carries one, hangers off the back-stay
+            // everywhere: no bay is now without something holding it.
+            BridgeBuilder.AddPiers(buffer, path, deckShape, field,
+                feature.StartDistance, westTower, supports);
+            BridgeBuilder.AddPiers(buffer, path, deckShape, field,
+                eastTower, feature.EndDistance, supports);
+
+            supports?.Add(westTower);
+            supports?.Add(eastTower);
+            supports?.Add(feature.StartDistance);
+            supports?.Add(feature.EndDistance);
+
+            // Height of the back-stay over the deck at each of its ends, so the side-span hangers can be
+            // hung from the same straight line the cable itself is drawn along.
+            float anchorRise = AnchorHeight - AnchorTopDrop;
 
             for (int side = 0; side < 2; side++)
             {
                 float sign = side == 0 ? -1f : 1f;
 
                 Vector3[] cable = MainCable(
-                    path, roadShape, westTower, mainSpan, sign * offset, shape);
+                    path, deckShape, westTower, mainSpan, sign * cableOffset, shape);
 
                 AddTube(buffer, SteelSubmesh, cable, CableHalf);
-                AddBackstay(buffer, path, roadShape, westTower, feature.StartDistance,
-                    sign * offset, shape.TowerRise);
-                AddBackstay(buffer, path, roadShape, eastTower, feature.EndDistance,
-                    sign * offset, shape.TowerRise);
 
-                AddHangers(buffer, path, roadShape, westTower, mainSpan, sign * offset, shape);
+                AddBackstay(buffer, path, deckShape, westTower, westAnchor,
+                    sign * cableOffset, sign * anchorOffset, shape.TowerRise);
+                AddBackstay(buffer, path, deckShape, eastTower, eastAnchor,
+                    sign * cableOffset, sign * anchorOffset, shape.TowerRise);
+
+                // Main span: cable to parapet, the parabola's sag included.
+                AddHangers(buffer, path, deckShape, westTower, eastTower,
+                    cableOffset, cableOffset, shape.TowerRise, shape.TowerRise,
+                    shape.CableSag, sign, supports);
+
+                // Side spans: back-stay to parapet. The line is straight, so no sag, and both its
+                // offset and its height are interpolated because the stay splays outwards on its way
+                // to an anchor block that no longer stands on the cable plane.
+                AddSideHangers(buffer, path, deckShape, westTower, feature.StartDistance, westAnchor,
+                    cableOffset, anchorOffset, shape.TowerRise, anchorRise, sign, supports);
+                AddSideHangers(buffer, path, deckShape, eastTower, feature.EndDistance, eastAnchor,
+                    cableOffset, anchorOffset, shape.TowerRise, anchorRise, sign, supports);
+
                 AddBeads(buffer, cable);
-                AddDeckLamps(buffer, path, roadShape, feature, sign);
+                AddDeckLamps(buffer, path, deckShape, feature, sign);
             }
         }
 
+        /// <summary>
+        /// The hangers over one side span, taken off the back-stay rather than off the main cable.
+        ///
+        /// <para>Works in the stay's own parameter and then clips to the deck: the stay runs from the
+        /// tower to an anchor block that stands <i>behind</i> the abutment, so the last stretch of it is
+        /// over ground rather than over deck, and a hanger there would be a rod into the hillside.</para>
+        /// </summary>
+        private static void AddSideHangers(
+            VegetationMeshBuffer buffer,
+            IRoadPath path,
+            in RoadShape deckShape,
+            float towerDistance,
+            float deckEndDistance,
+            float anchorDistance,
+            float towerOffset,
+            float anchorOffset,
+            float towerRise,
+            float anchorRise,
+            float sign,
+            List<float> supports)
+        {
+            float stay = anchorDistance - towerDistance;
+            if (Mathf.Abs(stay) < 0.01f)
+            {
+                return;
+            }
+
+            // How far along the stay the deck runs out.
+            float atDeckEnd = (deckEndDistance - towerDistance) / stay;
+
+            AddHangers(buffer, path, deckShape, towerDistance, deckEndDistance,
+                towerOffset, Mathf.Lerp(towerOffset, anchorOffset, atDeckEnd),
+                towerRise, Mathf.Lerp(towerRise, anchorRise, atDeckEnd),
+                0f, sign, supports);
+        }
+
+        /// <summary>The road's frame, which is <see cref="BridgeBuilder.Sample"/> — a deck is a deck.</summary>
         private static void Sample(
             IRoadPath path,
             in RoadShape roadShape,
@@ -251,12 +452,7 @@ namespace Horizon.World
             out Vector3 right,
             out Vector3 up)
         {
-            centre = path.GetPositionAtDistance(distance);
-            right = path.GetBankedRightAtDistance(
-                distance, roadShape.MaxBankDegrees, roadShape.FullBankRadius);
-
-            Vector3 raised = Vector3.Cross(path.GetDirectionAtDistance(distance), right).normalized;
-            up = raised.y < 0f ? -raised : raised;
+            BridgeBuilder.Sample(path, roadShape, distance, out centre, out right, out up);
         }
 
         /// <summary>
@@ -385,52 +581,78 @@ namespace Horizon.World
             }
         }
 
-        /// <summary>The back-stay: tower head to anchor block, dead straight, which is what one is.</summary>
+        /// <summary>
+        /// The back-stay: tower head to anchor block, dead straight, which is what one is.
+        ///
+        /// <para>Two offsets rather than one, because the block no longer stands on the cable plane —
+        /// it is out at <see cref="AnchorAxis"/> so that it clears the carriageway. The stay therefore
+        /// splays four and a half metres outwards over a hundred and fifty, which is a real bridge's
+        /// geometry and invisible from the deck.</para>
+        /// </summary>
         private static void AddBackstay(
             VegetationMeshBuffer buffer,
             IRoadPath path,
-            in RoadShape roadShape,
+            in RoadShape deckShape,
             float towerDistance,
             float anchorDistance,
-            float offset,
+            float towerOffset,
+            float anchorOffset,
             float towerRise)
         {
-            Sample(path, roadShape, towerDistance, out Vector3 tc, out Vector3 tr, out Vector3 tu);
-            Sample(path, roadShape, anchorDistance, out Vector3 ac, out Vector3 ar, out Vector3 au);
+            Sample(path, deckShape, towerDistance, out Vector3 tc, out Vector3 tr, out Vector3 tu);
+            Sample(path, deckShape, anchorDistance, out Vector3 ac, out Vector3 ar, out Vector3 au);
 
-            Vector3 head = tc + tr * offset + tu * towerRise;
-            Vector3 anchor = ac + ar * offset + au * (AnchorHeight - 1.2f);
+            Vector3 head = tc + tr * towerOffset + tu * towerRise;
+            Vector3 anchor = ac + ar * anchorOffset + au * (AnchorHeight - AnchorTopDrop);
 
             AddTube(buffer, SteelSubmesh, new[] { head, anchor }, CableHalf);
         }
 
         /// <summary>
-        /// The hangers, and the reason this builder measures before it builds: each one is the gap
-        /// between the cable and the parapet at the same station, and neither is known until both curves
-        /// have been walked.
+        /// The hangers between one pair of stations, and the reason this builder measures before it
+        /// builds: each one is the gap between a cable and the parapet at the same station, and neither
+        /// is known until both curves have been walked.
+        ///
+        /// <para><b>One method for the main span and the side spans</b>, which differ only in what the
+        /// line overhead is doing — a parabola between two tower heads at one height, or a straight stay
+        /// running out and down to an anchor block. Both are an interpolated offset and an interpolated
+        /// rise with a sag term that is zero for one of them, so the second case is arguments rather
+        /// than a second loop that would drift from this one.</para>
+        ///
+        /// <para>The foot lands on the parapet's inner face and the head on the cable plane, so a hanger
+        /// leans outward by <see cref="CableOffset"/> over its length — a metre in nine at midspan and
+        /// nothing at all near a tower.</para>
         /// </summary>
         private static void AddHangers(
             VegetationMeshBuffer buffer,
             IRoadPath path,
-            in RoadShape roadShape,
-            float westTower,
-            float mainSpan,
-            float offset,
-            in SuspensionShape shape)
+            in RoadShape deckShape,
+            float fromDistance,
+            float toDistance,
+            float fromOffset,
+            float toOffset,
+            float fromRise,
+            float toRise,
+            float sag,
+            float sign,
+            List<float> supports)
         {
-            int count = Mathf.Max(1, Mathf.RoundToInt(mainSpan / HangerSpacing));
+            float span = toDistance - fromDistance;
+            int count = Mathf.Max(1, Mathf.RoundToInt(Mathf.Abs(span) / HangerSpacing));
 
             for (int i = 1; i < count; i++)
             {
                 float t = i / (float)count;
-                float drop = 4f * shape.CableSag * t * (1f - t);
 
-                Sample(path, roadShape, westTower + mainSpan * t,
-                    out Vector3 centre, out Vector3 right, out Vector3 up);
+                float offset = Mathf.Lerp(fromOffset, toOffset, t);
+                float rise = Mathf.Lerp(fromRise, toRise, t) - 4f * sag * t * (1f - t);
 
-                Vector3 top = centre + right * offset + up * (shape.TowerRise - drop);
-                Vector3 foot = centre + right * offset
-                               - up * roadShape.ShoulderDrop
+                float distance = fromDistance + span * t;
+                Sample(path, deckShape, distance, out Vector3 centre, out Vector3 right, out Vector3 up);
+
+                Vector3 top = centre + right * (offset * sign) + up * rise;
+                Vector3 foot = centre + right * (deckShape.OuterHalfWidth * sign)
+                               - up * deckShape.ShoulderDrop
                                + up * BridgeBuilder.ParapetHeight;
 
                 if ((top - foot).magnitude < MinimumHanger)
@@ -439,6 +661,12 @@ namespace Horizon.World
                 }
 
                 AddTube(buffer, SteelSubmesh, new[] { top, foot }, HangerHalf);
+
+                // A hanger is a support. The checker is asking whether the deck is held, not what by —
+                // and between the towers a hanger every twenty-two metres is the only thing that holds
+                // it, so a list of piers alone would report the main span as nine hundred metres of
+                // carriageway over air.
+                supports?.Add(distance);
             }
         }
 

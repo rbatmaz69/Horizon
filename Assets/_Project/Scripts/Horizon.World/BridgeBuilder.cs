@@ -79,13 +79,23 @@ namespace Horizon.World
         /// </summary>
         /// <param name="path">The carriageway being carried — one per structure, so a divided road builds twice.</param>
         /// <param name="course">Read for its <see cref="RoadFeatureKind.Bridge"/> spans, in centreline distances.</param>
+        /// <param name="supports">
+        /// Optional. Every support this actually built, as a distance along the course.
+        ///
+        /// <para>Filled by the builder rather than recomputed by the checker, because a check that
+        /// works out for itself where the piers ought to be is a second opinion, and the two agree
+        /// right up until the moment one of them is wrong. <c>ValidateBridgeSupport</c> asks this list
+        /// how long the longest unsupported stretch of deck is, and a pier the builder skipped is a
+        /// pier that is missing from it.</para>
+        /// </param>
         public static Mesh Build(
             IRoadPath path,
             in RoadShape roadShape,
             MountainField field,
             RoadCourse course,
             List<int> usedSubmeshes,
-            string meshName = "BridgeMesh")
+            string meshName = "BridgeMesh",
+            List<float> supports = null)
         {
             if (course == null)
             {
@@ -99,7 +109,7 @@ namespace Horizon.World
                 RoadFeature feature = course.Features[i];
                 if (feature.Kind == RoadFeatureKind.Bridge && feature.Length > 1f)
                 {
-                    AddSpan(buffer, path, roadShape, field, feature);
+                    AddSpan(buffer, path, roadShape, field, feature, supports);
                 }
             }
 
@@ -111,7 +121,8 @@ namespace Horizon.World
             IRoadPath path,
             in RoadShape roadShape,
             MountainField field,
-            in RoadFeature feature)
+            in RoadFeature feature,
+            List<float> supports)
         {
             float span = feature.Length;
             int steps = Mathf.Max(2, Mathf.CeilToInt(span / DeckStep) + 1);
@@ -123,18 +134,41 @@ namespace Horizon.World
             for (int step = 0; step < steps; step++)
             {
                 float distance = feature.StartDistance + span * step / (steps - 1);
-
-                centres[step] = path.GetPositionAtDistance(distance);
-                rights[step] = path.GetBankedRightAtDistance(
-                    distance, roadShape.MaxBankDegrees, roadShape.FullBankRadius);
-
-                Vector3 up = Vector3.Cross(path.GetDirectionAtDistance(distance), rights[step]).normalized;
-                ups[step] = up.y < 0f ? -up : up;
+                Sample(path, roadShape, distance, out centres[step], out rights[step], out ups[step]);
             }
 
             AddGirder(buffer, roadShape, centres, rights, ups);
             AddParapets(buffer, roadShape, centres, rights, ups);
-            AddPiers(buffer, roadShape, field, centres, rights, ups, span);
+            AddPiers(buffer, path, roadShape, field, feature.StartDistance, feature.EndDistance, supports);
+
+            // The abutments. Not piers — they are where the deck meets the ground it was leaving — but
+            // they are supports, and the checker is asking where the deck is held up rather than what
+            // the thing holding it is called.
+            supports?.Add(feature.StartDistance);
+            supports?.Add(feature.EndDistance);
+        }
+
+        /// <summary>
+        /// The road's frame at a distance: centreline, banked right, and the up that follows from them.
+        ///
+        /// <para>Internal and shared with <see cref="SuspensionBridgeBuilder"/> for the reason
+        /// <see cref="AddGirder"/> is: the deck of one kind of bridge and the deck of the other are the
+        /// same deck, so they had better be sampled by the same three lines of code.</para>
+        /// </summary>
+        internal static void Sample(
+            IRoadPath path,
+            in RoadShape roadShape,
+            float distance,
+            out Vector3 centre,
+            out Vector3 right,
+            out Vector3 up)
+        {
+            centre = path.GetPositionAtDistance(distance);
+            right = path.GetBankedRightAtDistance(
+                distance, roadShape.MaxBankDegrees, roadShape.FullBankRadius);
+
+            Vector3 raised = Vector3.Cross(path.GetDirectionAtDistance(distance), right).normalized;
+            up = raised.y < 0f ? -raised : raised;
         }
 
         /// <summary>
@@ -255,38 +289,242 @@ namespace Horizon.World
         }
 
         /// <summary>
-        /// Pier pairs down to the terrain, skipping any that would be too short to be a pier.
+        /// The deck slab outboard of the carriageway, where the deck is wider than the road on it.
+        ///
+        /// <para>Needed the moment anything widens the deck, because <see cref="AddGirder"/> builds a
+        /// soffit and two flanks and no top: on an ordinary viaduct the road ribbon <i>is</i> the top,
+        /// and it reaches exactly as far as the parapet. Move the parapet outwards without laying this
+        /// and the gap between the asphalt edge and the rail is a hole through the bridge.</para>
+        ///
+        /// <para>Level with the parapet's own base rather than following the camber out, which is what a
+        /// footway on a real deck does — the crossfall is for water on the carriageway and stops at the
+        /// kerb.</para>
+        /// </summary>
+        internal static void AddFootways(
+            VegetationMeshBuffer buffer,
+            float inner,
+            float outer,
+            in RoadShape deckShape,
+            Vector3[] centres,
+            Vector3[] rights,
+            Vector3[] ups)
+        {
+            if (outer - inner <= 0.01f)
+            {
+                return;
+            }
+
+            for (int side = 0; side < 2; side++)
+            {
+                float sign = side == 0 ? -1f : 1f;
+
+                for (int step = 0; step + 1 < centres.Length; step++)
+                {
+                    Vector3 baseA = centres[step] - ups[step] * deckShape.ShoulderDrop;
+                    Vector3 baseB = centres[step + 1] - ups[step + 1] * deckShape.ShoulderDrop;
+
+                    Vector3 innerA = baseA + rights[step] * (inner * sign);
+                    Vector3 outerA = baseA + rights[step] * (outer * sign);
+                    Vector3 innerB = baseB + rights[step + 1] * (inner * sign);
+                    Vector3 outerB = baseB + rights[step + 1] * (outer * sign);
+
+                    buffer.AddQuadFacing(ConcreteSubmesh,
+                        innerA, outerA, outerB, innerB, ups[step]);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Spacing of the collision band's cross-sections, metres.
+        ///
+        /// <para>Three times <see cref="DeckStep"/>. What is being approximated is a straight wall, and
+        /// the error a longer chord makes on the tightest curve any bridge here sits on is a couple of
+        /// centimetres — against a saving of two thirds of the triangles PhysX has to cook and keep
+        /// resident for the length of every bridge and every guard rail in the world.</para>
+        /// </summary>
+        internal const float BarrierStep = 24f;
+
+        /// <summary>
+        /// The barrier a car actually hits: a plain band along a line, with no posts in it.
+        ///
+        /// <para><b>Deliberately not the visible geometry.</b> A <c>MeshCollider</c> taken from the rail
+        /// as drawn is a row of re-entrant corners four metres apart, and a car sliding along it catches
+        /// on every one of them — which is the objection the old "no collider at all" comment was
+        /// really making. A smooth wall in the same place answers it: the car is held and slides off,
+        /// which is what a barrier is for, and the posts stay a picture.</para>
+        ///
+        /// <para>Inner face, top and outer face — three quads a segment. No end caps and no soffit: a
+        /// non-convex mesh collider generates contacts from either side of a triangle, so the wall does
+        /// not have to be a closed volume to be solid, and the two faces it does have are the two the
+        /// car can reach.</para>
+        /// </summary>
+        internal static void AddBarrier(
+            VegetationMeshBuffer buffer,
+            Vector3[] bases,
+            Vector3[] rights,
+            Vector3[] ups,
+            float inner,
+            float outer,
+            float height)
+        {
+            for (int side = 0; side < 2; side++)
+            {
+                float sign = side == 0 ? -1f : 1f;
+
+                for (int step = 0; step + 1 < bases.Length; step++)
+                {
+                    Vector3 innerBottomA = bases[step] + rights[step] * (inner * sign);
+                    Vector3 outerBottomA = bases[step] + rights[step] * (outer * sign);
+                    Vector3 innerBottomB = bases[step + 1] + rights[step + 1] * (inner * sign);
+                    Vector3 outerBottomB = bases[step + 1] + rights[step + 1] * (outer * sign);
+
+                    Vector3 liftA = ups[step] * height;
+                    Vector3 liftB = ups[step + 1] * height;
+
+                    buffer.AddQuadFacing(ConcreteSubmesh,
+                        innerBottomA, innerBottomA + liftA, innerBottomB + liftB, innerBottomB,
+                        rights[step] * -sign);
+
+                    buffer.AddQuadFacing(ConcreteSubmesh,
+                        innerBottomA + liftA, outerBottomA + liftA, outerBottomB + liftB,
+                        innerBottomB + liftB, ups[step]);
+
+                    buffer.AddQuadFacing(ConcreteSubmesh,
+                        outerBottomA, outerBottomA + liftA, outerBottomB + liftB, outerBottomB,
+                        rights[step] * sign);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Samples a stretch of course at <see cref="BarrierStep"/> and hands back the parapet's base
+        /// line, for the collision band to be swept along.
+        /// </summary>
+        internal static void SampleBarrierLine(
+            IRoadPath path,
+            in RoadShape deckShape,
+            float startDistance,
+            float endDistance,
+            out Vector3[] bases,
+            out Vector3[] rights,
+            out Vector3[] ups)
+        {
+            float span = Mathf.Max(0.01f, endDistance - startDistance);
+            int steps = Mathf.Max(2, Mathf.CeilToInt(span / BarrierStep) + 1);
+
+            bases = new Vector3[steps];
+            rights = new Vector3[steps];
+            ups = new Vector3[steps];
+
+            for (int step = 0; step < steps; step++)
+            {
+                float distance = startDistance + span * step / (steps - 1);
+                Sample(path, deckShape, distance, out Vector3 centre, out rights[step], out ups[step]);
+                bases[step] = centre - ups[step] * deckShape.ShoulderDrop;
+            }
+        }
+
+        /// <summary>
+        /// The collision wall along every viaduct parapet on a course, or null if the course has none.
+        ///
+        /// <para>A mesh of its own rather than a submesh of the bridge: what is drawn and what is solid
+        /// are different questions here, and <c>PrototypeSetup.CreateMeshObject</c> has taken a separate
+        /// <c>collisionMesh</c> since the tunnels needed exactly this distinction.</para>
+        /// </summary>
+        public static Mesh BuildParapetCollision(
+            IRoadPath path,
+            in RoadShape roadShape,
+            RoadCourse course,
+            string meshName = "BridgeParapetCollisionMesh")
+        {
+            if (course == null)
+            {
+                return null;
+            }
+
+            var buffer = new VegetationMeshBuffer(1);
+
+            for (int i = 0; i < course.Features.Count; i++)
+            {
+                RoadFeature feature = course.Features[i];
+                if (feature.Kind != RoadFeatureKind.Bridge || feature.Length <= 1f)
+                {
+                    continue;
+                }
+
+                SampleBarrierLine(path, roadShape, feature.StartDistance, feature.EndDistance,
+                    out Vector3[] bases, out Vector3[] rights, out Vector3[] ups);
+
+                AddBarrier(buffer, bases, rights, ups,
+                    roadShape.OuterHalfWidth, roadShape.OuterHalfWidth + ParapetThickness,
+                    ParapetHeight);
+            }
+
+            return buffer.IsEmpty ? null : buffer.ToMesh(meshName, new List<int>(1));
+        }
+
+        /// <summary>
+        /// How deep the water may be under a pier foot before the pier is left out, metres.
+        ///
+        /// <para>A pier on a shallow bank is a pier; a pier in the navigable channel is the thing a
+        /// suspension span exists in order not to build. The test is against the depth rather than
+        /// against wet-or-dry because the side spans of a crossing come down over the shore, and
+        /// refusing to stand in six inches of water would leave them hanging over dry-ish ground for
+        /// the sake of a rule about the middle of the strait.</para>
+        /// </summary>
+        private const float NavigableDepth = 6f;
+
+        /// <summary>
+        /// Pier pairs down to the terrain, skipping any that would be too short to be a pier or would
+        /// stand in the shipping channel.
         ///
         /// <para>Each leg is measured against <see cref="MountainField.HeightAt"/> at its own foot rather
         /// than at the deck centre. On a valley side those two differ by metres, and a pair sized from
         /// the centre leaves the downhill leg hanging.</para>
+        ///
+        /// <para><b>Takes a stretch of course rather than a deck that has already been sampled</b>, and
+        /// is internal, so <see cref="SuspensionBridgeBuilder"/> can put piers under its side spans —
+        /// which are a hundred and fifty metres of deck each and were, until this took a range, held up
+        /// by nothing whatever. A pier is a pier; the two kinds of bridge differ in what happens between
+        /// the towers, not in what happens outside them.</para>
+        ///
+        /// <para><b>At least two bays, never one.</b> <c>Max(1, span / 40)</c> and a loop over the
+        /// interior means every span under about sixty metres emitted no pier at all — a deck over nine
+        /// metres of carved-out air, standing on nothing, and no check in the build looked. The three
+        /// viaducts authored so far are all long enough to have hidden it.</para>
         /// </summary>
-        private static void AddPiers(
+        internal static void AddPiers(
             VegetationMeshBuffer buffer,
+            IRoadPath path,
             in RoadShape roadShape,
             MountainField field,
-            Vector3[] centres,
-            Vector3[] rights,
-            Vector3[] ups,
-            float span)
+            float startDistance,
+            float endDistance,
+            List<float> supports = null)
         {
-            int bays = Mathf.Max(1, Mathf.RoundToInt(span / PierSpacing));
+            float span = endDistance - startDistance;
+            if (span <= 1f)
+            {
+                return;
+            }
+
+            int bays = Mathf.Max(2, Mathf.RoundToInt(span / PierSpacing));
             float legOffset = (roadShape.OuterHalfWidth - GirderInset) * 0.55f;
 
             // Interior supports only: the ends of the span are the abutments, where the deck meets solid
             // ground and a pier would be standing in the hillside it is already resting on.
             for (int bay = 1; bay < bays; bay++)
             {
-                float t = bay / (float)bays;
-                int step = Mathf.Clamp(Mathf.RoundToInt(t * (centres.Length - 1)), 0, centres.Length - 1);
+                float distance = startDistance + span * bay / bays;
+                Sample(path, roadShape, distance, out Vector3 centre, out Vector3 right, out Vector3 up);
 
-                Vector3 soffit = centres[step]
-                                 - ups[step] * (roadShape.ShoulderDrop + GirderDepth);
+                Vector3 soffit = centre - up * (roadShape.ShoulderDrop + GirderDepth);
+                bool stands = false;
 
                 for (int leg = 0; leg < 2; leg++)
                 {
                     float sign = leg == 0 ? -1f : 1f;
-                    Vector3 top = soffit + rights[step] * (legOffset * sign);
+                    Vector3 top = soffit + right * (legOffset * sign);
 
                     float ground = field.HeightAt(top.x, top.z) - FootBurial;
                     if (top.y - ground < MinimumPier)
@@ -294,8 +532,19 @@ namespace Horizon.World
                         continue;
                     }
 
+                    if (field.IsUnderWater(top.x, top.z, ground + NavigableDepth))
+                    {
+                        continue;
+                    }
+
                     var foot = new Vector3(top.x, ground, top.z);
-                    AddPier(buffer, foot, top, rights[step]);
+                    AddPier(buffer, foot, top, right);
+                    stands = true;
+                }
+
+                if (stands)
+                {
+                    supports?.Add(distance);
                 }
             }
         }
