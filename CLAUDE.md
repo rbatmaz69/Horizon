@@ -316,8 +316,96 @@ The deck is lit: a lamp standard every 48 m and a bead on the cables every 26. N
 the one place in the world with no verge, no hedge and no horizon to judge position against, and at
 the first spacing the night shot came back with four lights on a kilometre of cable.
 
+**The side spans were a hundred and fifty metres of carriageway over an open hole, each.**
+`BridgeBuilder` takes only `RoadFeatureKind.Bridge`, so a suspension span never got a pier; `AddHangers`
+hung off the main cable, so it never reached outside the towers; and `MountainField` had meanwhile carved
+its nine metres of headroom under the *whole* structure, both kinds being `IsBridged`. Two correct halves
+and nothing between them. They now take piers from `BridgeBuilder.AddPiers` — which is why that takes a
+stretch of course rather than a deck somebody already sampled — and hangers off the back-stay, and
+`ValidateBridgeSupport` measures the longest bay of deck with nothing under or over it. That check walks
+the list the builders fill rather than working out for itself where a pier belongs: a checker with its
+own opinion agrees with the builder right up until one of them is wrong.
+
+`AddPiers` also emitted **no pier at all** for any span under about sixty metres — `Max(1, span/40)` with a
+loop over the interior. None of the three authored viaducts is short enough to have shown it.
+
+**One lateral offset was doing the work of three, and it was sized for a cable.** Towers, cables,
+hangers and anchor blocks all stood at `OuterHalfWidth + CableOffset` = 7.65 m: right for something half
+a metre thick, and for a 4.5 m anchor block it put a seven-metre concrete wall two metres inside the
+lane, on both sides, at the entrance and the exit. Six point three metres of clear width on a road that
+is thirteen and a half wide. The deck is now `DeckOverhang` wider than the road on it — which is what a
+suspension deck is — the towers stand in that margin, the anchor blocks have an axis of their own and sit
+behind the abutments, and `AddFootways` lays the slab the widening opened up, without which the gap
+between asphalt and parapet is a hole through the bridge. `ValidateSuspensionBridges` asks a fifth
+question now: does any of this stand in the road it is carrying. Every other check in the build looks up,
+down or along, and none of them looked across.
+
+**Nothing at the edge of any road in this world used to be solid.** Guard rails, delineators, median
+barrier, viaduct parapets and the crossing's — all built with `addCollider: false`, and a doc comment
+above `BuildBridges` had been asserting the opposite for some time. A doc comment is not a test. They are
+solid now, but **not against the mesh you can see**: a `MeshCollider` taken from a rail as drawn is a row
+of re-entrant corners every four metres and the car catches on each of them, which is what the original
+decision was really objecting to. `GuardRailBuilder.BuildCollision` walks the same `Plan` a second time
+and sweeps a smooth wall along it; `BridgeBuilder.AddBarrier` does the same for a parapet. Both go in
+through `CreateMeshObject`'s `collisionMesh`, which the tunnels have used since what you can see and what
+you can hit first became different questions. Delineators stay soft — a post is a marker.
+
 `Tools > Horizon > Render Strait Preview` photographs all of it, day and night. Every fault above was
-found there and by nothing else.
+found there and by nothing else — including the three above, which needed two shots that did not exist:
+`_Entrance` and `_Exit` frame the gap between the anchor blocks, and `_SideSpan` looks under the deck.
+
+## Anadolu
+
+`YalikoyCourse` carries on from the Meerenge: the eastern cape, the bay behind it, the fishing village of
+Yalıköy on its shore, and the climb into the dry hills over it. Six kilometres. The bridge now leads
+somewhere; before this it ended eleven hundred metres later on a falling straight in the middle of a
+hillside, and a threshold with nothing behind it is a long piece of road.
+
+**The bay is not the strait, and they are kept a cape apart.** A `Sea` *sets* the ground under it while
+the Boğaz, a corridor river, only caps it — two of them over the same water fight, and the loser leaves a
+step across the middle of it. The tunnel through the cape is the only place on this road with water on
+neither hand, which is what it is for.
+
+**The seafront is dead straight, and that is structural rather than styling.** Yalıköy hangs off the
+driving road, the way Talheim hangs off the pass, so town-local space folds wherever that road bends
+towards the town more tightly than the town is deep — `LimitAcross` caps a town at 0.65·R, and 300 m of
+`Inland` needs 462 m of radius. The bend *leaving* the village is 520 m and has 120 m of straight in front
+of it for exactly that reason; at 240 m `ValidateTownMapping` reported the along-axis squeezed to 0.29.
+
+**A fishing village has its quay against its road.** The first attempt put the waterline 40 m out and the
+basin further again, which came back in the picture as a lane through a heath with a lighthouse on the
+horizon: two hundred metres of flat dry scrub between the driver and the harbour. `ShoreOffset` and
+`BasinAcross` came in together, and they are bound — the basin's landward rim has to clear the
+carriageway, and `|BasinAcross| − ShoreOffset` has to stay under `BasinRadius` or the moles spring from
+open water instead of from the beach.
+
+**Water only exists where a terrain tile does, and the corridor is 200 m wide.** Without `bayBand` the
+bay ran out a couple of hundred metres off the quay — inside the fog and inside the far plane, so it read
+as a lagoon with an edge on it. Same fix the Westmeer and the strait already have, same reason.
+
+**The bay has to arrive on a corner.** Running parallel to the front four hundred metres short of the
+village keeps the road 270 m from a waterline that one ordinary rise then hides completely — which is what
+the viewpoint's first picture was. The road comes in at an angle now and turns onto the front, so the
+water arrives with the corner.
+
+**And the layby may not look at the bridge.** It was called *Köprü Manzarası* and placed at the top of the
+climb, four kilometres from the crossing against a 600 m far plane — the Kalkgrattunnel's lesson, on
+course to be repeated. Moved to the end of the seafront and renamed, it looks back down the village, which
+is 560 m and therefore actually there. A viewpoint on the climb has a second problem besides distance: the
+mountain is derived from the roads, so the ground between a seafront and the track climbing away from it
+is a shoulder, and a viewpoint behind that shoulder is a viewpoint of it.
+
+`HarbourMeshes` was already world-agnostic — a `HarbourSite` is a centre, a radius and a landward vector —
+so Yalıköy's harbour is Seeburg's, one climate over. What had to be generalised was `PrototypeSetup`'s
+`BuildHarbour`, which had Seeburg's constants written into it.
+
+**`CheckLanesFollowTheirStreets` was measuring Seeburg against Talheim.** The validator's town list had
+two entries and the world had three; every Seeburg lane was being held to streets eight kilometres away
+and reported as a car on the pavement — 3730 samples of correct road. Exactly the failure its own class
+remarks describe, one town later. It now takes all four.
+
+`Tools > Horizon > Render Anadolu Preview` photographs the leg, day and night. Every fault above came out
+of those pictures.
 
 ## Updating
 

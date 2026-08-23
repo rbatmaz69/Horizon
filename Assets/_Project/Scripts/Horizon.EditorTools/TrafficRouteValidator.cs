@@ -661,12 +661,32 @@ namespace Horizon.EditorTools
                 Paved("Coast", CoastCourse.Build()),
                 Paved("Kalkgrat", KalkgratCourse.Build()),
                 Paved("Meerenge", MeerengeCourse.Build()),
+                Paved("Yalikoy", YalikoyCourse.Build()),
             };
 
+            // Seeburg's axis, which like the arterial is a coordinate line and never paved.
+            var seeburgObject = new GameObject("SeeburgAxis");
+            seeburgObject.transform.SetParent(scratch.transform, false);
+
+            RoadPath seeburgAxis = seeburgObject.AddComponent<RoadPath>();
+            seeburgAxis.SetControlPoints(SeeburgCourse.Build().ControlPoints);
+
+            // <b>Every settlement, and the list had drifted.</b> CheckLanesFollowTheirStreets measures
+            // each street lane against whichever of these is nearest, so a town missing from the list is
+            // a town whose lanes are all measured against somewhere else — Seeburg's were being held to
+            // Talheim's streets across eight kilometres of world, which is 3730 samples of perfectly
+            // correct road reported as cars on the pavement. That is the failure mode the class remarks
+            // describe and the reason this returns four entries rather than two.
             return new[]
             {
                 RebuildTown(TalheimLayout.Build(), trunk, TownShape.Default, scratch.transform),
                 RebuildTown(HochstadtLayout.Build(), arterial, TownShape.Hochstadt, scratch.transform),
+                RebuildTown(SeeburgLayout.Build(), seeburgAxis, TownShape.Seeburg, scratch.transform),
+
+                // Yalıköy is the one town whose trunk is a road people drive rather than an axis, so it
+                // takes the same RoadPath the bake did — the last of the paved roads above.
+                RebuildTown(YalikoyLayout.Build(), trunkRoads[trunkRoads.Length - 1],
+                    TownShape.Yalikoy, scratch.transform),
             };
         }
 

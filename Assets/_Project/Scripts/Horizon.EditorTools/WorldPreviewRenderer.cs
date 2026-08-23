@@ -746,6 +746,12 @@ namespace Horizon.EditorTools
             return FindRoad("MeerengeRoadPath");
         }
 
+        /// <summary>The road round the eastern cape to Yalıköy and up into the hills behind it.</summary>
+        private static RoadPath FindYalikoyRoad()
+        {
+            return FindRoad("YalikoyRoadPath");
+        }
+
         private static RoadPath FindRoad(string objectName)
         {
             RoadPath[] paths = Object.FindObjectsByType<RoadPath>(FindObjectsSortMode.None);
@@ -973,8 +979,207 @@ namespace Horizon.EditorTools
                       + "the right-hand window in _Corniche, which is the shot this leg lives or dies "
                       + "by; the towers arriving over the trees in _Approach; both of them in one frame "
                       + "from _Deck; a tower standing in the strait rather than beside it in _Tower; "
-                      + "hangers that reach the parapet in _Profile; and in the day shots, nothing on "
-                      + "the structure painted the colour of the road.");
+                      + "hangers that reach the parapet in _Profile; the full width of the road between "
+                      + "the anchor blocks in _Entrance and _Exit; something holding the deck up in "
+                      + "_SideSpan; and in the day shots, nothing on the structure painted the colour "
+                      + "of the road.");
+        }
+
+        /// <summary>
+        /// Anadolu: the cape, the bay, the village and the hills over it, day and night.
+        ///
+        /// <para>Its own menu item rather than more shots on the strait's, for the reason that one is
+        /// separate from the world preview: a leg gets a tool when the questions it raises are its own.
+        /// The strait's are about a structure — is there water under it, is the shape of it readable.
+        /// These are about a place: does the bay arrive when it is meant to, is the village on its water
+        /// rather than beside it, and does the harbour read as a harbour from the road.</para>
+        /// </summary>
+        [MenuItem("Tools/Horizon/Render Anadolu Preview", priority = 46)]
+        public static void RenderAnadolu()
+        {
+            Scene scene = SceneManager.GetSceneByPath(WorldScenePath);
+            bool openedHere = !scene.isLoaded;
+
+            if (openedHere)
+            {
+                scene = EditorSceneManager.OpenScene(WorldScenePath, OpenSceneMode.Additive);
+            }
+
+            RoadPath yalikoy = FindYalikoyRoad();
+
+            if (yalikoy == null)
+            {
+                Debug.LogError("[Horizon] No Yalıköy road in the world scene. Run Rebuild Prototype "
+                               + "Scene first.");
+                return;
+            }
+
+            var clock = Object.FindFirstObjectByType<TimeOfDayController>();
+            var lights = Object.FindFirstObjectByType<TownLights>();
+
+            float hoursWere = clock != null ? clock.TimeOfDayHours : 0f;
+            bool runningWas = clock != null && clock.Running;
+
+            string directory = Directory.GetParent(Application.dataPath).FullName;
+            var cameraObject = new GameObject("AnadoluPreviewCamera");
+
+            try
+            {
+                Camera camera = cameraObject.AddComponent<Camera>();
+                camera.clearFlags = CameraClearFlags.Skybox;
+                camera.enabled = false;
+
+                for (int pass = 0; pass < 2; pass++)
+                {
+                    bool night = pass == 1;
+                    string suffix = night ? "_Night" : string.Empty;
+
+                    if (clock != null)
+                    {
+                        clock.Running = false;
+                        clock.TimeOfDayHours = night ? NightHours : 16.5f;
+                        clock.Apply();
+                    }
+
+                    if (lights != null)
+                    {
+                        lights.Refresh();
+                    }
+
+                    CaptureAnadolu(camera, yalikoy, directory, suffix);
+                }
+            }
+            finally
+            {
+                Object.DestroyImmediate(cameraObject);
+
+                if (clock != null)
+                {
+                    clock.TimeOfDayHours = hoursWere;
+                    clock.Running = runningWas;
+                    clock.Apply();
+                }
+
+                if (lights != null)
+                {
+                    lights.Refresh();
+                }
+
+                if (openedHere)
+                {
+                    EditorSceneManager.CloseScene(scene, true);
+                }
+            }
+
+            Debug.Log("[Horizon] Anadolu preview written beside the project. Look for: dry hills and no "
+                      + "water at all in _Cape; the bay arriving whole on the corner in _Bay; the village "
+                      + "ahead rather than beside you in _Arrival; moles, a light and boats out of the "
+                      + "right-hand window in _Harbour; a square with buildings facing it in _Square; the "
+                      + "road turning back on itself in _Hairpins; the harbour still readable through "
+                      + "the driver's own fog in _Lookback; and in the night shots, a lit quay and a "
+                      + "lighthouse rather than a dark bay with a road in it.");
+        }
+
+        private static void CaptureAnadolu(
+            Camera camera, RoadPath yalikoy, string directory, string suffix)
+        {
+            RoadCourse course = YalikoyCourse.Build();
+
+            // Yaw, which the strait's shots do not have and this leg needs.
+            //
+            // <b>Because the thing being checked is beside the road rather than down it.</b> A harbour
+            // 160 m off the driver's left is 90° from a heading a 60° lens is pointing along: the first
+            // pass of this tool came back with a picture of a seafront that had no harbour in it, and
+            // the harbour was there all along. Positive turns towards the passenger's window.
+            void FromRoad(float at, float back, float lift, float pitch, float yaw, string name)
+            {
+                float distance = Mathf.Clamp(at, 0f, yalikoy.Length);
+                Vector3 on = yalikoy.GetPositionAtDistance(distance);
+                Vector3 forward = yalikoy.GetDirectionAtDistance(distance);
+
+                Vector3 look = Quaternion.Euler(0f, yaw, 0f) * forward;
+
+                camera.fieldOfView = 60f;
+                camera.farClipPlane = 900f;
+                camera.nearClipPlane = 0.3f;
+                camera.transform.position = on - forward * back + Vector3.up * lift;
+                camera.transform.rotation = Quaternion.LookRotation(
+                    (look + Vector3.up * pitch).normalized, Vector3.up);
+
+                Capture(camera, Path.Combine(directory, $"WorldPreview_Anadolu_{name}{suffix}.png"));
+            }
+
+            // 1. Coming up on the cape bore. Nothing but dry hillside — the strait is behind the left
+            // shoulder by now and the bay has not arrived, and both of those are the point.
+            FromRoad(FeatureStart(course, RoadFeatureKind.Tunnel, YalikoyCourse.CapeName) - 90f,
+                9f, 2.4f, 0f, 0f, "1_Cape");
+
+            // 2. The corner out of the bore, which is where the water arrives. If this shot has no sea
+            // in it the whole leg is a lane through scrub — the failure the corniche had twice.
+            FromRoad(ViewpointOn(course, YalikoyCourse.BayViewName), 9f, 2.4f, -0.02f, -22f, "2_Bay");
+
+            // 3. The arrival, from the last corner before the front. The village has to be ahead rather
+            // than beside you: it is the reason for the bridge, and a place you are already in when you
+            // notice it is a place you drove past.
+            FromRoad(YalikoyCourse.CityStart - 120f, 9f, 2.4f, 0f, 0f, "3_Arrival");
+
+            // 4. On the seafront at the harbour, water out of the right-hand window.
+            FromRoad(YalikoyCourse.BasinAlong, 0f, 2.4f, -0.02f, -75f, "4_Harbour");
+
+            // 5. The harbour from the water, low down and outside its own mouth — the one view that
+            // answers whether the moles are arms or an atoll with a nick in it. Seaward is the road's
+            // left, so the camera stands out along it.
+            {
+                float at = Mathf.Clamp(YalikoyCourse.BasinAlong, 0f, yalikoy.Length);
+                Vector3 on = yalikoy.GetPositionAtDistance(at);
+                Vector3 seaward = -yalikoy.GetRightAtDistance(at);
+                Vector3 quay = on + seaward * -YalikoyCourse.BasinAcross;
+
+                camera.fieldOfView = 55f;
+                camera.farClipPlane = 1200f;
+                camera.transform.position = quay + seaward * (YalikoyCourse.BasinRadius + 90f)
+                                            + Vector3.up * 14f;
+                camera.transform.rotation = Quaternion.LookRotation(
+                    quay - camera.transform.position, Vector3.up);
+                Capture(camera, Path.Combine(directory, $"WorldPreview_Anadolu_5_Mole{suffix}.png"));
+            }
+
+            // 6. The square, from the village street below it.
+            FromRoad(YalikoyCourse.CityStart + 330f, 6f, 2.4f, 0.05f, 62f, "6_Square");
+
+            // 7. Into the hairpins, which is where the road stops being a seafront.
+            FromRoad(YalikoyCourse.CityEnd + 640f, 9f, 2.4f, 0.04f, 0f, "7_Hairpins");
+
+            // 8. From the layby at the end of the front, back down the village. <b>Fog on</b>, unlike
+            // every other long shot in this file, and that is the whole point of where the viewpoint
+            // stands: if the harbour is not readable here through the fog the driver actually has, the
+            // viewpoint is in the wrong place rather than the fog being wrong.
+            FromRoad(ViewpointOn(course, YalikoyCourse.LookbackName), 0f, 2.4f, -0.02f, 196f,
+                "8_Lookback");
+
+            // 9. The whole leg from above, so the village, the bay and the shore can be read against one
+            // another. Fog off, because this is taken from four times higher than any driver stands.
+            {
+                Vector3 front = yalikoy.GetPositionAtDistance(
+                    Mathf.Clamp(YalikoyCourse.Waterfront, 0f, yalikoy.Length));
+
+                bool fogWasOn = RenderSettings.fog;
+                RenderSettings.fog = false;
+
+                try
+                {
+                    camera.fieldOfView = 60f;
+                    camera.farClipPlane = 4000f;
+                    camera.transform.position = front + Vector3.up * 900f;
+                    camera.transform.rotation = Quaternion.LookRotation(Vector3.down, Vector3.forward);
+                    Capture(camera,
+                        Path.Combine(directory, $"WorldPreview_Anadolu_9_Above{suffix}.png"));
+                }
+                finally
+                {
+                    RenderSettings.fog = fogWasOn;
+                }
+            }
         }
 
         private static void CaptureStrait(
@@ -1090,6 +1295,37 @@ namespace Horizon.EditorTools
                 camera.transform.rotation = Quaternion.LookRotation(
                     middle - camera.transform.position, Vector3.up);
                 Capture(camera, Path.Combine(directory, $"WorldPreview_Strait_8_FarShore{suffix}.png"));
+            }
+
+            // 11. The entrance, from where a driver meets it: forty metres back from the abutment, on
+            // the carriageway, looking at the gap. The one thing no other shot on this list can show is
+            // how much road there is between the anchor blocks — the structure used to leave 6.3 m of a
+            // 13.5 m road, as two seven-metre concrete walls, and every picture here was taken from
+            // somewhere that framing does not reach.
+            FromRoad(meerenge, MeerengeCourse.CrossingStart - 40f, 9f, 2.4f, 0.01f, "11_Entrance");
+
+            // 12. The exit, the same shot the other way round. Both ends, because the anchor blocks and
+            // the towers are placed from opposite ends of the feature and a sign error shows on one of
+            // them only.
+            FromRoad(meerenge, MeerengeCourse.CrossingStart + MeerengeCourse.StructureLength - 60f,
+                9f, 2.4f, 0.01f, "12_Exit");
+
+            // 13. Under the western side span, from the bank, looking along it at the tower. A hundred
+            // and fifty metres of deck that was carried by nothing at all: BridgeBuilder only ever took
+            // RoadFeatureKind.Bridge, the hangers only ever hung between the towers, and MountainField
+            // had taken the ground out from under the lot. From the deck it looks like a road.
+            {
+                float at = MeerengeCourse.CrossingStart + MeerengeCourse.SideSpan * 0.5f;
+                Vector3 deck = meerenge.GetPositionAtDistance(Mathf.Clamp(at, 0f, meerenge.Length));
+                Vector3 across = meerenge.GetRightAtDistance(Mathf.Clamp(at, 0f, meerenge.Length));
+                Vector3 along = meerenge.GetDirectionAtDistance(Mathf.Clamp(at, 0f, meerenge.Length));
+
+                camera.fieldOfView = 55f;
+                camera.farClipPlane = 900f;
+                camera.transform.position = deck + across * 120f - along * 90f + Vector3.down * 34f;
+                camera.transform.rotation = Quaternion.LookRotation(
+                    deck + along * 120f - camera.transform.position, Vector3.up);
+                Capture(camera, Path.Combine(directory, $"WorldPreview_Strait_13_SideSpan{suffix}.png"));
             }
 
             // 9 and 10. The silhouette, square on from over the water, and the strait from above. Fog

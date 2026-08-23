@@ -1146,6 +1146,33 @@ namespace Horizon.EditorTools
             LandRegion anadolu = LandRegion.Anadolu(
                 meerengePath, MeerengeCourse.CrossingStart + MeerengeCourse.StructureLength);
 
+            // --- On round the eastern cape to Yalıköy and up into the hills behind it. The bridge now
+            // leads somewhere; see YalikoyCourse for why there had to be something here at all.
+            var yalikoyPathObject = new GameObject("YalikoyRoadPath");
+            yalikoyPathObject.transform.SetParent(worldRoot.transform, false);
+            RoadPath yalikoyPath = yalikoyPathObject.AddComponent<RoadPath>();
+
+            RoadCourse yalikoyCourse = YalikoyCourse.Build();
+            yalikoyPath.SetControlPoints(yalikoyCourse.ControlPoints);
+            ReportCourse(yalikoyCourse, yalikoyPath, "Yalıköy road");
+
+            Mesh yalikoyMesh = RoadMeshBuilder.BuildRoad(yalikoyPath, roadShape, "YalikoyRoadMesh");
+            yalikoyMesh = HorizonAssetUtility.ReplaceAsset(
+                yalikoyMesh, GeneratedFolder + "/YalikoyRoadMesh.asset");
+
+            GameObject yalikoyObject = CreateMeshObject(worldRoot.transform, "YalikoyRoad",
+                yalikoyMesh, new[] { materials.RoadSurface, materials.RoadShoulder });
+
+            WorldChunk yalikoyChunk = yalikoyObject.AddComponent<WorldChunk>();
+            yalikoyChunk.RecalculateBounds();
+            yalikoyChunk.SetBounds(yalikoyChunk.Center, 100000f);
+
+            // A second Anadolu, because a LandRegion binds to exactly one IRoadPath — see
+            // LandRegion.RoadProximity. The two overlap at the join and that is harmless here and only
+            // here: they are the same region with the same palette and the same tree mix, so RegionFor
+            // picking either of them gives the same ground. Two regions that differed could not do this.
+            LandRegion yalikoyRegion = LandRegion.Anadolu(yalikoyPath, 0f);
+
             // --- The motorway. One authored median line, two carriageways offset from it, and a link
             // road down to the foot of the pass. The centreline is never paved.
             RoadShape motorwayShape = RoadShape.Autobahn;
@@ -1264,7 +1291,14 @@ namespace Horizon.EditorTools
                 "Seeburg", seeburgLayout, seeburgAxis, TownShape.Seeburg,
                 worldRoot.transform, roadShape, terrainShape, levelSamples);
 
-            var towns = new[] { talheim, hochstadt, seeburg };
+            // Yalıköy hangs off its own seafront road rather than an axis, the way Talheim hangs off the
+            // pass: that stretch is a dead straight, so the town-local mapping has no radius to fold
+            // against and the village needs no coordinate system of its own. See YalikoyLayout.
+            TownBuild yalikoy = PrepareTown(
+                YalikoyCourse.TownName, YalikoyLayout.Build(), yalikoyPath, TownShape.Yalikoy,
+                worldRoot.transform, roadShape, terrainShape, levelSamples);
+
+            var towns = new[] { talheim, hochstadt, seeburg, yalikoy };
 
             // --- The filling stations, resolved here and built much later.
             //
@@ -1287,6 +1321,7 @@ namespace Horizon.EditorTools
             fuelStations.AddRange(FuelStationBuilder.Sites(coastPath, coastCourse, roadShape));
             fuelStations.AddRange(FuelStationBuilder.Sites(kalkgratPath, kalkgratCourse, roadShape));
             fuelStations.AddRange(FuelStationBuilder.Sites(meerengePath, meerengeCourse, roadShape));
+            fuelStations.AddRange(FuelStationBuilder.Sites(yalikoyPath, yalikoyCourse, roadShape));
 
             // Every carriageway in the world, so a pad can be kept off all of them and not merely off
             // the one it belongs to. The pass is the case that matters: its switchbacks stack legs
@@ -1302,6 +1337,7 @@ namespace Horizon.EditorTools
                 new FuelStationBuilder.NearbyRoad(coastPath, roadShape, "the coast road"),
                 new FuelStationBuilder.NearbyRoad(kalkgratPath, roadShape, "the Kalkgrat road"),
                 new FuelStationBuilder.NearbyRoad(meerengePath, roadShape, "the Meerenge road"),
+                new FuelStationBuilder.NearbyRoad(yalikoyPath, roadShape, "the Yalıköy road"),
             };
 
             for (int i = 0; i < fuelStations.Count; i++)
@@ -1361,6 +1397,11 @@ namespace Horizon.EditorTools
                 // Schluchtbrücke's deck, and lay a sixty-metre causeway across the strait.
                 new MountainField.FieldRoad(kalkgratPath, kalkgratCourse),
                 new MountainField.FieldRoad(meerengePath, meerengeCourse),
+
+                // The Yalıköy road has one bore and no bridge, so the course buys it nothing the shelf
+                // would not do anyway — but it is here for the same reason the coast road is: the
+                // corridor out to the bay, and the ground the bay is dug into, arrive with the road.
+                new MountainField.FieldRoad(yalikoyPath, yalikoyCourse),
             };
 
             var field = new MountainField(roads, terrainShape, 4f, levelSamples);
@@ -1437,11 +1478,6 @@ namespace Horizon.EditorTools
             Vector3 basinAt = seeburgAxis.GetPositionAtDistance(SeeburgCourse.BasinAlong)
                               + seaward * -SeeburgCourse.BasinAcross;
 
-            // Sized so its landward rim stands this far out from the axis. The harbour geometry is laid
-            // against the same figure, because a quay wall that is not on the edge of the basin is a
-            // wall in the water or a wall in a field.
-            float basinRimAcross = -SeeburgCourse.BasinAcross - SeeburgCourse.BasinRadius;
-
             waterPlans.Add(WaterPlan.Basin(
                 "Seeburger Hafen",
                 Flat(basinAt),
@@ -1476,6 +1512,45 @@ namespace Horizon.EditorTools
                 freeboard: MeerengeCourse.ChannelFreeboard,
                 bedScale: MeerengeCourse.ChannelBedScale));
 
+            // --- Yalıköy's bay, and the harbour dug into it.
+            //
+            // A Sea rather than more of the Boğaz, and the two are kept a cape apart on purpose: a sea
+            // *sets* the ground under it while a river only caps it, so two of them over the same water
+            // fight and the loser leaves a step across the middle of it. Everything here is measured off
+            // the seafront road, which is the one line the village floor, the waterline and the quay all
+            // have to agree with.
+            Vector3 yalikoyFront = yalikoyPath.GetPositionAtDistance(YalikoyCourse.Waterfront);
+
+            // Seaward is the road's left, because TownShape.ToWorld puts positive across to its right
+            // and Yalıköy's positive across is inland — see TownShape.Yalikoy.
+            Vector3 yalikoySeaward = -yalikoyPath.GetRightAtDistance(YalikoyCourse.Waterfront);
+
+            float bayLevel = yalikoyFront.y - YalikoyCourse.SeaFreeboard;
+
+            waterPlans.Add(WaterPlan.Sea(
+                "Yalı Koyu",
+                Flat(yalikoyFront + yalikoySeaward * (YalikoyCourse.ShoreOffset + YalikoyCourse.BayRadius)),
+                radius: YalikoyCourse.BayRadius,
+                bankEase: YalikoyCourse.BayBankEase,
+                depth: YalikoyCourse.BayDepth,
+                surfaceY: bayLevel,
+                bedScale: YalikoyCourse.BayBedScale));
+
+            // The harbour. A capping body rather than a second sea, for the reason WaterPlan.Basin
+            // gives: it digs the basin out of the land it reaches and leaves the deeper of the two where
+            // it lies over the bay's own bed, so there is no step at the mouth and no ordering to
+            // remember.
+            Vector3 yalikoyBasinAt = yalikoyPath.GetPositionAtDistance(YalikoyCourse.BasinAlong)
+                                     + yalikoySeaward * -YalikoyCourse.BasinAcross;
+
+            waterPlans.Add(WaterPlan.Basin(
+                "Yalıköy Limanı",
+                Flat(yalikoyBasinAt),
+                radius: YalikoyCourse.BasinRadius,
+                bankEase: YalikoyCourse.BasinBankEase,
+                depth: YalikoyCourse.BasinDepth,
+                surfaceY: bayLevel));
+
             WaterBody[] waters = WaterPlanner.Resolve(
                 waterPlans, field, bridgeRoads, out string waterReport);
 
@@ -1491,6 +1566,7 @@ namespace Horizon.EditorTools
             ValidateRoadClearance(ebentalPath, roadShape, field, ebentalCourse, "Ebental");
             ValidateRoadClearance(kalkgratPath, roadShape, field, kalkgratCourse, "Kalkgrat");
             ValidateRoadClearance(meerengePath, roadShape, field, meerengeCourse, "Meerenge");
+            ValidateRoadClearance(yalikoyPath, roadShape, field, yalikoyCourse, "Yalıköy");
             ValidateRoadClearance(westbound, motorwayShape, field, motorwayCourse, "Westbound");
             ValidateRoadClearance(eastbound, motorwayShape, field, motorwayCourse, "Eastbound");
             ValidateBridges(westbound, field, motorwayCourse);
@@ -1571,16 +1647,26 @@ namespace Horizon.EditorTools
             straitBand.Encapsulate(
                 new Bounds(crossingMiddle - downTheChannel * ShownBeyondCrossing, straitSection));
 
+            // And Yalıköy's bay, for the reason the Westmeer has one: water only exists where a tile
+            // does, and the corridor is 200 m wide. Without this the bay ended a couple of hundred
+            // metres off the quay — well inside the fog and the far plane, so it read as a lagoon with
+            // an edge on it rather than as open water running out into haze. Centred on the middle of
+            // the front and pushed seaward, so the tiles paid for are the ones anybody can see.
+            var bayBand = new Bounds(
+                yalikoyFront + yalikoySeaward * 420f,
+                new Vector3(1800f, 200f, 1800f));
+
             BuildTerrainTiles(worldRoot.transform, path, roadShape, course, field, terrainShape,
                 towns, materials, litRenderers, litSlotStart, litSlots, litSlotGroups,
-                new[] { seaBand, straitBand },
+                new[] { seaBand, straitBand, bayBand },
                 new[]
                 {
                     new MountainField.FieldRoad(ebentalPath, ebentalCourse),
                     new MountainField.FieldRoad(kalkgratPath, kalkgratCourse),
                     new MountainField.FieldRoad(meerengePath, meerengeCourse),
+                    new MountainField.FieldRoad(yalikoyPath, yalikoyCourse),
                 },
-                new[] { ebental, anadolu }, ebental, ebentalPath,
+                new[] { ebental, anadolu, yalikoyRegion }, ebental, ebentalPath,
                 ForecourtCentres(fuelStations));
             ValidateLandmarks(field, course, path, talheim.Plan);
             MarkTownLandmarks(worldRoot.transform, talheim.Network, talheim.Plan);
@@ -1664,7 +1750,19 @@ namespace Horizon.EditorTools
             BuildDelineatorPosts(worldRoot.transform, meerengePath, roadShape, field, meerengeCourse,
                 materials, "MeerengeRoad");
 
-            ValidateSuspensionBridges(meerengePath, field, meerengeCourse, MeerengeCourse.Crossing);
+            ValidateSuspensionBridges(meerengePath, roadShape, field, meerengeCourse,
+                MeerengeCourse.Crossing);
+
+            // The Yalıköy road: one cape bore, and rails and posts down the hairpins behind the village
+            // where the hillside falls away on the outside of every one of them.
+            BuildCoveredSections(worldRoot.transform, yalikoyPath, roadShape, yalikoyCourse, field,
+                materials, "YalikoyRoad");
+
+            BuildGuardRails(worldRoot.transform, yalikoyPath, roadShape, field, yalikoyCourse,
+                materials, "YalikoyRoad");
+
+            BuildDelineatorPosts(worldRoot.transform, yalikoyPath, roadShape, field, yalikoyCourse,
+                materials, "YalikoyRoad");
 
             // --- The filling stations. After the terrain, because the slab sits on ground that has to
             // exist first — and after the guard rails, so that the rails have already read IsForecourt
@@ -1677,8 +1775,26 @@ namespace Horizon.EditorTools
             // --- Seeburg's harbour. After the water, because every height in it is measured off the
             // surface that was resolved there, and after the terrain, because the promenade rail is laid
             // on ground that has to exist first.
-            BuildHarbour(worldRoot.transform, seeburgAxis, field, terrainShape, materials,
-                seeburg.Network, basinAt, seaward, seaLevel, basinRimAcross,
+            BuildHarbour(worldRoot.transform, "Seeburg", "Seeburg", seeburgAxis, TownShape.Seeburg,
+                field, terrainShape, materials, seeburg.Network, basinAt, seaward, seaLevel,
+                SeeburgCourse.BasinAlong, SeeburgCourse.BasinAcross, SeeburgCourse.BasinRadius,
+                SeeburgCourse.BasinDepth, SeeburgCourse.ShoreOffset,
+                SeeburgCourse.CityStart + 30f, SeeburgCourse.CityEnd - 30f,
+                // The rail sits just outside the boulevard's footway. Read off the street's own
+                // cross-section rather than typed, so it stays on the kerb line if it is ever widened.
+                -(TownStreetShape.For(TownStreetKind.Boulevard, terrainShape.RoadShelfDrop).HalfOuter
+                  + 1.2f),
+                litRenderers, litSlotStart, litSlots, litSlotGroups);
+
+            // And Yalıköy's, which is the same harbour one climate over. Its waterfront is the driving
+            // road rather than a boulevard, so the rail stands off the road's own shoulder.
+            BuildHarbour(worldRoot.transform, YalikoyCourse.TownName, "Yalikoy", yalikoyPath,
+                TownShape.Yalikoy, field, terrainShape, materials, yalikoy.Network,
+                yalikoyBasinAt, yalikoySeaward, bayLevel,
+                YalikoyCourse.BasinAlong, YalikoyCourse.BasinAcross, YalikoyCourse.BasinRadius,
+                YalikoyCourse.BasinDepth, YalikoyCourse.ShoreOffset,
+                YalikoyCourse.CityStart + 30f, YalikoyCourse.CityEnd - 30f,
+                -(roadShape.OuterHalfWidth + 1.2f),
                 litRenderers, litSlotStart, litSlots, litSlotGroups);
             BuildDelineatorPosts(worldRoot.transform, linkPath, roadShape, field, linkCourse,
                 materials, "MotorwayLink");
@@ -1697,6 +1813,7 @@ namespace Horizon.EditorTools
                 {
                     new TrafficNetworkBuilder.OnwardRoad(kalkgratPath, roadShape),
                     new TrafficNetworkBuilder.OnwardRoad(meerengePath, roadShape),
+                    new TrafficNetworkBuilder.OnwardRoad(yalikoyPath, roadShape),
                 });
 
             // After the routes exist, because the phase the lenses show is read off the same asset the
@@ -1716,7 +1833,8 @@ namespace Horizon.EditorTools
                 (eastbound, motorwayCourse, motorwayShape, "the eastbound carriageway", 1f),
                 (coastPath, coastCourse, roadShape, "the coast road", 0f),
                 (kalkgratPath, kalkgratCourse, roadShape, "the Kalkgrat road", 0f),
-                (meerengePath, meerengeCourse, roadShape, "the Meerenge road", 0f));
+                (meerengePath, meerengeCourse, roadShape, "the Meerenge road", 0f),
+                (yalikoyPath, yalikoyCourse, roadShape, "the Yalıköy road", 0f));
 
             // After every builder and before the car exists — otherwise the car is the obstruction.
             ValidateDriveableCorridor(path, "the pass", 1.3f, 4f);
@@ -1727,6 +1845,7 @@ namespace Horizon.EditorTools
             ValidateDriveableCorridor(coastPath, "the coast road", 1.3f, 4f);
             ValidateDriveableCorridor(kalkgratPath, "the Kalkgrat road", 1.3f, 4f);
             ValidateDriveableCorridor(meerengePath, "the Meerenge road", 1.3f, 4f);
+            ValidateDriveableCorridor(yalikoyPath, "the Yalıköy road", 1.3f, 4f);
             ReportCourse(seeburgCourse, seeburgAxis, "Seeburg axis");
             Phase(clock, "validation");
             int worstJunction = ValidateStreetNetwork(talheim.Network, path, roadShape);
@@ -1734,6 +1853,7 @@ namespace Horizon.EditorTools
             ValidateStreetNetwork(hochstadt.Network, arterialPath, motorwayShape,
                 HochstadtLayout.GatewayNode);
             ValidateStreetNetwork(seeburg.Network, seeburgAxis, roadShape, seeburgGateway);
+            ValidateStreetNetwork(yalikoy.Network, yalikoyPath, roadShape);
 
             // --- Streaming.
             var streamingObject = new GameObject("Streaming");
@@ -1747,7 +1867,7 @@ namespace Horizon.EditorTools
             // in the log rather than by trying it.
             List<Vector3> stations = DrawCallStations(
                 path, motorwayPath, arterialPath, seeburgAxis, ebentalPath,
-                kalkgratPath, meerengePath);
+                kalkgratPath, meerengePath, yalikoyPath);
             ReportDrawCallBudget(worldRoot.transform, stations, streamer.LoadRadius);
             ReportDrawCallBudget(worldRoot.transform, stations, 450f);
 
@@ -1833,7 +1953,8 @@ namespace Horizon.EditorTools
             // anything.
             List<SpawnPoint> spawns = BuildSpawnTable(
                 path, roadShape, motorwayPath, motorwayShape, arterialPath, seeburgAxis,
-                ebentalPath, ebentalCourse, kalkgratPath, meerengePath, meerengeCourse, rideHeight);
+                ebentalPath, ebentalCourse, kalkgratPath, meerengePath, meerengeCourse,
+                yalikoyPath, rideHeight);
 
             EditorSceneManager.SaveScene(scene, WorldScenePath);
             return spawns;
@@ -1859,9 +1980,10 @@ namespace Horizon.EditorTools
             RoadPath kalkgrat,
             RoadPath meerenge,
             RoadCourse meerengeCourse,
+            RoadPath yalikoy,
             float rideHeight)
         {
-            var spawns = new List<SpawnPoint>(9);
+            var spawns = new List<SpawnPoint>(10);
 
             void Add(string name, IRoadPath path, float distance, float across, float lift)
             {
@@ -1924,6 +2046,11 @@ namespace Horizon.EditorTools
                 MeerengeCourse.CrossingStart + MeerengeCourse.StructureLength * 0.33f,
                 passLane, rideHeight);
 
+            // On Yalıköy's seafront by the harbour, facing along the front. The right-hand lane here is
+            // the inland one — the same choice Seeburg's spawn makes, and for the same reason: the water
+            // should be out of the driver's own window from the moment the scene loads.
+            Add(YalikoyCourse.TownName, yalikoy, YalikoyCourse.BasinAlong + 60f, passLane, rideHeight);
+
             return spawns;
         }
 
@@ -1949,9 +2076,19 @@ namespace Horizon.EditorTools
         /// dredged basin and a mole against open water, so this belongs with the guard rails and the
         /// bridges: things laid along a line the world already has.</para>
         /// </summary>
+        /// <param name="shape">
+        /// The town this harbour belongs to, read for its cross-fall alone.
+        ///
+        /// <para>Handed in rather than looked up because there are two of these now — Seeburg's, on an
+        /// axis of its own, and Yalıköy's, on the seafront road itself. Everything else that differs
+        /// between them is a distance, which is why they are the parameters below.</para>
+        /// </param>
         private static void BuildHarbour(
             Transform parent,
+            string name,
+            string assetName,
             RoadPath axis,
+            in TownShape shape,
             MountainField field,
             in TerrainShape terrainShape,
             PrototypeMaterials materials,
@@ -1959,47 +2096,58 @@ namespace Horizon.EditorTools
             Vector3 basinAt,
             Vector3 seaward,
             float seaLevel,
-            float basinRimAcross,
+            float basinAlong,
+            float basinAcross,
+            float basinRadius,
+            float basinDepth,
+            float shoreOffset,
+            float promenadeFrom,
+            float promenadeTo,
+            float railAcross,
             List<MeshRenderer> litRenderers,
             List<int> litSlotStart,
             List<int> litSlots,
             List<int> litSlotGroups)
         {
+            // Sized so its landward rim stands this far out from the waterfront. The quay geometry is
+            // laid against the same figure, because a quay wall that is not on the edge of the basin is a
+            // wall in the water or a wall in a field.
+            float basinRimAcross = -basinAcross - basinRadius;
+
             // The quay's paving is the town's own floor at the basin's rim, less the shelf drop the field
             // applies to every levelled sample. Derived rather than sampled, because sampling the ground
             // there reads the bank that has just been dug into it.
-            float quayY = axis.GetPositionAtDistance(SeeburgCourse.BasinAlong).y
-                          + SeeburgCourse.FloorRiseAt(basinRimAcross)
+            //
+            // Through TownShape.CrossFall rather than a course's own copy of the formula: two towns want
+            // this now, and both of their courses declare the same three numbers for the same reason —
+            // so the one function that already takes them is the place to ask.
+            float quayY = axis.GetPositionAtDistance(basinAlong).y
+                          + TownShape.CrossFall(shape, basinRimAcross)
                           - terrainShape.RoadShelfDrop;
 
             var site = new HarbourMeshes.HarbourSite(
                 basinAt,
-                SeeburgCourse.BasinRadius,
+                basinRadius,
                 -seaward,
                 seaLevel,
-                seaLevel - SeeburgCourse.BasinDepth,
+                seaLevel - basinDepth,
                 quayY,
                 // Where the open sea's waterline crosses, measured from the basin's centre. The moles
                 // start there, because an arm that starts anywhere else starts in the water.
-                -SeeburgCourse.BasinAcross - SeeburgCourse.ShoreOffset);
+                -basinAcross - shoreOffset);
 
             var buffer = new VegetationMeshBuffer(HarbourMeshes.SubmeshCount);
             HarbourMeshes.AddHarbour(buffer, site);
 
-            // The rail sits just outside the boulevard's footway. Read off the street's own cross-section
-            // rather than typed, so it stays on the kerb line if the boulevard is ever widened.
             // The same figure twice: it is how far outside the kerb the rail nominally stands, and it is
             // the margin the clearance test holds it to. Two numbers here means every post on a dead
             // straight stretch counts as blocked and swings out for nothing — which is what happened.
             const float railClearance = 1.2f;
 
-            float railAcross = -(TownStreetShape.For(
-                TownStreetKind.Boulevard, terrainShape.RoadShelfDrop).HalfOuter + railClearance);
-
             HarbourMeshes.AddPromenade(buffer, axis, field, streets,
-                SeeburgCourse.CityStart + 30f, SeeburgCourse.CityEnd - 30f, railAcross, railClearance,
+                promenadeFrom, promenadeTo, railAcross, railClearance,
                 // How far the rail may lean out to get round a pad before it gives up and leaves a gap.
-                // Six metres, because the beach begins about twenty out from the boulevard's centreline
+                // Six metres, because the beach begins about twenty out from the waterfront's centreline
                 // and the rail nominally stands fourteen.
                 6f,
                 out float worstSwing, out int railGaps);
@@ -2007,15 +2155,17 @@ namespace Horizon.EditorTools
             buffer.MergeTinted(HarbourMeshes.Tints());
 
             var used = new List<int>(HarbourMeshes.SubmeshCount);
-            Mesh mesh = buffer.ToMesh("SeeburgHarbourMesh", used);
+            // Named separately from the town, because an asset path is not the place for a dotless ı.
+            string asset = assetName + "Harbour";
+            Mesh mesh = buffer.ToMesh(asset + "Mesh", used);
 
             if (mesh == null)
             {
-                Debug.LogWarning("[Horizon] Seeburg harbour: nothing was built.");
+                Debug.LogWarning($"[Horizon] {name} harbour: nothing was built.");
                 return;
             }
 
-            mesh = HorizonAssetUtility.ReplaceAsset(mesh, GeneratedFolder + "/SeeburgHarbourMesh.asset");
+            mesh = HorizonAssetUtility.ReplaceAsset(mesh, $"{GeneratedFolder}/{asset}Mesh.asset");
 
             var harbourMaterials = new Material[used.Count];
             for (int i = 0; i < used.Count; i++)
@@ -2025,7 +2175,7 @@ namespace Horizon.EditorTools
                     : materials.BuildingTint;
             }
 
-            GameObject harbour = CreateMeshObject(parent, "SeeburgHarbour", mesh, harbourMaterials);
+            GameObject harbour = CreateMeshObject(parent, asset, mesh, harbourMaterials);
 
             WorldChunk chunk = harbour.AddComponent<WorldChunk>();
             chunk.RecalculateBounds();
@@ -2039,8 +2189,8 @@ namespace Horizon.EditorTools
                 litSlotStart.Add(litSlots.Count);
             }
 
-            Debug.Log($"[Horizon] Seeburg harbour: {mesh.triangles.Length / 3} triangles in "
-                      + $"{used.Count} draw call(s) — a {SeeburgCourse.BasinRadius:0} m basin with its rim "
+            Debug.Log($"[Horizon] {name} harbour: {mesh.triangles.Length / 3} triangles in "
+                      + $"{used.Count} draw call(s) — a {basinRadius:0} m basin with its rim "
                       + $"{basinRimAcross:0} m off the waterfront, quay at {quayY:0.0} m over water at "
                       + $"{seaLevel:0.0} m, and a {HarbourMeshes.LighthouseHeight:0} m light on the mole "
                       + $"head. The promenade rail leans out up to {worstSwing:0.0} m to clear the "
@@ -2867,6 +3017,15 @@ namespace Horizon.EditorTools
                 + $"tightest radius {tightestRadius:0.0} m at {tightestAt:0} m. "
                 + $"{course.Features.Count} features.");
 
+            // Where it runs out, which is the one number the next leg is authored against: every course
+            // in this world starts at the previous one's EndPoint and EndHeading, and reading them out
+            // of the build beats deriving them by hand from a chain of turns and grades.
+            Vector3 end = path.GetPositionAtDistance(length);
+            Vector3 heading = path.GetDirectionAtDistance(length);
+
+            Debug.Log($"[Horizon] {what} ends at ({end.x:0}, {end.y:0}, {end.z:0}), heading "
+                      + $"{Mathf.Atan2(heading.x, heading.z) * Mathf.Rad2Deg:0.0}°.");
+
             // The car's minimum radius is about 4.3 m at full lock and ~8 m at the reduced lock it has
             // at speed, so 12 m is the point where a hairpin stops being generous.
             if (tightestRadius < 12f)
@@ -3635,6 +3794,28 @@ namespace Horizon.EditorTools
         /// fraction of the basin is too steep to build on. Anything but a very small percentage means the
         /// town has no room, whatever the previews look like.</para>
         /// </summary>
+        /// <summary>
+        /// The slope from a sample to one neighbour, or zero where that neighbour is not ground.
+        ///
+        /// <para>See the call site: a harbour bank is a bank, and a report about buildable area has
+        /// nothing to say about how steeply the land falls into water.</para>
+        /// </summary>
+        private static float GradeTo(
+            MountainField field, Vector3 from, float dx, float dz, float here, float step)
+        {
+            float x = from.x + dx;
+            float z = from.z + dz;
+            float there = field.HeightAt(x, z);
+
+            if (field.IsUnderWater(x, z, there, 0.5f)
+                || field.IsShore(x, z, there, ShoreFreeboard, ShoreReach))
+            {
+                return 0f;
+            }
+
+            return Mathf.Abs(there - here) / step;
+        }
+
         private static void ReportTownGround(
             MountainField field,
             IRoadPath path,
@@ -3662,8 +3843,6 @@ namespace Horizon.EditorTools
                     Vector3 point = TownShape.ToWorld(path, shape, along, across);
 
                     float here = field.HeightAt(point.x, point.z);
-                    float ahead = field.HeightAt(point.x + step, point.z);
-                    float beside = field.HeightAt(point.x, point.z + step);
 
                     // Sea bed and shore are not ground this report has anything to say about.
                     //
@@ -3695,8 +3874,17 @@ namespace Horizon.EditorTools
                     lowest = Mathf.Min(lowest, error);
                     highest = Mathf.Max(highest, error);
 
+                    // Measured only against neighbours that are themselves buildable ground.
+                    //
+                    // <b>A step down into water is not a slope a house cannot stand on, it is a bank.</b>
+                    // Skipping a sample and then using it as the neighbour of the next one measures
+                    // exactly the thing the skip exists to ignore: at Yalıköy the quay apron came out at
+                    // 33 % because the cell beside it is the inside of a dredged harbour, and Seeburg's
+                    // equivalent sat just under the threshold by two-tenths of a metre of freeboard
+                    // rather than by being any different.
                     float grade = Mathf.Max(
-                        Mathf.Abs(ahead - here) / step, Mathf.Abs(beside - here) / step);
+                        GradeTo(field, point, step, 0f, here, step),
+                        GradeTo(field, point, 0f, step, here, step));
 
                     if (grade > steepest)
                     {
@@ -4688,7 +4876,7 @@ namespace Horizon.EditorTools
         /// </summary>
         private static List<Vector3> DrawCallStations(
             RoadPath path, RoadPath motorway, RoadPath arterial, RoadPath seeburgAxis,
-            RoadPath ebental, RoadPath kalkgrat, RoadPath meerenge)
+            RoadPath ebental, RoadPath kalkgrat, RoadPath meerenge, RoadPath yalikoy)
         {
             var stations = new List<Vector3>(22);
 
@@ -4757,6 +4945,17 @@ namespace Horizon.EditorTools
                 stations.Add(seeburgAxis.GetPositionAtDistance(SeeburgCourse.BasinAlong));
                 stations.Add(seeburgAxis.GetPositionAtDistance(SeeburgCourse.GatewayAlong)
                              + seeburgAxis.GetRightAtDistance(SeeburgCourse.GatewayAlong) * 150f);
+            }
+
+            if (yalikoy != null)
+            {
+                // On the seafront at the harbour, and up on the hairpins behind the village where the
+                // whole of it is in frame at once — which is the frame this leg is built for and
+                // therefore the one that has to be counted.
+                stations.Add(yalikoy.GetPositionAtDistance(
+                    Mathf.Min(YalikoyCourse.BasinAlong, yalikoy.Length)));
+                stations.Add(yalikoy.GetPositionAtDistance(
+                    Mathf.Min(YalikoyCourse.CityEnd + 500f, yalikoy.Length)));
             }
 
             return stations;
@@ -6459,6 +6658,92 @@ namespace Horizon.EditorTools
             }
         }
 
+        /// <summary>
+        /// Measures the longest stretch of deck with nothing under it, and says so.
+        ///
+        /// <para><b>The question <see cref="ValidateBridges"/> cannot ask.</b> That one measures the air
+        /// between the deck and the ground, and a deck standing on nothing at all over a nine-metre hole
+        /// is the best score it can give. Both halves of a bridge are needed and they are built by
+        /// different code: <c>IsBridged</c> takes the ground away for either kind of span, and only
+        /// <c>BridgeBuilder</c> and <c>SuspensionBridgeBuilder</c> put anything back. The suspension
+        /// crossing's two side spans were a hundred and fifty metres of carriageway each, over carved-out
+        /// air, held up by nothing whatever — and the build reported a clean world.</para>
+        ///
+        /// <para>Walks the list the builders filled rather than working out for itself where a pier
+        /// belongs. A checker with its own opinion about pier spacing agrees with the builder right up
+        /// until one of them is wrong, and then reports the wrong one as correct.</para>
+        /// </summary>
+        private static void ValidateBridgeSupport(
+            RoadCourse course,
+            List<float> supports,
+            string what)
+        {
+            if (course == null)
+            {
+                return;
+            }
+
+            // A bay longer than this reads as a deck floating: it is a pier spacing and a half, which is
+            // the most any span here is ever meant to cross without something under or over it.
+            const float LongestBay = 60f;
+
+            supports.Sort();
+
+            for (int i = 0; i < course.Features.Count; i++)
+            {
+                RoadFeature feature = course.Features[i];
+                if (feature.Kind != RoadFeatureKind.Bridge
+                    && feature.Kind != RoadFeatureKind.Suspension)
+                {
+                    continue;
+                }
+
+                float previous = feature.StartDistance;
+                float worst = 0f;
+                float worstAt = feature.StartDistance;
+                int count = 0;
+
+                for (int j = 0; j < supports.Count; j++)
+                {
+                    float at = supports[j];
+                    if (at < feature.StartDistance - 0.5f || at > feature.EndDistance + 0.5f)
+                    {
+                        continue;
+                    }
+
+                    count++;
+                    float bay = at - previous;
+                    if (bay > worst)
+                    {
+                        worst = bay;
+                        worstAt = previous;
+                    }
+
+                    previous = at;
+                }
+
+                float last = feature.EndDistance - previous;
+                if (last > worst)
+                {
+                    worst = last;
+                    worstAt = previous;
+                }
+
+                Debug.Log($"[Horizon] Bridge support '{feature.Name}': {count} support(s) over "
+                          + $"{feature.Length:0} m, longest unsupported bay {worst:0} m.");
+
+                if (worst > LongestBay)
+                {
+                    Debug.LogWarning(
+                        $"[Horizon] Bridge '{feature.Name}' has {worst:0} m of deck with nothing under "
+                        + $"or over it, starting {worstAt:0} m along {what}. MountainField has already "
+                        + "taken the ground away — a span is only a span because of that — so this is "
+                        + "carriageway hanging in mid-air. Either the builder skipped its piers (too "
+                        + "short a span, or feet in deep water) or nothing is hanging the deck there.");
+                }
+            }
+        }
+
         private static void ValidateRoadClearance(
             IRoadPath path,
             in RoadShape roadShape,
@@ -6550,13 +6835,26 @@ namespace Horizon.EditorTools
             mesh = HorizonAssetUtility.ReplaceAsset(
                 mesh, $"{GeneratedFolder}/GuardRail{label}Mesh.asset");
 
-            // No collider: the rails are visual. Hitting one should not be a wall the car can lean on
-            // until the vehicle has a proper collision response, and a concave mesh collider here would
-            // catch the car in ways that feel arbitrary.
-            CreateMeshObject(parent, "GuardRails" + label, mesh, new[] { materials.GuardRail },
-                addCollider: false, markStatic: true);
+            // Solid, but not against the mesh above. A collider taken from the rail as drawn is a row of
+            // re-entrant corners every four metres and the car catches on each of them — which is what
+            // the old "the rails are visual" decision was really objecting to. GuardRailBuilder walks the
+            // same plan a second time and returns a smooth wall along it, so the car is held and slides
+            // off. Until this, nothing at the edge of any road in the world was solid.
+            Mesh collision = GuardRailBuilder.BuildCollision(
+                path, roadShape, field, course, $"GuardRail{label}CollisionMesh");
 
-            Debug.Log($"[Horizon] Guard rails on {Where(label)}: {triangles} triangles.");
+            if (collision != null)
+            {
+                collision = HorizonAssetUtility.ReplaceAsset(
+                    collision, $"{GeneratedFolder}/GuardRail{label}CollisionMesh.asset");
+            }
+
+            CreateMeshObject(parent, "GuardRails" + label, mesh, new[] { materials.GuardRail },
+                addCollider: collision != null, markStatic: true, collisionMesh: collision);
+
+            int collisionTriangles = collision == null ? 0 : collision.triangles.Length / 3;
+            Debug.Log($"[Horizon] Guard rails on {Where(label)}: {triangles} triangles, "
+                      + $"{collisionTriangles} of collision.");
         }
 
         /// <summary>
@@ -7014,8 +7312,9 @@ namespace Horizon.EditorTools
             mesh = HorizonAssetUtility.ReplaceAsset(
                 mesh, $"{GeneratedFolder}/Delineator{label}Mesh.asset");
 
-            // No collider, for the same reason the guard rails have none: a post is a marker, not
-            // something the car should be able to lean on.
+            // No collider, and now the only roadside furniture without one: a delineator is a marker
+            // rather than a barrier, it stands where there is nothing to fall off, and a car that
+            // clipped one should carry on rather than be stopped by a plastic post.
             CreateMeshObject(parent, "Delineators" + label, mesh,
                 new[] { materials.Delineator, materials.DelineatorReflector },
                 addCollider: false, markStatic: true);
@@ -7043,19 +7342,25 @@ namespace Horizon.EditorTools
             int triangles = mesh.triangles.Length / 3;
             mesh = HorizonAssetUtility.ReplaceAsset(mesh, GeneratedFolder + "/MedianBarrierMesh.asset");
 
-            CreateMeshObject(parent, "MedianBarrier", mesh, new[] { materials.GuardRail },
-                addCollider: false, markStatic: true);
+            // The longest continuous barrier in the world, so the one whose collision budget matters:
+            // the wall takes a cross-section every 24 m against the posts' 12, which is why this is a
+            // few thousand triangles of physics rather than a few tens of thousands.
+            Mesh collision = GuardRailBuilder.BuildMedianCollision(centre, roadShape, course);
 
-            Debug.Log($"[Horizon] Median barrier: {triangles} triangles.");
+            if (collision != null)
+            {
+                collision = HorizonAssetUtility.ReplaceAsset(
+                    collision, GeneratedFolder + "/MedianBarrierCollisionMesh.asset");
+            }
+
+            CreateMeshObject(parent, "MedianBarrier", mesh, new[] { materials.GuardRail },
+                addCollider: collision != null, markStatic: true, collisionMesh: collision);
+
+            int collisionTriangles = collision == null ? 0 : collision.triangles.Length / 3;
+            Debug.Log($"[Horizon] Median barrier: {triangles} triangles, "
+                      + $"{collisionTriangles} of collision.");
         }
 
-        /// <summary>
-        /// Every viaduct on a course, as one mesh per carriageway.
-        ///
-        /// <para>The parapet gets a collider and the rest does not. A car that leaves the deck should
-        /// hit something rather than fall through the world, but a concave collider wrapped round piers
-        /// forty metres below is a large amount of geometry nothing can ever reach.</para>
-        /// </summary>
         /// <summary>
         /// The suspension crossing, on a chunk that never unloads.
         ///
@@ -7076,8 +7381,9 @@ namespace Horizon.EditorTools
             string label)
         {
             var used = new List<int>();
+            var supports = new List<float>();
             Mesh mesh = SuspensionBridgeBuilder.Build(
-                path, roadShape, field, course, shape, used, "Suspension" + label);
+                path, roadShape, field, course, shape, used, "Suspension" + label, supports);
 
             if (mesh == null)
             {
@@ -7108,15 +7414,28 @@ namespace Horizon.EditorTools
                 }
             }
 
+            Mesh collision = SuspensionBridgeBuilder.BuildParapetCollision(
+                path, roadShape, course, $"SuspensionParapetCollision{label}Mesh");
+
+            if (collision != null)
+            {
+                collision = HorizonAssetUtility.ReplaceAsset(
+                    collision, $"{GeneratedFolder}/Suspension{label}CollisionMesh.asset");
+            }
+
             GameObject bridge = CreateMeshObject(parent, "SuspensionBridges" + label, mesh, slots,
-                addCollider: false, markStatic: true);
+                addCollider: collision != null, markStatic: true, collisionMesh: collision);
 
             WorldChunk chunk = bridge.AddComponent<WorldChunk>();
             chunk.RecalculateBounds();
             chunk.SetBounds(chunk.Center, 100000f);
 
+            int collisionTriangles = collision == null ? 0 : collision.triangles.Length / 3;
             Debug.Log($"[Horizon] Suspension bridges on {Where(label)}: {triangles} triangles, "
-                      + $"{used.Count} material slot(s), never streamed out.");
+                      + $"{used.Count} material slot(s), {collisionTriangles} of parapet collision, "
+                      + "never streamed out.");
+
+            ValidateBridgeSupport(course, supports, $"the crossing on {Where(label)}");
         }
 
         /// <summary>
@@ -7135,10 +7454,13 @@ namespace Horizon.EditorTools
         /// </summary>
         private static void ValidateSuspensionBridges(
             IRoadPath path,
+            in RoadShape roadShape,
             MountainField field,
             RoadCourse course,
             in SuspensionShape shape)
         {
+            ValidateStructureClearsTheRoad(roadShape);
+
             for (int i = 0; i < course.Features.Count; i++)
             {
                 RoadFeature feature = course.Features[i];
@@ -7223,6 +7545,60 @@ namespace Horizon.EditorTools
             }
         }
 
+        /// <summary>
+        /// The fifth question: does any of this structure stand in the road it is carrying?
+        ///
+        /// <para><b>The check that would have caught the entrance.</b> Every structural offset on the
+        /// crossing used to be one number sized for a cable, and handed to bodies metres across: the
+        /// tower foundations' inner faces landed exactly on the edge of the asphalt and the anchor
+        /// blocks' landed two metres inside the lane, leaving 6.3 m of clear width on a 13.5 m road, as
+        /// seven-metre concrete walls at the two ends. The build said nothing — every other check here
+        /// looks up, down or along, and none of them looks across.</para>
+        ///
+        /// <para>Asked of the shape rather than of the mesh, because the shape is where the fault was:
+        /// the answer is the same at every station of a structure whose cross-section does not
+        /// change.</para>
+        /// </summary>
+        private static void ValidateStructureClearsTheRoad(in RoadShape roadShape)
+        {
+            // Half a metre outside the asphalt. Not the shoulder's edge: a shoulder is where a car ends
+            // up when something has gone wrong, and that is exactly when it must not find a tower.
+            float mustClear = roadShape.HalfWidth + 0.5f;
+
+            SuspensionBridgeBuilder.InnerFaces(roadShape,
+                out float foundation, out float shaft, out float anchor);
+
+            float narrowest = Mathf.Min(foundation, Mathf.Min(shaft, anchor));
+
+            Debug.Log($"[Horizon] Crossing clear width: {narrowest * 2f:0.0} m between the structure's "
+                      + $"inner faces, against {roadShape.HalfWidth * 2f:0.0} m of carriageway and "
+                      + $"{roadShape.OuterHalfWidth * 2f:0.0} m paved. Tower foundation {foundation:0.0} m, "
+                      + $"shaft {shaft:0.0} m, anchor block {anchor:0.0} m from the centreline.");
+
+            WarnIfInTheRoad("tower foundation", foundation, mustClear, roadShape);
+            WarnIfInTheRoad("tower shaft", shaft, mustClear, roadShape);
+            WarnIfInTheRoad("anchor block", anchor, mustClear, roadShape);
+        }
+
+        private static void WarnIfInTheRoad(
+            string what,
+            float innerFace,
+            float mustClear,
+            in RoadShape roadShape)
+        {
+            if (innerFace >= mustClear)
+            {
+                return;
+            }
+
+            Debug.LogWarning(
+                $"[Horizon] The crossing's {what} reaches to {innerFace:0.00} m from the centreline, "
+                + $"inside the {roadShape.HalfWidth:0.00} m edge of the carriageway. That is a driver "
+                + "arriving at the bridge and finding the road narrower than the one they are on. The "
+                + "structure's lateral axes come from SuspensionBridgeBuilder.DeckOverhang and "
+                + "AnchorClearance; widening the deck is the fix, not moving the block.");
+        }
+
         /// <summary>The surface of whatever open water stands at a point, if any does.</summary>
         private static bool TryWaterUnder(MountainField field, float x, float z, out float surface)
         {
@@ -7242,6 +7618,18 @@ namespace Horizon.EditorTools
             return false;
         }
 
+        /// <summary>
+        /// Every viaduct on a course, as one mesh per carriageway.
+        ///
+        /// <para>The parapet gets a collider and the rest does not. A car that leaves the deck should
+        /// hit something rather than fall through the world, but a concave collider wrapped round piers
+        /// forty metres below is a large amount of geometry nothing can ever reach.</para>
+        ///
+        /// <para>This paragraph stood for some time over the wrong method, saying what the build ought
+        /// to do while every bridge in the world was created with <c>addCollider: false</c>. Worth
+        /// keeping the note: a doc comment is not a test, and this one read as a decision that had been
+        /// taken.</para>
+        /// </summary>
         private static void BuildBridges(
             Transform parent,
             IRoadPath path,
@@ -7252,7 +7640,9 @@ namespace Horizon.EditorTools
             string label)
         {
             var used = new List<int>();
-            Mesh mesh = BridgeBuilder.Build(path, roadShape, field, course, used, "Bridge" + label);
+            var supports = new List<float>();
+            Mesh mesh = BridgeBuilder.Build(
+                path, roadShape, field, course, used, "Bridge" + label, supports);
 
             if (mesh == null)
             {
@@ -7270,10 +7660,27 @@ namespace Horizon.EditorTools
                     : materials.Concrete;
             }
 
-            CreateMeshObject(parent, "Bridges" + label, mesh, slots,
-                addCollider: false, markStatic: true);
+            // The parapet is solid and the piers are not. A car that leaves the deck should hit
+            // something rather than fall through the world; a concave collider wrapped round legs forty
+            // metres below is a large amount of geometry nothing can ever reach — so the collision mesh
+            // is the parapet line alone, as a smooth wall. Same split the tunnels use.
+            Mesh collision = BridgeBuilder.BuildParapetCollision(
+                path, roadShape, course, $"BridgeParapetCollision{label}Mesh");
 
-            Debug.Log($"[Horizon] Bridges on {Where(label)}: {triangles} triangles.");
+            if (collision != null)
+            {
+                collision = HorizonAssetUtility.ReplaceAsset(
+                    collision, $"{GeneratedFolder}/Bridge{label}CollisionMesh.asset");
+            }
+
+            CreateMeshObject(parent, "Bridges" + label, mesh, slots,
+                addCollider: collision != null, markStatic: true, collisionMesh: collision);
+
+            int collisionTriangles = collision == null ? 0 : collision.triangles.Length / 3;
+            Debug.Log($"[Horizon] Bridges on {Where(label)}: {triangles} triangles, "
+                      + $"{collisionTriangles} of parapet collision.");
+
+            ValidateBridgeSupport(course, supports, $"the bridges on {Where(label)}");
         }
 
         private static string Where(string label)

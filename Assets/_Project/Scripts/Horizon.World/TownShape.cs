@@ -381,6 +381,80 @@ namespace Horizon.World
             Landmarks = false,
         };
 
+        /// <summary>
+        /// Yalıköy: a fishing village on a bay, with the road running along its water.
+        ///
+        /// <para><b>Seeburg's arrangement on Talheim's scale, and it hangs off the driving road rather
+        /// than an axis.</b> The seafront is a dead straight — see <see cref="YalikoyCourse"/> — so the
+        /// town-local mapping never folds and the village needs no coordinate system of its own. What it
+        /// takes from Seeburg is the shape of the ground: a floor climbing away from a waterline that
+        /// sits just outside the trunk road, an open shore instead of a skirt on that side, and a
+        /// seaward apron far wider than anything built on it.</para>
+        ///
+        /// <para><b>No dish, for Seeburg's reason.</b> The deterministic half-percent roll is worth
+        /// having in a valley, where it stops a levelled basin reading as a table. Here the basin has a
+        /// bay falling off one edge and a hillside climbing off the other, so the job is already done —
+        /// and the roll would put twenty centimetres of unpredictable height under a quay wall whose
+        /// coping is laid flat from the course.</para>
+        ///
+        /// <para><b>Landmarks on, unlike Seeburg.</b> A village landmark is a silhouette against the
+        /// sky, and <c>TownPlanner.AddMosque</c> searches the basin for its highest ground — which here
+        /// is the terrace at the back of the village, above every roof and in frame from the whole bay.
+        /// Seeburg turns them off because it has a lighthouse and a mosque of its own, placed by
+        /// hand.</para>
+        /// </summary>
+        public static TownShape Yalikoy => new TownShape
+        {
+            AlongStart = YalikoyCourse.CityStart,
+            AlongEnd = YalikoyCourse.CityEnd,
+
+            TownSide = 1f,
+            AcrossInner = -YalikoyCourse.Seaward,
+            AcrossOuter = YalikoyCourse.Inland,
+
+            SamplePitch = 28f,
+
+            // Read out of the course rather than typed here, because the bay's own surface is derived
+            // from the same three numbers: see YalikoyCourse.CrossFallNear.
+            CrossFallNear = YalikoyCourse.CrossFallNear,
+            CrossFallFar = YalikoyCourse.CrossFallFar,
+            CrossFallBreak = YalikoyCourse.CrossFallBreak,
+
+            // None. See the class remarks.
+            DishAmplitude = 0f,
+            DishWavelength = 380f,
+
+            SkirtFirstRise = 3f,
+            SkirtSecondRise = 8f,
+
+            // …but only on three sides. The fourth is the bay, and a seven-metre earth bank between the
+            // quay and the water is a bank built at the one place the whole village is looking at.
+            OpenShore = true,
+
+            CorridorMargin = 60f,
+            MaxTrianglesPerTile = 30000,
+
+            PlotSetback = 14f,
+            ParkedCarChance = 0.35f,
+
+            LampSpacing = 42f,
+            LampSpacingCore = 30f,
+            LampSpacingOuter = 45f,
+
+            // A working harbour has sheds behind it as well as on the quay.
+            WorkingBuildingChance = 0.10f,
+
+            PlotClearance = 2.5f,
+            TreeKeepOut = 4f,
+
+            TrunkHalfWidth = RoadShape.Default.OuterHalfWidth,
+
+            // The seafront road is the village's own street as well as the road through it, so it gets
+            // the lamps a village street gets.
+            TrunkLamps = true,
+            Landmarks = true,
+        };
+
         /// <summary>Which way the town lies from the trunk road, as a clean ±1.</summary>
         public float Side => Mathf.Sign(TownSide == 0f ? -1f : TownSide);
 
