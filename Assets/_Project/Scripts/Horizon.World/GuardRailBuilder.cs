@@ -65,26 +65,30 @@ namespace Horizon.World
         /// single draw call is cheaper than the bookkeeping of streaming it. Worth revisiting only if the
         /// world grows far beyond one pass.
         /// </summary>
-        public static Mesh Build(
+        /// <summary>
+        /// Where a rail stands, walked once and used twice.
+        ///
+        /// <para>Pulled out of <see cref="Build"/> when <see cref="BuildCollision"/> arrived, and that is
+        /// the whole reason it exists: what the driver sees and what the car hits are different meshes,
+        /// and there must not be two opinions about which stretches of verge are exposed. A wall in a
+        /// place with no rail is worse than either.</para>
+        /// </summary>
+        private static void Plan(
             IRoadPath path,
             in RoadShape roadShape,
             MountainField field,
             RoadCourse course,
-            string meshName = "GuardRailMesh")
+            out bool[,] needed,
+            out Vector3[,] anchors,
+            out Vector3[] ups,
+            out int steps)
         {
             float length = path.Length;
-            int steps = Mathf.Max(2, Mathf.CeilToInt(length / PostSpacing) + 1);
+            steps = Mathf.Max(2, Mathf.CeilToInt(length / PostSpacing) + 1);
 
-            var vertices = new List<Vector3>(2048);
-            var normals = new List<Vector3>(2048);
-            var uvs = new List<Vector2>(2048);
-            var triangles = new List<int>(4096);
-
-            // Two passes over the same walk: decide first, build second, so a rail can be drawn between
-            // consecutive posts only where both ends want one.
-            var needed = new bool[steps, 2];
-            var anchors = new Vector3[steps, 2];
-            var ups = new Vector3[steps];
+            needed = new bool[steps, 2];
+            anchors = new Vector3[steps, 2];
+            ups = new Vector3[steps];
 
             for (int step = 0; step < steps; step++)
             {
@@ -135,7 +139,25 @@ namespace Horizon.World
                     needed[step, side] = anchor.y - groundHeight > DropThreshold;
                 }
             }
+        }
 
+        public static Mesh Build(
+            IRoadPath path,
+            in RoadShape roadShape,
+            MountainField field,
+            RoadCourse course,
+            string meshName = "GuardRailMesh")
+        {
+            Plan(path, roadShape, field, course,
+                out bool[,] needed, out Vector3[,] anchors, out Vector3[] ups, out int steps);
+
+            var vertices = new List<Vector3>(2048);
+            var normals = new List<Vector3>(2048);
+            var uvs = new List<Vector2>(2048);
+            var triangles = new List<int>(4096);
+
+            // Second pass over the same walk, so a rail can be drawn between consecutive posts only
+            // where both ends want one.
             for (int step = 0; step < steps; step++)
             {
                 for (int side = 0; side < 2; side++)
@@ -159,19 +181,7 @@ namespace Horizon.World
                 }
             }
 
-            if (triangles.Count == 0)
-            {
-                return null;
-            }
-
-            var mesh = new Mesh { name = meshName };
-            mesh.indexFormat = vertices.Count > 65000 ? IndexFormat.UInt32 : IndexFormat.UInt16;
-            mesh.SetVertices(vertices);
-            mesh.SetNormals(normals);
-            mesh.SetUVs(0, uvs);
-            mesh.SetTriangles(triangles, 0);
-            mesh.RecalculateBounds();
-            return mesh;
+            return ToMesh(meshName, vertices, normals, uvs, triangles);
         }
 
         /// <summary>
@@ -252,6 +262,164 @@ namespace Horizon.World
                 }
             }
 
+            return ToMesh(meshName, vertices, normals, uvs, triangles);
+        }
+
+        /// <summary>
+        /// Height of the wall the car actually hits, metres.
+        ///
+        /// <para>Just under the post, so the barrier never stands proud of the thing it is standing in.
+        /// It is not the beam's height: a wall that started at the beam would let a wheel through
+        /// underneath and drop the car off the mountain between two posts, which is the failure this
+        /// whole mesh exists to stop.</para>
+        /// </summary>
+        private const float BarrierHeight = 0.75f;
+
+        /// <summary>Thickness of that wall. Wide enough that a fast glancing hit cannot tunnel it.</summary>
+        private const float BarrierThickness = 0.25f;
+
+        /// <summary>
+        /// How many posts a single collision segment spans.
+        ///
+        /// <para>Six, so a cross-section every 24 m. What is being approximated is a straight wall and
+        /// the chord error on the tightest hairpin here is a couple of centimetres, against six times
+        /// fewer triangles for PhysX to cook and keep resident along every exposed verge in the
+        /// world.</para>
+        /// </summary>
+        private const int BarrierPostsPerSegment = 6;
+
+        /// <summary>
+        /// The guard rails as the car meets them: a smooth wall along the same line, with no posts in it.
+        ///
+        /// <para><b>Deliberately not the mesh above.</b> A <c>MeshCollider</c> taken from the rail as
+        /// drawn is a row of re-entrant corners every four metres, and a car sliding along it catches on
+        /// each one — which is what the old "no collider at all" decision was really objecting to. It
+        /// also meant nothing at the edge of any road in the world was solid, so the rails were a
+        /// picture of a barrier and the drop behind them was open. A plain wall in the same place
+        /// answers both: the car is held and slides off, and the posts stay a picture.</para>
+        ///
+        /// <para>Runs only where <see cref="Plan"/> says a rail stands, from the same walk, because a
+        /// wall somewhere there is visibly nothing is worse than no wall at all.</para>
+        /// </summary>
+        public static Mesh BuildCollision(
+            IRoadPath path,
+            in RoadShape roadShape,
+            MountainField field,
+            RoadCourse course,
+            string meshName = "GuardRailCollisionMesh")
+        {
+            Plan(path, roadShape, field, course,
+                out bool[,] needed, out Vector3[,] anchors, out Vector3[] ups, out int steps);
+
+            var vertices = new List<Vector3>(2048);
+            var normals = new List<Vector3>(2048);
+            var uvs = new List<Vector2>(2048);
+            var triangles = new List<int>(4096);
+
+            for (int side = 0; side < 2; side++)
+            {
+                int step = 0;
+                while (step < steps)
+                {
+                    if (!needed[step, side])
+                    {
+                        step++;
+                        continue;
+                    }
+
+                    // The whole unbroken run, then walled in segments across it — rather than one
+                    // segment per post — so the wall has no joint where the rail has none.
+                    int end = step;
+                    while (end + 1 < steps && needed[end + 1, side])
+                    {
+                        end++;
+                    }
+
+                    for (int from = step; from < end; from += BarrierPostsPerSegment)
+                    {
+                        int to = Mathf.Min(end, from + BarrierPostsPerSegment);
+                        AddWall(anchors[from, side], anchors[to, side], ups[from], ups[to],
+                            vertices, normals, uvs, triangles);
+                    }
+
+                    step = end + 1;
+                }
+            }
+
+            return ToMesh(meshName, vertices, normals, uvs, triangles);
+        }
+
+        /// <summary>The median barrier as the car meets it. See <see cref="BuildCollision"/>.</summary>
+        public static Mesh BuildMedianCollision(
+            IRoadPath centre,
+            in RoadShape roadShape,
+            RoadCourse course,
+            string meshName = "MedianBarrierCollisionMesh")
+        {
+            float length = centre.Length;
+            int steps = Mathf.Max(2, Mathf.CeilToInt(length / (MedianPostSpacing * 2f)) + 1);
+
+            var vertices = new List<Vector3>(4096);
+            var normals = new List<Vector3>(4096);
+            var uvs = new List<Vector2>(4096);
+            var triangles = new List<int>(8192);
+
+            var anchors = new Vector3[steps];
+            var ups = new Vector3[steps];
+
+            for (int step = 0; step < steps; step++)
+            {
+                float distance = length * step / (steps - 1);
+
+                Vector3 right = centre.GetBankedRightAtDistance(
+                    distance, roadShape.MaxBankDegrees, roadShape.FullBankRadius);
+
+                Vector3 up = Vector3.Cross(centre.GetDirectionAtDistance(distance), right).normalized;
+                ups[step] = up.y < 0f ? -up : up;
+
+                anchors[step] = centre.GetPositionAtDistance(distance) - ups[step] * roadShape.ShoulderDrop;
+            }
+
+            for (int step = 0; step + 1 < steps; step++)
+            {
+                AddWall(anchors[step], anchors[step + 1], ups[step], ups[step + 1],
+                    vertices, normals, uvs, triangles);
+            }
+
+            return ToMesh(meshName, vertices, normals, uvs, triangles);
+        }
+
+        /// <summary>One closed length of wall, standing on the verge and squared to the road.</summary>
+        private static void AddWall(
+            Vector3 fromAnchor,
+            Vector3 toAnchor,
+            Vector3 fromUp,
+            Vector3 toUp,
+            List<Vector3> vertices,
+            List<Vector3> normals,
+            List<Vector2> uvs,
+            List<int> triangles)
+        {
+            Vector3 along = toAnchor - fromAnchor;
+            if (along.sqrMagnitude < 0.0001f)
+            {
+                return;
+            }
+
+            Vector3 up = (fromUp + toUp).normalized;
+            Vector3 side = Vector3.Cross(along.normalized, up).normalized * BarrierThickness;
+
+            AddRectangularTube(fromAnchor, toAnchor, side, up * BarrierHeight,
+                vertices, normals, uvs, triangles);
+        }
+
+        private static Mesh ToMesh(
+            string meshName,
+            List<Vector3> vertices,
+            List<Vector3> normals,
+            List<Vector2> uvs,
+            List<int> triangles)
+        {
             if (triangles.Count == 0)
             {
                 return null;
