@@ -1813,7 +1813,10 @@ namespace Horizon.EditorTools
                 {
                     new TrafficNetworkBuilder.OnwardRoad(kalkgratPath, roadShape),
                     new TrafficNetworkBuilder.OnwardRoad(meerengePath, roadShape),
-                    new TrafficNetworkBuilder.OnwardRoad(yalikoyPath, roadShape),
+                    // With its town, unlike the two before it: Yalıköy hangs off this very road and
+                    // puts four junctions on it. See TrafficNetworkBuilder.OnwardRoad.Town.
+                    new TrafficNetworkBuilder.OnwardRoad(
+                        yalikoyPath, roadShape, System.Array.IndexOf(towns, yalikoy)),
                 });
 
             // After the routes exist, because the phase the lenses show is read off the same asset the

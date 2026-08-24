@@ -38,10 +38,28 @@ namespace Horizon.World
             public readonly IRoadPath Path;
             public readonly RoadShape Shape;
 
-            public OnwardRoad(IRoadPath path, in RoadShape shape)
+            /// <summary>
+            /// The settlement whose junctions cut this road, as an index into the networks handed to
+            /// <see cref="Build"/>, or −1 for a road with no town on it.
+            ///
+            /// <para><b>This is a field because it was a comment, and the comment went stale.</b> Every
+            /// onward road was handed <c>null</c> for its network, justified by a note saying none of
+            /// them had a settlement whose junctions could cut it. That was true when it was written and
+            /// stopped being true the day Yalıköy was hung off its own seafront: four <c>OnTrunkRoad</c>
+            /// quay nodes, none of them cutting anything, so the front was one unbroken lane pair past
+            /// all four and <c>AddConnectors</c> could build no turn between the village and its own
+            /// harbour. The traffic drove through the place without ever entering it.</para>
+            ///
+            /// <para>An index rather than the network itself, so it is the same handle the rest of this
+            /// method uses and <c>nodeOffset</c> applies to it without a second lookup.</para>
+            /// </summary>
+            public readonly int Town;
+
+            public OnwardRoad(IRoadPath path, in RoadShape shape, int town = -1)
             {
                 Path = path;
                 Shape = shape;
+                Town = town;
             }
         }
 
@@ -333,14 +351,19 @@ namespace Horizon.World
                 AddTrunkLanes(null, country, countryShape, roadEndNode, countryEndNode,
                     lanes, entryNode, exitNode);
 
-                // Chained: each starts at the node the one before it ended on. No network for any of
-                // them either, for the reason above — none has a settlement whose junctions could cut it.
+                // Chained: each starts at the node the one before it ended on. Each is handed its own
+                // settlement when it has one, so the cut list can break the lane at that town's
+                // junctions — see OnwardRoad.Town for what handing every one of them null cost.
                 int previous = countryEndNode;
 
                 for (int i = 0; i < onwardCount; i++)
                 {
-                    AddTrunkLanes(null, onward[i].Path, onward[i].Shape, previous, onwardEndNode[i],
-                        lanes, entryNode, exitNode);
+                    int town = onward[i].Town;
+                    StreetNetwork on = town >= 0 && town < networks.Count ? networks[town] : null;
+                    int offset = on != null ? nodeOffset[town] : 0;
+
+                    AddTrunkLanes(on, onward[i].Path, onward[i].Shape, previous, onwardEndNode[i],
+                        lanes, entryNode, exitNode, offset);
 
                     previous = onwardEndNode[i];
                 }
@@ -351,9 +374,14 @@ namespace Horizon.World
                 // Its town is handed in only so the cut list can look for junctions on it, and there are
                 // none: Seeburg's axis is never paved, so nothing in that table is OnTrunkRoad. What this
                 // builds is one lane each way over the whole road, ending at the two junctions above.
+                //
+                // Its node offset goes in all the same. Nothing depends on it while that table has no
+                // trunk node, which is precisely why it would be handed the wrong numbering in silence
+                // the first time somebody added one — Seeburg is the third settlement, so its indices
+                // are not the flat ones and a cut would land on a junction in Talheim.
                 AddTrunkLanes(networks[coastEndTown], coast, coastShape,
                     highwayWestNode, nodeOffset[coastEndTown] + coastEndNode,
-                    lanes, entryNode, exitNode);
+                    lanes, entryNode, exitNode, nodeOffset[coastEndTown]);
             }
 
             if (highway != null)
@@ -548,6 +576,16 @@ namespace Horizon.World
         /// town sits on — so the alternative to null is a road cut at distances belonging to a different
         /// road.</para>
         /// </summary>
+        /// <param name="nodeOffset">
+        /// What to add to a node index of <paramref name="network"/> to reach the flat numbering
+        /// everything downstream uses.
+        ///
+        /// <para>Zero for the pass, whose town is the first in the list and therefore already flat, and
+        /// that is exactly why this parameter did not exist: the one caller that passed a network passed
+        /// <c>networks[0]</c>. A second one that does not — Yalıköy is the fourth settlement — would
+        /// otherwise cut its lanes at Talheim's junction indices, which is a lane ending at a node five
+        /// kilometres away on a different road.</para>
+        /// </param>
         private static void AddTrunkLanes(
             StreetNetwork network,
             IRoadPath trunk,
@@ -556,7 +594,8 @@ namespace Horizon.World
             int roadEndNode,
             LaneBuffer lanes,
             List<int> entryNode,
-            List<int> exitNode)
+            List<int> exitNode,
+            int nodeOffset = 0)
         {
             if (trunk == null || trunk.Length < MinimumTrunkLane)
             {
@@ -583,7 +622,7 @@ namespace Horizon.World
                     slot++;
                 }
 
-                cutNode.Insert(slot, i);
+                cutNode.Insert(slot, nodeOffset + i);
                 cutAt.Insert(slot, Mathf.Clamp(node.AlongTrunk, 0f, trunk.Length));
                 cutGap.Insert(slot, MouthHalf(network, node));
             }
