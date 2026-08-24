@@ -131,16 +131,28 @@ namespace Horizon.World
         public int MaxTrianglesPerTile;
 
         /// <summary>
-        /// What the whole pass costs at the settings below, measured rather than estimated, so the next
+        /// What the whole world costs at the settings below, measured rather than estimated, so the next
         /// person changing a density knows what they are moving away from.
         ///
-        /// 55 tiles, about 290k triangles of vegetation in the world, densest tile just under 10k. What is
-        /// drawn is only what the frustum keeps: the camera's far plane is 600 m and a tile is 168 m, so
-        /// roughly a dozen tiles are in view, around 60k triangles a frame. Chunk streaming barely helps
-        /// here — the pass is about 1.4 km across and the load radius is 650 m, so nearly every tile is
-        /// resident nearly all the time. Frustum culling is what does the work.
+        /// <para>1332 tiles, 5.91 M triangles of vegetation, densest tile 20 062 — 184 676 shrubs,
+        /// 67 813 tufts, 37 183 conifers, 31 765 broadleaves. Measured off a full rebuild of the world as
+        /// it stands, with the pass, the Ebental, the Kalkgrat, the Meerenge and Yalıköy all in it.</para>
+        ///
+        /// <para><b>The figure this replaced said 290 000 over 55 tiles, and it had been wrong by twenty
+        /// times for three features.</b> It was measured when the world was one mountain pass and was
+        /// never re-taken as four more legs were built on. That is worth recording rather than quietly
+        /// correcting: this constant exists to tell somebody what they are moving away from, and a stale
+        /// one tells them to move away from a world that no longer exists. Re-measure it whenever a leg
+        /// is added — the number is in the build log, on the line beginning "Vegetation:".</para>
+        ///
+        /// <para><b>The total is not the frame cost, and the distinction is what makes the total
+        /// affordable.</b> What is drawn is what the frustum keeps: the far plane is 600 m and a tile is
+        /// 168 m, so roughly a dozen tiles are in view — order 50k triangles a frame, near enough
+        /// unchanged since the world was a fifth of this size. Growing the world costs streaming and
+        /// memory; growing <i>a tile</i> costs frame time. <see cref="MaxTrianglesPerTile"/> is the
+        /// number that actually guards anything.</para>
         /// </summary>
-        public const int MeasuredWorldTriangles = 290000;
+        public const int MeasuredWorldTriangles = 5908380;
 
         public static VegetationShape Default => new VegetationShape
         {
@@ -215,10 +227,14 @@ namespace Horizon.World
             SnagBand = 0.12f,
             SnagChance = 0.12f,
 
-            // 12000, against a densest tile of about 9700 at these settings. Set to catch a tile that has
-            // genuinely run away — half again as heavy as the worst the design produces — rather than to
-            // flag the design itself. An earlier 9000 was guessed before any of this had been built and did
-            // nothing but warn about the intended density.
+            // 12000, set when the densest tile was about 9700 — half again as heavy as the worst the
+            // design produced, so as to catch a tile that had genuinely run away rather than to flag the
+            // design itself. It no longer does that: the world's heaviest tile is Terrain_8_6 at 20 062
+            // and the build has been warning about it since the Kalkgrat was added. The number is left
+            // alone deliberately. Raising it to stop the warning would be turning off the one check that
+            // guards frame time — a tile is what the frustum loads, and this is the only budget in the
+            // vegetation system that is not merely about memory. Terrain_8_6 is a real fault to fix, and
+            // this line is what remembers it.
             MaxTrianglesPerTile = 12000,
         };
     }
