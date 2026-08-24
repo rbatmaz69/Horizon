@@ -79,6 +79,30 @@ namespace Horizon.World
         /// re-typed the day the structure was retuned.</para>
         /// </summary>
         Suspension = 6,
+
+        /// <summary>
+        /// A stretch where another course leaves this one. Zero length marks the middle of the mouth,
+        /// exactly as <see cref="Viewpoint"/> marks a point and <see cref="FuelStation"/> marks a pump
+        /// island — what actually stands there is laid out around it by <c>TrunkForkBuilder</c>.
+        ///
+        /// <para><b>Every road in this world used to end where the next one began, so a fork needed no
+        /// name.</b> It does now, and for the same reason a forecourt did: the verge furniture has to
+        /// know to stop. A guard rail across the mouth of a fork is a guard rail across the road the
+        /// fork exists to reach, and <c>GuardRailBuilder</c> places rails from a drop test that knows
+        /// nothing about junctions — the ground beside a mouth is real ground and it does fall away.
+        /// <see cref="RoadCourse.IsJunction"/> is what both builders read, and it is
+        /// <see cref="RoadCourse.IsForecourt"/> with a different name for exactly that reason.</para>
+        ///
+        /// <para>Not counted by <see cref="RoadCourse.IsCovered"/> or <see cref="RoadCourse.IsBridged"/>.
+        /// A fork has no roof and no drop: the ground under it is the terrain's business as usual, and
+        /// the carriageway through it still wants its clearance checked — more than usual, since a mouth
+        /// is the one place two courses' shelves are averaged into one.</para>
+        ///
+        /// <para><b>It carries no side.</b> A fork's mouth opens across both verges whatever hand the
+        /// branch leaves on, because the paved throat spans the full width of the road it leaves and
+        /// the rail on the far shoulder would end up standing in it.</para>
+        /// </summary>
+        Junction = 7,
     }
 
     /// <summary>A stretch of the course that something is built on or into.</summary>
@@ -271,6 +295,32 @@ namespace Horizon.World
             return false;
         }
 
+        /// <summary>
+        /// True within <paramref name="margin"/> of a fork where another course leaves this one.
+        ///
+        /// <para>Guard rails and delineator posts read this, for the reason
+        /// <see cref="RoadFeatureKind.Junction"/> gives. Both verges rather than only the branch's own,
+        /// which is the same call <see cref="IsForecourt"/> made and is less of a compromise here: the
+        /// throat a fork paves reaches across the whole carriageway, so a post on the far shoulder would
+        /// be standing on it rather than beside it.</para>
+        /// </summary>
+        public bool IsJunction(float distance, float margin = 0f)
+        {
+            for (int i = 0; i < features.Count; i++)
+            {
+                RoadFeature feature = features[i];
+
+                if (feature.Kind == RoadFeatureKind.Junction
+                    && distance >= feature.StartDistance - margin
+                    && distance <= feature.EndDistance + margin)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         /// <summary>True if <paramref name="distance"/> falls inside a tunnel or gallery.</summary>
         public bool IsCovered(float distance)
         {
@@ -442,6 +492,241 @@ namespace Horizon.World
             return this;
         }
 
+        /// <summary>
+        /// Walks from wherever the builder stands to a fixed position and heading, as a corner, a
+        /// straight and a second corner, all at <paramref name="radius"/>.
+        ///
+        /// <para><b>Why this had to exist.</b> Every road in the world so far is grafted onto the end of
+        /// the one before it and then simply stops, so its far end is wherever the instruction table
+        /// left it. Two courses solve the inverse — <see cref="MountainPassCourse.StartPoint"/> and
+        /// <c>AutobahnCourse</c>'s two junction solves both work out what <i>start</i> puts a walked
+        /// shape's end somewhere fixed. Neither trick helps a road with <b>both</b> ends nailed down,
+        /// which is what every road that closes a loop is: it leaves one course at a pose that course
+        /// decides, and it has to arrive at another at a pose that one decides. The alternative is
+        /// hand-tuning a table of straights and turns until it lands within a metre of the target, and
+        /// then re-tuning it every time either end moves — which is a second copy of a road, kept in
+        /// step by hand.</para>
+        ///
+        /// <para><b>It is a Dubins CSC solve and nothing cleverer.</b> Four families — turn right,
+        /// straight, turn right; left-straight-left; and the two that cross over — each of which is one
+        /// closed-form expression, and the shortest one that exists wins. There is no search and no
+        /// tolerance: the tangent points are exact, so the walk ends on the target rather than near it.
+        /// What this deliberately cannot do is choose a <i>nice</i> route. It gives the shortest legal
+        /// one at the radius asked for, which is why it is meant for the last few hundred metres of a
+        /// road whose character was authored by hand above it, and not for a whole leg.</para>
+        ///
+        /// <para>The grade is derived rather than passed: the planar length is only known once the solve
+        /// is done, and a road that arrived at the right place at the wrong height would be a step at
+        /// the join. Uniform over all three segments, so there is no kink in the profile either.</para>
+        /// </summary>
+        /// <param name="target">Where to arrive. Its Y is the elevation to arrive at.</param>
+        /// <param name="targetHeadingDegrees">Which way to be facing there, in the builder's convention.</param>
+        /// <param name="radius">Radius of both corners. Sets how tight the connection is allowed to be.</param>
+        public RoadCourseBuilder ConnectTo(Vector3 target, float targetHeadingDegrees, float radius)
+        {
+            if (radius <= 0.01f)
+            {
+                Debug.LogError("[Horizon] ConnectTo needs a radius to turn at. Nothing was built, so the "
+                               + "course now ends short of where it was asked to reach.");
+                return this;
+            }
+
+            if (!Solve(target, targetHeadingDegrees, radius,
+                    out float firstAngle, out float straight, out float secondAngle))
+            {
+                Debug.LogError($"[Horizon] ConnectTo cannot reach ({target.x:0}, {target.z:0}) facing "
+                               + $"{targetHeadingDegrees:0}° from ({position.x:0}, {position.z:0}) facing "
+                               + $"{headingDegrees:0}° at a {radius:0} m radius — the two poses are closer "
+                               + "together than the turns need. Open the radius out, or move the start of "
+                               + "the connection further back up its own road.");
+                return this;
+            }
+
+            // The whole connection's length, so one grade carries all three segments.
+            float length = radius * (Mathf.Abs(firstAngle) + Mathf.Abs(secondAngle)) * Mathf.Deg2Rad
+                           + straight;
+
+            float grade = length > 0.01f ? (target.y - position.y) / length * 100f : 0f;
+
+            Turn(radius, firstAngle, grade);
+            Straight(straight, grade);
+            Turn(radius, secondAngle, grade);
+
+            return this;
+        }
+
+        /// <summary>
+        /// The four CSC families, in plan. Returns the shortest that exists.
+        ///
+        /// <para>Kept apart from <see cref="ConnectTo"/> because it is pure trigonometry over two poses
+        /// and touches none of the builder's state — which is also what makes it testable by reading.</para>
+        /// </summary>
+        private bool Solve(
+            Vector3 target,
+            float targetHeadingDegrees,
+            float radius,
+            out float firstAngle,
+            out float straight,
+            out float secondAngle)
+        {
+            var from = new Vector2(position.x, position.z);
+            var to = new Vector2(target.x, target.z);
+
+            // A right turn puts its centre one radius to the right of the pose, which is the same thing
+            // Turn does with a positive angle. The left circles are the same statement negated.
+            Vector2 rightFrom = RightOf(headingDegrees);
+            Vector2 rightTo = RightOf(targetHeadingDegrees);
+
+            Vector2 rr0 = from + rightFrom * radius;
+            Vector2 ll0 = from - rightFrom * radius;
+            Vector2 rr1 = to + rightTo * radius;
+            Vector2 ll1 = to - rightTo * radius;
+
+            firstAngle = 0f;
+            straight = 0f;
+            secondAngle = 0f;
+
+            float best = float.MaxValue;
+
+            // --- Same-handed pairs. The straight runs parallel to the line joining the two centres, so
+            // its length is simply that distance and there is no configuration that fails.
+            TrySame(rr0, rr1, radius, +1f, targetHeadingDegrees, ref best,
+                ref firstAngle, ref straight, ref secondAngle);
+
+            TrySame(ll0, ll1, radius, -1f, targetHeadingDegrees, ref best,
+                ref firstAngle, ref straight, ref secondAngle);
+
+            // --- Cross-handed pairs. The straight cuts between the circles, which needs them at least
+            // two radii apart — that is the case this returns false for.
+            TryCross(rr0, ll1, radius, +1f, targetHeadingDegrees, ref best,
+                ref firstAngle, ref straight, ref secondAngle);
+
+            TryCross(ll0, rr1, radius, -1f, targetHeadingDegrees, ref best,
+                ref firstAngle, ref straight, ref secondAngle);
+
+            return best < float.MaxValue;
+        }
+
+        /// <summary>Turn one way, run straight, turn the same way again.</summary>
+        /// <param name="sense">+1 for a pair of right-handers, −1 for a pair of left-handers.</param>
+        private void TrySame(
+            Vector2 centreFrom,
+            Vector2 centreTo,
+            float radius,
+            float sense,
+            float targetHeadingDegrees,
+            ref float best,
+            ref float firstAngle,
+            ref float straight,
+            ref float secondAngle)
+        {
+            Vector2 between = centreTo - centreFrom;
+            float span = between.magnitude;
+
+            if (span < 0.001f)
+            {
+                // Concentric: the two poses are on the same circle, so there is no straight between them
+                // and this family degenerates. One of the others will answer.
+                return;
+            }
+
+            float runHeading = HeadingOf(between / span);
+
+            float first = TurnBy(headingDegrees, runHeading, sense);
+            float second = TurnBy(runHeading, targetHeadingDegrees, sense);
+
+            Keep(radius, first, span, second, ref best, ref firstAngle, ref straight, ref secondAngle);
+        }
+
+        /// <summary>Turn one way, run straight, turn back the other.</summary>
+        /// <param name="sense">+1 for right then left, −1 for left then right.</param>
+        private void TryCross(
+            Vector2 centreFrom,
+            Vector2 centreTo,
+            float radius,
+            float sense,
+            float targetHeadingDegrees,
+            ref float best,
+            ref float firstAngle,
+            ref float straight,
+            ref float secondAngle)
+        {
+            Vector2 between = centreTo - centreFrom;
+            float span = between.magnitude;
+
+            // Any closer and the internal tangent does not exist — the circles overlap, and there is no
+            // straight that touches both from opposite sides.
+            if (span < 2f * radius)
+            {
+                return;
+            }
+
+            float run = Mathf.Sqrt(span * span - 4f * radius * radius);
+
+            // The straight leans off the line joining the centres by however much the two radii it has
+            // to cross demand. Positive sense crosses one way, negative the other, and that sign is the
+            // whole difference between the two cross-handed families.
+            float lean = Mathf.Atan2(2f * radius, run) * Mathf.Rad2Deg;
+            float runHeading = HeadingOf(between / span) + sense * lean;
+
+            float first = TurnBy(headingDegrees, runHeading, sense);
+            float second = TurnBy(runHeading, targetHeadingDegrees, -sense);
+
+            Keep(radius, first, run, second, ref best, ref firstAngle, ref straight, ref secondAngle);
+        }
+
+        /// <summary>Keeps a candidate if it is shorter than the best so far.</summary>
+        private static void Keep(
+            float radius,
+            float first,
+            float run,
+            float second,
+            ref float best,
+            ref float firstAngle,
+            ref float straight,
+            ref float secondAngle)
+        {
+            float length = radius * (Mathf.Abs(first) + Mathf.Abs(second)) * Mathf.Deg2Rad + run;
+
+            if (length >= best)
+            {
+                return;
+            }
+
+            best = length;
+            firstAngle = first;
+            straight = run;
+            secondAngle = second;
+        }
+
+        /// <summary>
+        /// How far to turn from one heading to another in a given direction, always the long way round
+        /// rather than the short one when the short one goes the wrong way.
+        ///
+        /// <para>Signed the way <see cref="Turn"/> wants it, and never zero-crossing: a right-hander
+        /// asked to go from 10° to 0° turns 350° rather than −10°, because the circle it is on only
+        /// goes one way. Getting this backwards produces a connection that is geometrically exact and
+        /// drives the wrong way round a loop.</para>
+        /// </summary>
+        private static float TurnBy(float fromDegrees, float toDegrees, float sense)
+        {
+            float delta = Mathf.Repeat((toDegrees - fromDegrees) * sense, 360f);
+            return delta * sense;
+        }
+
+        /// <summary>The heading's own right, in plan. Matches what <see cref="Right"/> gives in 3D.</summary>
+        private static Vector2 RightOf(float headingDegrees)
+        {
+            float radians = headingDegrees * Mathf.Deg2Rad;
+            return new Vector2(Mathf.Cos(radians), -Mathf.Sin(radians));
+        }
+
+        /// <summary>The heading a plan direction faces, in the builder's convention.</summary>
+        private static float HeadingOf(Vector2 direction)
+        {
+            return Mathf.Atan2(direction.x, direction.y) * Mathf.Rad2Deg;
+        }
+
         /// <summary>Records a feature over a distance range. Use <see cref="Distance"/> to bracket it.</summary>
         public RoadCourseBuilder AddFeature(RoadFeatureKind kind, float startDistance, float endDistance, string name)
         {
@@ -471,6 +756,27 @@ namespace Horizon.World
             features.Add(
                 new RoadFeature(RoadFeatureKind.FuelStation, traveled, traveled, name, Mathf.Sign(side)));
 
+            return this;
+        }
+
+        /// <summary>
+        /// Marks a fork at the current distance, where another course leaves this one.
+        ///
+        /// <para>Placed by where it falls in the walk rather than by a counted distance, for the reason
+        /// <see cref="AddFuelStation"/> gives — and it matters more here, because a fork is the one
+        /// feature two courses have to agree about. Where the branch is grafted onto this pose, the
+        /// branch reads the pose and this records it; a literal in either file would be a fork that
+        /// moved on one road and not the other.</para>
+        ///
+        /// <para><b>The track through a fork has to be straight and level.</b> The throat is laid on
+        /// top of both carriageways at <c>MotorwayMergeBuilder.Lift</c>, and laid-on paving only sits
+        /// flush where the surface under it has no camber to follow — see <c>FuelStationMeshes</c> for
+        /// the commit that unpicked the alternative. Split a straight around this rather than marking a
+        /// fork inside a bend or on a grade.</para>
+        /// </summary>
+        public RoadCourseBuilder AddJunction(string name)
+        {
+            features.Add(new RoadFeature(RoadFeatureKind.Junction, traveled, traveled, name));
             return this;
         }
 

@@ -56,6 +56,16 @@ namespace Horizon.World
         /// </summary>
         private const float ForecourtClearance = 45f;
 
+        /// <summary>
+        /// How far either side of a fork the verge is left bare, metres.
+        ///
+        /// <para>Wider than a forecourt's 45, and the extra is the nose. A filling station's frontage is
+        /// a gap in the verge; a fork's is a paved throat that keeps widening for as long as the two
+        /// carriageways are converging, so the rail has to stop before the branch's own shoulder reaches
+        /// this one. Sixty covers the throat <c>TrunkForkBuilder</c> lays with room for the taper.</para>
+        /// </summary>
+        private const float JunctionClearance = 60f;
+
 
         /// <summary>
         /// Builds every rail on the course as one mesh. Returns null when nothing is exposed enough to
@@ -115,10 +125,14 @@ namespace Horizon.World
                 // structures in one place is one too many. The margin covers the abutments, where the
                 // ground is still climbing to meet the deck and a post placed by the drop test lands in
                 // the gap between them.
+                // And nothing across the mouth of a fork, for the reason a forecourt gets the same
+                // treatment: the ground beside a junction does fall away and the drop test is right
+                // about that, but a rail there stands across the road the branch exists to reach.
                 bool covered = course != null
                                && (course.IsCoveredOrNear(distance, PortalClearance)
                                    || course.IsBridged(distance, BridgeClearance)
-                                   || course.IsForecourt(distance, ForecourtClearance));
+                                   || course.IsForecourt(distance, ForecourtClearance)
+                                   || course.IsJunction(distance, JunctionClearance));
 
                 for (int side = 0; side < 2; side++)
                 {

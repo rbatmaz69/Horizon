@@ -83,6 +83,13 @@ namespace Horizon.World
         /// </summary>
         private const float ForecourtClearance = 45f;
 
+        /// <summary>
+        /// How far either side of a fork the posts stop, metres. Matches
+        /// <c>GuardRailBuilder.JunctionClearance</c>, because the two walk the same verge and a bare
+        /// stretch of rail with posts still marching across it reads worse than either alone.
+        /// </summary>
+        private const float JunctionClearance = 60f;
+
 
         /// <summary>
         /// Builds every post on the course as one mesh with two submeshes — post body, then reflectors —
@@ -120,10 +127,13 @@ namespace Horizon.World
                 float radius = path.GetRadiusAtDistance(distance, 10f);
                 float spacing = SpacingForRadius(radius);
 
+                // A fork's mouth, on the same argument the forecourt makes and rather more strongly: a
+                // post is only a marker, but a line of markers across a junction marks the wrong thing.
                 bool covered = course != null
                                && (course.IsCoveredOrNear(distance, PortalClearance)
                                    || course.IsBridged(distance, BridgeClearance)
-                                   || course.IsForecourt(distance, ForecourtClearance));
+                                   || course.IsForecourt(distance, ForecourtClearance)
+                                   || course.IsJunction(distance, JunctionClearance));
 
                 if (!covered)
                 {
