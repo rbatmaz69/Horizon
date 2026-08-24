@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using Horizon.Game;
 using Horizon.Input;
+using Horizon.World;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -96,7 +97,7 @@ namespace Horizon.EditorTools
         /// Creates the canvas, the driving controls and every menu page, and wires them to the router.
         /// </summary>
         public static UiParts Build(
-            GameObject root, DriveInputRouter router, IReadOnlyList<string> spawnNames)
+            GameObject root, DriveInputRouter router, IReadOnlyList<string> spawnNames, WorldMap map)
         {
             EnsureEventSystem(root);
 
@@ -126,7 +127,7 @@ namespace Horizon.EditorTools
             GameObject handbrake = BuildHandbrake(safe, box);
 
             GameObject pauseButton = BuildPauseButton(safe, box);
-            GameObject instruments = BuildInstruments(safe);
+            GameObject instruments = BuildInstruments(safe, map, out Button minimapButton);
 
             TouchControlsHud hud = canvas.gameObject.AddComponent<TouchControlsHud>();
 
@@ -143,7 +144,8 @@ namespace Horizon.EditorTools
             });
 
             // --- The menu, in its own file.
-            return MenuUiSetup.Build(canvas, safe, box, router, hud, pauseButton, spawnNames);
+            return MenuUiSetup.Build(
+                canvas, safe, box, router, hud, pauseButton, minimapButton, spawnNames, map);
         }
 
         /// <summary>
@@ -329,9 +331,13 @@ namespace Horizon.EditorTools
         /// </summary>
         private static GameObject BuildPauseButton(RectTransform parent, Sprite box)
         {
+            // Beside the minimap rather than in the corner it used to have. The map wants the corner
+            // for the same reason the rev counter wants the other one — a square readout reads best
+            // against two screen edges — and 400 clears the map's own 40..340 span with room for a
+            // thumb. It is still well left of the fuel notice, which starts at 580.
             RectTransform rect = Panel(parent, "PauseButton", box, ControlTint,
                 new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(110f, 110f),
-                new Vector2(90f, -80f));
+                new Vector2(400f, -80f));
 
             RectTransform icon = Panel(rect, "Icon", Glyphs.Pause, GlyphTint,
                 new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(52f, 52f), Vector2.zero);
@@ -417,7 +423,8 @@ namespace Horizon.EditorTools
         /// square of raycast target parked in a corner swallows taps without any sign that it did, and
         /// this is a readout.</para>
         /// </summary>
-        private static GameObject BuildInstruments(RectTransform parent)
+        private static GameObject BuildInstruments(
+            RectTransform parent, WorldMap map, out Button minimapButton)
         {
             const float dialSize = 300f;
 
@@ -517,6 +524,11 @@ namespace Horizon.EditorTools
             BuildFuelDial(group.transform, ring, needleSprite, tickSprite);
             BuildFuelNotice(group.transform);
 
+            // In this group so it hides with the rest of the HUD: TouchControlsHud switches the whole
+            // group off whenever the player is not driving, and a map floating over the start screen
+            // would be a second map beside the one the menu can already open.
+            minimapButton = BuildMinimap(group.transform, ring, tickSprite, map);
+
             return group;
         }
 
@@ -563,6 +575,113 @@ namespace Horizon.EditorTools
 
             // Nothing to say yet.
             notice.gameObject.SetActive(false);
+        }
+
+        /// <summary>
+        /// The minimap, in the corner the pause button used to have.
+        ///
+        /// <para><b>The mirror of the rev counter, and for the same reason.</b> A square readout wants
+        /// two screen edges, and there are exactly two corners nothing is held in — the tacho has one
+        /// and this has the other. The pause button moved 310 units right to make room; the steering
+        /// wheel below tops out at about y = −710 from here, so nothing on the left is under a thumb.
+        /// </para>
+        ///
+        /// <para><b>Round, and it clips itself.</b> There is no <c>Mask</c> here and no
+        /// <c>RectMask2D</c>: <c>MapGraphic.circular</c> clips the geometry as it is generated. The
+        /// long version of why is on <c>MapGraphic.AddConvex</c>; the short version is that a stencil
+        /// mask would not clip in any frame this project can take, so its behaviour in a running game
+        /// was going to be something taken on trust, and this is a project that photographs things
+        /// instead.</para>
+        ///
+        /// <para>The disc behind it is still a real sprite, because it is the widget's own background —
+        /// the map is drawn over it. The rim is a sibling rather than a child for the reason it always
+        /// was: it edges the circle and must not be clipped to it.</para>
+        ///
+        /// <para><b>It is the one thing in this group that takes a tap.</b> Everything else here has
+        /// <c>raycastTarget</c> off, on the argument that a readout swallowing taps is worse than one
+        /// that cannot be touched. This is a readout you press.</para>
+        /// </summary>
+        private static Button BuildMinimap(Transform parent, Sprite ring, Sprite tick, WorldMap map)
+        {
+            const float MapSize = 300f;
+
+            // cornerRadius 1 rounds a square all the way to a circle, and no hole: the dial's own ring
+            // with its middle filled in. Nothing new had to be generated for this.
+            Sprite disc = HorizonAssetUtility.LoadOrCreateUiSprite($"{SpriteFolder}/UI_Disc.png", 256, 1f);
+
+            RectTransform face = Panel(parent, "Minimap", disc, PanelTint,
+                new Vector2(0f, 1f), new Vector2(0f, 1f),
+                new Vector2(MapSize, MapSize), new Vector2(190f, -180f));
+
+            Image faceImage = face.GetComponent<Image>();
+
+            // Simple, not Sliced: a disc has no border, and stretching one as though it had turns the
+            // circle into a lozenge. The same note stands over the rev counter's ring.
+            faceImage.type = Image.Type.Simple;
+            faceImage.raycastTarget = true;
+
+            RectTransform mapRect = StretchChild(face, "Map", 0f, 0f);
+            GameObject mapObject = mapRect.gameObject;
+
+            MapGraphic graphic = mapObject.AddComponent<MapGraphic>();
+            graphic.raycastTarget = false;
+
+            HorizonAssetUtility.Configure(graphic, serialized =>
+            {
+                serialized.FindProperty("map").objectReferenceValue = map;
+                serialized.FindProperty("circular").boolValue = true;
+
+                // 0.80 is UI_Dial.png's own hole, the ring drawn over this. One number, two places it
+                // has to match; the sprite's is the one that decides.
+                serialized.FindProperty("clipFraction").floatValue = 0.80f;
+            });
+
+            // North. A full-size pivot rect with a mark near its rim: turning the rect walks the mark
+            // round the dial, which is the same trick the tacho's ticks use and needs no second sprite.
+            var northObject = new GameObject("North", typeof(RectTransform));
+            northObject.transform.SetParent(face, false);
+
+            var north = (RectTransform)northObject.transform;
+            north.anchorMin = new Vector2(0.5f, 0.5f);
+            north.anchorMax = new Vector2(0.5f, 0.5f);
+            north.pivot = new Vector2(0.5f, 0.5f);
+            north.sizeDelta = new Vector2(MapSize, MapSize);
+
+            RectTransform mark = Panel(north, "Mark", tick, GlyphTint,
+                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                new Vector2(17f, 30f), new Vector2(0f, MapSize * 0.42f));
+
+            Untargeted(mark, Image.Type.Simple);
+
+            // The car: the arrows' triangle, stood on end. It never moves and never turns — the world
+            // turns under it — so it is geometry rather than something a component has to drive.
+            RectTransform car = Panel(face, "Car", Glyphs.Right, AccentTint,
+                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(34f, 34f), Vector2.zero);
+
+            Untargeted(car, Image.Type.Simple);
+            car.localRotation = Quaternion.Euler(0f, 0f, 90f);
+
+            // Outside the mask, so its own outer edge survives being drawn.
+            RectTransform rim = Panel(parent, "MinimapRim", ring, ControlTint,
+                new Vector2(0f, 1f), new Vector2(0f, 1f),
+                new Vector2(MapSize, MapSize), new Vector2(190f, -180f));
+
+            Untargeted(rim, Image.Type.Simple);
+
+            Minimap minimap = face.gameObject.AddComponent<Minimap>();
+
+            HorizonAssetUtility.Configure(minimap, serialized =>
+            {
+                serialized.FindProperty("graphic").objectReferenceValue = graphic;
+                serialized.FindProperty("northNeedle").objectReferenceValue = north;
+            });
+
+            HorizonAssetUtility.AssertReferenceAssigned(minimap, "graphic");
+            HorizonAssetUtility.AssertReferenceAssigned(graphic, "map");
+
+            Button button = face.gameObject.AddComponent<Button>();
+            button.targetGraphic = faceImage;
+            return button;
         }
 
         /// <summary>

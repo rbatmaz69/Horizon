@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using Horizon.Game;
 using Horizon.Input;
+using Horizon.World;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.UI;
@@ -61,7 +62,9 @@ namespace Horizon.EditorTools
             DriveInputRouter router,
             TouchControlsHud hud,
             GameObject pauseButton,
-            IReadOnlyList<string> spawnNames)
+            Button minimapButton,
+            IReadOnlyList<string> spawnNames,
+            WorldMap map)
         {
             var panelList = new List<GameObject>();
 
@@ -100,6 +103,9 @@ namespace Horizon.EditorTools
 
             UpdatePage update = BuildUpdatePage(safe, box);
             Register(panelList, MenuPage.Update, update.Panel);
+
+            MapPage mapPage = BuildMapPage(safe, box, map);
+            Register(panelList, MenuPage.Map, mapPage.Panel);
 
             HorizonAssetUtility.Configure(panels, serialized =>
                 HorizonAssetUtility.SetObjectArray(serialized, "panels", panelList.ToArray()));
@@ -162,6 +168,7 @@ namespace Horizon.EditorTools
             WireQuality(quality, start, panels);
             WirePaused(paused, start, menu, panels, pauseButton);
             WireUpdate(update, updates, panels);
+            WireMap(mapPage, menu, panels, minimapButton);
 
             // Everything starts hidden. StartScreen shows its own first page in Start().
             for (int i = 0; i < panelList.Count; i++)
@@ -216,6 +223,14 @@ namespace Horizon.EditorTools
 
             for (int i = 0; i < panels.Count; i++)
             {
+                // The map is the one page that is meant to be the whole screen, so measuring it against
+                // what fits on the screen would report it as too tall on every build forever — and a
+                // warning that is always there is a warning nobody reads when it means something.
+                if ((MenuPage)i == MenuPage.Map)
+                {
+                    continue;
+                }
+
                 var rect = (RectTransform)panels[i].transform;
 
                 // The pages are laid out by a VerticalLayoutGroup and a ContentSizeFitter, neither of
@@ -247,6 +262,285 @@ namespace Horizon.EditorTools
             // working rather than that every page suddenly fits.
             Debug.Log($"[Horizon] Menu: {panels.Count} pages, tallest is '{tallestPage}' at "
                       + $"{tallest:0} units against about {Available:0} of usable canvas.");
+        }
+
+        private sealed class MapPage
+        {
+            public RectTransform Panel;
+            public Button ZoomIn;
+            public Button ZoomOut;
+            public Button Car;
+            public Button World;
+            public Button Back;
+            public MapScreen Screen;
+        }
+
+        /// <summary>How many names the full-screen map can show at once.</summary>
+        private const int MapLabels = 48;
+
+        /// <summary>
+        /// The full-screen map.
+        ///
+        /// <para><b>The one page that is not a <c>StackPanel</c>.</b> Every other page is a list of rows
+        /// whose height is whatever the rows come to; this one is a picture, and a picture wants the
+        /// screen. So it stretches, its controls float over it in a corner, and
+        /// <see cref="ValidatePageHeights"/> is told to leave it alone — a stretched page measures the
+        /// whole canvas and would otherwise be reported as too tall forever, which is exactly the kind
+        /// of check that gets read once and then ignored.</para>
+        ///
+        /// <para><b>Opaque, not translucent.</b> The pause menu shows its panel over the frozen world,
+        /// which is right for six buttons and wrong for a map: pale roads over a mountainside are pale
+        /// roads nobody can follow.</para>
+        /// </summary>
+        private static MapPage BuildMapPage(RectTransform parent, Sprite box, WorldMap map)
+        {
+            var page = new MapPage();
+
+            var panelObject = new GameObject("MapPanel", typeof(RectTransform));
+            panelObject.transform.SetParent(parent, false);
+
+            page.Panel = (RectTransform)panelObject.transform;
+            TouchUiSetup.Stretch(page.Panel);
+
+            Image ground = panelObject.AddComponent<Image>();
+            ground.color = new Color(0.07f, 0.08f, 0.10f, 1f);
+
+            // The drag surface. MapGraphic takes itself out of the raycast, so every finger that is not
+            // on a button lands here, which is where MapScreen listens.
+            ground.raycastTarget = true;
+
+            var viewObject = new GameObject("View", typeof(RectTransform));
+            viewObject.transform.SetParent(page.Panel, false);
+
+            var view = (RectTransform)viewObject.transform;
+            TouchUiSetup.Stretch(view);
+
+            MapGraphic graphic = viewObject.AddComponent<MapGraphic>();
+            graphic.raycastTarget = false;
+
+            HorizonAssetUtility.Configure(graphic, serialized =>
+                serialized.FindProperty("map").objectReferenceValue = map);
+
+            // The labels and the car are children of the view, and centre-anchored, because that is
+            // what makes MapGraphic.LocalPointOf an anchoredPosition with nothing to convert.
+            var labels = new Text[MapLabels];
+
+            for (int i = 0; i < MapLabels; i++)
+            {
+                var labelObject = new GameObject($"Label{i}", typeof(RectTransform));
+                labelObject.transform.SetParent(view, false);
+
+                var rect = (RectTransform)labelObject.transform;
+                rect.anchorMin = new Vector2(0.5f, 0.5f);
+                rect.anchorMax = new Vector2(0.5f, 0.5f);
+                rect.pivot = new Vector2(0.5f, 0.5f);
+                rect.sizeDelta = new Vector2(300f, 28f);
+
+                labels[i] = TouchUiSetup.Label(rect, string.Empty, 22);
+                labels[i].color = new Color(1f, 1f, 1f, 0.88f);
+
+                labelObject.SetActive(false);
+            }
+
+            // The arrows' own triangle, stood on end below. Loaded rather than regenerated: it is
+            // already an asset by the time any page is built.
+            Sprite arrow = HorizonAssetUtility.LoadOrCreateGlyphSprite(
+                $"{SpriteFolder}/UI_Right.png", "right");
+
+            RectTransform car = TouchUiSetup.Panel(view, "Car", arrow, TouchUiSetup.AccentTint,
+                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(40f, 40f), Vector2.zero);
+
+            Image carImage = car.GetComponent<Image>();
+            carImage.type = Image.Type.Simple;
+            carImage.raycastTarget = false;
+
+            // Pointing up at rest; MapScreen turns it to the car's heading, which the north-up view
+            // leaves as an honest bearing.
+            car.localRotation = Quaternion.Euler(0f, 0f, 90f);
+
+            // --- Controls, over the map rather than beside it.
+            page.ZoomIn = MapButton(page.Panel, box, "ZoomIn", "+", new Vector2(-110f, 400f));
+            page.ZoomOut = MapButton(page.Panel, box, "ZoomOut", "\u2212", new Vector2(-110f, 280f));
+            page.Car = MapButton(page.Panel, box, "Car", "Car", new Vector2(-110f, 160f));
+            page.World = MapButton(page.Panel, box, "World", "All", new Vector2(-110f, 40f));
+
+            BuildLegend(page.Panel, box, graphic, arrow);
+
+            RectTransform back = TouchUiSetup.Panel(page.Panel, "Back", box, TouchUiSetup.ControlTint,
+                new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(280f, 96f),
+                new Vector2(180f, 80f));
+
+            TouchUiSetup.Label(back, "Back", 32);
+            page.Back = back.gameObject.AddComponent<Button>();
+            page.Back.targetGraphic = back.GetComponent<Image>();
+
+            MapScreen screen = panelObject.AddComponent<MapScreen>();
+
+            HorizonAssetUtility.Configure(screen, serialized =>
+            {
+                serialized.FindProperty("graphic").objectReferenceValue = graphic;
+                serialized.FindProperty("carMarker").objectReferenceValue = car;
+
+                HorizonAssetUtility.SetObjectArray(serialized, "labels", labels);
+            });
+
+            HorizonAssetUtility.AssertReferenceAssigned(screen, "graphic");
+            HorizonAssetUtility.AssertReferenceAssigned(screen, "carMarker");
+            HorizonAssetUtility.AssertReferenceAssigned(graphic, "map");
+
+            page.Screen = screen;
+            return page;
+        }
+
+        /// <summary>Height of one row of the key.</summary>
+        private const float LegendRowHeight = 34f;
+
+        /// <summary>
+        /// The key: what every colour and every mark on the map means.
+        ///
+        /// <para><b>A map with symbols on it and no key is a map you have to have been told about.</b>
+        /// Nine of the things drawn here are colour-coded and none of them is labelled in the picture —
+        /// an orange line and an orange diamond are a motorway and a filling station, and nothing on
+        /// screen said so.</para>
+        ///
+        /// <para>Every swatch is read off the <see cref="MapGraphic"/> that will draw the map beside it,
+        /// never typed. See <c>MapGraphic.ColourOf</c> for why that is the whole point of the method
+        /// being public.</para>
+        ///
+        /// <para>Bottom left, stacked over the Back button: the zoom controls own the right-hand edge,
+        /// and the middle of the screen is the map.</para>
+        /// </summary>
+        private static void BuildLegend(
+            RectTransform parent, Sprite box, MapGraphic graphic, Sprite arrow)
+        {
+            RectTransform panel = TouchUiSetup.StackPanel(parent, "Legend", box, 380f);
+
+            // StackPanel centres itself; this one is pinned to the corner above Back.
+            panel.anchorMin = new Vector2(0f, 0f);
+            panel.anchorMax = new Vector2(0f, 0f);
+            panel.pivot = new Vector2(0f, 0f);
+            panel.anchoredPosition = new Vector2(40f, 200f);
+
+            Text title = TouchUiSetup.MenuLabel(panel, "MAP KEY", 24, 34f);
+            title.color = TouchUiSetup.AccentTint;
+
+            // A hard accent rule under the title. The one borrowed gesture: it is what makes a stack of
+            // rows read as an instrument panel rather than as a list of settings.
+            RectTransform rule = TouchUiSetup.Panel(panel, "Rule", box, TouchUiSetup.AccentTint,
+                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, 3f), Vector2.zero);
+
+            rule.GetComponent<Image>().raycastTarget = false;
+            TouchUiSetup.Row(rule.gameObject, 3f);
+
+            LegendRow(panel, box, graphic.ColourOf(MapLineKind.Motorway), "MOTORWAY", LegendMark.Line);
+            LegendRow(panel, box, graphic.ColourOf(MapLineKind.Trunk), "ROAD", LegendMark.Line);
+            LegendRow(panel, box, graphic.ColourOf(MapLineKind.Street), "TOWN STREET", LegendMark.Line);
+            LegendRow(panel, box, graphic.ColourOf(MapLineKind.River), "WATER", LegendMark.Block);
+            LegendRow(panel, box, graphic.TownColour, "BUILT UP", LegendMark.Block);
+
+            LegendRow(panel, box, graphic.ColourOf(MapMarkerKind.Place), "START PLACE", LegendMark.Diamond);
+            LegendRow(panel, box, graphic.ColourOf(MapMarkerKind.FuelStation), "FUEL", LegendMark.Diamond);
+            LegendRow(panel, box, graphic.ColourOf(MapMarkerKind.Viewpoint), "VIEWPOINT", LegendMark.Diamond);
+            LegendRow(panel, box, graphic.ColourOf(MapMarkerKind.Tunnel), "TUNNEL, BRIDGE", LegendMark.Diamond);
+
+            LegendRow(panel, arrow, TouchUiSetup.AccentTint, "YOU", LegendMark.Arrow);
+        }
+
+        /// <summary>How one row of the key draws its sample.</summary>
+        private enum LegendMark
+        {
+            /// <summary>A stroke, for the things drawn as lines.</summary>
+            Line,
+
+            /// <summary>A filled patch, for the things drawn as areas.</summary>
+            Block,
+
+            /// <summary>The marker shape, which is a square stood on its corner.</summary>
+            Diamond,
+
+            /// <summary>The car, which is the arrows' triangle stood on end.</summary>
+            Arrow,
+        }
+
+        private static void LegendRow(
+            RectTransform parent, Sprite sprite, Color colour, string caption, LegendMark mark)
+        {
+            var rowObject = new GameObject(caption, typeof(RectTransform));
+            rowObject.transform.SetParent(parent, false);
+
+            var row = (RectTransform)rowObject.transform;
+            row.anchorMin = new Vector2(0f, 0.5f);
+            row.anchorMax = new Vector2(1f, 0.5f);
+
+            TouchUiSetup.Row(rowObject, LegendRowHeight);
+
+            Vector2 size;
+            switch (mark)
+            {
+                case LegendMark.Line:
+                    size = new Vector2(46f, 6f);
+                    break;
+                case LegendMark.Block:
+                    size = new Vector2(30f, 18f);
+                    break;
+                default:
+                    size = new Vector2(18f, 18f);
+                    break;
+            }
+
+            RectTransform swatch = TouchUiSetup.Panel(row, "Swatch", sprite, colour,
+                new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), size, new Vector2(30f, 0f));
+
+            Image image = swatch.GetComponent<Image>();
+
+            // Simple for the diamond and the arrow: both are drawn from the middle of their own square,
+            // and a nine-slice would stretch a border that is not there.
+            image.type = mark == LegendMark.Diamond || mark == LegendMark.Arrow
+                ? Image.Type.Simple
+                : Image.Type.Sliced;
+
+            image.raycastTarget = false;
+
+            if (mark == LegendMark.Diamond)
+            {
+                swatch.localRotation = Quaternion.Euler(0f, 0f, 45f);
+            }
+            else if (mark == LegendMark.Arrow)
+            {
+                swatch.localRotation = Quaternion.Euler(0f, 0f, 90f);
+            }
+
+            Text text = TouchUiSetup.Label(TouchUiSetup.StretchChild(row, "Caption", 68f, 0f), caption, 20);
+            text.alignment = TextAnchor.MiddleLeft;
+            text.color = new Color(1f, 1f, 1f, 0.82f);
+        }
+
+        /// <summary>One of the square controls down the right-hand edge of the map.</summary>
+        private static Button MapButton(
+            RectTransform parent, Sprite box, string name, string caption, Vector2 position)
+        {
+            RectTransform rect = TouchUiSetup.Panel(parent, name, box, TouchUiSetup.ControlTint,
+                new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(110f, 96f), position);
+
+            TouchUiSetup.Label(rect, caption, 32);
+
+            Button button = rect.gameObject.AddComponent<Button>();
+            button.targetGraphic = rect.GetComponent<Image>();
+            return button;
+        }
+
+        private static void WireMap(MapPage page, PauseMenu menu, MenuPanels panels, Button minimap)
+        {
+            // The minimap does not merely open a page: it has to stop the world first, which is why it
+            // is bound to the menu rather than to MenuPanels.Show like every other navigation button.
+            Bind(minimap, menu, nameof(PauseMenu.OpenMap));
+
+            Bind(page.ZoomIn, page.Screen, nameof(MapScreen.ZoomIn));
+            Bind(page.ZoomOut, page.Screen, nameof(MapScreen.ZoomOut));
+            Bind(page.Car, page.Screen, nameof(MapScreen.CentreOnCar));
+            Bind(page.World, page.Screen, nameof(MapScreen.Fit));
+
+            Bind(page.Back, menu, nameof(PauseMenu.CloseSettings));
         }
 
         private static void Register(List<GameObject> panels, MenuPage page, RectTransform panel)
@@ -671,6 +965,7 @@ namespace Horizon.EditorTools
             public Button Conditions;
             public Button Garage;
             public Button Controls;
+            public Button Map;
             public Button Respawn;
         }
 
@@ -690,6 +985,7 @@ namespace Horizon.EditorTools
             page.Garage = TouchUiSetup.MenuButton(page.Panel, "Car", box, "Car and paint");
             page.Conditions = TouchUiSetup.MenuButton(page.Panel, "Conditions", box, "Time and weather");
             page.Controls = TouchUiSetup.MenuButton(page.Panel, "Controls", box, "Controls");
+            page.Map = TouchUiSetup.MenuButton(page.Panel, "Map", box, "Map");
             page.Respawn = TouchUiSetup.MenuButton(page.Panel, "Respawn", box, "Put the car back");
 
             return page;
@@ -807,6 +1103,7 @@ namespace Horizon.EditorTools
             BindPage(page.Garage, panels, MenuPage.Garage);
             BindPage(page.Conditions, panels, MenuPage.Conditions);
             BindPage(page.Controls, panels, MenuPage.Controls);
+            BindPage(page.Map, panels, MenuPage.Map);
         }
 
         private static void Bind(Button button, MonoBehaviour target, string method)

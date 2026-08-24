@@ -43,5 +43,14 @@ namespace Horizon.Game
 
         /// <summary>Which version is running, and the newer one if GitHub has published it.</summary>
         Update = 8,
+
+        /// <summary>
+        /// The whole world in plan. Reached from the minimap, and from the pause menu.
+        ///
+        /// <para>Appended rather than filed anywhere tidier, and that is the rule this enum's remarks
+        /// are about: the page a button opens is a bare integer in a saved event, so a value inserted in
+        /// the middle moves every page after it under buttons that still name the old numbers.</para>
+        /// </summary>
+        Map = 9,
     }
 }

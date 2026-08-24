@@ -407,6 +407,82 @@ remarks describe, one town later. It now takes all four.
 `Tools > Horizon > Render Anadolu Preview` photographs the leg, day and night. Every fault above came out
 of those pictures.
 
+## The map
+
+A minimap in the top-left corner, and the whole world behind a tap on it (`MenuPage.Map`). Both are one
+`MapGraphic`, drawing a `WorldMap` — an asset baked by `Rebuild Prototype Scene` holding every paved road,
+every body of water, every town outline and every name, as flat arrays of world XZ.
+
+**Not a second camera, and the reason is not performance.** `WorldStreamer` disables chunks by distance, so
+an orthographic camera over the world photographs a few hundred metres of loaded terrain surrounded by
+nothing — which is what the player can already see out of the windscreen. A second full render pass would
+also not fit the budget, but the streaming settles it on its own.
+
+**Not the three baked sources that already existed either.** `TrafficNetwork` holds every drivable road as
+world-space polylines, `WaterHazard` every water body's spine, `FillingStations` every forecourt — and none
+can be drawn as a map without undoing what it is for. The routes carry *two lanes per street* plus a
+connector for every legal turn through every junction: drawn directly, doubled roads and a spider at each
+crossroads, with no names, no water and no features. Meanwhile the forty-odd `RoadFeature`s the courses
+carry are baked nowhere at all, so something had to be.
+
+**`WorldMapBuilder` is handed what it draws.** The world scene holds 199 `RoadPath` components and nine of
+them are roads. `MotorwayPath` is the median the carriageways are offset from; `SeeburgAxis` and
+`ArterialPath` are the frames `TownShape.ToWorld` maps a town against. Nothing about a path says which it
+is, and a builder that enumerated the scene would put a road down the middle of two towns and a third
+carriageway down the motorway. Town outlines are the convex hull of the street junctions rather than
+`StreetNetwork.Footprint`, because no town here is square to the world axes and a box reads as a town twice
+the size of the streets inside it.
+
+**`[RequireComponent(typeof(CanvasRenderer))]` on `MapGraphic` is not boilerplate.** `Graphic` declares one
+and it did not carry down: built by `AddComponent`, the object came up with no `CanvasRenderer`, and
+`Graphic.Rebuild` opens with `if (canvasRenderer == null || canvasRenderer.cull) return;`. Every rebuild
+returned on its first line — no error, no warning, a map that drew nothing, and labels that sat in exactly
+the right places because they are separate objects. `MapGraphic.LastVertexCount` starts at −1 so that "drew
+nothing" is tellable from "never ran"; the preview prints it.
+
+**Segments are mitred, not extended.** Closing the notch on the outside of a corner by extending every
+segment by its own half-width works on a straight and fails on a hairpin: the pass turns at 20 m with
+samples 12 m apart, so each joint swings some thirty-four degrees and the rectangle's corner lands well
+clear of the road. The stack came back serrated, one tooth per sample, on the one thing the driver reads at
+speed. `half · tan(θ/2)` is exact, costs no vertices, and needs no trigonometry — `|cross| / (1 + dot)`.
+
+**The minimap is round and clips its own geometry.** No `Mask`, no `RectMask2D`: `MapGraphic` clips every
+polygon it emits against a 32-sided approximation of the frame, which costs a distance test per shape
+because almost everything is wholly inside. A stencil `Mask` is the ordinary way to do this and was the
+first way it was done — it would not clip in any frame this project can take, so what it did in a running
+game was going to be a matter of trust, and geometry the tool can photograph is worth more than a
+component that cannot be checked. It also costs no extra pass on a tile GPU, which is the argument
+`TouchUiSetup.ScrollList` already makes against stencils.
+
+**The clip stops at the rim's inner edge, not the rect's.** `UI_Dial.png` has its hole at 0.8 of its
+radius, so a map clipped to the full half-width spends its last thirty units under a ring drawn at 30 %
+alpha — and shows through it. That reads exactly like a clip that is not working. It cost three rounds to
+tell apart from one, through two real but unrelated faults in the preview itself (a render target with no
+stencil, then one with no sRGB, which had been miscolouring every frame). **Twice the picture was wrong in
+a way that impersonated the fault it was being used to diagnose.** Fix the instrument before trusting the
+reading.
+
+Heading-up on the minimap, because the only question asked of it at speed is which way the next corner
+goes; the full-screen map is north-up, because it answers a different one and a world that spins under the
+reader answers it badly.
+
+**The full-screen map carries a key**, and every swatch in it is read off the `MapGraphic` beside it
+through `ColourOf`. A palette typed out a second time in `MenuUiSetup` would agree until the first time
+somebody retuned one of them, and a key that quietly lies is worse than no key.
+
+**Street lines and feature marks are dropped past a zoom.** Not tidiness: one canvas mesh holds 65 535
+vertices, and the four towns are 189 street lines that at a zoom where a town is forty units wide are not
+streets but hatching.
+
+**A place that shares a town's name gets no mark.** The picture came back with "Seeburg" printed twice over
+itself — the start place at the waterfront and the town at its centroid, a hundred metres apart.
+
+`Tools > Horizon > Render Map Preview` photographs the world, each town, and a minimap-sized crop, and
+reports what each frame actually drew. `Tools > Horizon > Render HUD Preview` photographs the canvas
+itself — the first thing in this project ever to do so, and it found both the unclipped map and the fact
+that a saved scene has every control scheme active at once. Both run at the end of `Rebuild`. **Every fault
+this feature has had was found in those two pictures.** The build reported none of them.
+
 ## Updating
 
 The game is sideloaded, so nothing tells a player that a release happened. `Horizon.Updates` asks

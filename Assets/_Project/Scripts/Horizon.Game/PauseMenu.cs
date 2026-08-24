@@ -178,6 +178,23 @@ namespace Horizon.Game
             TouchControlState.Clear();
         }
 
+        /// <summary>
+        /// Stops the world and puts the full-screen map up. Wired to the minimap.
+        ///
+        /// <para>Everything <see cref="Toggle"/> does except which page it lands on — including
+        /// <c>SetHome</c>, without which Back from here would try to return to a start screen that is
+        /// not on the screen and cannot leave itself once the game has begun. It does not toggle,
+        /// because the minimap is inside the instrument group and <c>TouchControlsHud</c> has already
+        /// hidden that by the time this returns: there is nothing left to press twice.</para>
+        /// </summary>
+        public void OpenMap()
+        {
+            SetPaused(true);
+
+            panels?.SetHome(MenuPage.Paused);
+            panels?.Show(MenuPage.Map);
+        }
+
         /// <summary>Shows the controls page.</summary>
         public void OpenSettings()
         {

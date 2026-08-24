@@ -29,6 +29,9 @@ namespace Horizon.EditorTools
         private const string SettingsFolder = ProjectRoot + "/Settings";
         private const string MaterialsFolder = ProjectRoot + "/Art/Materials";
         private const string GeneratedFolder = ProjectRoot + "/Art/Models/Generated";
+
+        /// <summary>Internal so the preview tool photographs the map this build wrote, not one of its own.</summary>
+        internal const string WorldMapPath = GeneratedFolder + "/WorldMap.asset";
         private const string PrefabsFolder = ProjectRoot + "/Prefabs/Vehicles";
 
         private const string BootstrapScenePath = ScenesFolder + "/Bootstrap.unity";
@@ -84,12 +87,19 @@ namespace Horizon.EditorTools
             // rig dirties the current scene, but that scene is already saved and is replaced below.
             CarPreviewRenderer.Render();
 
+            // And the map, here rather than as a separate command, for the reason above: run on its own
+            // it photographs whatever was baked last time, which is the one thing a preview must not do.
+            MapPreviewRenderer.Render();
+
             // Leave the editor in the state you actually want to work in: Bootstrap active, with the
             // world open alongside it. Opening Bootstrap alone looks broken — it holds one object,
             // no camera and no geometry, because the world is loaded at runtime. GameBootstrap skips
             // its additive load when the scene is already open, so Play works either way.
             EditorSceneManager.OpenScene(BootstrapScenePath, OpenSceneMode.Single);
             EditorSceneManager.OpenScene(WorldScenePath, OpenSceneMode.Additive);
+
+            // Last of all, because it photographs whatever is open and this is where Bootstrap is.
+            HudPreviewRenderer.Render();
 
             Debug.Log(
                 "[Horizon] Prototype rebuilt. Both scenes are open: Bootstrap holds the persistent "
@@ -1959,8 +1969,261 @@ namespace Horizon.EditorTools
                 ebentalPath, ebentalCourse, kalkgratPath, meerengePath, meerengeCourse,
                 yalikoyPath, rideHeight);
 
+            // The map, from the same objects everything above was built from. Before the scene is
+            // saved, because ReplaceAsset writes to disk and the orphan report at the end of the run
+            // watches what was written.
+            BuildWorldMap(
+                path, roadShape, ebentalPath, kalkgratPath, meerengePath, yalikoyPath, coastPath,
+                westbound, eastbound, motorwayShape, linkPath, motorwayPath,
+                course, ebentalCourse, kalkgratCourse, meerengeCourse, yalikoyCourse, coastCourse,
+                motorwayCourse, linkCourse, towns, waters, spawns);
+
             EditorSceneManager.SaveScene(scene, WorldScenePath);
             return spawns;
+        }
+
+        /// <summary>
+        /// The baked map, re-loaded by path.
+        ///
+        /// <para><b>Not carried across from the world build, and the build said so.</b> An asset
+        /// reference does not survive <c>EditorSceneManager.NewScene(..., Single)</c> — the same trap
+        /// <see cref="LoadVehicleConfig"/> is written up against, and it fails in the same silent way:
+        /// <c>objectReferenceValue</c> takes the dead reference, writes null, and reports nothing. The
+        /// first version of this handed the <c>WorldMap</c> straight from <c>BuildWorldScene</c> to
+        /// <c>BuildBootstrapScene</c>, and both minimap and map page came out wired to nothing. Only
+        /// <c>AssertReferenceAssigned</c> caught it.</para>
+        /// </summary>
+        private static WorldMap LoadWorldMap()
+        {
+            return AssetDatabase.LoadAssetAtPath<WorldMap>(WorldMapPath);
+        }
+
+        /// <summary>
+        /// Bakes the world in plan into <c>WorldMap.asset</c>, for the minimap and the map page.
+        ///
+        /// <para><b>The list of roads is the whole point of this method.</b> The scene ends up holding
+        /// 199 <c>RoadPath</c> components and only nine of them are paved: <c>MotorwayPath</c> is the
+        /// median the two carriageways are offset from, and <c>SeeburgAxis</c> and <c>ArterialPath</c>
+        /// are the frames <c>TownShape.ToWorld</c> maps a town against. Nothing about a path says which
+        /// it is, so a builder that went looking would draw a road down the middle of two towns and a
+        /// third carriageway down the motorway — and a picture is the only place that would show it.
+        /// Every road below is one that <c>RoadMeshBuilder.BuildRoad</c> or <c>BuildCarriageway</c> was
+        /// called on a few hundred lines above.</para>
+        ///
+        /// <para>The motorway's <i>features</i> come off its median course rather than off a
+        /// carriageway, because that is what their distances were measured along. Ten metres of offset
+        /// is nothing at map scale; a third carriageway is not.</para>
+        /// </summary>
+        private static void BuildWorldMap(
+            RoadPath pass,
+            in RoadShape roadShape,
+            RoadPath ebental,
+            RoadPath kalkgrat,
+            RoadPath meerenge,
+            RoadPath yalikoy,
+            RoadPath coast,
+            IRoadPath westbound,
+            IRoadPath eastbound,
+            in RoadShape motorwayShape,
+            RoadPath link,
+            RoadPath motorway,
+            RoadCourse passCourse,
+            RoadCourse ebentalCourse,
+            RoadCourse kalkgratCourse,
+            RoadCourse meerengeCourse,
+            RoadCourse yalikoyCourse,
+            RoadCourse coastCourse,
+            RoadCourse motorwayCourse,
+            RoadCourse linkCourse,
+            IReadOnlyList<TownBuild> towns,
+            IReadOnlyList<WaterBody> waters,
+            IReadOnlyList<SpawnPoint> spawns)
+        {
+            float half = roadShape.HalfWidth;
+
+            var roads = new List<WorldMapBuilder.Road>
+            {
+                new WorldMapBuilder.Road(pass, MapLineKind.Trunk, half),
+                new WorldMapBuilder.Road(ebental, MapLineKind.Trunk, half),
+                new WorldMapBuilder.Road(kalkgrat, MapLineKind.Trunk, half),
+                new WorldMapBuilder.Road(meerenge, MapLineKind.Trunk, half),
+                new WorldMapBuilder.Road(yalikoy, MapLineKind.Trunk, half),
+                new WorldMapBuilder.Road(coast, MapLineKind.Trunk, half),
+                new WorldMapBuilder.Road(westbound, MapLineKind.Motorway, motorwayShape.HalfWidth),
+                new WorldMapBuilder.Road(eastbound, MapLineKind.Motorway, motorwayShape.HalfWidth),
+                new WorldMapBuilder.Road(link, MapLineKind.Motorway, half),
+            };
+
+            var featured = new List<WorldMapBuilder.Featured>
+            {
+                new WorldMapBuilder.Featured(pass, passCourse),
+                new WorldMapBuilder.Featured(ebental, ebentalCourse),
+                new WorldMapBuilder.Featured(kalkgrat, kalkgratCourse),
+                new WorldMapBuilder.Featured(meerenge, meerengeCourse),
+                new WorldMapBuilder.Featured(yalikoy, yalikoyCourse),
+                new WorldMapBuilder.Featured(coast, coastCourse),
+                new WorldMapBuilder.Featured(motorway, motorwayCourse),
+                new WorldMapBuilder.Featured(link, linkCourse),
+            };
+
+            var settlements = new List<WorldMapBuilder.Town>(towns.Count);
+            for (int i = 0; i < towns.Count; i++)
+            {
+                settlements.Add(new WorldMapBuilder.Town(towns[i].Name, towns[i].Network));
+            }
+
+            // SpawnPoint lives in Horizon.Game, which is above Horizon.World. The builder takes its own
+            // record and the conversion happens here, where both are in scope.
+            var places = new List<WorldMapBuilder.Place>(spawns.Count);
+            for (int i = 0; i < spawns.Count; i++)
+            {
+                places.Add(new WorldMapBuilder.Place(spawns[i].Name, spawns[i].Position));
+            }
+
+            WorldMap map = WorldMapBuilder.Build(
+                roads, featured, settlements, waters, places, out string report);
+
+            map.name = "WorldMap";
+            map = HorizonAssetUtility.ReplaceAsset(map, WorldMapPath);
+
+            Debug.Log($"[Horizon] Map:{report}");
+
+            ValidateWorldMap(map);
+        }
+
+        /// <summary>
+        /// What the map has to be true about before anyone looks at a picture of it.
+        ///
+        /// <para>Every one of these fails silently otherwise: a line with a point missing draws nothing,
+        /// a marker on the wrong path lands in a field with no complaint, and a mesh over the vertex
+        /// limit is not a partial map but no map at all — uGUI drops the whole thing.</para>
+        /// </summary>
+        private static void ValidateWorldMap(WorldMap map)
+        {
+            if (map == null || map.LineCount == 0)
+            {
+                Debug.LogWarning("[Horizon] The world map came out empty.");
+                return;
+            }
+
+            int segments = 0;
+
+            for (int line = 0; line < map.LineCount; line++)
+            {
+                int span = map.LineEndAt(line) - map.LineStartAt(line);
+
+                if (span < 2)
+                {
+                    Debug.LogWarning(
+                        $"[Horizon] Map line {line} ({map.KindOf(line)}) has {span} points and cannot "
+                        + "be drawn.");
+                    continue;
+                }
+
+                segments += span - 1;
+            }
+
+            // One canvas mesh holds 65 535 vertices, which is 16 383 quads. Town streets are dropped
+            // past a zoom threshold in MapGraphic, so the figure that matters is everything else.
+            int wide = 0;
+            for (int line = 0; line < map.LineCount; line++)
+            {
+                if (map.KindOf(line) != MapLineKind.Street)
+                {
+                    wide += Mathf.Max(0, map.LineEndAt(line) - map.LineStartAt(line) - 1);
+                }
+            }
+
+            if (wide > 15000)
+            {
+                Debug.LogWarning(
+                    $"[Horizon] The map has {wide} segments outside the towns, which is {wide * 4} "
+                    + "vertices against the 65 535 one canvas mesh holds. Zoomed out it will draw "
+                    + "nothing at all rather than draw partially. Coarsen WorldMapBuilder's sampling.");
+            }
+
+            // A marker is placed by feeding a course's own distance back through a path. Handing it the
+            // wrong path is the one mistake here that produces a clean build and a wrong picture.
+            int adrift = 0;
+            string worst = string.Empty;
+            float furthest = 0f;
+
+            for (int i = 0; i < map.MarkerCount; i++)
+            {
+                float distance = NearestMapLine(map, map.MarkerAt(i));
+
+                if (distance <= 40f)
+                {
+                    continue;
+                }
+
+                adrift++;
+
+                if (distance > furthest)
+                {
+                    furthest = distance;
+                    worst = map.MarkerNameOf(i);
+                }
+            }
+
+            if (adrift > 0)
+            {
+                Debug.LogWarning(
+                    $"[Horizon] {adrift} map markers stand more than 40 m from any road — worst is "
+                    + $"'{worst}' at {furthest:0} m. A feature is positioned along a path, so this is a "
+                    + "course measured against a road it is not on.");
+            }
+
+            Debug.Log(
+                $"[Horizon] Map check: {segments} segments ({wide} outside the towns), "
+                + $"{map.MarkerCount} markers, {adrift} adrift.");
+        }
+
+        /// <summary>Distance from a point to the nearest map line, through the map's own grid.</summary>
+        private static float NearestMapLine(WorldMap map, Vector2 at)
+        {
+            float best = float.MaxValue;
+
+            // Two cells each way: a marker further off than that is already well past the threshold.
+            int column = map.ColumnOf(at.x);
+            int row = map.RowOf(at.y);
+
+            for (int r = row - 2; r <= row + 2; r++)
+            {
+                for (int c = column - 2; c <= column + 2; c++)
+                {
+                    map.CellRange(c, r, out int from, out int to);
+
+                    for (int i = from; i < to; i++)
+                    {
+                        int point = map.ItemAt(i);
+
+                        if (map.KindOf(map.LineOfPoint(point)) == MapLineKind.River)
+                        {
+                            continue;
+                        }
+
+                        best = Mathf.Min(best, DistanceToSegment(
+                            at, map.PointAt(point), map.PointAt(point + 1)));
+                    }
+                }
+            }
+
+            return best;
+        }
+
+        private static float DistanceToSegment(Vector2 point, Vector2 a, Vector2 b)
+        {
+            Vector2 span = b - a;
+            float length = span.sqrMagnitude;
+
+            if (length < 0.0001f)
+            {
+                return Vector2.Distance(point, a);
+            }
+
+            float t = Mathf.Clamp01(Vector2.Dot(point - a, span) / length);
+            return Vector2.Distance(point, a + span * t);
         }
 
         /// <summary>
@@ -2255,6 +2518,9 @@ namespace Horizon.EditorTools
         {
             Scene scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
 
+            // After the scene switch, never before it. See LoadWorldMap.
+            WorldMap map = LoadWorldMap();
+
             var root = new GameObject("GameBootstrap");
             GameBootstrap bootstrap = root.AddComponent<GameBootstrap>();
             DriveInputRouter router = root.AddComponent<DriveInputRouter>();
@@ -2280,7 +2546,7 @@ namespace Horizon.EditorTools
                 spawnNames[i] = spawns[i].Name;
             }
 
-            TouchUiSetup.UiParts ui = TouchUiSetup.Build(root, router, spawnNames);
+            TouchUiSetup.UiParts ui = TouchUiSetup.Build(root, router, spawnNames, map);
 
             // Now that the start screen and the quality director exist, GameBootstrap can be told about
             // them. Wired explicitly rather than left to the FindFirstObjectByType fallbacks in Awake —
