@@ -6246,6 +6246,10 @@ namespace Horizon.EditorTools
             Debug.Log($"[Horizon] Ebental: {stats.Poplars} avenue poplars, {stats.FruitTrees} fruit trees, "
                       + $"{stats.WallRuns} field boundaries, {stats.HayBales} bales.");
 
+            // Anadolu's, on their own line for the reason the Ebental has one: a region's own planting is
+            // a rounding error against the world's total, so its absence would not show there.
+            Debug.Log($"[Horizon] Anadolu: {stats.Cypresses} cypresses.");
+
             float minimum = roadShape.OuterHalfWidth + 1f;
             if (stats.ClosestToRoad < minimum)
             {

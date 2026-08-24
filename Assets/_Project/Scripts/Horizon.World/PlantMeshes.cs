@@ -420,7 +420,24 @@ namespace Horizon.World
 
         public const int StoneSubmesh = 9;
 
-        public const int SubmeshCount = 10;
+        /// <summary>
+        /// A cypress: <see cref="AddPoplar"/>'s spindles in a colour that is not the Ebental's.
+        ///
+        /// <para><b>This slot exists because leaving it out was a bug nobody could see from the code.</b>
+        /// <see cref="AddPoplar"/> wrote <see cref="PoplarSubmesh"/> unconditionally, and that slot is
+        /// tinted the autumn gold of the country road's avenue. Anadolu's spires go through the same
+        /// method — deliberately, and the reasoning is sound: a poplar and a cypress are the same
+        /// silhouette at any distance either is seen from. What came with the silhouette was the paint.
+        /// Half the trees on the far shore of the Meerenge were gold, in the one region whose entire
+        /// stated purpose is to read as another country.</para>
+        ///
+        /// <para>The fix is a submesh and not a mesh, which is the whole argument this file makes about
+        /// <see cref="FoliageTints"/>: a slot with a tint is folded away by <c>MergeTinted</c>, so a
+        /// species that differs only in colour costs no draw call, no material and no triangles.</para>
+        /// </summary>
+        public const int CypressSubmesh = 10;
+
+        public const int SubmeshCount = 11;
 
         /// <summary>
         /// The colour each plant submesh is tinted with when they are merged, or null to keep its own
@@ -456,6 +473,11 @@ namespace Horizon.World
             // a second draw call.
             tints[StrawSubmesh] = new Color(0.83f, 0.75f, 0.50f);
             tints[StoneSubmesh] = new Color(0.62f, 0.59f, 0.52f);
+
+            // The far shore. Darker and greyer than anything west of the water, which is what a cypress
+            // is and, more to the point here, is the one thing on that hillside that cannot be mistaken
+            // for the avenue five kilometres back up the road.
+            tints[CypressSubmesh] = new Color(0.18f, 0.26f, 0.19f);
 
             return tints;
         }
@@ -542,6 +564,18 @@ namespace Horizon.World
         /// </summary>
         public static void AddPoplar(VegetationMeshBuffer buffer, in PlantPlacement place)
         {
+            AddPoplar(buffer, place, PoplarSubmesh);
+        }
+
+        /// <summary>
+        /// The same spire in another colour — a cypress rather than a poplar.
+        ///
+        /// <para>One mesh, two palettes, exactly as <see cref="AddBroadleaf(VegetationMeshBuffer, in PlantPlacement, int)"/>
+        /// serves both the valley's woods and the Ebental's autumn. See <see cref="CypressSubmesh"/> for
+        /// what went wrong while this overload did not exist.</para>
+        /// </summary>
+        public static void AddPoplar(VegetationMeshBuffer buffer, in PlantPlacement place, int spireSubmesh)
+        {
             var random = new PlantRandom(place.Seed);
 
             float height = random.Range(18f, 22f);
@@ -568,7 +602,7 @@ namespace Horizon.World
                 // Barely tapering. The tip is the only place a poplar narrows, and it does it late.
                 float tierRadius = radius * (tier < tiers - 1 ? 1f - tier * 0.07f : 0.55f);
 
-                AddBlob(buffer, place, PoplarSubmesh, 8, tierRadius,
+                AddBlob(buffer, place, spireSubmesh, 8, tierRadius,
                     ringY, topY, bottomY, phase + tier * 0.55f, 0.12f, ref random);
             }
         }

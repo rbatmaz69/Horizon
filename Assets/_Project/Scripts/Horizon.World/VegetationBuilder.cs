@@ -16,6 +16,13 @@ namespace Horizon.World
         /// <summary>The Ebental's own, counted apart so the log can say whether the avenue actually stood up.</summary>
         public int Poplars;
 
+        /// <summary>
+        /// Anadolu's spires. The same mesh as <see cref="Poplars"/> and counted apart from them anyway,
+        /// because they are the only two things in the world that share a silhouette and are meant to
+        /// read as different species — so one number covering both would hide either of them failing.
+        /// </summary>
+        public int Cypresses;
+
         public int FruitTrees;
         public int HayBales;
         public int WallRuns;
@@ -49,7 +56,7 @@ namespace Horizon.World
         public readonly List<int> Submeshes = new List<int>(PlantMeshes.SubmeshCount);
 
         public int Plants => Conifers + Broadleaves + Shrubs + Tufts + Boulders + Snags
-                             + Poplars + FruitTrees;
+                             + Poplars + Cypresses + FruitTrees;
 
         public void Add(VegetationStats other)
         {
@@ -60,6 +67,12 @@ namespace Horizon.World
             Boulders += other.Boulders;
             Snags += other.Snags;
             Poplars += other.Poplars;
+
+            // Every field on this class has to be listed here, and forgetting one is silent: the tile
+            // builds what it was going to build and the total simply reports nought. Cypresses came in
+            // and were missed, and the log said "0 cypresses" over eleven hundred of them — which read
+            // as a region that had stopped planting rather than as a line missing from a sum.
+            Cypresses += other.Cypresses;
             FruitTrees += other.FruitTrees;
             HayBales += other.HayBales;
             WallRuns += other.WallRuns;
@@ -913,8 +926,12 @@ namespace Horizon.World
                         // LandRegion.SpireChance.
                         if (region.SpireChance > 0f && random.Next() < region.SpireChance)
                         {
-                            PlantMeshes.AddPoplar(buffer, placement);
-                            stats.Poplars++;
+                            // The cypress slot, not the poplar's. They are the same mesh on purpose —
+                            // see AddPoplar — but the poplar's slot is painted the Ebental's autumn
+                            // gold, so sharing it put half the far shore's trees in the colour of the
+                            // country road five kilometres back. See PlantMeshes.CypressSubmesh.
+                            PlantMeshes.AddPoplar(buffer, placement, PlantMeshes.CypressSubmesh);
+                            stats.Cypresses++;
                             Record(stats, toRoad, context, x, z);
                             continue;
                         }
