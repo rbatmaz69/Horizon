@@ -323,9 +323,15 @@ namespace Horizon.World
         ///
         /// <para>Guard rails and delineator posts read this, for the reason
         /// <see cref="RoadFeatureKind.Junction"/> gives. Both verges rather than only the branch's own,
-        /// which is the same call <see cref="IsForecourt"/> made and is less of a compromise here: the
-        /// throat a fork paves reaches across the whole carriageway, so a post on the far shoulder would
-        /// be standing on it rather than beside it.</para>
+        /// which is the same call <see cref="IsForecourt"/> made: a fork is the one place in this world
+        /// where a car crosses the carriageway on purpose, and the far shoulder is where one that got
+        /// the corner wrong arrives.</para>
+        ///
+        /// <para><b>The branch's own course has to carry the mark too.</b> Every builder that reads this
+        /// reads it off the course it is building, so a mark on the trunk alone leaves the branch
+        /// unprotected — and the branch is the road whose end is <i>at</i> the junction, where the drop
+        /// test beside a mouth fires every time. That was three roads with rails standing across the
+        /// carriageway they exist to reach, including both pit lanes.</para>
         /// </summary>
         public bool IsJunction(float distance, float margin = 0f)
         {
@@ -907,14 +913,25 @@ namespace Horizon.World
         /// moved on one road and not the other.</para>
         ///
         /// <para><b>The track through a fork has to be straight and level.</b> The throat is laid on
-        /// top of both carriageways at <c>MotorwayMergeBuilder.Lift</c>, and laid-on paving only sits
-        /// flush where the surface under it has no camber to follow — see <c>FuelStationMeshes</c> for
-        /// the commit that unpicked the alternative. Split a straight around this rather than marking a
-        /// fork inside a bend or on a grade.</para>
+        /// top of the branch at <c>MotorwayMergeBuilder.Lift</c> and clipped to this road's paved edge,
+        /// and both of those are decided against a single plane — see <c>TrunkForkBuilder</c>. Laid-on
+        /// paving only sits flush where the surface under it has no camber to follow; see
+        /// <c>FuelStationMeshes</c> for the commit that unpicked the alternative. Split a straight
+        /// around this rather than marking a fork inside a bend or on a grade.</para>
+        ///
+        /// <para><paramref name="reach"/> marks a fork that is a <i>stretch</i> rather than a point —
+        /// the motorway's two termini, where the paving that brings the carriageways together runs for
+        /// two hundred metres. Everything that reads <see cref="RoadCourse.IsJunction"/> keeps its verge
+        /// clear over the whole of it, which a point plus a margin cannot express without every reader
+        /// carrying the same number.</para>
         /// </summary>
-        public RoadCourseBuilder AddJunction(string name)
+        public RoadCourseBuilder AddJunction(string name, float reach = 0f)
         {
-            features.Add(new RoadFeature(RoadFeatureKind.Junction, traveled, traveled, name));
+            float half = Mathf.Max(0f, reach) * 0.5f;
+
+            features.Add(new RoadFeature(
+                RoadFeatureKind.Junction, traveled - half, traveled + half, name));
+
             return this;
         }
 

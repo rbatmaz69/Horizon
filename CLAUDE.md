@@ -1111,6 +1111,115 @@ from a road and nothing for the falloff to thin. A stacked climb is all near fie
 why its tiles are the heaviest in the world, and why `LandRegion.TreeDensity` is the knob rather than
 `FarDensity`.
 
+## Where roads meet
+
+Fourteen courses, four towns, two circuits and one motorway, and until now **nothing in this project
+measured or photographed a junction.** `ValidateMergeSeam` asked the question of the single motorway
+on-ramp; eighteen other checks walk *along* a road or measure the ground under it, and a seam is the
+gap between two of those. Every fault below built without a word, validated cleanly, and was reported
+from the car.
+
+**A branch's course ends on the centreline of the road it joins, and its ribbon must not.** `ConnectTo`
+is aimed at the trunk's own published pose, which is right — that is what makes a fork one place rather
+than two. But a cross-section is square to the branch, so a ribbon walked all the way there lays its
+last one *across* the carriageway: 5.25 m of asphalt and 1.5 m of gravel shoulder, most of it past the
+centre line, ending in a square cap with a 0.5 m drop off its edge. On the Weissjochring the throat then
+reached **5.2 m past the centreline of a 6.5 m half-width** — nearly the whole of the far side of the
+racing surface — on the fastest part of the lap. `RoadMeshBuilder.BuildRoad` now takes a trim and
+`TrunkForkBuilder.RibbonTrim` says where: 20.5 m on the Stadtfeld, 22.6 m on the Weissjochring and
+40.5 m on the Bahçe Ring, the difference being the fork angle.
+
+**The throat is clipped to the trunk's paved edge, and that line is not a taste.** `AppendRing` puts the
+camber at exactly zero at the asphalt-to-shoulder edge, so a surface cut off there is flush with the
+carriageway to the millimetre and offset from it only by the two centimetres of `MotorwayMergeBuilder.Lift`
+every laid-on thing here carries. Anywhere else it would be a step. This also **removes** the throat's
+original reason to exist — it was there to cover two ribbons fighting for the depth buffer, and with the
+branch trimmed there is nothing left to cover — so what is left is a bell mouth that opens off the edge
+of a road that keeps its own markings, its own camber and, on a circuit, its own kerbs. Laying a flat
+plane over a cambered carriageway is the trap already recorded against the start line and the grid boxes,
+and the fork had been walking into it.
+
+**Where the throat touches the trunk it has to be at the trunk's height, and that is not the same as
+where it was clipped.** The clip line runs *along* the carriageway for forty metres or so of branch,
+and over that run the throat's own section is blending off the trunk's plane onto the branch's grade —
+so carrying the row's height across the cut walked the seam open at the difference of the two grades:
+19 cm on the Stadtfeld fork, 15 on the Weissjochring, **62 on the Bahçe Ring**, against a tolerance of
+four. The cut end takes its height from the trunk and the blend stays on the far edge, which makes the
+quad between them the ruled apron `AppendFillets` already builds one road class further out. The
+overhang was zero on the first build and this was still wrong, which is the point: **two things had to
+be right and only one of them was measurable by looking at the plan.**
+
+**`AddJunction` has to be on both courses, and it was on one.** Guard rails, delineator posts and kerbs
+all read `RoadCourse.IsJunction` off the course they are building, so a mark on the trunk protects the
+trunk. `GuardRailBuilder`'s own comment describes the failure exactly — *"a rail there stands across the
+road the branch exists to reach"* — and the branch is the road whose end is **at** the junction, which is
+precisely where the drop test beside a mouth fires every time. Three roads, both pit lanes among them.
+`AddJunction` also takes a `reach` now, because the motorway's two termini are junctions two hundred
+metres long rather than points.
+
+**The motorway ended in a wall, at both ends.** `AutobahnCourse` hands over to Hochstadt's boulevard in
+the east and the coast road in the west, and both of them begin on the **median line** — that is the axis
+the whole road is measured against. The carriageways are `OffsetRoadPath`s at ±10.5 m, so each one
+finished ten and a half metres to the side of the road it was handing to, with six metres of unpaved
+median between them and `GuardRailBuilder.BuildMedian`, whose `present[step]` was the literal `true` with
+a comment saying that not even a bore breaks the run, standing down the middle of it. **The last post
+stood on the city gate.** There was no way out of Hochstadt and no way onto the coast road.
+
+`MotorwayTerminusBuilder` is the two carriageways coming together over 200 m, and it **replaces** them
+rather than covering them: the ribbons are trimmed and the terminus carries a cross-section that is
+theirs at one end and the onward road's at the other — two crowns becoming one, `offset + HalfWidth`
+becoming the onward half-width, the shoulder and its drop going with them. Laid over instead, the two
+would disagree by a whole `Crown` at each carriageway's centreline, which is 12 cm against a 4 cm
+tolerance. The east end reads its narrow width off `TownStreetShape.For(Boulevard)` rather than typing
+16 m, for the reason this file gives about every second copy of a number.
+
+**`ValidateRoadSupport` is the missing sign of `ValidateRoadClearance`.** That check measures terrain
+standing *above* the asphalt and nothing measured the other way — which is a gap rather than an
+oversight, because `MountainField` averages: wherever two roads at different heights come within reach
+of one another the lower gets ground on its carriageway, *which is reported*, and the higher loses the
+ground under it, which was not. Every breach that check has ever printed had a silent twin. It sampled
+at the shoulder's outer edge, and on the first run it found the thing the player had reported and
+nobody could locate.
+
+**The Meerenge corniche was standing on a ledge for most of two kilometres.** `MountainField.UnderWater`
+eases the ground up from a waterline over `BankEase`, and the Boğaz's bank is wider than the corniche's
+distance from it — so the ease was dragging the ground down towards the water *underneath the
+carriageway itself*, 54 m of it at the worst point. The road had no verge at all: its shoulder edge was
+the top of a cliff. Nothing had ever asked, because `ValidateRoadClearance` only ever asked whether the
+ground was too high. `MountainField.BankFloor` keeps a carriageway's own shelf out to its verge and lets
+the bank take over past that, so there is still a fall to the water — it starts where a verge ends
+rather than where the asphalt does. It is deliberately **carriageways only**: `DistanceToRoad` excludes
+the level samples a town or a paddock lays, and a harbour basin and a bay are dug to meet their town on
+purpose.
+
+The support check skips bridged and covered stretches with `MountainField.BridgeCorridor` of margin,
+which is the distance a deck's carve eases back over. Without it, it reported 128 points on each
+motorway carriageway and 68 on the Kalkgrat — every one an abutment doing exactly what it is drawn to
+do. `linkPath` and `coastPath` are on both lists now; they were on neither.
+
+**`ValidateTownEntry` asks the question `CountUnreachable` is handed the answer to.** That walk is seeded
+with the town's gateway node as a given — its own remarks say so — so it reported Hochstadt as reachable
+because it assumed it, through a solid barrier, across ten and a half metres of grass, for as long as the
+city has existed. This measures how far the nearest street node is from the *paving* of the road that
+actually arrives, how far apart they are in height, and whether anything solid stands on the line between
+them. For Hochstadt that road is the eastbound carriageway and not the arterial, which is a coordinate
+axis with no asphalt on it; for Seeburg it is the coast road and not the town's own axis.
+
+`Tools > Horizon > Render Junction Preview` photographs all thirteen joins day and night — the three
+forks, the two motorway termini, the on-ramp, the six places one course hands to the next, and
+Seeburg's gate. A fork gets four frames: down the branch at the mouth, the road it joins from both
+directions, and straight down from a hundred and sixty metres. **The plan frame is the one that carries
+it.** Asphalt laid across a carriageway, a ridge standing between two branches and a barrier across a
+mouth are all things you look straight past at eye level and cannot miss from above — which is the same
+lesson the `_ForkPlan` shot on the Stadtfeld already stands for, generalised to every junction in the
+world.
+
+**The eye-level frames stand at forty-five metres, and the first version stood at ninety.** At ninety a
+mouth three metres wider than the road it opens off is a few pixels of dark asphalt against dark
+asphalt, and every fork frame came back as a photograph of an ordinary road — which is exactly the
+fault already recorded against the two `_3_Fork` shots these replace. A frame that cannot resolve its
+subject is worse than no frame, because it looks like an answer.
+
 ## The map
 
 A minimap in the top-left corner, and the whole world behind a tap on it (`MenuPage.Map`). Both are one

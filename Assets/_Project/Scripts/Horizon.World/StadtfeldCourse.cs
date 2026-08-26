@@ -207,6 +207,13 @@ namespace Horizon.World
                     + "circle in it rather than a road that failed to build. Retune the instructions "
                     + "above so the walk ends nearer the fork and closer to its heading.");
             }
+
+            // The branch's own copy of the fork. The Ebental carries one too, and both are needed:
+            // GuardRailBuilder, DelineatorPostBuilder and KerbBuilder each read IsJunction off the
+            // course they are building, so a mark on one road protects one road. This end of this road
+            // is the mouth, which is exactly where the drop test beside a junction fires and where a
+            // rail would stand across the Ebental.
+            builder.AddJunction(EbentalCourse.JunctionName);
         }
 
         /// <summary>

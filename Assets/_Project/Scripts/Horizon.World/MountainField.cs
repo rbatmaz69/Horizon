@@ -138,7 +138,7 @@ namespace Horizon.World
         private const float BridgeHeadroom = 9f;
 
         /// <summary>How far either side of a bridge's centreline that cap applies, metres.</summary>
-        private const float BridgeCorridor = 46f;
+        public const float BridgeCorridor = 46f;
 
         private readonly Vector2 gridOrigin;
         private readonly int columns;
@@ -283,7 +283,7 @@ namespace Horizon.World
                     MountainAt(x, z),
                     Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(away / Mathf.Max(1f, shape.BlendDistance))));
 
-            return UnderWater(x, z, UnderBridges(x, z, height));
+            return UnderWater(x, z, UnderBridges(x, z, height), shelf);
         }
 
         /// <summary>
@@ -395,8 +395,15 @@ namespace Horizon.World
         /// so the colour follows. Overriding to the bed profile instead would fill in a valley the
         /// viaduct was drawn to span.</para>
         /// </summary>
-        private float UnderWater(float x, float z, float height)
+        private float UnderWater(float x, float z, float height, float shelf)
         {
+            // The floor a carriageway's own shelf puts under the ground beside it. Worked out at most
+            // once, and only for a sample that is actually in a bank — see BankFloor.
+            float floor = float.MinValue;
+            bool floorKnown = false;
+
+            float ceiling = height;
+
             for (int i = 0; i < waters.Length; i++)
             {
                 WaterBody body = waters[i];
@@ -438,9 +445,50 @@ namespace Horizon.World
                 // In the bank: start at the waterline and ease up to whatever the ground was.
                 float ease = Mathf.SmoothStep(0f, 1f, outside / Mathf.Max(1f, body.BankEase));
                 height = Mathf.Min(height, Mathf.Lerp(body.SurfaceY, height, ease));
+
+                // <b>But not out from under a road.</b> A bank a couple of hundred metres wide reaches
+                // past anything running along the shore, and where it does it drags the ground towards
+                // the waterline underneath the carriageway itself — on the Meerenge corniche that put
+                // the sea fifty-four metres below the seaward shoulder for most of two kilometres, so
+                // the road was a ledge with nothing under it and its verge began as a cliff. Nothing
+                // reported it: ValidateRoadClearance only ever asked whether the ground was too *high*.
+                //
+                // The road keeps its shelf out to its own verge and the bank takes over past that, so
+                // there is still a fall to the water — it simply starts where a verge ends rather than
+                // where the asphalt does.
+                if (!floorKnown)
+                {
+                    floor = BankFloor(x, z, shelf, ceiling);
+                    floorKnown = true;
+                }
+
+                height = Mathf.Max(height, floor);
             }
 
             return height;
+        }
+
+        /// <summary>
+        /// How low a bank may take the ground at a point, given the road that stands there.
+        ///
+        /// <para><b>Carriageways only, never level ground.</b> <see cref="DistanceToRoad"/> excludes the
+        /// level samples a town or a paddock lays, and that exclusion is the whole point here: a
+        /// harbour basin and a bay are dug to meet the town they belong to, and a floor under those
+        /// would fill them in. It is the same distinction the vegetation falloff already draws, and for
+        /// a related reason.</para>
+        ///
+        /// <para>Capped at <paramref name="ceiling"/> — the height before any water was carved — so this
+        /// can only ever <i>keep</i> ground the road put there, never raise ground a bridge deck has
+        /// already pushed down.</para>
+        /// </summary>
+        private float BankFloor(float x, float z, float shelf, float ceiling)
+        {
+            if (DistanceToRoad(x, z) > Verge)
+            {
+                return float.MinValue;
+            }
+
+            return Mathf.Min(shelf, ceiling);
         }
 
         /// <summary>

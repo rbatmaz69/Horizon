@@ -6,10 +6,17 @@ namespace Horizon.World
     /// The bell-mouth where a branch road leaves a trunk road out in the country.
     ///
     /// <para><b>What is missing without it.</b> Two roads that meet are two ribbons that cross.
-    /// <c>RoadMeshBuilder</c> lays each one out along its own course, so where the branch runs over the
-    /// trunk there are two paved surfaces a few centimetres apart fighting for the depth buffer, and
-    /// either side of the branch's edge there is a triangle of shoulder gravel with nothing paved
-    /// across it. The junction reads as one road dropped on top of another, which is what it is.</para>
+    /// <c>RoadMeshBuilder</c> lays each one out along its own course, so either side of the branch's
+    /// edge there is a triangle of shoulder gravel with nothing paved across it, and the branch's last
+    /// cross-section — square to the branch, so most of it is across the trunk — ends in a cap on the
+    /// driving line. The junction reads as one road dropped on top of another, which is what it is.</para>
+    ///
+    /// <para><b>The branch's ribbon stops before the trunk's carriageway and this pays it back.</b> See
+    /// <see cref="RibbonTrim"/> for where it stops and why the earlier answer — let both ribbons run to
+    /// the junction point and lay a throat over the overlap — was wrong: it put paving across the trunk,
+    /// which on a circuit is across the racing line, and a flat plane over a cambered carriageway
+    /// besides. The trunk keeps its own surface, its markings and its kerbs, and the throat opens off
+    /// its paved edge.</para>
     ///
     /// <para><b>Why it is a throat in the branch's frame and not a pad in the trunk's.</b> The thing
     /// that must not have a step in it is the line a driver takes, and the only line through a fork
@@ -29,10 +36,12 @@ namespace Horizon.World
     /// projection is onto a <i>plane</i>, so a fork marked inside a bend or on a camber would be flush
     /// at the centre and wrong at the edges.</para>
     ///
-    /// <para>Laid on top of both roads at <see cref="MotorwayMergeBuilder.Lift"/> rather than let
-    /// through between them, for the reason recorded there: covering the overlap is the fix, and two
-    /// centimetres wins the depth test outright while being a twentieth of the suspension's travel at
-    /// rest, so a raycast wheel crossing onto it cannot feel the step.</para>
+    /// <para>Laid on top of the branch at <see cref="MotorwayMergeBuilder.Lift"/> rather than let
+    /// through beside it, for the reason recorded there: two centimetres wins the depth test outright
+    /// while being a twentieth of the suspension's travel at rest, so a raycast wheel crossing onto it
+    /// cannot feel the step. Against the trunk it does not need to win anything, because it stops at
+    /// the paved edge — where <c>RoadMeshBuilder.AppendRing</c> puts the camber at exactly zero, so the
+    /// two surfaces are flush there and the seam is the one the road already had.</para>
     ///
     /// <para><b>Unmarked, deliberately.</b> The trunk's markings live in a baked atlas whose v is arc
     /// length in its own frame, so two paths share no dash phase and there is no unpainted column to
@@ -129,6 +138,79 @@ namespace Horizon.World
         /// tangentially. A linear one puts a visible corner in the kerb line at the point the widening
         /// starts, which is exactly where a driver is looking on the way in.</para>
         /// </summary>
+        /// <summary>
+        /// How far short of the junction the branch's <b>own ribbon</b> has to stop, metres along the
+        /// branch. Fed to <c>RoadMeshBuilder.BuildRoad</c>'s trim.
+        ///
+        /// <para>A cross-section is square to the branch, so a ribbon walked all the way to the junction
+        /// point lays its last one across the road it is joining: half a carriageway of asphalt, a gravel
+        /// shoulder and the drop under it, ending in a square cap on somebody's driving line. The row has
+        /// cleared the trunk's paved edge once <c>along * sin(fork)</c> exceeds
+        /// <c>trunkHalfWidth + branchOuterHalfWidth * cos(fork)</c>, and that is this.</para>
+        ///
+        /// <para><b>Measured from the two paths rather than told.</b> The fork angle is authored on the
+        /// branch's course as a <c>ForkDeflection</c>, but what the ribbon is actually built along is a
+        /// <c>RoadPath</c> through control points a Dubins solve landed on, and the two agree to within
+        /// whatever the last arc did. <c>BuildTrunkFork</c> already measures the mouth's position for the
+        /// same reason.</para>
+        /// </summary>
+        public static float RibbonTrim(
+            IRoadPath trunk,
+            in RoadShape trunkShape,
+            float atDistance,
+            IRoadPath branch,
+            in RoadShape branchShape,
+            float branchAt,
+            float branchSign)
+        {
+            if (trunk == null || branch == null)
+            {
+                return 0f;
+            }
+
+            Vector3 alongTrunk = trunk.GetDirectionAtDistance(Mathf.Clamp(atDistance, 0f, trunk.Length));
+            Vector3 alongBranch = branch.GetDirectionAtDistance(Mathf.Clamp(branchAt, 0f, branch.Length))
+                                  * branchSign;
+
+            alongTrunk.y = 0f;
+            alongBranch.y = 0f;
+
+            if (alongTrunk.sqrMagnitude < 0.0001f || alongBranch.sqrMagnitude < 0.0001f)
+            {
+                return 0f;
+            }
+
+            alongTrunk.Normalize();
+            alongBranch.Normalize();
+
+            float cos = Mathf.Abs(Vector3.Dot(alongTrunk, alongBranch));
+            float sin = Mathf.Sqrt(Mathf.Max(0f, 1f - cos * cos));
+
+            // A branch that leaves at nothing at all never clears the trunk, and the expression below
+            // would answer with a kilometre. Sixteen degrees is the floor BahceRingCourse.ForkDeflection
+            // records for a different reason; below it there is no fork to trim for.
+            if (sin < 0.27f)
+            {
+                Debug.LogWarning(
+                    $"[Horizon] A fork leaves its trunk road at {Mathf.Asin(sin) * Mathf.Rad2Deg:0.0}°. "
+                    + "Below about sixteen degrees a branch's ribbon cannot be trimmed clear of the "
+                    + "carriageway inside the throat, and it will be laid over it instead.");
+                return 0f;
+            }
+
+            float trim = (trunkShape.HalfWidth + branchShape.OuterHalfWidth * cos) / sin + MouthOverlap;
+
+            if (trim > ThroatLength)
+            {
+                Debug.LogWarning(
+                    $"[Horizon] A branch's ribbon has to stop {trim:0} m short of its junction, and the "
+                    + $"throat that pays it back is only {ThroatLength:0} m long. There will be a hole in "
+                    + "the road between them. Widen the fork angle or lengthen ThroatLength.");
+            }
+
+            return trim;
+        }
+
         /// <summary>
         /// How wide the mouth opens at the trunk, either side of the branch's centreline.
         ///
@@ -242,9 +324,26 @@ namespace Horizon.World
             float mouthHalfWidth = MouthHalfWidth(branchShape, trunkShape);
             int steps = Mathf.Max(2, Mathf.CeilToInt(ThroatLength / StepLength));
 
+            // Which hand the branch leaves on, measured over the whole throat rather than read off a
+            // tangent: at the mouth the branch's centreline is on the trunk's own, so the sign there is
+            // whatever the solve's last millimetre happened to be. Over seventy metres at the shallowest
+            // fork this world has it is twenty-two metres of separation.
+            Vector3 mouthCentre = branch.GetPositionAtDistance(Mathf.Clamp(branchAt, 0f, branch.Length));
+            Vector3 throatEnd = branch.GetPositionAtDistance(
+                Mathf.Clamp(branchAt + branchSign * ThroatLength, 0f, branch.Length));
+
+            float side = Vector3.Dot(throatEnd - mouthCentre, trunkRight) >= 0f ? 1f : -1f;
+
+            // How far across the trunk's frame a point may not come. The paved edge, not the shoulder's:
+            // AppendRing puts the camber at exactly zero there, so a throat clipped to this line meets
+            // the carriageway flush to the millimetre and is offset from it only by the two centimetres
+            // of Lift that every laid-on surface in this world carries.
+            float keepOut = trunkShape.HalfWidth;
+
             Vector3 previousLeft = Vector3.zero;
             Vector3 previousRight = Vector3.zero;
             Vector3 previousUp = Vector3.up;
+            bool have = false;
 
             for (int i = 0; i <= steps; i++)
             {
@@ -276,7 +375,28 @@ namespace Horizon.World
                 left.y = Mathf.Lerp(PlaneHeight(left), left.y, blend);
                 outer.y = Mathf.Lerp(PlaneHeight(outer), outer.y, blend);
 
-                if (i > 0)
+                // And now the row is cut back to the edge of the road it is joining.
+                //
+                // <b>Without this the throat is laid across the carriageway, and on a circuit that is
+                // across the racing line.</b> A row is square to the branch, so at the mouth — where the
+                // branch's centreline is on the trunk's — it reaches mouthHalfWidth * cos(fork) to each
+                // side of it: on the Weissjochring that is 5.2 m past the centreline of a carriageway
+                // 6.5 m wide, ending in a square edge two centimetres proud, on the fastest part of the
+                // lap. It was reported from the car as the pit road running onto the track.
+                //
+                // Covering the trunk was never what the throat was for. It exists because the branch's
+                // own ribbon overlapped the trunk's — and the ribbon is trimmed back now
+                // (RoadMeshBuilder.BuildRoad's from/to), so there is nothing left to cover. What is left
+                // is a bell mouth that opens off the trunk's edge, which is what a fork looks like, and
+                // the trunk keeps its markings, its camber and its kerbs.
+                if (!ClipToTrunk(ref left, ref outer, trunkSurface, trunkRight, side, keepOut,
+                        PlaneHeight))
+                {
+                    have = false;
+                    continue;
+                }
+
+                if (have)
                 {
                     // Outward is the surface normal, so the winding comes from the geometry rather than
                     // from which way round the two edges happened to be handed in.
@@ -286,10 +406,61 @@ namespace Horizon.World
                 previousLeft = left;
                 previousRight = outer;
                 previousUp = Vector3.Lerp(trunkUp, up, blend).normalized;
+                have = true;
             }
 
             AppendFillets(trunk, trunkShape, trunkSurface, trunkRight, trunkUp,
                 branch, branchShape, branchAt, branchSign, PlaneHeight, into);
+        }
+
+        /// <summary>
+        /// Cuts one throat row back to the trunk's paved edge, in the trunk's own frame, and puts the
+        /// cut end on the trunk's surface.
+        ///
+        /// <para>Returns false when the whole row is inside the carriageway, which restarts the strip
+        /// rather than emitting a quad across a gap.</para>
+        ///
+        /// <para><b>The height is taken from the trunk, not carried over from the row.</b> A row is
+        /// square to the branch, so the clip line runs <i>along</i> the trunk for forty metres or so of
+        /// branch — and over that run the row's own height is blending off the trunk's plane onto the
+        /// branch's grade. Interpolating the row's two ends and keeping the answer therefore walked the
+        /// seam off the carriageway at the difference of the two grades: 19 cm on the Stadtfeld fork,
+        /// 15 on the Weissjochring and <b>62 on the Bahçe Ring</b>, against a tolerance of four. Where
+        /// this surface touches the trunk it is the trunk's height; the blend belongs on the far edge,
+        /// which is where it goes, and the quad between the two is then the ruled apron
+        /// <c>AppendFillets</c> already builds one road class out.</para>
+        /// </summary>
+        private static bool ClipToTrunk(
+            ref Vector3 a, ref Vector3 b, Vector3 trunkSurface, Vector3 trunkRight, float side,
+            float keepOut, System.Func<Vector3, float> planeHeight)
+        {
+            float da = Vector3.Dot(a - trunkSurface, trunkRight) * side - keepOut;
+            float db = Vector3.Dot(b - trunkSurface, trunkRight) * side - keepOut;
+
+            if (da >= 0f && db >= 0f)
+            {
+                return true;
+            }
+
+            if (da < 0f && db < 0f)
+            {
+                return false;
+            }
+
+            float t = da / (da - db);
+
+            if (da < 0f)
+            {
+                a = Vector3.Lerp(a, b, t);
+                a.y = planeHeight(a);
+            }
+            else
+            {
+                b = Vector3.Lerp(a, b, t);
+                b.y = planeHeight(b);
+            }
+
+            return true;
         }
 
         /// <summary>

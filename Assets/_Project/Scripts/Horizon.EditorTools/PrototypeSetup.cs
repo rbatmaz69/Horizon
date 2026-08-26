@@ -1141,7 +1141,9 @@ namespace Horizon.EditorTools
             stadtfeldPath.SetControlPoints(stadtfeldCourse.ControlPoints);
             ReportCourse(stadtfeldCourse, stadtfeldPath, "Stadtfeld road");
 
-            Mesh stadtfeldMesh = RoadMeshBuilder.BuildRoad(stadtfeldPath, roadShape, "StadtfeldRoadMesh");
+            Mesh stadtfeldMesh = BuildBranchRoad(
+                stadtfeldPath, roadShape, "StadtfeldRoadMesh",
+                ebentalPath, roadShape, EbentalCourse.ForkPoint, "Stadtfeld road");
             stadtfeldMesh = HorizonAssetUtility.ReplaceAsset(
                 stadtfeldMesh, GeneratedFolder + "/StadtfeldRoadMesh.asset");
 
@@ -1258,8 +1260,20 @@ namespace Horizon.EditorTools
             var westbound = new OffsetRoadPath(motorwayPath, -AutobahnCourse.CarriagewayOffset);
             var eastbound = new OffsetRoadPath(motorwayPath, AutobahnCourse.CarriagewayOffset);
 
-            BuildCarriageway(worldRoot.transform, "CarriagewayWest", westbound, motorwayShape, materials);
-            BuildCarriageway(worldRoot.transform, "CarriagewayEast", eastbound, motorwayShape, materials);
+            // Both carriageways stop short of both ends, and the terminus paving takes over there. The
+            // cut is found on each carriageway by position rather than by subtracting the same number
+            // from its own length: a carriageway is an offset of the median and their arc lengths differ
+            // through every bend, so the two ribbons and the paving between them would otherwise meet at
+            // three different places. Same helper, same reason, as the merge and the forks.
+            Vector3 westTaperEnd = motorwayPath.GetPositionAtDistance(
+                MotorwayTerminusBuilder.TerminusLength);
+            Vector3 eastTaperEnd = motorwayPath.GetPositionAtDistance(
+                Mathf.Max(0f, motorwayPath.Length - MotorwayTerminusBuilder.TerminusLength));
+
+            BuildCarriageway(worldRoot.transform, "CarriagewayWest", westbound, motorwayShape, materials,
+                NearestDistanceOn(westbound, westTaperEnd), NearestDistanceOn(westbound, eastTaperEnd));
+            BuildCarriageway(worldRoot.transform, "CarriagewayEast", eastbound, motorwayShape, materials,
+                NearestDistanceOn(eastbound, westTaperEnd), NearestDistanceOn(eastbound, eastTaperEnd));
 
             Mesh linkMesh = RoadMeshBuilder.BuildRoad(linkPath, roadShape, "MotorwayLinkMesh");
             linkMesh = HorizonAssetUtility.ReplaceAsset(
@@ -1332,8 +1346,10 @@ namespace Horizon.EditorTools
             ringAccessPath.SetControlPoints(ringAccessCourse.ControlPoints);
             ReportCourse(ringAccessCourse, ringAccessPath, "Weissjochring access road");
 
-            Mesh ringAccessMesh = RoadMeshBuilder.BuildRoad(
-                ringAccessPath, roadShape, "WeissjochringAccessMesh");
+            Mesh ringAccessMesh = BuildBranchRoad(
+                ringAccessPath, roadShape, "WeissjochringAccessMesh",
+                ringPath, circuitShape, WeissjochringCourse.JunctionPoint,
+                "Weissjochring access road");
             ringAccessMesh = HorizonAssetUtility.ReplaceAsset(
                 ringAccessMesh, GeneratedFolder + "/WeissjochringAccessMesh.asset");
 
@@ -1380,8 +1396,10 @@ namespace Horizon.EditorTools
             bahceAccessPath.SetControlPoints(bahceAccessCourse.ControlPoints);
             ReportCourse(bahceAccessCourse, bahceAccessPath, "Bahçe Ring access road");
 
-            Mesh bahceAccessMesh = RoadMeshBuilder.BuildRoad(
-                bahceAccessPath, roadShape, "BahceRingAccessMesh");
+            Mesh bahceAccessMesh = BuildBranchRoad(
+                bahceAccessPath, roadShape, "BahceRingAccessMesh",
+                bahcePath, circuitShape, BahceRingCourse.JunctionPoint,
+                "Bahçe Ring access road");
             bahceAccessMesh = HorizonAssetUtility.ReplaceAsset(
                 bahceAccessMesh, GeneratedFolder + "/BahceRingAccessMesh.asset");
 
@@ -1810,6 +1828,34 @@ namespace Horizon.EditorTools
                 bahceAccessPath, roadShape, field, bahceAccessCourse, "Bahçe Ring access road");
             ValidateRoadClearance(westbound, motorwayShape, field, motorwayCourse, "Westbound");
             ValidateRoadClearance(eastbound, motorwayShape, field, motorwayCourse, "Eastbound");
+
+            // Two paved roads that were on no list at all. The link carries every car that leaves the
+            // motorway for the pass and the coast road is eight kilometres of carriageway; neither had
+            // ever been asked whether it sits on the ground.
+            ValidateRoadClearance(linkPath, roadShape, field, linkCourse, "Motorway link");
+            ValidateRoadClearance(coastPath, roadShape, field, coastCourse, "Coast road");
+
+            // And the other sign of the same question, for every one of them. See ValidateRoadSupport:
+            // MountainField averages, so a road that has terrain dropped on it always has a neighbour
+            // that has had the ground taken out from under it, and only one of the two was ever printed.
+            ValidateRoadSupport(path, roadShape, field, course);
+            ValidateRoadSupport(ebentalPath, roadShape, field, ebentalCourse, "Ebental");
+            ValidateRoadSupport(stadtfeldPath, roadShape, field, stadtfeldCourse, "Stadtfeld");
+            ValidateRoadSupport(kalkgratPath, roadShape, field, kalkgratCourse, "Kalkgrat");
+            ValidateRoadSupport(meerengePath, roadShape, field, meerengeCourse, "Meerenge");
+            ValidateRoadSupport(yalikoyPath, roadShape, field, yalikoyCourse, "Yalıköy");
+            ValidateRoadSupport(weissjochPath, roadShape, field, weissjochCourse, "Weissjoch");
+            ValidateRoadSupport(ringPath, circuitShape, field, ringCourse, "Weissjochring");
+            ValidateRoadSupport(
+                ringAccessPath, roadShape, field, ringAccessCourse, "Weissjochring access road");
+            ValidateRoadSupport(bahcePath, circuitShape, field, bahceCourse, "Bahçe Ring");
+            ValidateRoadSupport(
+                bahceAccessPath, roadShape, field, bahceAccessCourse, "Bahçe Ring access road");
+            ValidateRoadSupport(westbound, motorwayShape, field, motorwayCourse, "Westbound");
+            ValidateRoadSupport(eastbound, motorwayShape, field, motorwayCourse, "Eastbound");
+            ValidateRoadSupport(linkPath, roadShape, field, linkCourse, "Motorway link");
+            ValidateRoadSupport(coastPath, roadShape, field, coastCourse, "Coast road");
+
             ValidateBridges(westbound, field, motorwayCourse);
             ValidateBridges(kalkgratPath, field, kalkgratCourse);
             // The second half of every town: street meshes onto the finished terrain, then blocks and
@@ -1963,7 +2009,32 @@ namespace Horizon.EditorTools
                 materials, "MotorwayEast");
             BuildDelineatorPosts(worldRoot.transform, eastbound, motorwayShape, field, motorwayCourse,
                 materials, "MotorwayEast");
-            BuildMedianBarrier(worldRoot.transform, motorwayPath, motorwayShape, motorwayCourse, materials);
+            BuildMedianBarrier(worldRoot.transform, motorwayPath, motorwayShape, motorwayCourse, materials,
+                GuardRailBuilder.MedianEndClearance);
+
+            // The two ends of the motorway, where it stops being one. Built after the barrier because
+            // that is the thing the terminus is undoing — see MotorwayTerminusBuilder for what was there
+            // before, which was a solid wall across Hochstadt's only gate.
+            //
+            // The east one hands over to the city's boulevard, so its narrow end is read off
+            // TownStreetShape rather than typed here: two copies of a carriageway width would agree
+            // until the day the boulevard was retuned, and then the motorway would end in a step down
+            // the middle of the city gate.
+            RoadShape boulevardShape = roadShape;
+            TownStreetShape boulevard = TownStreetShape.For(
+                TownStreetKind.Boulevard, terrainShape.RoadShelfDrop);
+
+            boulevardShape.HalfWidth = boulevard.HalfWidth;
+            boulevardShape.Crown = boulevard.Crown;
+            boulevardShape.SurfaceLift = boulevard.SurfaceLift;
+
+            BuildMotorwayTerminus(worldRoot.transform, "MotorwayTerminusWest", motorwayPath,
+                motorwayShape, roadShape, 0f, 1f, materials,
+                "the coast road");
+
+            BuildMotorwayTerminus(worldRoot.transform, "MotorwayTerminusEast", motorwayPath,
+                motorwayShape, boulevardShape, motorwayPath.Length, -1f, materials,
+                "Hochstadt's boulevard");
 
             BuildGuardRails(worldRoot.transform, linkPath, roadShape, field, linkCourse,
                 materials, "MotorwayLink");
@@ -1993,7 +2064,7 @@ namespace Horizon.EditorTools
                 materials, "StadtfeldRoad");
 
             BuildTrunkFork(worldRoot.transform, "TrunkFork", ebentalPath, roadShape,
-                EbentalCourse.ForkPoint, stadtfeldPath, roadShape, materials);
+                EbentalCourse.ForkPoint, stadtfeldPath, roadShape, stadtfeldMesh, materials);
 
             // The Kalkgrat gets a tunnel, a gallery, a viaduct and both kinds of roadside furniture.
             // The posts earn their place here more than anywhere else in the world: seven hairpins down
@@ -2078,7 +2149,8 @@ namespace Horizon.EditorTools
             // both carriageways, and the rails either side of it have to have decided where to stop
             // before anything is laid over them.
             BuildTrunkFork(worldRoot.transform, "WeissjochringPitFork", ringPath, circuitShape,
-                WeissjochringCourse.JunctionPoint, ringAccessPath, roadShape, materials);
+                WeissjochringCourse.JunctionPoint, ringAccessPath, roadShape, ringAccessMesh,
+                materials);
 
             // --- The Bahçe Ring, the same group in the same order. Rails here are not about a drop —
             // this is a valley floor — but about the one thing a circuit has that no other road in the
@@ -2100,7 +2172,8 @@ namespace Horizon.EditorTools
                 TallestRideHeight() + 0.05f);
 
             BuildTrunkFork(worldRoot.transform, "BahceRingPitFork", bahcePath, circuitShape,
-                BahceRingCourse.JunctionPoint, bahceAccessPath, roadShape, materials);
+                BahceRingCourse.JunctionPoint, bahceAccessPath, roadShape, bahceAccessMesh,
+                materials);
 
             // --- The filling stations. After the terrain, because the slab sits on ground that has to
             // exist first — and after the guard rails, so that the rails have already read IsForecourt
@@ -2215,6 +2288,15 @@ namespace Horizon.EditorTools
                 HochstadtLayout.GatewayNode);
             ValidateStreetNetwork(seeburg.Network, seeburgAxis, roadShape, seeburgGateway);
             ValidateStreetNetwork(yalikoy.Network, yalikoyPath, roadShape);
+
+            // And the question the walk above cannot ask, because it is handed the answer: is there a
+            // way in. Measured against the road that actually arrives paved — for Hochstadt that is the
+            // eastbound carriageway and not the arterial, which is a coordinate axis with no asphalt on
+            // it, and for Seeburg the coast road and not the town's own axis.
+            ValidateTownEntry(talheim.Network, path, roadShape, "Talheim");
+            ValidateTownEntry(hochstadt.Network, eastbound, motorwayShape, "Hochstadt");
+            ValidateTownEntry(seeburg.Network, coastPath, roadShape, "Seeburg");
+            ValidateTownEntry(yalikoy.Network, yalikoyPath, roadShape, "Yalıköy");
 
             // --- Streaming.
             var streamingObject = new GameObject("Streaming");
@@ -3857,6 +3939,129 @@ namespace Horizon.EditorTools
         }
 
         /// <summary>
+        /// Bakes one end of the motorway: the paving that brings two carriageways together into the one
+        /// road that carries on. See <c>MotorwayTerminusBuilder</c> for the geometry and for what was
+        /// there before, which was nothing at all.
+        /// </summary>
+        private static void BuildMotorwayTerminus(
+            Transform parent,
+            string name,
+            IRoadPath median,
+            in RoadShape motorwayShape,
+            in RoadShape onwardShape,
+            float atDistance,
+            float travelSign,
+            PrototypeMaterials materials,
+            string onward)
+        {
+            var buffer = new VegetationMeshBuffer(MotorwayTerminusBuilder.TerminusSubmeshCount);
+
+            MotorwayTerminusBuilder.Append(
+                median, motorwayShape, AutobahnCourse.CarriagewayOffset, onwardShape,
+                atDistance, travelSign, buffer);
+
+            buffer.MergeTinted(MotorwayTerminusBuilder.SurfaceTints());
+
+            var used = new List<int>(MotorwayTerminusBuilder.TerminusSubmeshCount);
+            Mesh mesh = buffer.ToMesh(name + "Mesh", used);
+
+            if (mesh == null)
+            {
+                Debug.LogWarning($"[Horizon] {name} came out empty.");
+                return;
+            }
+
+            mesh = HorizonAssetUtility.ReplaceAsset(mesh, GeneratedFolder + "/" + name + "Mesh.asset");
+
+            // Two materials, and which is which comes from the buffer's own list rather than from the
+            // order they happened to be filled in. The shoulder slot carries no tint precisely so it can
+            // keep the gravel material; everything tinted has already been folded into one.
+            var meshMaterials = new Material[used.Count];
+            for (int i = 0; i < used.Count; i++)
+            {
+                meshMaterials[i] = used[i] == MotorwayTerminusBuilder.ShoulderSubmesh
+                    ? materials.RoadShoulder
+                    : materials.RoadTint;
+            }
+
+            GameObject terminus = CreateMeshObject(parent, name, mesh, meshMaterials);
+
+            WorldChunk chunk = terminus.AddComponent<WorldChunk>();
+            chunk.RecalculateBounds();
+            chunk.SetBounds(chunk.Center, 100000f);
+
+            float wide = AutobahnCourse.CarriagewayOffset + motorwayShape.HalfWidth;
+
+            Debug.Log($"[Horizon] {name}: {MotorwayTerminusBuilder.TerminusLength:0} m bringing "
+                      + $"{wide * 2f:0.0} m of dual carriageway down to the {onwardShape.HalfWidth * 2f:0.0} m "
+                      + $"of {onward}, at {atDistance:0} m along the median.");
+        }
+
+        /// <summary>
+        /// Which end of a branch road meets the fork, and therefore which way everything at the mouth
+        /// walks.
+        ///
+        /// <para>Asked rather than assumed, because both answers occur in this world: a branch grafted
+        /// onto a published pose starts at the fork, and one solved into it with <c>ConnectTo</c>
+        /// finishes there. <c>AppendTrunkMouth</c> records what assuming the equivalent cost the town's
+        /// mouths.</para>
+        ///
+        /// <para>It is here rather than inside <see cref="BuildTrunkFork"/> because the branch's own
+        /// ribbon is trimmed against the same answer, one pass earlier — and two copies of this would
+        /// agree until the day a course was walked the other way round, then trim one end of a road and
+        /// pave the other.</para>
+        /// </summary>
+        private static void ResolveBranchMouth(
+            IRoadPath branch, Vector3 fork, out float branchAt, out float branchSign, out float miss)
+        {
+            // Squared distance in plan, because a branch that arrives from below is still the branch
+            // that arrives.
+            float toZero = Plan(branch.GetPositionAtDistance(0f) - fork).sqrMagnitude;
+            float toEnd = Plan(branch.GetPositionAtDistance(branch.Length) - fork).sqrMagnitude;
+
+            bool mouthAtStart = toZero <= toEnd;
+
+            branchAt = mouthAtStart ? 0f : branch.Length;
+            branchSign = mouthAtStart ? 1f : -1f;
+            miss = Mathf.Sqrt(Mathf.Min(toZero, toEnd));
+        }
+
+        /// <summary>
+        /// A branch road's ribbon, stopped short of the carriageway it joins.
+        ///
+        /// <para>See <c>TrunkForkBuilder.RibbonTrim</c> for the arithmetic and
+        /// <c>RoadMeshBuilder.BuildRoad</c>'s trim for what keeps the markings in phase across it. What
+        /// this adds is the bookkeeping: which end to cut, and a line in the log, because a trim is
+        /// invisible in a triangle count and the one thing every laid-on surface in this project has
+        /// gone wrong by is being counted correctly and built in the wrong place.</para>
+        /// </summary>
+        private static Mesh BuildBranchRoad(
+            IRoadPath branch,
+            in RoadShape branchShape,
+            string meshName,
+            IRoadPath trunk,
+            in RoadShape trunkShape,
+            Vector3 fork,
+            string what)
+        {
+            ResolveBranchMouth(branch, fork, out float branchAt, out float branchSign, out _);
+
+            float atDistance = NearestDistanceOn(trunk, fork);
+
+            float trim = TrunkForkBuilder.RibbonTrim(
+                trunk, trunkShape, atDistance, branch, branchShape, branchAt, branchSign);
+
+            float from = branchSign > 0f ? trim : 0f;
+            float to = branchSign > 0f ? branch.Length : branch.Length - trim;
+
+            Debug.Log($"[Horizon] {what}: its ribbon stops {trim:0.0} m short of the junction, at the "
+                      + $"{(branchSign > 0f ? "start" : "end")} of its own course. Past that the fork's "
+                      + "throat is the road surface, and the carriageway it joins keeps its own.");
+
+            return RoadMeshBuilder.BuildRoad(branch, branchShape, meshName, from, to);
+        }
+
+        /// <summary>
         /// The paved mouth where a branch road leaves a trunk road out in the country.
         ///
         /// <para>Mirrors <see cref="BuildMotorwayMerge"/> in every respect that is bookkeeping — fill a
@@ -3875,6 +4080,7 @@ namespace Horizon.EditorTools
             Vector3 fork,
             IRoadPath branch,
             in RoadShape branchShape,
+            Mesh branchMesh,
             PrototypeMaterials materials)
         {
             if (trunk == null || branch == null)
@@ -3892,20 +4098,7 @@ namespace Horizon.EditorTools
             // carriageways, which is why it uses the same helper.
             float atDistance = NearestDistanceOn(trunk, fork);
 
-            // Whichever end of the branch is nearer the mark is the one that meets it. Squared distance
-            // in plan, because a branch that arrives from below is still the branch that arrives.
-            Vector3 atZero = branch.GetPositionAtDistance(0f);
-            Vector3 atEnd = branch.GetPositionAtDistance(branch.Length);
-
-            float toZero = Plan(atZero - fork).sqrMagnitude;
-            float toEnd = Plan(atEnd - fork).sqrMagnitude;
-
-            bool mouthAtStart = toZero <= toEnd;
-
-            float branchAt = mouthAtStart ? 0f : branch.Length;
-            float branchSign = mouthAtStart ? 1f : -1f;
-
-            float miss = Mathf.Sqrt(Mathf.Min(toZero, toEnd));
+            ResolveBranchMouth(branch, fork, out float branchAt, out float branchSign, out float miss);
 
             // A fork is the one feature two courses have to agree about, and this is where that
             // agreement is checked rather than trusted. Half a metre is generous for two poses that
@@ -3955,6 +4148,9 @@ namespace Horizon.EditorTools
                       + $"{TrunkForkBuilder.MouthHalfWidth(branchShape, trunkShape):0.0} m at the "
                       + "mouth. The branch meets the mark "
                       + $"within {miss:0.00} m.");
+
+            ValidateForkSeam(trunk, trunkShape, atDistance, branch, branchAt, branchSign,
+                mesh, branchMesh, name);
         }
 
         /// <summary>The same vector with its height thrown away. Junctions are a question in plan.</summary>
@@ -4283,9 +4479,11 @@ namespace Horizon.EditorTools
             string name,
             IRoadPath path,
             in RoadShape shape,
-            PrototypeMaterials materials)
+            PrototypeMaterials materials,
+            float fromDistance = 0f,
+            float toDistance = -1f)
         {
-            Mesh mesh = RoadMeshBuilder.BuildRoad(path, shape, name + "Mesh");
+            Mesh mesh = RoadMeshBuilder.BuildRoad(path, shape, name + "Mesh", fromDistance, toDistance);
             mesh = HorizonAssetUtility.ReplaceAsset(mesh, $"{GeneratedFolder}/{name}Mesh.asset");
 
             GameObject carriageway = CreateMeshObject(parent, name, mesh,
@@ -8042,6 +8240,428 @@ namespace Horizon.EditorTools
         }
 
         /// <summary>
+        /// Whether anything a fork built stands on the carriageway it joins, and whether the two
+        /// surfaces meet flush where they touch.
+        ///
+        /// <para><b>This is the check the world did not have.</b> <c>ValidateMergeSeam</c> asks it of the
+        /// one motorway on-ramp; nothing asked it of the three forks, and all three were wrong the same
+        /// way. A branch's course ends on the centreline of the road it joins, so its ribbon laid its
+        /// last cross-section across that road and the throat was laid from the centreline outward —
+        /// 5.2 m of pit road onto a 6.5 m racing surface at the Weissjochring, ending in a square edge on
+        /// the fastest part of the lap. It built, it validated, and it was reported from the car.</para>
+        ///
+        /// <para><b>Measured off the meshes rather than re-derived.</b> Every other way of asking this
+        /// re-runs the builder's own arithmetic and therefore agrees with the builder right up until one
+        /// of them is wrong — the rule this project already states about supports and infields. The
+        /// vertices are what got built, so they are what is asked.</para>
+        /// </summary>
+        private static void ValidateForkSeam(
+            IRoadPath trunk,
+            in RoadShape trunkShape,
+            float atDistance,
+            IRoadPath branch,
+            float branchAt,
+            float branchSign,
+            Mesh forkMesh,
+            Mesh branchMesh,
+            string what)
+        {
+            if (trunk == null || branch == null)
+            {
+                return;
+            }
+
+            float trunkAt = Mathf.Clamp(atDistance, 0f, trunk.Length);
+
+            Vector3 trunkCentre = trunk.GetPositionAtDistance(trunkAt);
+            Vector3 trunkRight = trunk.GetBankedRightAtDistance(
+                trunkAt, trunkShape.MaxBankDegrees, trunkShape.FullBankRadius);
+
+            Vector3 trunkUp = Vector3.Cross(trunk.GetDirectionAtDistance(trunkAt), trunkRight).normalized;
+            if (trunkUp.y < 0f)
+            {
+                trunkUp = -trunkUp;
+            }
+
+            Vector3 trunkSurface = trunkCentre + trunkUp * trunkShape.SurfaceLift;
+            Vector3 trunkForward = trunk.GetDirectionAtDistance(trunkAt);
+
+            // Which hand the branch leaves on, measured over its whole throat for the reason
+            // TrunkForkBuilder records: at the mouth the two centrelines are the same line.
+            Vector3 mouth = branch.GetPositionAtDistance(Mathf.Clamp(branchAt, 0f, branch.Length));
+            Vector3 away = branch.GetPositionAtDistance(
+                Mathf.Clamp(branchAt + branchSign * 70f, 0f, branch.Length));
+
+            float side = Vector3.Dot(away - mouth, trunkRight) >= 0f ? 1f : -1f;
+
+            // Only vertices near the fork. Both meshes are kilometres long and the question is local.
+            const float reach = 140f;
+
+            float worstAcross = float.MaxValue;
+            Vector3 worstAt = Vector3.zero;
+            string worstIn = null;
+
+            float worstStep = 0f;
+            Vector3 worstStepAt = Vector3.zero;
+
+            for (int m = 0; m < 2; m++)
+            {
+                Mesh mesh = m == 0 ? forkMesh : branchMesh;
+                if (mesh == null)
+                {
+                    continue;
+                }
+
+                string which = m == 0 ? "the throat" : "the branch's own ribbon";
+                Vector3[] vertices = mesh.vertices;
+
+                for (int i = 0; i < vertices.Length; i++)
+                {
+                    Vector3 offset = vertices[i] - trunkSurface;
+
+                    if (Plan(offset).sqrMagnitude > reach * reach)
+                    {
+                        continue;
+                    }
+
+                    float across = Vector3.Dot(offset, trunkRight) * side;
+
+                    if (across < worstAcross)
+                    {
+                        worstAcross = across;
+                        worstAt = vertices[i];
+                        worstIn = which;
+                    }
+
+                    // The seam itself, and only the throat's half of it: the branch's ribbon is trimmed
+                    // to clear the carriageway by MouthOverlap, so its shoulder vertices land in this
+                    // band too and they are a quarter of a metre lower by design. Measuring those was
+                    // the first version of this check reporting 62 cm of step on a fork that had none.
+                    if (m != 0 || Mathf.Abs(across - trunkShape.HalfWidth) > 0.35f)
+                    {
+                        continue;
+                    }
+
+                    // Against the trunk's <b>ribbon</b>, sampled where this vertex actually stands on it,
+                    // rather than against the flat plane the throat was built from. Comparing a surface
+                    // with the thing it was derived from is a check that agrees with the builder until
+                    // one of them is wrong; the road as laid is the independent answer. The along is a
+                    // projection because a fork stands on straight track — AddJunction requires it, and
+                    // AppendFillets already leans on the same fact.
+                    float along = trunkAt + Vector3.Dot(offset, trunkForward);
+                    float clamped = Mathf.Clamp(along, 0f, trunk.Length);
+
+                    Vector3 onTrunk = trunk.GetPositionAtDistance(clamped);
+                    Vector3 edgeRight = trunk.GetBankedRightAtDistance(
+                        clamped, trunkShape.MaxBankDegrees, trunkShape.FullBankRadius);
+
+                    Vector3 edgeUp = Vector3.Cross(
+                        trunk.GetDirectionAtDistance(clamped), edgeRight).normalized;
+
+                    if (edgeUp.y < 0f)
+                    {
+                        edgeUp = -edgeUp;
+                    }
+
+                    // The camber is exactly zero at the paved edge — RoadMeshBuilder.AppendRing puts it
+                    // there — which is the whole reason the throat is clipped to this line and not to
+                    // any other.
+                    Vector3 paved = onTrunk
+                                    + edgeRight * (side * trunkShape.HalfWidth)
+                                    + edgeUp * trunkShape.SurfaceLift;
+
+                    float step = Mathf.Abs(vertices[i].y - paved.y);
+
+                    if (step > worstStep)
+                    {
+                        worstStep = step;
+                        worstStepAt = vertices[i];
+                    }
+                }
+            }
+
+            if (worstIn == null)
+            {
+                Debug.LogWarning($"[Horizon] Fork seam ({what}): no geometry within {reach:0} m of the "
+                                 + "junction. That is not a clean fork, it is no answer.");
+                return;
+            }
+
+            // A tenth of the tyre's radius, the same figure ValidateMergeSeam uses and for the same
+            // reason: below it a raycast wheel rides over the step, above it the suspension takes the
+            // whole thing in one physics tick.
+            const float tolerable = 0.04f;
+
+            bool onTheRoad = worstAcross < trunkShape.HalfWidth - 0.05f;
+
+            if (onTheRoad)
+            {
+                Debug.LogWarning(
+                    $"[Horizon] Fork seam ({what}): {worstIn} reaches {trunkShape.HalfWidth - worstAcross:0.00} m "
+                    + $"inside the carriageway it joins — {worstAcross:0.00} m from its centreline against a "
+                    + $"{trunkShape.HalfWidth:0.00} m half-width, at ({worstAt.x:0}, {worstAt.y:0}, {worstAt.z:0}). "
+                    + "A branch's ribbon is trimmed and the throat is clipped so that neither of them does.");
+            }
+
+            if (worstStep > tolerable)
+            {
+                Debug.LogWarning(
+                    $"[Horizon] Fork seam ({what}): the fork meets the carriageway with a "
+                    + $"{worstStep * 100f:0} cm step at ({worstStepAt.x:0}, {worstStepAt.y:0}, "
+                    + $"{worstStepAt.z:0}). A wheel crosses that at the speed of the road it is leaving.");
+            }
+
+            // Always printed, warning or not. Two numbers that only ever appear when something is wrong
+            // are two numbers nobody has a feel for, and the first thing anybody asks of a warning here
+            // is what the clean value used to be.
+            Debug.Log($"[Horizon] Fork seam ({what}): nothing the fork built comes nearer than "
+                      + $"{worstAcross:0.00} m to the centreline of a {trunkShape.HalfWidth:0.00} m "
+                      + $"half-width, and the throat meets the paved edge within {worstStep * 1000f:0} mm.");
+        }
+
+        /// <summary>
+        /// Walks the carriageway and reports anywhere the ground has fallen away from under it.
+        ///
+        /// <para><b>The missing sign.</b> <see cref="ValidateRoadClearance"/> measures terrain standing
+        /// <i>above</i> the asphalt and nothing measured the other direction, which is a gap rather than
+        /// an oversight: <c>MountainField</c> averages road samples, so wherever two roads at different
+        /// heights come within reach of each other the lower one gets ground on its carriageway — which
+        /// is reported — and the higher one loses the ground under it, which was not. Every breach that
+        /// check has ever printed had a silent twin.</para>
+        ///
+        /// <para>Measured at the <b>shoulder's outer edge</b>, because that is where a road first shows
+        /// daylight: the section falls <c>ShoulderDrop</c> from the centreline to there and the shelf is
+        /// only <c>RoadShelfDrop</c> below the centreline, so on correct ground the shelf stands slightly
+        /// <i>above</i> that edge and the number reported here is negative.</para>
+        /// </summary>
+        private static void ValidateRoadSupport(
+            IRoadPath path,
+            in RoadShape roadShape,
+            MountainField field,
+            RoadCourse course,
+            string what = "Road")
+        {
+            const float step = 2f;
+
+            // The section itself can only explain ShoulderDrop, and the deepest in this world is the
+            // motorway's 0.7. A metre is more than twice anything a correctly seated road can produce,
+            // and well short of GuardRailBuilder's 3 m, which is the drop at which a rail goes up —
+            // a road with a rail beside it is on a shelf, not in the air.
+            const float tolerable = 1f;
+
+            float length = path.Length;
+
+            int breaches = 0;
+            float worst = 0f;
+            float worstAt = 0f;
+            float worstAcross = 0f;
+
+            for (float distance = 0f; distance <= length; distance += step)
+            {
+                // Under a bore the ground is meant to be overhead; over a span it is meant to be a long
+                // way down, and the deck is held up by piers that ValidateBridgeSupport counts.
+                //
+                // Both with a margin, and the margin is MountainField's own rather than a taste. A deck
+                // does not find a gap, it carves one, and that carve eases back out to nothing over
+                // BridgeCorridor — so for forty-six metres past an abutment the ground is legitimately
+                // still on its way up to meet the road. Measured without it, this check reported 128
+                // points on each motorway carriageway and 68 on the Kalkgrat, every one of them an
+                // abutment doing exactly what it is drawn to do. A tunnel mouth is the same argument:
+                // the ground there has been cut away for the slot.
+                if (course != null
+                    && (course.IsCoveredOrNear(distance, MountainField.BridgeCorridor)
+                        || course.IsBridged(distance, MountainField.BridgeCorridor)))
+                {
+                    continue;
+                }
+
+                Vector3 centre = path.GetPositionAtDistance(distance);
+                Vector3 right = path.GetBankedRightAtDistance(
+                    distance, roadShape.MaxBankDegrees, roadShape.FullBankRadius);
+
+                for (int sign = -1; sign <= 1; sign += 2)
+                {
+                    Vector3 point = centre + right * (roadShape.OuterHalfWidth * sign);
+
+                    float edge = point.y + roadShape.SurfaceLift - roadShape.ShoulderDrop;
+                    float ground = field.HeightAt(point.x, point.z);
+
+                    float gap = edge - ground;
+                    if (gap <= tolerable)
+                    {
+                        continue;
+                    }
+
+                    breaches++;
+                    if (gap > worst)
+                    {
+                        worst = gap;
+                        worstAt = distance;
+                        worstAcross = roadShape.OuterHalfWidth * sign;
+                    }
+                }
+            }
+
+            if (breaches == 0)
+            {
+                Debug.Log($"[Horizon] {what} support: the ground reaches the shoulder everywhere.");
+                return;
+            }
+
+            Vector3 worstPoint = path.GetPositionAtDistance(worstAt);
+
+            Debug.LogWarning(
+                $"[Horizon] {what} support: the ground stands more than {tolerable:0.0} m below the "
+                + $"shoulder at {breaches} sampled points. Worst is {worst:0.00} m at {worstAt:0} m along "
+                + $"the course, {worstAcross:0.0} m across — at ({worstPoint.x:0}, {worstPoint.y:0}, "
+                + $"{worstPoint.z:0}). That is a road standing on a plinth, or in the air. The cause is "
+                + "very often a second road near it and higher, which MountainField has averaged against.");
+        }
+
+        /// <summary>
+        /// Whether a town can actually be driven into from the road that arrives at it.
+        ///
+        /// <para><b>What <c>CountUnreachable</c> cannot answer.</b> That walk is seeded with the town's
+        /// gateway node as a given — its own remarks say so — so it reports a city as reachable because
+        /// it assumed it. Hochstadt's boulevard begins on the motorway's <i>median line</i> with a
+        /// carriageway ten and a half metres to each side of it and the median barrier, solid and
+        /// unbroken, standing between them. The graph was perfect and there was no way in.</para>
+        ///
+        /// <para>Two numbers and a sweep: how far the town's nearest paving is from the arriving road's
+        /// nearest paving, how far apart they are in height, and whether anything solid stands on the
+        /// line between them. The sweep borrows <see cref="ValidateDriveableCorridor"/>'s canary for the
+        /// same reason it has one — an overlap query that finds nothing may mean a clear road or a
+        /// missing collider, and those look identical in a log.</para>
+        /// </summary>
+        private static void ValidateTownEntry(
+            StreetNetwork network,
+            IRoadPath arriving,
+            in RoadShape arrivingShape,
+            string what)
+        {
+            if (network == null || arriving == null || network.Nodes.Count == 0)
+            {
+                return;
+            }
+
+            StreetNode nearest = null;
+            float planGap = float.MaxValue;
+            Vector3 onRoad = Vector3.zero;
+
+            for (int i = 0; i < network.Nodes.Count; i++)
+            {
+                StreetNode node = network.Nodes[i];
+
+                // Each node against its own nearest point on the arriving road, not against one chosen
+                // distance along it: a town whose gate is two hundred metres past the end of the
+                // carriageway is at the same distance from it as one that is beside it, if the
+                // measurement is taken from a fixed station.
+                float along = NearestDistanceOn(arriving, node.Position);
+
+                Vector3 centre = arriving.GetPositionAtDistance(along);
+                Vector3 right = arriving.GetRightAtDistance(along);
+
+                float across = Vector3.Dot(node.Position - centre, right);
+
+                Vector3 edge = centre + right * Mathf.Clamp(
+                    across, -arrivingShape.HalfWidth, arrivingShape.HalfWidth);
+
+                float gap = Plan(node.Position - edge).magnitude;
+
+                if (gap < planGap)
+                {
+                    planGap = gap;
+                    onRoad = edge;
+                    nearest = node;
+                }
+            }
+
+            if (nearest == null || planGap > 400f)
+            {
+                Debug.LogWarning($"[Horizon] Town entry ({what}): no street node within 400 m of the "
+                                 + "paving of the road that serves this town. Nothing here connects to "
+                                 + "anything.");
+                return;
+            }
+
+            float rise = Mathf.Abs(nearest.Position.y - onRoad.y);
+
+            int blocked = CountBlockedBetween(onRoad, nearest.Position, out string blocker);
+
+            // A car is 1.8 m wide and the paving either side of a mouth is a metre or two of verge, so a
+            // gap of a few metres is a kerb line and a gap of ten is a median.
+            const float reachable = 4f;
+
+            if (planGap <= reachable && blocked == 0 && rise < 1f)
+            {
+                Debug.Log($"[Horizon] Town entry ({what}): '{nearest.Name ?? "unnamed"}' stands "
+                          + $"{planGap:0.0} m from the paving of the road that arrives, {rise:0.00} m "
+                          + "apart in height, with nothing solid between them.");
+                return;
+            }
+
+            Debug.LogWarning(
+                $"[Horizon] Town entry ({what}): the nearest street node "
+                + $"('{nearest.Name ?? "unnamed"}') is {planGap:0.0} m from the paving of the road that "
+                + $"arrives and {rise:0.00} m apart from it in height"
+                + (blocked > 0
+                    ? $", and something solid stands between them at {blocked} of the sampled points, "
+                      + $"first against '{blocker}'."
+                    : ".")
+                + " A graph that says the town is reachable is not the same question as whether a car can "
+                + "get there.");
+        }
+
+        /// <summary>
+        /// Sweeps a car-sized box along a line and counts the samples something solid stands in. Shares
+        /// <see cref="ValidateDriveableCorridor"/>'s exemption for parked ambient traffic and its canary.
+        /// </summary>
+        private static int CountBlockedBetween(Vector3 from, Vector3 to, out string blocker)
+        {
+            blocker = null;
+
+            Vector3 span = to - from;
+            span.y = 0f;
+
+            float length = span.magnitude;
+            if (length < 0.5f)
+            {
+                return 0;
+            }
+
+            Physics.SyncTransforms();
+
+            var hits = new Collider[8];
+            var halfExtents = new Vector3(0.9f, 1f, 1f);
+            var rotation = Quaternion.LookRotation(span / length, Vector3.up);
+
+            int blocked = 0;
+            const float step = 1f;
+
+            for (float travelled = 0f; travelled <= length; travelled += step)
+            {
+                Vector3 at = Vector3.Lerp(from, to, travelled / length) + Vector3.up * 1.35f;
+
+                int count = Physics.OverlapBoxNonAlloc(
+                    at, halfExtents, hits, rotation, ~0, QueryTriggerInteraction.Ignore);
+
+                for (int i = 0; i < count; i++)
+                {
+                    if (hits[i] == null || IsTraffic(hits[i]))
+                    {
+                        continue;
+                    }
+
+                    blocked++;
+                    blocker ??= hits[i].gameObject.name;
+                    break;
+                }
+            }
+
+            return blocked;
+        }
+
+        /// <summary>
         /// Walks the carriageway and reports anywhere the terrain stands above it.
         ///
         /// "The mountain cuts through the road in places" is not something to search for by eye across
@@ -8956,9 +9576,10 @@ namespace Horizon.EditorTools
             IRoadPath centre,
             in RoadShape roadShape,
             RoadCourse course,
-            PrototypeMaterials materials)
+            PrototypeMaterials materials,
+            float endClearance)
         {
-            Mesh mesh = GuardRailBuilder.BuildMedian(centre, roadShape, course);
+            Mesh mesh = GuardRailBuilder.BuildMedian(centre, roadShape, course, endClearance);
             if (mesh == null)
             {
                 return;
@@ -8970,7 +9591,7 @@ namespace Horizon.EditorTools
             // The longest continuous barrier in the world, so the one whose collision budget matters:
             // the wall takes a cross-section every 24 m against the posts' 12, which is why this is a
             // few thousand triangles of physics rather than a few tens of thousands.
-            Mesh collision = GuardRailBuilder.BuildMedianCollision(centre, roadShape, course);
+            Mesh collision = GuardRailBuilder.BuildMedianCollision(centre, roadShape, course, endClearance);
 
             if (collision != null)
             {
@@ -8983,7 +9604,8 @@ namespace Horizon.EditorTools
 
             int collisionTriangles = collision == null ? 0 : collision.triangles.Length / 3;
             Debug.Log($"[Horizon] Median barrier: {triangles} triangles, "
-                      + $"{collisionTriangles} of collision.");
+                      + $"{collisionTriangles} of collision, stopping {endClearance:0} m short of each "
+                      + "end of the motorway so the terminus paving is not fenced down the middle.");
         }
 
         /// <summary>

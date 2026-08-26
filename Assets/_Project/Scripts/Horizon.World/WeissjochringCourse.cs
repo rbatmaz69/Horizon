@@ -477,6 +477,12 @@ namespace Horizon.World
                     + "the walk ends nearer the mouth and closer to its heading.");
             }
 
+            // The branch's own copy of the fork, at the mouth. The circuit carries one too, and both are
+            // needed: every builder that clears a junction reads IsJunction off the course it is
+            // building. Without this the pit road's rails and posts stop only where the road does,
+            // which is on the racing line.
+            builder.AddJunction(PitName);
+
             return builder.Build();
         }
 

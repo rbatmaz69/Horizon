@@ -218,11 +218,30 @@ namespace Horizon.World
         {
             var builder = new RoadCourseBuilder(MainStart, MainStartHeading);
 
+            // Both ends are junctions, and both are stretches rather than points: this is where the two
+            // carriageways come together and one road carries on, over
+            // MotorwayTerminusBuilder.TerminusLength. Marked so guard rails, delineator posts and kerbs
+            // keep off it — a rail beside a terminus stands in the paving that is the only way out of
+            // Hochstadt.
+            //
+            // Twice the taper, because the mark sits on the end of the road and AddJunction's reach is
+            // symmetric: half of it hangs off the end, where there is no road to clear, and the other
+            // half covers the taper exactly.
+            builder.AddJunction(WestTerminusName, MotorwayTerminusBuilder.TerminusLength * 2f);
+
             AppendWestLeg(builder);
             AppendEastLeg(builder);
 
+            builder.AddJunction(EastTerminusName, MotorwayTerminusBuilder.TerminusLength * 2f);
+
             return builder.Build();
         }
+
+        /// <summary>Name of the western terminus, where the coast road takes over.</summary>
+        public const string WestTerminusName = "Autobahnende West";
+
+        /// <summary>Name of the eastern terminus, at Hochstadt's gate.</summary>
+        public const string EastTerminusName = "Autobahnende Hochstadt";
 
         /// <summary>The two-way link between the motorway and the foot of the pass.</summary>
         public static RoadCourse BuildLink()

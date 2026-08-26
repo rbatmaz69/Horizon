@@ -1897,8 +1897,10 @@ namespace Horizon.EditorTools
                       + "makes, and no other frame in this project would show it. Then: kerbs that read "
                       + "as kerbs rather than as stripes in _7_Gratkehre; forest that ENDS where 700 m "
                       + "says it does between _5_TreeLine and _6_Kessel, with snow still lying under it; "
-                      + "a mountainside rather than a staircase of flat shelves in _9_Face; and in "
-                      + "_3_Fork, no ridge standing between the pit road and the straight it joins.");
+                      + "a mountainside rather than a staircase of flat shelves in _9_Face. The pit "
+                      + "mouth is no longer this tool's job — _3_Fork here has never been able to frame "
+                      + "it, and Render Junction Preview photographs every mouth in the world from "
+                      + "three sides and from above.");
         }
 
         /// <summary>
@@ -2071,10 +2073,11 @@ namespace Horizon.EditorTools
                       + "loop, where ground that stops in mid-air is the corridor hole this layout was "
                       + "measured against; and _5_Blossom, the only check anywhere on whether a valley "
                       + "meant to be in flower reads as one. Then: the grid staggered rather than "
-                      + "abreast and its paint actually visible in _2b_Grid; no ridge standing between "
-                      + "the pit road and the straight in _3_Fork; a corner that keeps turning for a "
-                      + "third of a kilometre in _6_Turn8; and orchards rather than scrub either side "
-                      + "of _8_Back.");
+                      + "abreast and its paint actually visible in _2b_Grid; a corner that keeps "
+                      + "turning for a third of a kilometre in _6_Turn8; and orchards rather than scrub "
+                      + "either side of _8_Back. The pit mouth belongs to Render Junction Preview now, "
+                      + "which frames it from the branch, from the track both ways and from above — "
+                      + "_3_Fork here has only ever been aimed at the throat.");
         }
 
         /// <summary>
@@ -2205,6 +2208,339 @@ namespace Horizon.EditorTools
             // Close and high, looking down: 0.5 m of white across a 13 m road is a couple of pixels
             // from any ordinary driving pose, so a frame taken from one answers nothing.
             FromRoad(ring, line + lap / 7f - 24f, 0f, 3.4f, -0.34f, 0f, "9_Gate");
+        }
+
+        /// <summary>
+        /// Every place two roads meet, from the driver's seat and from above.
+        ///
+        /// <para><b>Why this exists.</b> This world is fourteen courses, four towns and two circuits, and
+        /// the seams between them were the one thing nothing photographed and nothing measured. The three
+        /// faults the player reported — a pit road lying across a racing line, a city with no way out onto
+        /// the motorway, and carriageway standing in the air — are all seam faults, and every build that
+        /// contained them was otherwise clean. The rule this project keeps relearning is that a number
+        /// says a thing was built and only a picture says where.</para>
+        ///
+        /// <para>Three kinds of join, one shot set each: a <b>fork</b>, where a branch leaves a road that
+        /// carries on; a <b>handover</b>, where one course ends and the next begins on its pose; and a
+        /// <b>gate</b>, where a road runs into a town's street network. The plan frame is the one that
+        /// carries them: a ridge between two shelves, paving on the wrong carriageway and a barrier
+        /// standing across a mouth are all invisible at eye level and unmistakable from a hundred and
+        /// sixty metres up.</para>
+        /// </summary>
+        [MenuItem("Tools/Horizon/Render Junction Preview", priority = 50)]
+        public static void RenderJunctions()
+        {
+            Scene scene = SceneManager.GetSceneByPath(WorldScenePath);
+            bool openedHere = !scene.isLoaded;
+
+            if (openedHere)
+            {
+                scene = EditorSceneManager.OpenScene(WorldScenePath, OpenSceneMode.Additive);
+            }
+
+            RoadPath pass = FindTrunkRoad();
+            RoadPath ebental = FindEbentalRoad();
+            RoadPath stadtfeld = FindStadtfeldRoad();
+            RoadPath kalkgrat = FindKalkgratRoad();
+            RoadPath meerenge = FindMeerengeRoad();
+            RoadPath yalikoy = FindYalikoyRoad();
+            RoadPath weissjoch = FindWeissjochRoad();
+            RoadPath ring = FindRoad("WeissjochringPath");
+            RoadPath ringAccess = FindRoad("WeissjochringAccessPath");
+            RoadPath bahce = FindRoad("BahceRingPath");
+            RoadPath bahceAccess = FindRoad("BahceRingAccessPath");
+            RoadPath motorway = FindRoad("MotorwayPath");
+            RoadPath link = FindRoad("MotorwayLinkPath");
+            RoadPath coast = FindRoad("CoastRoadPath");
+
+            if (motorway == null || ebental == null || ring == null || bahce == null)
+            {
+                Debug.LogError("[Horizon] The world scene is missing roads this needs. Run Rebuild "
+                               + "Prototype Scene first.");
+                return;
+            }
+
+            var westbound = new OffsetRoadPath(motorway, -AutobahnCourse.CarriagewayOffset);
+            var eastbound = new OffsetRoadPath(motorway, AutobahnCourse.CarriagewayOffset);
+
+            var clock = Object.FindFirstObjectByType<TimeOfDayController>();
+            var lights = Object.FindFirstObjectByType<TownLights>();
+
+            float hoursWere = clock != null ? clock.TimeOfDayHours : 0f;
+            bool runningWas = clock != null && clock.Running;
+
+            string directory = Directory.GetParent(Application.dataPath).FullName;
+            var cameraObject = new GameObject("JunctionPreviewCamera");
+
+            try
+            {
+                Camera camera = cameraObject.AddComponent<Camera>();
+                camera.clearFlags = CameraClearFlags.Skybox;
+                camera.enabled = false;
+
+                for (int pass2 = 0; pass2 < 2; pass2++)
+                {
+                    bool night = pass2 == 1;
+                    string suffix = night ? "_Night" : string.Empty;
+
+                    if (clock != null)
+                    {
+                        clock.Running = false;
+                        clock.TimeOfDayHours = night ? NightHours : 16.5f;
+                        clock.Apply();
+                    }
+
+                    if (lights != null)
+                    {
+                        lights.Refresh();
+                    }
+
+                    // --- The three forks. A branch arrives, the road it joins carries on both ways.
+                    Fork(camera, directory, suffix, "1_StadtfeldFork",
+                        stadtfeld, ebental, EbentalCourse.ForkPoint);
+
+                    Fork(camera, directory, suffix, "2_WeissjochringPit",
+                        ringAccess, ring, WeissjochringCourse.JunctionPoint);
+
+                    Fork(camera, directory, suffix, "3_BahceRingPit",
+                        bahceAccess, bahce, BahceRingCourse.JunctionPoint);
+
+                    // --- The motorway's two ends, which are the joins this whole pass was opened for.
+                    // Taken on the carriageways rather than the median, because the median is a line
+                    // nobody drives and the carriageways are where the barrier stood.
+                    Handover(camera, directory, suffix, "4_TerminusWest",
+                        westbound, 0f, -1f, coast, 0f, 1f);
+
+                    Handover(camera, directory, suffix, "5_TerminusHochstadt",
+                        eastbound, eastbound.Length, 1f, null, 0f, 1f);
+
+                    // --- The motorway's on-ramp, the one join that always had a seam check.
+                    Handover(camera, directory, suffix, "6_LinkMerge",
+                        link, 0f, -1f, westbound, 0f, 1f);
+
+                    // --- The chain of country courses. Each begins on the pose the last one ended at,
+                    // and no build has ever measured what happens across that plane.
+                    Handover(camera, directory, suffix, "7_PassToEbental",
+                        pass, pass != null ? pass.Length : 0f, 1f, ebental, 0f, 1f);
+
+                    Handover(camera, directory, suffix, "8_EbentalToKalkgrat",
+                        ebental, ebental.Length, 1f, kalkgrat, 0f, 1f);
+
+                    Handover(camera, directory, suffix, "9_KalkgratToMeerenge",
+                        kalkgrat, kalkgrat != null ? kalkgrat.Length : 0f, 1f, meerenge, 0f, 1f);
+
+                    Handover(camera, directory, suffix, "10_MeerengeToYalikoy",
+                        meerenge, meerenge != null ? meerenge.Length : 0f, 1f, yalikoy, 0f, 1f);
+
+                    Handover(camera, directory, suffix, "11_YalikoyToBahce",
+                        yalikoy, yalikoy != null ? yalikoy.Length : 0f, 1f, bahceAccess, 0f, 1f);
+
+                    Handover(camera, directory, suffix, "12_WeissjochToRing",
+                        weissjoch, weissjoch != null ? weissjoch.Length : 0f, 1f, ringAccess, 0f, 1f);
+
+                    // --- The town gates. Seeburg's is the coast road running into the waterfront; the
+                    // other two towns are strung along a road that passes through them and are covered
+                    // by their own previews.
+                    Handover(camera, directory, suffix, "13_SeeburgGate",
+                        coast, coast != null ? coast.Length : 0f, 1f, null, 0f, 1f);
+                }
+            }
+            finally
+            {
+                Object.DestroyImmediate(cameraObject);
+
+                if (clock != null)
+                {
+                    clock.TimeOfDayHours = hoursWere;
+                    clock.Running = runningWas;
+                    clock.Apply();
+                }
+
+                if (lights != null)
+                {
+                    lights.Refresh();
+                }
+
+                if (openedHere)
+                {
+                    EditorSceneManager.CloseScene(scene, true);
+                }
+            }
+
+            Debug.Log("[Horizon] Junction preview written beside the project. What to look for, in this "
+                      + "order: in every _Plan, one continuous piece of asphalt with no ridge across it "
+                      + "and nothing paved over the carriageway that carries on — a branch's ribbon and "
+                      + "the throat it hands to both stop at the paved edge, so any tarmac past the "
+                      + "centre line is the fault this pass exists for. In _Arrive, a mouth you can see "
+                      + "the way through; in _Onward and _Back, a road that widens rather than one with "
+                      + "a lane running into the side of it. And in the two terminus frames, no barrier "
+                      + "and no step where the dual carriageway becomes one road.");
+        }
+
+        /// <summary>
+        /// A fork: four frames. Down the branch at the mouth, the trunk from each direction, and the
+        /// whole thing from above.
+        /// </summary>
+        private static void Fork(
+            Camera camera, string directory, string suffix, string name,
+            IRoadPath branch, IRoadPath trunk, Vector3 at)
+        {
+            if (branch == null || trunk == null)
+            {
+                Debug.LogWarning($"[Horizon] Junction preview: {name} has no road to stand on.");
+                return;
+            }
+
+            // Which end of the branch is the mouth, by the same rule the builder uses — a branch grafted
+            // onto a pose starts there and one solved into it finishes there.
+            float toStart = Flat(branch.GetPositionAtDistance(0f) - at).sqrMagnitude;
+            float toEnd = Flat(branch.GetPositionAtDistance(branch.Length) - at).sqrMagnitude;
+
+            bool mouthAtStart = toStart <= toEnd;
+            float branchAt = mouthAtStart ? 0f : branch.Length;
+            float branchSign = mouthAtStart ? 1f : -1f;
+
+            float trunkAt = NearestOn(trunk, at);
+
+            // Forty-five metres, not ninety. At ninety a mouth three metres wider than the road is four
+            // pixels of dark asphalt against dark asphalt and the frame answers nothing — which is the
+            // fault already recorded against the two `_3_Fork` shots these replace. Close enough that
+            // the widening is the subject, far enough to still see where it goes.
+            Shot(camera, directory, suffix, name + "_1_Arrive",
+                branch, branchAt + branchSign * 45f, -branchSign, 1.6f, -0.10f);
+
+            Shot(camera, directory, suffix, name + "_2_Onward",
+                trunk, trunkAt - 45f, 1f, 1.6f, -0.08f);
+
+            Shot(camera, directory, suffix, name + "_3_Back",
+                trunk, trunkAt + 45f, -1f, 1.6f, -0.08f);
+
+            Plan(camera, directory, suffix, name + "_4_Plan", trunk, trunkAt, at);
+        }
+
+        /// <summary>
+        /// A handover: one road ends, another begins on its pose — or runs into a town, in which case
+        /// <paramref name="onward"/> is null and the frame looking back is dropped.
+        /// </summary>
+        private static void Handover(
+            Camera camera, string directory, string suffix, string name,
+            IRoadPath arriving, float arrivingAt, float arrivingSign,
+            IRoadPath onward, float onwardAt, float onwardSign)
+        {
+            if (arriving == null)
+            {
+                Debug.LogWarning($"[Horizon] Junction preview: {name} has no road to stand on.");
+                return;
+            }
+
+            Vector3 at = arriving.GetPositionAtDistance(Mathf.Clamp(arrivingAt, 0f, arriving.Length));
+
+            Shot(camera, directory, suffix, name + "_1_Arrive",
+                arriving, arrivingAt - arrivingSign * 70f, arrivingSign, 1.6f, -0.07f);
+
+            if (onward != null)
+            {
+                Shot(camera, directory, suffix, name + "_2_Back",
+                    onward, onwardAt + onwardSign * 70f, -onwardSign, 1.6f, -0.07f);
+            }
+
+            Plan(camera, directory, suffix, name + "_3_Plan", arriving, arrivingAt, at);
+        }
+
+        /// <summary>One eye-level frame, standing on a road and looking along it.</summary>
+        private static void Shot(
+            Camera camera, string directory, string suffix, string name,
+            IRoadPath road, float at, float sign, float lift, float pitch)
+        {
+            float distance = Mathf.Clamp(at, 0f, road.Length);
+
+            Vector3 on = road.GetPositionAtDistance(distance);
+            Vector3 look = road.GetDirectionAtDistance(distance) * sign;
+
+            camera.fieldOfView = 60f;
+            camera.farClipPlane = 900f;
+            camera.nearClipPlane = 0.3f;
+            camera.transform.position = on + Vector3.up * lift;
+            camera.transform.rotation = Quaternion.LookRotation(
+                (look + Vector3.up * pitch).normalized, Vector3.up);
+
+            Capture(camera, Path.Combine(directory, $"WorldPreview_Junction_{name}{suffix}.png"));
+        }
+
+        /// <summary>
+        /// Straight down from a hundred and sixty metres, with the road running up the frame.
+        ///
+        /// <para>This is the frame that carries the whole pass. Asphalt laid across a carriageway, a
+        /// ridge standing between two branches and a barrier across a mouth are all things you look
+        /// straight past at eye level and cannot miss from above.</para>
+        /// </summary>
+        private static void Plan(
+            Camera camera, string directory, string suffix, string name,
+            IRoadPath along, float at, Vector3 centre)
+        {
+            float distance = Mathf.Clamp(at, 0f, along.Length);
+            Vector3 forward = along.GetDirectionAtDistance(distance);
+
+            forward.y = 0f;
+            if (forward.sqrMagnitude < 0.0001f)
+            {
+                forward = Vector3.forward;
+            }
+
+            camera.fieldOfView = 60f;
+            camera.farClipPlane = 900f;
+            camera.nearClipPlane = 0.3f;
+            camera.transform.position = centre + Vector3.up * 160f;
+            camera.transform.rotation = Quaternion.LookRotation(Vector3.down, forward.normalized);
+
+            Capture(camera, Path.Combine(directory, $"WorldPreview_Junction_{name}{suffix}.png"));
+        }
+
+        /// <summary>Distance along a path of the point nearest <paramref name="to"/>. Coarse, then halved.</summary>
+        private static float NearestOn(IRoadPath path, Vector3 to)
+        {
+            const float coarse = 20f;
+
+            float best = 0f;
+            float bestSqr = float.MaxValue;
+
+            for (float distance = 0f; distance <= path.Length; distance += coarse)
+            {
+                float sqr = Flat(path.GetPositionAtDistance(distance) - to).sqrMagnitude;
+                if (sqr < bestSqr)
+                {
+                    bestSqr = sqr;
+                    best = distance;
+                }
+            }
+
+            float window = coarse;
+
+            for (int i = 0; i < 8; i++)
+            {
+                window *= 0.5f;
+
+                for (int side = -1; side <= 1; side += 2)
+                {
+                    float candidate = Mathf.Clamp(best + side * window, 0f, path.Length);
+                    float sqr = Flat(path.GetPositionAtDistance(candidate) - to).sqrMagnitude;
+
+                    if (sqr < bestSqr)
+                    {
+                        bestSqr = sqr;
+                        best = candidate;
+                    }
+                }
+            }
+
+            return best;
+        }
+
+        /// <summary>The same vector with its height thrown away. A junction is a question in plan.</summary>
+        private static Vector3 Flat(Vector3 v)
+        {
+            v.y = 0f;
+            return v;
         }
 
         [MenuItem("Tools/Horizon/Render Fuel Station Preview", priority = 44)]

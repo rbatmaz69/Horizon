@@ -52,6 +52,33 @@ namespace Horizon.World
         /// </summary>
         public static Mesh BuildRoad(IRoadPath path, in RoadShape shape, string meshName = "RoadMesh")
         {
+            return BuildRoad(path, shape, meshName, 0f, path.Length);
+        }
+
+        /// <summary>
+        /// The same carriageway, ending short of its own path.
+        ///
+        /// <para><b>What this is for.</b> A branch road's course runs all the way to the centreline of
+        /// the road it leaves, because that is where <c>ConnectTo</c> was aimed and because
+        /// <see cref="MountainField"/> wants the samples. Its <i>ribbon</i> must not: laid to the same
+        /// length it puts its last cross-section — asphalt, gravel shoulder and the shoulder drop under
+        /// it — across the carriageway of the road it is joining, ending in a square cap on the driving
+        /// line. <see cref="TrunkForkBuilder"/> pays the trim back out as a throat.</para>
+        ///
+        /// <para><b>The rows keep their true arc length.</b> The marking variants are resolved over the
+        /// whole path before the trim and the surviving rows are the same rows, at the same distances,
+        /// as they would have been untrimmed — so the atlas keeps its phase and the hysteresis in
+        /// <see cref="ResolveLineVariants"/> still starts where the road does. Re-sampling from the cut
+        /// instead would dash differently on either side of every junction in the world. It is the same
+        /// condition <c>StreetJunctionBuilder</c>'s <c>TrimStart</c>/<c>TrimEnd</c> satisfy.</para>
+        /// </summary>
+        public static Mesh BuildRoad(
+            IRoadPath path,
+            in RoadShape shape,
+            string meshName,
+            float fromDistance,
+            float toDistance)
+        {
             float length = path.Length;
             int sectionCount = Mathf.Max(2, Mathf.CeilToInt(length / Mathf.Max(0.5f, shape.StepLength)) + 1);
 
@@ -61,6 +88,9 @@ namespace Horizon.World
             // BuildRows for why.
             BuildRows(sectionCount, length, solidLine, out float[] rowDistance, out bool[] rowSolid,
                 out bool[] rowStartsStrip);
+
+            TrimRows(Mathf.Max(0f, fromDistance), Mathf.Min(length, toDistance < 0f ? length : toDistance),
+                ref rowDistance, ref rowSolid, ref rowStartsStrip);
 
             int rowCount = rowDistance.Length;
             var vertices = new List<Vector3>(rowCount * RingVertexCount);
@@ -198,6 +228,78 @@ namespace Horizon.World
 
                 distances.Add(distance);
                 solids.Add(solidLine[i]);
+                starts.Add(false);
+            }
+
+            rowDistance = distances.ToArray();
+            rowSolid = solids.ToArray();
+            rowStartsStrip = starts.ToArray();
+        }
+
+        /// <summary>
+        /// Drops the rows outside <paramref name="from"/>..<paramref name="to"/> and puts an exact row
+        /// on each end.
+        ///
+        /// <para>The ends are placed rather than rounded to the nearest surviving row: a step is up to
+        /// <c>RoadShape.StepLength</c> long, and the one place a ribbon's end is looked at closely is
+        /// the mouth of a junction, where being four metres out is the difference between meeting the
+        /// throat and leaving a gap in the road.</para>
+        /// </summary>
+        private static void TrimRows(
+            float from,
+            float to,
+            ref float[] rowDistance,
+            ref bool[] rowSolid,
+            ref bool[] rowStartsStrip)
+        {
+            if (rowDistance.Length == 0 || (from <= 0f && to >= rowDistance[rowDistance.Length - 1]))
+            {
+                return;
+            }
+
+            var distances = new List<float>(rowDistance.Length);
+            var solids = new List<bool>(rowDistance.Length);
+            var starts = new List<bool>(rowDistance.Length);
+
+            for (int i = 0; i < rowDistance.Length; i++)
+            {
+                if (rowDistance[i] < from || rowDistance[i] > to)
+                {
+                    continue;
+                }
+
+                distances.Add(rowDistance[i]);
+                solids.Add(rowSolid[i]);
+                starts.Add(rowStartsStrip[i]);
+            }
+
+            if (distances.Count == 0)
+            {
+                Debug.LogWarning($"[Horizon] A road ribbon was trimmed to {from:0.0}..{to:0.0} m and "
+                                 + "nothing is left of it. That is a trim longer than the road.");
+                rowDistance = System.Array.Empty<float>();
+                rowSolid = System.Array.Empty<bool>();
+                rowStartsStrip = System.Array.Empty<bool>();
+                return;
+            }
+
+            // The end rows take the variant of the row they are extending rather than the one the
+            // variant table says, so a cut that lands on a change does not open a strip with nothing
+            // in it: the first row never carries a quad anyway, and the last would carry one across a
+            // seam the atlas cannot cross.
+            if (distances[0] > from + 0.01f)
+            {
+                distances.Insert(0, from);
+                solids.Insert(0, solids[0]);
+                starts.Insert(0, false);
+            }
+
+            starts[0] = false;
+
+            if (distances[distances.Count - 1] < to - 0.01f)
+            {
+                distances.Add(to);
+                solids.Add(solids[solids.Count - 1]);
                 starts.Add(false);
             }
 

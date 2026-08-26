@@ -66,6 +66,21 @@ namespace Horizon.World
         /// </summary>
         private const float JunctionClearance = 60f;
 
+        /// <summary>
+        /// How far short of each end of the median the barrier stops, metres.
+        ///
+        /// <para><b>It used to stop nowhere at all</b> — <c>present[step]</c> was the literal
+        /// <c>true</c>, with a comment saying that not even a bore breaks the run. That is right in the
+        /// middle of a motorway and wrong at the two places it ends: the last post stood on Hochstadt's
+        /// city gate and the first one on the mouth of the coast road, both of which begin on the median
+        /// line. A solid wall across the only way in or out of a city is not a barrier, it is a wall.</para>
+        ///
+        /// <para>Sized against <c>MotorwayTerminusBuilder.TerminusLength</c>: the barrier has to be gone
+        /// before the paving that brings the two carriageways together begins, or the terminus is an
+        /// apron with a fence down the middle of it.</para>
+        /// </summary>
+        public const float MedianEndClearance = 240f;
+
 
         /// <summary>
         /// Builds every rail on the course as one mesh. Returns null when nothing is exposed enough to
@@ -228,6 +243,7 @@ namespace Horizon.World
             IRoadPath centre,
             in RoadShape roadShape,
             RoadCourse course,
+            float endClearance = 0f,
             string meshName = "MedianBarrierMesh")
         {
             float length = centre.Length;
@@ -254,10 +270,12 @@ namespace Horizon.World
 
                 anchors[step] = centre.GetPositionAtDistance(distance) - ups[step] * roadShape.ShoulderDrop;
 
-                // Nothing breaks the run, tunnels included. The motorway's bores are single spans over
-                // both carriageways rather than one each, so inside one there is still oncoming traffic
-                // a few metres away and still a reason for a barrier between it and you.
-                present[step] = true;
+                // Nothing breaks the run in the middle, tunnels included. The motorway's bores are
+                // single spans over both carriageways rather than one each, so inside one there is still
+                // oncoming traffic a few metres away and still a reason for a barrier between it and you.
+                //
+                // The two ends are the exception, and the only one — see MedianEndClearance.
+                present[step] = distance > endClearance && distance < length - endClearance;
             }
 
             for (int step = 0; step < steps; step++)
@@ -368,6 +386,7 @@ namespace Horizon.World
             IRoadPath centre,
             in RoadShape roadShape,
             RoadCourse course,
+            float endClearance = 0f,
             string meshName = "MedianBarrierCollisionMesh")
         {
             float length = centre.Length;
@@ -396,6 +415,16 @@ namespace Horizon.World
 
             for (int step = 0; step + 1 < steps; step++)
             {
+                // The same gap the drawn barrier has. What you can see and what you can hit are allowed
+                // to differ here, but not about whether there is a wall.
+                float distance = length * step / (steps - 1);
+                float next = length * (step + 1) / (steps - 1);
+
+                if (distance < endClearance || next > length - endClearance)
+                {
+                    continue;
+                }
+
                 AddWall(anchors[step], anchors[step + 1], ups[step], ups[step + 1],
                     vertices, normals, uvs, triangles);
             }
