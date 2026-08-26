@@ -102,7 +102,7 @@ namespace Horizon.Game
 
             if (!placed)
             {
-                PlaceFace();
+                LayOutFace();
             }
 
             displayedFraction = Mathf.Lerp(
@@ -121,8 +121,17 @@ namespace Horizon.Game
         ///
         /// <para>Not <c>Awake</c>, because it measures the dial's own rect and a layout that has not
         /// been through a frame yet reports nothing useful. Not per car either — see the class note.</para>
+        ///
+        /// <para><b>Public for <c>HudPreviewRenderer</c>, and for the reason <c>MapGraphic.SetView</c>
+        /// is.</b> That tool photographs a saved scene in which no <c>Update</c> has ever run, so every
+        /// mark on this dial was still sitting at the centre of the rect where the builder left it —
+        /// under the needle's hub, invisible. The picture showed a bare ring and a needle and nobody
+        /// noticed for several builds, because the dial is correct in the running game. A preview
+        /// showing a layout no player will see is the failure <c>ShowOneScheme</c> already argues
+        /// against. The alternative was the tool doing this arithmetic itself, which is a second
+        /// opinion about where a mark goes.</para>
         /// </summary>
-        private void PlaceFace()
+        public void LayOutFace()
         {
             placed = true;
 

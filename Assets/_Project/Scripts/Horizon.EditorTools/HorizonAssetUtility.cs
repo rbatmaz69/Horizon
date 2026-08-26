@@ -872,7 +872,7 @@ namespace Horizon.EditorTools
                 case "brake":
                 {
                     float disc = Ring(u, v, 0.62f, 0.30f, pixel);
-                    float hub = Mathf.Clamp01((0.13f - new Vector2(u, v).magnitude) / pixel);
+                    float hub = Disc(u, v, 0.13f, pixel);
                     float caliper = Bar(u - 0.46f, v - 0.30f, 0.15f, 0.27f, -35f, pixel);
 
                     return Mathf.Max(Mathf.Max(disc, hub), caliper);
@@ -882,7 +882,7 @@ namespace Horizon.EditorTools
                 case "handbrake":
                 {
                     float lever = Bar(u + 0.1f, v, 0.11f, 0.55f, 32f, pixel);
-                    float knob = Mathf.Clamp01((0.24f - new Vector2(u - 0.28f, v - 0.44f).magnitude) / pixel);
+                    float knob = Disc(u - 0.28f, v - 0.44f, 0.24f, pixel);
                     return Mathf.Max(lever, knob);
                 }
 
@@ -915,6 +915,32 @@ namespace Horizon.EditorTools
                     return Mathf.Min(pump, 1f - panel);
                 }
 
+                // A turbocharger, as one sits in an engine bay: a volute with a stub of inlet on one
+                // side and the outlet duct leaving the bottom of the housing.
+                //
+                // The volute is *solid* where the brake above is a ring, and that is the whole reason
+                // this shape works. Those two are the pair most at risk of becoming one symbol — both
+                // are round things with something sticking off them — and a wall thickness is not a
+                // difference anybody reads at twenty-six units. A blob with a pinhole against a donut
+                // with a hub are opposites at any size.
+                //
+                // The duct is drawn well *inside* the housing rather than butted onto its rim. Three
+                // attempts had it tangent to the volute, and each came apart the same way when shrunk:
+                // the join thins to nothing and what is left is a spot in the bottom-right corner with
+                // no visible connection to anything. Overlap costs nothing here, because these are
+                // coverage values unioned with Max.
+                case "turbo":
+                {
+                    float housing = Disc(u + 0.12f, v - 0.22f, 0.50f, pixel);
+                    float outlet = Bar(u - 0.26f, v + 0.30f, 0.27f, 0.32f, 20f, pixel);
+                    float inlet = Bar(u + 0.64f, v - 0.22f, 0.16f, 0.21f, 0f, pixel);
+
+                    // The shaft, subtracted — the same Min against (1 - x) the pump's display uses.
+                    float shaft = Disc(u + 0.12f, v - 0.22f, 0.15f, pixel);
+
+                    return Mathf.Min(Mathf.Max(housing, Mathf.Max(outlet, inlet)), 1f - shaft);
+                }
+
                 // Two bars: pause.
                 case "pause":
                     return Mathf.Max(
@@ -934,6 +960,12 @@ namespace Horizon.EditorTools
             float back = u + 0.42f;
 
             return Mathf.Clamp01(Mathf.Min(front, back) / pixel);
+        }
+
+        /// <summary>A filled circle. Spelled out by hand in three glyphs before it had a name.</summary>
+        private static float Disc(float u, float v, float radius, float pixel)
+        {
+            return Mathf.Clamp01((radius - new Vector2(u, v).magnitude) / pixel);
         }
 
         /// <summary>A filled annulus — the brake disc.</summary>

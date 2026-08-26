@@ -218,6 +218,23 @@ namespace Horizon.Vehicle
         /// <summary>Selected gear, straight from the drivetrain. There is no separate audio gearbox.</summary>
         public int Gear => vehicle != null ? vehicle.Gear : 1;
 
+        /// <summary>
+        /// Boost in the plenum, 0-1 — a fraction of what this turbo makes, not a pressure in bar.
+        ///
+        /// <para><b>Published rather than modelled twice.</b> <c>BoostGauge</c> draws this, and the
+        /// alternative was a boost model of its own somewhere in <c>Horizon.Game</c> or in the
+        /// drivetrain. <see cref="UpdateTurbo"/> sets out at length why the number lives here; what
+        /// matters for a reader is that the needle and the whistle are then the same number, so a
+        /// dial that says the turbo is on song cannot disagree with an engine that sounds like it is
+        /// not. It is zero, always, on a car <see cref="VehicleConfig.IsTurbocharged"/> rejects.</para>
+        ///
+        /// <para>Already smoothed — it is an exponential chase at the car's own spool rate, driven
+        /// from this component's <c>Update</c> and therefore frame-paced. <b>A reader should not
+        /// smooth it again:</b> that would be lag the car does not have, and collapse is four times
+        /// as fast as build precisely so a lift reads as a lift.</para>
+        /// </summary>
+        public float Boost01 => boostPressure;
+
         private void Awake()
         {
             if (vehicle == null)
@@ -461,7 +478,12 @@ namespace Horizon.Vehicle
 
             // A naturally aspirated car pays for none of this, and — more to the point — cannot
             // accumulate boost that a later swap into a turbocharged body would inherit.
-            if (whistle <= 0.001f && valve <= 0.001f)
+            //
+            // The test is the config's own, not the pair of comparisons that used to stand here:
+            // BoostGauge asks the same question to decide whether to draw a dial at all, and two
+            // spellings of "has a turbo" is exactly the kind of duplicate this project keeps paying
+            // for. See VehicleConfig.IsTurbocharged.
+            if (config == null || !config.IsTurbocharged)
             {
                 boostPressure = 0f;
                 wasOnBoost = false;

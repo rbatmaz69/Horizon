@@ -397,6 +397,18 @@ namespace Horizon.Vehicle
         /// </summary>
         [Range(0f, 1f)] public float BlowOffLevel;
 
+        /// <summary>
+        /// Whether this engine is blown at all — <b>the one test</b>, so a gauge and a whistle cannot
+        /// disagree about what car this is.
+        ///
+        /// <para>Not <see cref="TurboWhistle"/> above zero on its own. The Van and the Offroader are
+        /// turbocharged diesels with no throttle plate to shut, so they carry a whistle and no valve;
+        /// a car with a valve and no whistle would be as legitimate. <c>EngineAudio.UpdateTurbo</c>
+        /// had this written inline and <c>BoostGauge</c> would have been a second copy of it — which
+        /// is how six cars quietly lose an instrument, or four quietly gain one.</para>
+        /// </summary>
+        public bool IsTurbocharged => TurboWhistle > 0.001f || BlowOffLevel > 0.001f;
+
         [Header("Gearbox")]
         [Tooltip("Forward gear ratios, first to top. Top speed comes out of the last one — it is not "
                + "set directly anywhere.")]

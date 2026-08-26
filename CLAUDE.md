@@ -235,6 +235,76 @@ that was 240 square metres of pure white over the driver's head, a canopy with n
 (what looked like a dark ceiling was sky), a sign painted with asphalt, and a sign turned edge-on.
 The build reported none of them. Look at the pictures.
 
+## The boost gauge
+
+A third dial in the top-right cluster, above the fuel gauge, and it is not there at all on six of the
+ten cars.
+
+**The number it draws already existed, and it is not modelled twice.** `EngineAudio` has held plenum
+pressure since the turbo arrived — exhaust energy above `TurboSpoolRevs` times throttle, built at
+`TurboSpoolRate` and collapsing at four times it — and spent it on a whistle and a dump valve and
+nothing else. It is `EngineAudio.Boost01` now. A boost model in the drivetrain or in `Horizon.Game`
+would have been a second opinion about one thing, which `UpdateTurbo`'s own comment already forbids:
+the needle and the whistle are the same number, so a dial claiming the turbo is on song cannot
+disagree with an engine that sounds like it is not. It is **already smoothed**, so the gauge adds none
+of its own — unlike the tacho, which needs it because `EngineRpm` steps at 50 Hz. A second chase here
+would be lag the car does not have, and collapse is four times as fast as build precisely so that a
+lift reads as a lift.
+
+**`VehicleConfig.IsTurbocharged` is one test, because two would have hidden six instruments or shown
+four.** `UpdateTurbo` decided it inline from `TurboWhistle` and `BlowOffLevel`, and the gauge asks the
+same question to decide whether to exist at all. The Van and the Offroader are what make the obvious
+spelling wrong — turbocharged diesels with no throttle plate to shut, so they carry a whistle and no
+valve.
+
+**Three states, and all three have to be tellable apart.** No turbocharger is the dial being gone; a
+turbo fitted but off boost is the needle on the stop with a white compressor; on boost is the needle
+out and the compressor lit in the accent orange. The middle one is what a gauge that only lit up would
+lose, and the hole below the spool point is most of the character of a big single turbo — it is
+something you should be able to watch.
+
+**It is built active and hidden at run time, never the other way round.** `HudPreviewRenderer`
+photographs a saved scene in which no `Update` has run, so anything the build leaves inactive is
+invisible in every picture this project takes of its own HUD — and the default car is the naturally
+aspirated Fastback. An instrument that no frame can show is exactly the failure the preview tools
+exist to catch.
+
+**The first size was 100 units, and the arithmetic was the trap.** 100 + 30 + 170 = 300 made the
+column of small dials span the rev counter exactly, top edge to top edge and bottom to bottom — an
+answer so tidy it looked like the answer. The picture came back with a compressor that was a smudge,
+tick marks that had vanished, and a dial narrower than the one beneath it reading as a stray bauble
+rather than as the top of a stack. **A layout can square up on paper and still not be an instrument.**
+Both are 170 now and the column overhangs the tacho by 70 at the bottom, which is better: the
+alignment that matters is the one at the top, where the eye starts, and equal widths are what make two
+circles a column instead of two circles.
+
+**The compressor is solid where the brake disc is a ring, and that is the whole reason the symbol
+works.** Those two are the pair most at risk of collapsing into one shape — both are round things with
+something off the side — and a wall thickness is not a difference anybody reads at forty units. A blob
+with a pinhole against a donut with a hub are opposites at any size. The outlet duct is drawn well
+*inside* the housing rather than tangent to its rim: three attempts had it touching, and each came
+apart the same way when shrunk, into a spot in the bottom corner with no visible connection to
+anything.
+
+Three marks against the fuel dial's five, and it is the only thing on the two faces that differs.
+Identically sized dials one above the other need something to tell them apart before the symbol is
+read, and a count survives being glanced at. Five would say nothing here anyway: a boost scale has no
+quarters worth naming.
+
+**And the picture could not answer the question until it was taught to.** Both small dials place
+their own marks on the first frame they get, and `HudPreviewRenderer` photographs a saved scene in
+which no `Update` has ever run — so every mark sat stacked at the centre of its dial under the
+needle's hub, and both faces came out as a bare ring with a needle across it. The fuel gauge had
+been photographed that way for builds, unnoticed, because the dial is correct in the running game.
+`FuelGauge.LayOutFace` and `BoostGauge.LayOutFace` are public for the tool to call, which is the
+argument `MapGraphic.SetView` and `Minimap.ForwardBias` already make: the alternative is the tool
+carrying its own copy of where a mark goes. **The rev counter is deliberately left bare** — its face
+is built from the car and there is no car in that scene, so laying it out would mean choosing a
+redline, and a picture that invents its subject is worse than one that admits it has none.
+
+`Tools > Horizon > Render HUD Preview` is where every fault above was found. The build reported none
+of them, and each build it said nothing about was otherwise clean.
+
 ## The Meerenge
 
 The road on from the Ebental is two courses — `KalkgratCourse` climbs a ridge, bores through it and

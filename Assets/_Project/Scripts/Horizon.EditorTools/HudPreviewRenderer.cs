@@ -95,6 +95,7 @@ namespace Horizon.EditorTools
 
                 // --- Driving.
                 AimTheMinimap(canvas);
+                LayOutTheDials(canvas);
                 ShowOneScheme(canvas);
 
                 Canvas.ForceUpdateCanvases();
@@ -243,6 +244,37 @@ namespace Horizon.EditorTools
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Puts the marks on the two small dials.
+        ///
+        /// <para><b>The same argument <see cref="AimTheMinimap"/> makes.</b> Both gauges place their
+        /// own marks on the first frame they get, and there is no frame here — so every mark
+        /// photographed stacked at the centre of its dial, under the needle's hub, and both faces came
+        /// out as a bare ring with a needle across it. That went unnoticed for several builds because
+        /// the dials are correct in the running game, which is exactly the kind of thing this tool
+        /// exists to stop being taken on trust.</para>
+        ///
+        /// <para><b>Not the rev counter, and that is not an oversight.</b> Its face is built from the
+        /// car — full scale off the redline, the numbers written from that, the red zone at the real
+        /// redline — and there is no car in this scene. A tacho with no marks in a frame with no engine
+        /// is honest; laying one out here would mean choosing a redline, and a picture that invents its
+        /// subject is worse than one that admits it has none.</para>
+        /// </summary>
+        private static void LayOutTheDials(Canvas canvas)
+        {
+            FuelGauge[] fuel = canvas.GetComponentsInChildren<FuelGauge>(true);
+            for (int i = 0; i < fuel.Length; i++)
+            {
+                fuel[i].LayOutFace();
+            }
+
+            BoostGauge[] boost = canvas.GetComponentsInChildren<BoostGauge>(true);
+            for (int i = 0; i < boost.Length; i++)
+            {
+                boost[i].LayOutFace();
+            }
         }
 
         /// <summary>

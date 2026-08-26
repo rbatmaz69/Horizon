@@ -74,6 +74,7 @@ namespace Horizon.EditorTools
             public Sprite Handbrake;
             public Sprite Pause;
             public Sprite Fuel;
+            public Sprite Turbo;
         }
 
         private static Glyphset Glyphs;
@@ -112,6 +113,7 @@ namespace Horizon.EditorTools
                 Brake = HorizonAssetUtility.LoadOrCreateGlyphSprite($"{SpriteFolder}/UI_Brake.png", "brake"),
                 Handbrake = HorizonAssetUtility.LoadOrCreateGlyphSprite($"{SpriteFolder}/UI_Handbrake.png", "handbrake"),
                 Fuel = HorizonAssetUtility.LoadOrCreateGlyphSprite($"{SpriteFolder}/UI_Fuel.png", "fuel"),
+                Turbo = HorizonAssetUtility.LoadOrCreateGlyphSprite($"{SpriteFolder}/UI_Turbo.png", "turbo"),
                 Pause = HorizonAssetUtility.LoadOrCreateGlyphSprite($"{SpriteFolder}/UI_Pause.png", "pause"),
             };
 
@@ -419,6 +421,21 @@ namespace Horizon.EditorTools
         /// why the fuel dial, when it arrived, went beside the tacho rather than into a corner of its
         /// own. See <see cref="BuildFuelDial"/> for the arithmetic that says it fits.</para>
         ///
+        /// <para><b>The small dials are a column: two 170s and the same 30-unit gap that already
+        /// stands between the tacho's rim and theirs, top-aligned with the rev counter.</b> Equal
+        /// widths are what makes it read as a column rather than as two unrelated circles, and the
+        /// gap being the cluster's one gap is what makes the whole corner read as a cluster.</para>
+        ///
+        /// <para><b>It was 100 + 30 + 170 = 300 first, and that is worth leaving on the record.</b>
+        /// A boost dial of 100 made the column span exactly the tacho's own 300 — top edge to top
+        /// edge, bottom edge to bottom edge, an arithmetic so tidy it looked like the answer. The
+        /// picture said otherwise: at 100 units the compressor is a smudge, the marks disappear
+        /// altogether, and a dial narrower than the one under it reads as a stray bauble rather than
+        /// as the top of a stack. <b>A layout can square up on paper and still not be an
+        /// instrument.</b> The column now overhangs the tacho by 70 units at the bottom and is the
+        /// better of the two, which is the whole lesson: the alignment that matters is the one at the
+        /// top, where the eye starts.</para>
+        ///
         /// <para>Nothing here is tappable — <c>raycastTarget</c> is off on every graphic. A 300-unit
         /// square of raycast target parked in a corner swallows taps without any sign that it did, and
         /// this is a readout.</para>
@@ -522,6 +539,7 @@ namespace Horizon.EditorTools
             });
 
             BuildFuelDial(group.transform, ring, needleSprite, tickSprite);
+            BuildBoostDial(group.transform, ring, needleSprite, tickSprite);
             BuildFuelNotice(group.transform);
             BuildLapTimer(group.transform);
 
@@ -789,14 +807,19 @@ namespace Horizon.EditorTools
         /// top left, and the rev counter has the top right. So this shares the top right and reads as
         /// part of the same cluster, which is what it is.</para>
         ///
+        /// <para><b>It sits at the bottom of the small-dial column rather than in the middle of it.</b>
+        /// It was centred on the tacho at y −180 until the boost gauge arrived above it; see
+        /// <see cref="BuildInstruments"/> for the column the two of them now make.</para>
+        ///
         /// <para><b>It does share a horizontal band with the brake column, and that is fine.</b> The
         /// brake sits at <see cref="InnerColumnX"/> −365 spanning x −465…−265; this dial spans −540…−370
-        /// and overlaps it. They are 415 units apart vertically — this ends 265 down from the top, the
+        /// and overlaps it. They are 280 units apart vertically — this ends 400 down from the top, the
         /// brake begins 680 down. The right-hand grid's rule is about what a thumb rests on, and nothing
         /// in the top strip is under a thumb. Left here in writing so that the overlap in x is not
-        /// "fixed" by somebody reading the grid's note without the heights.</para>
+        /// "fixed" by somebody reading the grid's note without the heights. <b>The move down cost 65 of
+        /// that clearance</b>, which is the number to watch if anything else ever joins the column.</para>
         ///
-        /// <para>170 across against the tacho's 300: it is the secondary instrument and should look
+        /// <para>170 across against the tacho's 300: it is a secondary instrument and should look
         /// like one, and the 30-unit gap between the two rims is what stops them reading as one lozenge.
         /// On the narrowest canvas Android produces — 4:3, so 1440 units wide — its left edge sits at
         /// x=900 against a pause button ending at 145, which is 755 units of clearance.</para>
@@ -808,7 +831,7 @@ namespace Horizon.EditorTools
 
             RectTransform dial = Panel(parent, "FuelDial", ring, ControlTint,
                 new Vector2(1f, 1f), new Vector2(1f, 1f),
-                new Vector2(fuelDialSize, fuelDialSize), new Vector2(-455f, -180f));
+                new Vector2(fuelDialSize, fuelDialSize), new Vector2(-455f, -315f));
 
             Untargeted(dial, Image.Type.Simple);
 
@@ -870,6 +893,100 @@ namespace Horizon.EditorTools
             HorizonAssetUtility.AssertReferenceAssigned(gauge, "reserveArc");
             HorizonAssetUtility.AssertReferenceAssigned(gauge, "pumpGlyph");
         }
+
+        /// <summary>
+        /// The boost gauge, above the fuel dial and at the top of the small-dial column.
+        ///
+        /// <para><b>Built active, and switched off at run time rather than here.</b> Six of the ten
+        /// cars are naturally aspirated and on those <see cref="BoostGauge"/> puts this away — but
+        /// <c>HudPreviewRenderer</c> photographs a saved scene in which no <c>Update</c> has run, so
+        /// anything the build leaves inactive is invisible in every picture this project takes of its
+        /// own HUD. That is the failure the preview tools exist to catch, and shipping an instrument
+        /// that no frame can show would be walking into it. The default car is the naturally aspirated
+        /// Fastback, so in a running game the default state is hidden; all the more reason the picture
+        /// must not depend on the game running.</para>
+        ///
+        /// <para><b>170 across, the fuel dial's size exactly.</b> It was 100 for one build — see
+        /// <see cref="BuildInstruments"/> for what the picture said about that — and the two being
+        /// equal is what makes them a column instead of two circles near each other. Both are
+        /// secondary against the tacho's 300 and neither is secondary to the other; there is no
+        /// moment where one of these two readings matters more than the other.</para>
+        ///
+        /// <para><b>Three marks against the fuel dial's five, and that is the only thing on the face
+        /// that differs.</b> Two identically sized dials one above the other need something to tell
+        /// them apart before the symbol is read, and mark count survives being glanced at, which is
+        /// how this corner is looked at. Five here would say nothing anyway: a boost dial's scale has
+        /// no quarters worth naming. Nothing is captioned either — its two ends are "none" and "all",
+        /// which no letter improves on.</para>
+        /// </summary>
+        private static void BuildBoostDial(
+            Transform parent, Sprite ring, Sprite needleSprite, Sprite tickSprite)
+        {
+            const float boostDialSize = 170f;
+
+            RectTransform dial = Panel(parent, "BoostDial", ring, ControlTint,
+                new Vector2(1f, 1f), new Vector2(1f, 1f),
+                new Vector2(boostDialSize, boostDialSize), new Vector2(-455f, -115f));
+
+            // Simple, not Sliced — a ring stretched as though it were nine-sliced becomes a lozenge.
+            // The same note stands over both of the other dials.
+            Untargeted(dial, Image.Type.Simple);
+
+            var tickMarks = new RectTransform[BoostDialMarks];
+
+            for (int i = 0; i < BoostDialMarks; i++)
+            {
+                // 13 x 18, the fuel dial's, because this face is now the same size. The rect is
+                // deliberately bigger than the mark it draws: the bar inside UI_Tick.png fills 30 %
+                // of the sprite's width, so sizing the rect to the mark draws a hairline.
+                tickMarks[i] = Panel(dial, $"BoostTick{i}", tickSprite, GlyphTint,
+                    new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                    new Vector2(13f, 18f), Vector2.zero);
+
+                Untargeted(tickMarks[i], Image.Type.Simple);
+            }
+
+            // The pump's size and the pump's place, because this dial is now the pump's dial's size.
+            // Two symbols sitting at the same point on two stacked faces is most of what makes the
+            // pair look built rather than assembled.
+            RectTransform compressor = Panel(dial, "Compressor", Glyphs.Turbo, GlyphTint,
+                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                new Vector2(40f, 40f), new Vector2(0f, 36f));
+
+            Image compressorImage = Untargeted(compressor, Image.Type.Simple);
+
+            // Last, so it draws over the face. Full dial size, because the needle sprite is drawn from
+            // the centre of its own square: the rect then turns about the middle of the dial with the
+            // default centre pivot, and there is no pivot to get subtly wrong.
+            RectTransform needle = Panel(dial, "BoostNeedle", needleSprite, NeedleTint,
+                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                new Vector2(boostDialSize, boostDialSize), Vector2.zero);
+
+            Untargeted(needle, Image.Type.Simple);
+
+            // On the group, not on the dial it hides. A MonoBehaviour that switched off its own
+            // GameObject would stop being updated in the same moment and could never switch it back
+            // on — the dial would vanish on the first naturally aspirated car and never return. The
+            // same rule BuildFuelNotice and BuildLapTimer record; FuelGauge and InstrumentCluster sit
+            // on their own dials only because neither of them ever hides itself.
+            BoostGauge gauge = parent.gameObject.AddComponent<BoostGauge>();
+
+            HorizonAssetUtility.Configure(gauge, serialized =>
+            {
+                serialized.FindProperty("panel").objectReferenceValue = dial.gameObject;
+                serialized.FindProperty("needle").objectReferenceValue = needle;
+                serialized.FindProperty("turboGlyph").objectReferenceValue = compressorImage;
+
+                HorizonAssetUtility.SetObjectArray(serialized, "tickMarks", tickMarks);
+            });
+
+            HorizonAssetUtility.AssertReferenceAssigned(gauge, "panel");
+            HorizonAssetUtility.AssertReferenceAssigned(gauge, "needle");
+            HorizonAssetUtility.AssertReferenceAssigned(gauge, "turboGlyph");
+        }
+
+        /// <summary>Marks on the boost dial: none, half, full. See <see cref="BuildBoostDial"/>.</summary>
+        private const int BoostDialMarks = 3;
 
         /// <summary>Marks on the fuel dial: E, a quarter, a half, three quarters, F.</summary>
         private const int FuelDialMarks = 5;
