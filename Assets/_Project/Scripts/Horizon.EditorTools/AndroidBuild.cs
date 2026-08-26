@@ -1,6 +1,8 @@
 using System;
 using System.IO;
+using System.Text.RegularExpressions;
 using UnityEditor;
+using UnityEditor.Android;
 using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
 using UnityEngine;
@@ -25,10 +27,38 @@ namespace Horizon.EditorTools
     public static class AndroidBuild
     {
         /// <summary>
-        /// Where the APK lands. Outside <c>Assets/</c> so it never becomes an imported asset, and
-        /// already covered by the <c>*.apk</c> rule in <c>.gitignore</c>.
+        /// Where a <b>signed release</b> APK lands. Outside <c>Assets/</c> so it never becomes an
+        /// imported asset, and already covered by the <c>*.apk</c> rule in <c>.gitignore</c>.
         /// </summary>
         private const string OutputName = "Horizon.apk";
+
+        /// <summary>
+        /// Where an unsigned one lands, and <b>it is a different file on purpose.</b>
+        ///
+        /// <para>Both build paths used to write <c>Horizon.apk</c>. The menu items do not set a
+        /// keystore, so Unity signs what they produce with its own debug key — which is correct for
+        /// something going straight onto a phone over USB, and catastrophic if it is the file that gets
+        /// uploaded. That is what happened to 0.8.0: it shipped signed <c>CN=Android Debug</c>, so it
+        /// would not install over 0.7.0, and 0.8.1 signed properly again would not install over
+        /// <i>it</i>. Two releases, two forced uninstalls, and the APK is not something the build log
+        /// can tell you about after the fact.</para>
+        ///
+        /// <para>Different names mean the wrong file cannot be picked up by accident. The check in
+        /// <see cref="VerifyRelease"/> is what catches it if one ever is.</para>
+        /// </summary>
+        private const string DebugOutputName = "Horizon-debug.apk";
+
+        /// <summary>
+        /// SHA-256 of the certificate every release since 0.1.0 but 0.8.0 has been signed with.
+        ///
+        /// <para>Not a secret — a signing certificate is public and travels inside every APK; what is
+        /// secret is the private key in the keystore. It is pinned here because Android decides whether
+        /// an update may install by comparing exactly this, so it is the one value that has to be the
+        /// same across every release forever. Changing the key means every player uninstalls, so
+        /// changing this constant is a deliberate act, not a fix for a failing build.</para>
+        /// </summary>
+        private const string ReleaseCertificateSha256 =
+            "9bae1b688a6029afc7287acf558662f98a3563d27f8d05db104291f87862846b";
 
         /// <summary>
         /// The application id.
@@ -78,7 +108,7 @@ namespace Horizon.EditorTools
         [MenuItem("Tools/Horizon/Build Android APK", priority = 61)]
         public static void BuildApk()
         {
-            Build(false);
+            Build(false, DebugOutputName);
         }
 
         /// <summary>
@@ -90,7 +120,7 @@ namespace Horizon.EditorTools
         [MenuItem("Tools/Horizon/Build Android APK and Run", priority = 62)]
         public static void BuildAndRun()
         {
-            Build(true);
+            Build(true, DebugOutputName);
         }
 
         /// <summary>
@@ -198,7 +228,9 @@ namespace Horizon.EditorTools
                 Debug.Log($"[Horizon] Release {version} (versionCode {versionCode}), signed with "
                           + $"alias '{alias}' from {keystore}.");
 
-                return Build(false);
+                return Build(false, OutputName)
+                       && VerifyRelease(Path.Combine(
+                           Directory.GetParent(Application.dataPath).FullName, OutputName));
             }
             finally
             {
@@ -211,6 +243,159 @@ namespace Horizon.EditorTools
                 PlayerSettings.Android.keystoreName = previousKeystoreName;
                 PlayerSettings.Android.keyaliasName = previousKeyaliasName;
                 PlayerSettings.Android.useCustomKeystore = previousUseCustomKeystore;
+            }
+        }
+
+        /// <summary>
+        /// Reads the certificate back out of the APK that was just built and refuses the release
+        /// unless it is the one every other release carries.
+        ///
+        /// <para><b>Why this cannot be left to the build.</b> Unity falls back to its debug keystore
+        /// whenever the release one cannot be opened, and reports a perfectly successful build when it
+        /// does. The APK installs, runs and looks right; the only symptom is months later, when the
+        /// next release refuses to install over it. The keystore-exists check above was written against
+        /// exactly that risk and does not cover it, because it tests the input rather than the output —
+        /// and 0.8.0 went out debug-signed anyway, by a route neither of them was watching.</para>
+        ///
+        /// <para>A failure to <i>run the check</i> fails the release too. An absent apksigner and a
+        /// correctly signed APK look identical from here, and this project's rule about that is already
+        /// written down against the driveable-corridor canary: no answer is not a clean answer.</para>
+        /// </summary>
+        private static bool VerifyRelease(string apkPath)
+        {
+            string apksigner = FindApksigner();
+
+            if (apksigner == null)
+            {
+                Debug.LogError("[Horizon] No apksigner under the Android SDK, so the signature of the "
+                               + "APK just built cannot be read. That is not a signed release, it is no "
+                               + "answer — see the remarks on this method.");
+                return false;
+            }
+
+            if (!TryRun(apksigner, $"verify --print-certs \"{apkPath}\"", out string output))
+            {
+                Debug.LogError($"[Horizon] apksigner could not verify {apkPath}:\n{output}");
+                return false;
+            }
+
+            var match = Regex.Match(
+                output, @"Signer #1 certificate SHA-256 digest:\s*([0-9a-fA-F]{64})");
+
+            if (!match.Success)
+            {
+                Debug.LogError($"[Horizon] apksigner printed no certificate digest for {apkPath}:\n"
+                               + output);
+                return false;
+            }
+
+            string digest = match.Groups[1].Value;
+
+            if (!string.Equals(digest, ReleaseCertificateSha256, StringComparison.OrdinalIgnoreCase))
+            {
+                Debug.LogError(
+                    $"[Horizon] The APK is signed with certificate {digest}, not the release "
+                    + $"certificate {ReleaseCertificateSha256}. Android will refuse to install this "
+                    + "over any previous release and every player will have to uninstall the game "
+                    + "first. Do not upload it.\n" + output);
+
+                return false;
+            }
+
+            Debug.Log($"[Horizon] Signature verified: {digest}. This will install over the previous "
+                      + "release.");
+
+            return true;
+        }
+
+        /// <summary>
+        /// The newest <c>apksigner</c> under the Android SDK Unity is configured to use.
+        ///
+        /// <para>Found rather than configured, and the SDK root comes from Unity's own setting rather
+        /// than from a guess at the install layout, which differs on every platform.</para>
+        /// </summary>
+        private static string FindApksigner()
+        {
+            string sdk = AndroidExternalToolsSettings.sdkRootPath;
+
+            if (string.IsNullOrEmpty(sdk))
+            {
+                return null;
+            }
+
+            string buildTools = Path.Combine(sdk, "build-tools");
+
+            if (!Directory.Exists(buildTools))
+            {
+                return null;
+            }
+
+            string name = Application.platform == RuntimePlatform.WindowsEditor
+                ? "apksigner.bat"
+                : "apksigner";
+
+            string[] versions = Directory.GetDirectories(buildTools);
+            Array.Sort(versions, StringComparer.Ordinal);
+
+            for (int i = versions.Length - 1; i >= 0; i--)
+            {
+                string candidate = Path.Combine(versions[i], name);
+
+                if (File.Exists(candidate))
+                {
+                    return candidate;
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Runs a tool and collects everything it said. Both streams, because apksigner writes its
+        /// warnings to stderr and a warning about a missing signature scheme is part of the answer.
+        /// </summary>
+        private static bool TryRun(string executable, string arguments, out string output)
+        {
+            var info = new System.Diagnostics.ProcessStartInfo(executable, arguments)
+            {
+                CreateNoWindow = true,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            };
+
+            // apksigner is a shell script that finds its own Java, and Unity's Android module ships a
+            // JDK the editor already knows the path to. Left to the environment it picks up whatever
+            // java is on PATH, which on a machine without one is a build that fails at the last step.
+            string jdk = AndroidExternalToolsSettings.jdkRootPath;
+
+            if (!string.IsNullOrEmpty(jdk))
+            {
+                info.EnvironmentVariables["JAVA_HOME"] = jdk;
+            }
+
+            try
+            {
+                using var process = System.Diagnostics.Process.Start(info);
+
+                if (process == null)
+                {
+                    output = "the process did not start";
+                    return false;
+                }
+
+                string standard = process.StandardOutput.ReadToEnd();
+                string error = process.StandardError.ReadToEnd();
+
+                process.WaitForExit();
+
+                output = standard + error;
+                return process.ExitCode == 0;
+            }
+            catch (Exception exception)
+            {
+                output = exception.ToString();
+                return false;
             }
         }
 
@@ -253,7 +438,7 @@ namespace Horizon.EditorTools
             return versionCode > 0;
         }
 
-        private static bool Build(bool run)
+        private static bool Build(bool run, string outputName)
         {
             Configure();
 
@@ -277,7 +462,7 @@ namespace Horizon.EditorTools
             }
 
             string directory = Directory.GetParent(Application.dataPath).FullName;
-            string path = Path.Combine(directory, OutputName);
+            string path = Path.Combine(directory, outputName);
 
             Debug.Log($"[Horizon] Building {scenes.Length} scene(s) to {path}: {string.Join(", ", scenes)}");
 
