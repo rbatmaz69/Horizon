@@ -523,6 +523,7 @@ namespace Horizon.EditorTools
 
             BuildFuelDial(group.transform, ring, needleSprite, tickSprite);
             BuildFuelNotice(group.transform);
+            BuildLapTimer(group.transform);
 
             // In this group so it hides with the rest of the HUD: TouchControlsHud switches the whole
             // group off whenever the player is not driving, and a map floating over the start screen
@@ -575,6 +576,90 @@ namespace Horizon.EditorTools
 
             // Nothing to say yet.
             notice.gameObject.SetActive(false);
+        }
+
+        /// <summary>
+        /// The lap readout, under the minimap.
+        ///
+        /// <para><b>Under the map rather than beside the rev counter, and that is not just what fits.</b>
+        /// The two things a driver on a circuit looks at are which way the next corner goes and how the
+        /// lap is going, and those are the same glance. The tacho corner is the other side of the
+        /// screen.</para>
+        ///
+        /// <para>Three rows of caption and value rather than three composed lines, because
+        /// <c>Label</c> stretches to its parent and a composed string is a string built every frame —
+        /// see <see cref="LapTimer"/>, which is the component this exists to give somewhere to write.
+        /// The panel starts switched off; a world with no circuit in it never turns it on.</para>
+        /// </summary>
+        private static void BuildLapTimer(Transform parent)
+        {
+            Sprite box = HorizonAssetUtility.LoadOrCreateUiSprite($"{SpriteFolder}/UI_Box.png");
+
+            const float Width = 300f;
+            const float RowHeight = 34f;
+
+            RectTransform frame = Panel(parent, "LapTimer", box, PanelTint,
+                new Vector2(0f, 1f), new Vector2(0f, 1f),
+                new Vector2(Width, RowHeight * 4f + 16f), new Vector2(190f, -389f));
+
+            Untargeted(frame, Image.Type.Sliced);
+
+            Text Row(string caption, float y)
+            {
+                RectTransform left = Cell(frame, Width * 0.5f - 12f, RowHeight, -Width * 0.25f + 6f, y);
+                Text name = LabelOn(left, caption, 20, GlyphTint);
+                name.alignment = TextAnchor.MiddleLeft;
+
+                RectTransform right = Cell(frame, Width * 0.5f - 12f, RowHeight, Width * 0.25f - 6f, y);
+                Text value = LabelOn(right, "--:--.-", 22, GlyphTint);
+                value.alignment = TextAnchor.MiddleRight;
+
+                return value;
+            }
+
+            Text current = Row("LAP", RowHeight * 1.5f);
+            Text last = Row("LAST", RowHeight * 0.5f);
+            Text best = Row("BEST", -RowHeight * 0.5f);
+            Text gates = Row("GATES", -RowHeight * 1.5f);
+
+            // On the group, not on the panel it hides, for the reason BuildFuelNotice records: a
+            // component that switched off its own GameObject would stop being updated at the same
+            // moment and could never switch it back on.
+            LapTimer component = parent.gameObject.AddComponent<LapTimer>();
+
+            HorizonAssetUtility.Configure(component, serialized =>
+            {
+                serialized.FindProperty("panel").objectReferenceValue = frame.gameObject;
+                serialized.FindProperty("currentLabel").objectReferenceValue = current;
+                serialized.FindProperty("lastLabel").objectReferenceValue = last;
+                serialized.FindProperty("bestLabel").objectReferenceValue = best;
+                serialized.FindProperty("gateLabel").objectReferenceValue = gates;
+            });
+
+            HorizonAssetUtility.AssertReferenceAssigned(component, "panel");
+            HorizonAssetUtility.AssertReferenceAssigned(component, "currentLabel");
+            HorizonAssetUtility.AssertReferenceAssigned(component, "lastLabel");
+            HorizonAssetUtility.AssertReferenceAssigned(component, "bestLabel");
+            HorizonAssetUtility.AssertReferenceAssigned(component, "gateLabel");
+
+            // Nothing to time until the car reaches a circuit.
+            frame.gameObject.SetActive(false);
+        }
+
+        /// <summary>A bare rect to hang one stretched <see cref="Label"/> in.</summary>
+        private static RectTransform Cell(RectTransform parent, float width, float height, float x, float y)
+        {
+            var go = new GameObject("Cell", typeof(RectTransform));
+            go.transform.SetParent(parent, false);
+
+            var rect = (RectTransform)go.transform;
+            rect.anchorMin = new Vector2(0.5f, 0.5f);
+            rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.sizeDelta = new Vector2(width, height);
+            rect.anchoredPosition = new Vector2(x, y);
+
+            return rect;
         }
 
         /// <summary>
@@ -653,13 +738,25 @@ namespace Horizon.EditorTools
 
             Untargeted(mark, Image.Type.Simple);
 
-            // The car: the arrows' triangle, stood on end. It never moves and never turns — the world
-            // turns under it — so it is geometry rather than something a component has to drive.
-            RectTransform car = Panel(face, "Car", Glyphs.Right, AccentTint,
-                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(34f, 34f), Vector2.zero);
+            // The car. It never moves and never turns — the world turns under it — so it is geometry
+            // rather than something a component has to drive.
+            //
+            // Its own sprite rather than the arrows' glyph rotated ninety degrees, and taller than it is
+            // wide. The glyph is a near equilateral triangle: at 34 units across, which way it points is
+            // a guess, and on a heading-up minimap that is the one thing the widget is for. See
+            // HorizonAssetUtility.LoadOrCreateCarMarkerSprite.
+            Sprite carSprite = HorizonAssetUtility.LoadOrCreateCarMarkerSprite(
+                $"{SpriteFolder}/UI_CarMarker.png");
+
+            // Below the middle rather than on it, and Minimap.ForwardBias is the one number that says
+            // how far — this places the sprite and the component pushes the view forward by the same
+            // distance, so the marker still sits on the road it is drawn over. See there for why a map
+            // read at a glance should not spend half of itself on the road already driven.
+            RectTransform car = Panel(face, "Car", carSprite, AccentTint,
+                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(30f, 36f),
+                new Vector2(0f, -MapSize * 0.5f * Minimap.ForwardBias));
 
             Untargeted(car, Image.Type.Simple);
-            car.localRotation = Quaternion.Euler(0f, 0f, 90f);
 
             // Outside the mask, so its own outer edge survives being drawn.
             RectTransform rim = Panel(parent, "MinimapRim", ring, ControlTint,

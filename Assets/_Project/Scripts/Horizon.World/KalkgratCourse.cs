@@ -41,9 +41,10 @@ namespace Horizon.World
     /// <see cref="RevealDistance"/> stays published because it is still the frame to photograph and
     /// the place to put a car when the descent is being tuned.</para>
     ///
-    /// <para><b>It ends provisionally</b>, the way the Ebental's own end does, and publishes
-    /// <see cref="EndPoint"/> and <see cref="EndHeading"/> so <see cref="MeerengeCourse"/> can be
-    /// grafted onto them rather than fitted to them.</para>
+    /// <para><b>It ends provisionally</b>, the way the Ebental's own end did before
+    /// <see cref="StadtfeldCourse"/> closed the ring behind it, and publishes <see cref="EndPoint"/>
+    /// and <see cref="EndHeading"/> so <see cref="MeerengeCourse"/> can be grafted onto them rather
+    /// than fitted to them.</para>
     /// </summary>
     public static class KalkgratCourse
     {
@@ -132,9 +133,14 @@ namespace Horizon.World
         private static void Append(RoadCourseBuilder builder)
         {
             // --- Off the end of the Ebental and onto the flank. The road turns left away from the
-            // valley it has been following; straight on is Hochstadt's arterial, 2.4 km further south
-            // east, and this is the one instruction that decides the world does not simply close into
-            // a ring here.
+            // valley it has been following.
+            //
+            // This instruction used to be the one that decided the world did not close into a ring:
+            // straight on was Hochstadt's arterial, 2.4 km further south east, and nothing went there.
+            // Something does now. StadtfeldCourse leaves the Ebental 200 m back up it, so the ring runs
+            // Talheim - pass - Ebental - Stadtfeld - Hochstadt - motorway, and this road is the branch
+            // off that ring rather than the continuation of a corridor. The turn is unchanged; what it
+            // means is not.
             //
             // Split 300 + 100 around the station, and the 300 is not a taste. A station's advance sign
             // stands 250 m back up its own road and the search gives up rather than moving closer — so

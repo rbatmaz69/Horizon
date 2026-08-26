@@ -136,6 +136,15 @@ namespace Horizon.EditorTools
 
             /// <summary>Four-lane markings for one carriageway of the motorway.</summary>
             public readonly Material MotorwaySurface;
+
+            /// <summary>
+            /// The circuit's asphalt: a third atlas, and a third for the same reason the motorway got a
+            /// second one. Markings are painted in coordinates normalised across the carriageway, so a
+            /// two-lane texture stretched over a thirteen-metre track would give a race track with a
+            /// dashed line down the middle of it — correct-looking geometry saying the wrong thing.
+            /// Asked for with one lane, which is what leaves it with edge lines and nothing between.
+            /// </summary>
+            public readonly Material CircuitSurface;
             public readonly Material Concrete;
             public readonly Material GuardRail;
 
@@ -276,6 +285,17 @@ namespace Horizon.EditorTools
                 MotorwaySurface = HorizonAssetUtility.LoadOrCreateMaterial(
                     MaterialsFolder + "/M_MotorwaySurface.mat", "M_MotorwaySurface", Color.white, 0.34f, 0f,
                     motorwayTexture);
+
+                RoadShape circuitShape = RoadShape.Circuit;
+
+                Texture2D circuitTexture = HorizonAssetUtility.LoadOrCreateTexture(
+                    ProjectRoot + "/Art/T_CircuitSurface.png",
+                    () => RoadTextureBuilder.BuildSurface(circuitShape, 1),
+                    anisoLevel: 8);
+
+                CircuitSurface = HorizonAssetUtility.LoadOrCreateMaterial(
+                    MaterialsFolder + "/M_CircuitSurface.mat", "M_CircuitSurface", Color.white, 0.34f, 0f,
+                    circuitTexture);
 
                 RoadShoulder = HorizonAssetUtility.LoadOrCreateMaterial(
                     MaterialsFolder + "/M_RoadShoulder.mat", "M_RoadShoulder", Color.white, 0.12f, 0f,
@@ -1107,6 +1127,39 @@ namespace Horizon.EditorTools
             // pass. Everything that gives the Ebental its own look reads this.
             LandRegion ebental = LandRegion.Ebental(ebentalPath);
 
+            // --- The Stadtfeldstraße: back down to Hochstadt, and the road that closes the ring.
+            //
+            // Built from the city outwards, so it starts at the boulevard's last node rather than at
+            // the end of the arterial — see StadtfeldCourse for why those are 120 m and one working
+            // road apart. Same cross-section as its neighbours again, for the reason the Ebental keeps
+            // the pass's.
+            var stadtfeldPathObject = new GameObject("StadtfeldRoadPath");
+            stadtfeldPathObject.transform.SetParent(worldRoot.transform, false);
+            RoadPath stadtfeldPath = stadtfeldPathObject.AddComponent<RoadPath>();
+
+            RoadCourse stadtfeldCourse = StadtfeldCourse.Build();
+            stadtfeldPath.SetControlPoints(stadtfeldCourse.ControlPoints);
+            ReportCourse(stadtfeldCourse, stadtfeldPath, "Stadtfeld road");
+
+            Mesh stadtfeldMesh = RoadMeshBuilder.BuildRoad(stadtfeldPath, roadShape, "StadtfeldRoadMesh");
+            stadtfeldMesh = HorizonAssetUtility.ReplaceAsset(
+                stadtfeldMesh, GeneratedFolder + "/StadtfeldRoadMesh.asset");
+
+            GameObject stadtfeldObject = CreateMeshObject(worldRoot.transform, "StadtfeldRoad",
+                stadtfeldMesh, new[] { materials.RoadSurface, materials.RoadShoulder });
+
+            WorldChunk stadtfeldChunk = stadtfeldObject.AddComponent<WorldChunk>();
+            stadtfeldChunk.RecalculateBounds();
+            stadtfeldChunk.SetBounds(stadtfeldChunk.Center, 100000f);
+
+            // A second Ebental, because a LandRegion binds to exactly one IRoadPath. The two overlap
+            // where this road leaves the fork, and that is harmless for the reason the two Anadolus
+            // below are harmless: same palette, same tree mix, so RegionFor picking either one gives
+            // the same ground. Without it the road would fall outside every region — LandRegion's
+            // EdgeReach is 260 m — and a country lane out of a city would come up on the mountain's
+            // own grey.
+            LandRegion stadtfeld = LandRegion.Ebental(stadtfeldPath);
+
             // --- On over the Kalkgrat and down the Steilufer, carrying on where the Ebental runs out.
             // Same cross-section again, for the reason the Ebental keeps the pass's: a change of width
             // at a join reads as a change of country, and none of these is a different class of road.
@@ -1219,6 +1272,136 @@ namespace Horizon.EditorTools
             linkChunk.RecalculateBounds();
             linkChunk.SetBounds(linkChunk.Center, 100000f);
 
+            // --- The Weissjoch: off the motorway's western leg and nine hundred metres up into the
+            // snow. The highest thing in the world by a factor of four and a half, and the only road
+            // here that is a dead end on purpose.
+            var weissjochPathObject = new GameObject("WeissjochRoadPath");
+            weissjochPathObject.transform.SetParent(worldRoot.transform, false);
+            RoadPath weissjochPath = weissjochPathObject.AddComponent<RoadPath>();
+
+            RoadCourse weissjochCourse = WeissjochCourse.Build();
+            weissjochPath.SetControlPoints(weissjochCourse.ControlPoints);
+            ReportCourse(weissjochCourse, weissjochPath, "Weissjoch road");
+
+            Mesh weissjochMesh = RoadMeshBuilder.BuildRoad(weissjochPath, roadShape, "WeissjochRoadMesh");
+            weissjochMesh = HorizonAssetUtility.ReplaceAsset(
+                weissjochMesh, GeneratedFolder + "/WeissjochRoadMesh.asset");
+
+            GameObject weissjochObject = CreateMeshObject(worldRoot.transform, "WeissjochRoad",
+                weissjochMesh, new[] { materials.RoadSurface, materials.RoadShoulder });
+
+            WorldChunk weissjochChunk = weissjochObject.AddComponent<WorldChunk>();
+            weissjochChunk.RecalculateBounds();
+            weissjochChunk.SetBounds(weissjochChunk.Center, 100000f);
+
+            // The first region in the world that decides anything by altitude — a tree line at 460 m and
+            // a snow line at 650, both absolute metres. See LandRegion.TreeLineElevation for why they
+            // cannot be the fraction of the pass's own climb that every other road here uses.
+            LandRegion weissjoch = LandRegion.Weissjoch(weissjochPath);
+
+            // --- The Weissjochring: fourteen and a half kilometres of closed circuit on the shoulder
+            // below the col, and its access road down from it. The circuit is the only road in this
+            // world that closes on itself, so it is the only one paved as a loop — see
+            // RoadCourse.IsClosed for what that changes and why the flag was worth having.
+            RoadShape circuitShape = RoadShape.Circuit;
+
+            var ringPathObject = new GameObject("WeissjochringPath");
+            ringPathObject.transform.SetParent(worldRoot.transform, false);
+            RoadPath ringPath = ringPathObject.AddComponent<RoadPath>();
+
+            RoadCourse ringCourse = WeissjochringCourse.Build();
+            ringPath.SetControlPoints(ringCourse.ControlPoints, ringCourse.IsClosed);
+            ReportCourse(ringCourse, ringPath, "Weissjochring");
+
+            Mesh ringMesh = RoadMeshBuilder.BuildRoad(ringPath, circuitShape, "WeissjochringMesh");
+            ringMesh = HorizonAssetUtility.ReplaceAsset(
+                ringMesh, GeneratedFolder + "/WeissjochringMesh.asset");
+
+            GameObject ringObject = CreateMeshObject(worldRoot.transform, "Weissjochring",
+                ringMesh, new[] { materials.CircuitSurface, materials.RoadShoulder });
+
+            WorldChunk ringChunk = ringObject.AddComponent<WorldChunk>();
+            ringChunk.RecalculateBounds();
+            ringChunk.SetBounds(ringChunk.Center, 100000f);
+
+            var ringAccessObject = new GameObject("WeissjochringAccessPath");
+            ringAccessObject.transform.SetParent(worldRoot.transform, false);
+            RoadPath ringAccessPath = ringAccessObject.AddComponent<RoadPath>();
+
+            RoadCourse ringAccessCourse = WeissjochringCourse.BuildAccess();
+            ringAccessPath.SetControlPoints(ringAccessCourse.ControlPoints);
+            ReportCourse(ringAccessCourse, ringAccessPath, "Weissjochring access road");
+
+            Mesh ringAccessMesh = RoadMeshBuilder.BuildRoad(
+                ringAccessPath, roadShape, "WeissjochringAccessMesh");
+            ringAccessMesh = HorizonAssetUtility.ReplaceAsset(
+                ringAccessMesh, GeneratedFolder + "/WeissjochringAccessMesh.asset");
+
+            GameObject ringAccessObjectMesh = CreateMeshObject(worldRoot.transform,
+                "WeissjochringAccess", ringAccessMesh,
+                new[] { materials.RoadSurface, materials.RoadShoulder });
+
+            WorldChunk ringAccessChunk = ringAccessObjectMesh.AddComponent<WorldChunk>();
+            ringAccessChunk.RecalculateBounds();
+            ringAccessChunk.SetBounds(ringAccessChunk.Center, 100000f);
+
+            // The circuit's own region. Same palette and the same two absolute altitude bands as the
+            // mountain it stands on — see LandRegion.Weissjochring for why its densities are not the
+            // same, which is a tile-budget decision rather than a taste one.
+            LandRegion weissjochring = LandRegion.Weissjochring(ringPath);
+
+            // --- The Bahçe Ring: Istanbul Park, at its own scale, in the empty quadrant beyond the
+            // end of Yalıköy, and its access road down from the plateau. The second closed loop in this
+            // world and therefore the second road paved as one — see RoadCourse.IsClosed.
+            var bahcePathObject = new GameObject("BahceRingPath");
+            bahcePathObject.transform.SetParent(worldRoot.transform, false);
+            RoadPath bahcePath = bahcePathObject.AddComponent<RoadPath>();
+
+            RoadCourse bahceCourse = BahceRingCourse.Build();
+            bahcePath.SetControlPoints(bahceCourse.ControlPoints, bahceCourse.IsClosed);
+            ReportCourse(bahceCourse, bahcePath, "Bahçe Ring");
+
+            Mesh bahceMesh = RoadMeshBuilder.BuildRoad(bahcePath, circuitShape, "BahceRingMesh");
+            bahceMesh = HorizonAssetUtility.ReplaceAsset(
+                bahceMesh, GeneratedFolder + "/BahceRingMesh.asset");
+
+            GameObject bahceObject = CreateMeshObject(worldRoot.transform, "BahceRing",
+                bahceMesh, new[] { materials.CircuitSurface, materials.RoadShoulder });
+
+            WorldChunk bahceChunk = bahceObject.AddComponent<WorldChunk>();
+            bahceChunk.RecalculateBounds();
+            bahceChunk.SetBounds(bahceChunk.Center, 100000f);
+
+            var bahceAccessObject = new GameObject("BahceRingAccessPath");
+            bahceAccessObject.transform.SetParent(worldRoot.transform, false);
+            RoadPath bahceAccessPath = bahceAccessObject.AddComponent<RoadPath>();
+
+            RoadCourse bahceAccessCourse = BahceRingCourse.BuildAccess();
+            bahceAccessPath.SetControlPoints(bahceAccessCourse.ControlPoints);
+            ReportCourse(bahceAccessCourse, bahceAccessPath, "Bahçe Ring access road");
+
+            Mesh bahceAccessMesh = RoadMeshBuilder.BuildRoad(
+                bahceAccessPath, roadShape, "BahceRingAccessMesh");
+            bahceAccessMesh = HorizonAssetUtility.ReplaceAsset(
+                bahceAccessMesh, GeneratedFolder + "/BahceRingAccessMesh.asset");
+
+            GameObject bahceAccessMeshObject = CreateMeshObject(worldRoot.transform,
+                "BahceRingAccess", bahceAccessMesh,
+                new[] { materials.RoadSurface, materials.RoadShoulder });
+
+            WorldChunk bahceAccessChunk = bahceAccessMeshObject.AddComponent<WorldChunk>();
+            bahceAccessChunk.RecalculateBounds();
+            bahceAccessChunk.SetBounds(bahceAccessChunk.Center, 100000f);
+
+            // The valley's own region, twice — once against the lap and once against the road that
+            // leads to it, which is the pattern LandRegion.Ebental already uses for the Stadtfeld. One
+            // region binds to one path, and the blossom has to be growing beside the approach as well
+            // as beside the circuit or the layby in it stands in Anadolu's dry scrub. The access road's
+            // copy starts partway down, because the change of country happens on the tarmac.
+            LandRegion bahceRegion = LandRegion.Bahce(bahcePath);
+            LandRegion bahceApproach = LandRegion.Bahce(
+                bahceAccessPath, BahceRingCourse.RegionStartAlong);
+
             // --- The coast road, carrying on where the motorway runs out at its western tip.
             var coastPathObject = new GameObject("CoastRoadPath");
             coastPathObject.transform.SetParent(worldRoot.transform, false);
@@ -1249,8 +1432,18 @@ namespace Horizon.EditorTools
             RoadCourse seeburgCourse = SeeburgCourse.Build();
             seeburgAxis.SetControlPoints(seeburgCourse.ControlPoints);
 
-            BuildMotorwayMerge(worldRoot.transform, out float rampCapOnMedian, out float rampMergeOnMedian,
+            BuildMotorwayMerge(worldRoot.transform, "MotorwayMerge",
+                out float rampCapOnMedian, out float rampMergeOnMedian,
                 motorwayPath, westbound, motorwayShape, roadShape, linkPath, materials);
+
+            // The Weissjoch's own ramp, three kilometres west of the interchange. The out-params are
+            // measured and thrown away: TrafficNetworkBuilder is written for exactly one interchange —
+            // one bool, one node, and a lane cut that breaks the nearside carriageway into exactly two
+            // pieces — so wiring a second into it is a job of its own. Said plainly rather than hidden:
+            // cars stream past this exit and none of them take it.
+            BuildMotorwayMerge(worldRoot.transform, "WeissjochMerge",
+                out _, out _,
+                motorwayPath, westbound, motorwayShape, roadShape, weissjochPath, materials);
             EditorUtility.SetDirty(roadChunk);
 
             // --- The city's arterial. Never paved: it is a coordinate axis and a height datum, which is
@@ -1270,6 +1463,13 @@ namespace Horizon.EditorTools
             // every one of them has to exist before the field; their plots are seated on the finished
             // terrain mesh, so none of them can be planned until after it.
             var levelSamples = new List<Vector3>();
+
+            // The circuit's paddock, and it has to go in before the field rather than after it. A level
+            // area asked for afterwards comes out perfectly flat hovering over a hillside, with nothing
+            // complaining — the recorded failure the forecourts already pay for. It needs no tile bounds
+            // of its own: it sits on the main straight, so the tiles under it are the road's.
+            AddPaddockSamples(levelSamples, terrainShape, Weissjochring);
+            AddPaddockSamples(levelSamples, terrainShape, BahceRing);
 
             TownBuild talheim = PrepareTown(
                 "Talheim", TalheimLayout.Build(), path, TownShape.Default,
@@ -1324,14 +1524,18 @@ namespace Horizon.EditorTools
             var fuelStations = new List<FuelStationMeshes.StationSite>(8);
             fuelStations.AddRange(FuelStationBuilder.Sites(path, course, roadShape));
             fuelStations.AddRange(FuelStationBuilder.Sites(ebentalPath, ebentalCourse, roadShape));
+            fuelStations.AddRange(FuelStationBuilder.Sites(stadtfeldPath, stadtfeldCourse, roadShape));
             fuelStations.AddRange(
                 FuelStationBuilder.Sites(westbound, motorwayCourse, motorwayShape, -1f));
             fuelStations.AddRange(
                 FuelStationBuilder.Sites(eastbound, motorwayCourse, motorwayShape, 1f));
             fuelStations.AddRange(FuelStationBuilder.Sites(coastPath, coastCourse, roadShape));
+            fuelStations.AddRange(FuelStationBuilder.Sites(weissjochPath, weissjochCourse, roadShape));
+            fuelStations.AddRange(FuelStationBuilder.Sites(ringPath, ringCourse, circuitShape));
             fuelStations.AddRange(FuelStationBuilder.Sites(kalkgratPath, kalkgratCourse, roadShape));
             fuelStations.AddRange(FuelStationBuilder.Sites(meerengePath, meerengeCourse, roadShape));
             fuelStations.AddRange(FuelStationBuilder.Sites(yalikoyPath, yalikoyCourse, roadShape));
+            fuelStations.AddRange(FuelStationBuilder.Sites(bahcePath, bahceCourse, circuitShape));
 
             // Every carriageway in the world, so a pad can be kept off all of them and not merely off
             // the one it belongs to. The pass is the case that matters: its switchbacks stack legs
@@ -1341,13 +1545,21 @@ namespace Horizon.EditorTools
             {
                 new FuelStationBuilder.NearbyRoad(path, roadShape, "the pass"),
                 new FuelStationBuilder.NearbyRoad(ebentalPath, roadShape, "the Ebental road"),
+                new FuelStationBuilder.NearbyRoad(stadtfeldPath, roadShape, "the Stadtfeld road"),
                 new FuelStationBuilder.NearbyRoad(westbound, motorwayShape, "the westbound carriageway"),
                 new FuelStationBuilder.NearbyRoad(eastbound, motorwayShape, "the eastbound carriageway"),
                 new FuelStationBuilder.NearbyRoad(linkPath, roadShape, "the motorway link"),
                 new FuelStationBuilder.NearbyRoad(coastPath, roadShape, "the coast road"),
+                new FuelStationBuilder.NearbyRoad(weissjochPath, roadShape, "the Weissjoch road"),
+                new FuelStationBuilder.NearbyRoad(ringPath, circuitShape, "the Weissjochring"),
+                new FuelStationBuilder.NearbyRoad(
+                    ringAccessPath, roadShape, "the Weissjochring access road"),
                 new FuelStationBuilder.NearbyRoad(kalkgratPath, roadShape, "the Kalkgrat road"),
                 new FuelStationBuilder.NearbyRoad(meerengePath, roadShape, "the Meerenge road"),
                 new FuelStationBuilder.NearbyRoad(yalikoyPath, roadShape, "the Yalıköy road"),
+                new FuelStationBuilder.NearbyRoad(bahcePath, circuitShape, "the Bahçe Ring"),
+                new FuelStationBuilder.NearbyRoad(
+                    bahceAccessPath, roadShape, "the Bahçe Ring access road"),
             };
 
             for (int i = 0; i < fuelStations.Count; i++)
@@ -1390,6 +1602,7 @@ namespace Horizon.EditorTools
                 // around whatever the field calls a road, so the corridor — and the ground the Auensee
                 // is dug into — arrives with the road rather than as a region somebody adds by hand.
                 new MountainField.FieldRoad(ebentalPath),
+                new MountainField.FieldRoad(stadtfeldPath),
 
                 new MountainField.FieldRoad(westbound, motorwayCourse),
                 new MountainField.FieldRoad(eastbound, motorwayCourse),
@@ -1400,6 +1613,9 @@ namespace Horizon.EditorTools
                 // ground the sea will be dug into — arrives with the road rather than as a region
                 // somebody has to remember to add.
                 new MountainField.FieldRoad(coastPath),
+                new MountainField.FieldRoad(weissjochPath),
+                new MountainField.FieldRoad(ringPath),
+                new MountainField.FieldRoad(ringAccessPath),
 
                 // Both of these hand over their course as well as their path, and both need to. The
                 // Kalkgrat has a viaduct across a ravine and the Meerenge has the crossing, and without
@@ -1412,6 +1628,9 @@ namespace Horizon.EditorTools
                 // would not do anyway — but it is here for the same reason the coast road is: the
                 // corridor out to the bay, and the ground the bay is dug into, arrive with the road.
                 new MountainField.FieldRoad(yalikoyPath, yalikoyCourse),
+
+                new MountainField.FieldRoad(bahcePath),
+                new MountainField.FieldRoad(bahceAccessPath),
             };
 
             var field = new MountainField(roads, terrainShape, 4f, levelSamples);
@@ -1574,9 +1793,21 @@ namespace Horizon.EditorTools
 
             ValidateRoadClearance(path, roadShape, field, course);
             ValidateRoadClearance(ebentalPath, roadShape, field, ebentalCourse, "Ebental");
+            ValidateRoadClearance(stadtfeldPath, roadShape, field, stadtfeldCourse, "Stadtfeld");
             ValidateRoadClearance(kalkgratPath, roadShape, field, kalkgratCourse, "Kalkgrat");
             ValidateRoadClearance(meerengePath, roadShape, field, meerengeCourse, "Meerenge");
             ValidateRoadClearance(yalikoyPath, roadShape, field, yalikoyCourse, "Yalıköy");
+            ValidateRoadClearance(weissjochPath, roadShape, field, weissjochCourse, "Weissjoch");
+            ValidateRoadClearance(ringPath, circuitShape, field, ringCourse, "Weissjochring");
+            ValidateCircuitClosure(ringCourse, ringPath, "the Weissjochring");
+            ValidateInfieldCoverage(field, terrainShape, ringPath, "the Weissjochring");
+            ValidateRoadClearance(
+                ringAccessPath, roadShape, field, ringAccessCourse, "Weissjochring access road");
+            ValidateRoadClearance(bahcePath, circuitShape, field, bahceCourse, "Bahçe Ring");
+            ValidateCircuitClosure(bahceCourse, bahcePath, "the Bahçe Ring");
+            ValidateInfieldCoverage(field, terrainShape, bahcePath, "the Bahçe Ring");
+            ValidateRoadClearance(
+                bahceAccessPath, roadShape, field, bahceAccessCourse, "Bahçe Ring access road");
             ValidateRoadClearance(westbound, motorwayShape, field, motorwayCourse, "Westbound");
             ValidateRoadClearance(eastbound, motorwayShape, field, motorwayCourse, "Eastbound");
             ValidateBridges(westbound, field, motorwayCourse);
@@ -1672,11 +1903,28 @@ namespace Horizon.EditorTools
                 new[]
                 {
                     new MountainField.FieldRoad(ebentalPath, ebentalCourse),
+                    new MountainField.FieldRoad(stadtfeldPath, stadtfeldCourse),
                     new MountainField.FieldRoad(kalkgratPath, kalkgratCourse),
                     new MountainField.FieldRoad(meerengePath, meerengeCourse),
                     new MountainField.FieldRoad(yalikoyPath, yalikoyCourse),
+                    new MountainField.FieldRoad(weissjochPath, weissjochCourse),
+                    new MountainField.FieldRoad(ringPath, ringCourse),
+                    new MountainField.FieldRoad(ringAccessPath, ringAccessCourse),
+                    new MountainField.FieldRoad(bahcePath, bahceCourse),
+                    new MountainField.FieldRoad(bahceAccessPath, bahceAccessCourse),
                 },
-                new[] { ebental, anadolu, yalikoyRegion }, ebental, ebentalPath,
+
+                // Order decides ties: RegionFor takes the first that reaches a tile. Anadolu's two
+                // entries come before the Bahçe's so the first few hundred metres of the access road,
+                // which leave the end of Yalıköy, stay the dry country they are in — the change of
+                // country happens along that road and is BahceRingCourse.RegionStartAlong's business,
+                // not the tile grid's.
+                new[]
+                {
+                    ebental, stadtfeld, weissjochring, weissjoch, anadolu, yalikoyRegion,
+                    bahceRegion, bahceApproach,
+                },
+                ebental, ebentalPath,
                 ForecourtCentres(fuelStations));
             ValidateLandmarks(field, course, path, talheim.Plan);
             MarkTownLandmarks(worldRoot.transform, talheim.Network, talheim.Plan);
@@ -1730,6 +1978,23 @@ namespace Horizon.EditorTools
             BuildDelineatorPosts(worldRoot.transform, ebentalPath, roadShape, field, ebentalCourse,
                 materials, "EbentalRoad");
 
+            // The Stadtfeld road: rails and posts of its own, and then the mouth of the fork it leaves
+            // the Ebental by.
+            //
+            // The mouth goes last of the three on purpose. GuardRailBuilder and DelineatorPostBuilder
+            // both read RoadCourse.IsJunction and leave 60 m of verge clear either side of the mark, so
+            // by the time the throat is laid there is already nothing standing where it goes. Building
+            // it first would put paving under a rail that had not yet decided not to be there — the
+            // same ordering the filling stations already depend on.
+            BuildGuardRails(worldRoot.transform, stadtfeldPath, roadShape, field, stadtfeldCourse,
+                materials, "StadtfeldRoad");
+
+            BuildDelineatorPosts(worldRoot.transform, stadtfeldPath, roadShape, field, stadtfeldCourse,
+                materials, "StadtfeldRoad");
+
+            BuildTrunkFork(worldRoot.transform, "TrunkFork", ebentalPath, roadShape,
+                EbentalCourse.ForkPoint, stadtfeldPath, roadShape, materials);
+
             // The Kalkgrat gets a tunnel, a gallery, a viaduct and both kinds of roadside furniture.
             // The posts earn their place here more than anywhere else in the world: seven hairpins down
             // a cliff, and on the outside of every one of them the ground simply stops.
@@ -1773,6 +2038,69 @@ namespace Horizon.EditorTools
 
             BuildDelineatorPosts(worldRoot.transform, yalikoyPath, roadShape, field, yalikoyCourse,
                 materials, "YalikoyRoad");
+
+            // The Weissjoch: a bore through the rock band and an avalanche gallery in the snow above it,
+            // and then twenty-eight hairpins' worth of verge furniture. This is the most exposed road in
+            // the world by a long way — on the outside of every corner on the stack the ground falls
+            // away for the whole height of whatever is still below, so the rails here are not decoration
+            // and the posts are the only thing marking a corner in a whiteout.
+            BuildCoveredSections(worldRoot.transform, weissjochPath, roadShape, weissjochCourse, field,
+                materials, "WeissjochRoad");
+
+            BuildGuardRails(worldRoot.transform, weissjochPath, roadShape, field, weissjochCourse,
+                materials, "WeissjochRoad");
+
+            BuildDelineatorPosts(worldRoot.transform, weissjochPath, roadShape, field, weissjochCourse,
+                materials, "WeissjochRoad");
+
+            // --- The Weissjochring. Rails on both roads: a circuit cut into a mountainside is the one
+            // place in this world where leaving the road is not a rare mistake, and the drop off the
+            // downhill rung of a ladder is the whole height of the rung below it. No delineator posts —
+            // a marker post every four metres reads as a country road, and the kerbs are what say where
+            // the edge of a race track is.
+            BuildGuardRails(worldRoot.transform, ringPath, circuitShape, field, ringCourse,
+                materials, "Weissjochring");
+
+            BuildGuardRails(worldRoot.transform, ringAccessPath, roadShape, field, ringAccessCourse,
+                materials, "WeissjochringAccess");
+
+            BuildDelineatorPosts(worldRoot.transform, ringAccessPath, roadShape, field, ringAccessCourse,
+                materials, "WeissjochringAccess");
+
+            BuildKerbs(worldRoot.transform, ringPath, circuitShape, ringCourse, Weissjochring,
+                materials);
+            BuildPaddock(worldRoot.transform, ringPath, circuitShape, Weissjochring, materials);
+            BuildLapTiming(worldRoot.transform, ringPath, circuitShape, Weissjochring, materials);
+            BuildStartingGrid(worldRoot.transform, ringPath, circuitShape, Weissjochring,
+                TallestRideHeight() + 0.05f);
+
+            // Last of the group, for the reason the Stadtfeld's mouth is: the throat is laid on top of
+            // both carriageways, and the rails either side of it have to have decided where to stop
+            // before anything is laid over them.
+            BuildTrunkFork(worldRoot.transform, "WeissjochringPitFork", ringPath, circuitShape,
+                WeissjochringCourse.JunctionPoint, ringAccessPath, roadShape, materials);
+
+            // --- The Bahçe Ring, the same group in the same order. Rails here are not about a drop —
+            // this is a valley floor — but about the one thing a circuit has that no other road in the
+            // world does: a driver deliberately using all of it.
+            BuildGuardRails(worldRoot.transform, bahcePath, circuitShape, field, bahceCourse,
+                materials, "BahceRing");
+
+            BuildGuardRails(worldRoot.transform, bahceAccessPath, roadShape, field, bahceAccessCourse,
+                materials, "BahceRingAccess");
+
+            BuildDelineatorPosts(worldRoot.transform, bahceAccessPath, roadShape, field,
+                bahceAccessCourse, materials, "BahceRingAccess");
+
+            BuildKerbs(worldRoot.transform, bahcePath, circuitShape, bahceCourse, BahceRing,
+                materials);
+            BuildPaddock(worldRoot.transform, bahcePath, circuitShape, BahceRing, materials);
+            BuildLapTiming(worldRoot.transform, bahcePath, circuitShape, BahceRing, materials);
+            BuildStartingGrid(worldRoot.transform, bahcePath, circuitShape, BahceRing,
+                TallestRideHeight() + 0.05f);
+
+            BuildTrunkFork(worldRoot.transform, "BahceRingPitFork", bahcePath, circuitShape,
+                BahceRingCourse.JunctionPoint, bahceAccessPath, roadShape, materials);
 
             // --- The filling stations. After the terrain, because the slab sits on ground that has to
             // exist first — and after the guard rails, so that the rails have already read IsForecourt
@@ -1840,18 +2168,33 @@ namespace Horizon.EditorTools
                 materials);
 
             ValidateFuelStations(
-                (path, course, roadShape, "the pass", 0f),
-                (ebentalPath, ebentalCourse, roadShape, "the Ebental road", 0f),
-                (westbound, motorwayCourse, motorwayShape, "the westbound carriageway", -1f),
-                (eastbound, motorwayCourse, motorwayShape, "the eastbound carriageway", 1f),
-                (coastPath, coastCourse, roadShape, "the coast road", 0f),
-                (kalkgratPath, kalkgratCourse, roadShape, "the Kalkgrat road", 0f),
-                (meerengePath, meerengeCourse, roadShape, "the Meerenge road", 0f),
-                (yalikoyPath, yalikoyCourse, roadShape, "the Yalıköy road", 0f));
+                (path, course, roadShape, "the pass", 0f, false),
+                (ebentalPath, ebentalCourse, roadShape, "the Ebental road", 0f, false),
+                (stadtfeldPath, stadtfeldCourse, roadShape, "the Stadtfeld road", 0f, false),
+                (westbound, motorwayCourse, motorwayShape, "the westbound carriageway", -1f, false),
+                (eastbound, motorwayCourse, motorwayShape, "the eastbound carriageway", 1f, false),
+                (coastPath, coastCourse, roadShape, "the coast road", 0f, false),
+                (kalkgratPath, kalkgratCourse, roadShape, "the Kalkgrat road", 0f, false),
+                (meerengePath, meerengeCourse, roadShape, "the Meerenge road", 0f, false),
+                (yalikoyPath, yalikoyCourse, roadShape, "the Yalıköy road", 0f, false),
+                (weissjochPath, weissjochCourse, roadShape, "the Weissjoch road", 0f, false),
+
+                // The circuit, and the one road here that is told it is a loop. One pump in the paddock
+                // is the right number: a lap is fifteen kilometres and a tank driven hard covers a good
+                // deal more, so a car that starts a lap full finishes it. Three filling stations round a
+                // race track to satisfy a rule written for a country road would be the check wearing the
+                // costume of a feature.
+                (ringPath, ringCourse, circuitShape, "the Weissjochring", 0f, true),
+                (ringAccessPath, ringAccessCourse, roadShape,
+                    "the Weissjochring access road", 0f, false),
+                (bahcePath, bahceCourse, circuitShape, "the Bahçe Ring", 0f, true),
+                (bahceAccessPath, bahceAccessCourse, roadShape,
+                    "the Bahçe Ring access road", 0f, false));
 
             // After every builder and before the car exists — otherwise the car is the obstruction.
             ValidateDriveableCorridor(path, "the pass", 1.3f, 4f);
             ValidateDriveableCorridor(ebentalPath, "the Ebental road", 1.3f, 4f);
+            ValidateDriveableCorridor(stadtfeldPath, "the Stadtfeld road", 1.3f, 4f);
             ValidateDriveableCorridor(westbound, "the westbound carriageway", 1.3f, 4f);
             ValidateDriveableCorridor(eastbound, "the eastbound carriageway", 1.3f, 4f);
             ValidateDriveableCorridor(linkPath, "the motorway link", 1.3f, 4f);
@@ -1859,6 +2202,11 @@ namespace Horizon.EditorTools
             ValidateDriveableCorridor(kalkgratPath, "the Kalkgrat road", 1.3f, 4f);
             ValidateDriveableCorridor(meerengePath, "the Meerenge road", 1.3f, 4f);
             ValidateDriveableCorridor(yalikoyPath, "the Yalıköy road", 1.3f, 4f);
+            ValidateDriveableCorridor(weissjochPath, "the Weissjoch road", 1.3f, 4f);
+            ValidateDriveableCorridor(ringPath, "the Weissjochring", 1.3f, 4f);
+            ValidateDriveableCorridor(ringAccessPath, "the Weissjochring access road", 1.3f, 4f);
+            ValidateDriveableCorridor(bahcePath, "the Bahçe Ring", 1.3f, 4f);
+            ValidateDriveableCorridor(bahceAccessPath, "the Bahçe Ring access road", 1.3f, 4f);
             ReportCourse(seeburgCourse, seeburgAxis, "Seeburg axis");
             Phase(clock, "validation");
             int worstJunction = ValidateStreetNetwork(talheim.Network, path, roadShape);
@@ -1879,8 +2227,8 @@ namespace Horizon.EditorTools
             // the first pressure valve, so the question "would 450 m help, and by how much" is answered
             // in the log rather than by trying it.
             List<Vector3> stations = DrawCallStations(
-                path, motorwayPath, arterialPath, seeburgAxis, ebentalPath,
-                kalkgratPath, meerengePath, yalikoyPath);
+                path, motorwayPath, arterialPath, seeburgAxis, ebentalPath, stadtfeldPath,
+                kalkgratPath, meerengePath, yalikoyPath, weissjochPath, ringPath, bahcePath);
             ReportDrawCallBudget(worldRoot.transform, stations, streamer.LoadRadius);
             ReportDrawCallBudget(worldRoot.transform, stations, 450f);
 
@@ -1966,17 +2314,20 @@ namespace Horizon.EditorTools
             // anything.
             List<SpawnPoint> spawns = BuildSpawnTable(
                 path, roadShape, motorwayPath, motorwayShape, arterialPath, seeburgAxis,
-                ebentalPath, ebentalCourse, kalkgratPath, meerengePath, meerengeCourse,
-                yalikoyPath, rideHeight);
+                ebentalPath, ebentalCourse, stadtfeldPath, kalkgratPath, meerengePath, meerengeCourse,
+                yalikoyPath, weissjochPath, weissjochCourse, ringPath, ringCourse, bahcePath,
+                rideHeight);
 
             // The map, from the same objects everything above was built from. Before the scene is
             // saved, because ReplaceAsset writes to disk and the orphan report at the end of the run
             // watches what was written.
             BuildWorldMap(
-                path, roadShape, ebentalPath, kalkgratPath, meerengePath, yalikoyPath, coastPath,
-                westbound, eastbound, motorwayShape, linkPath, motorwayPath,
-                course, ebentalCourse, kalkgratCourse, meerengeCourse, yalikoyCourse, coastCourse,
-                motorwayCourse, linkCourse, towns, waters, spawns);
+                path, roadShape, ebentalPath, stadtfeldPath, kalkgratPath, meerengePath, yalikoyPath,
+                coastPath, weissjochPath, westbound, eastbound, motorwayShape, linkPath, motorwayPath,
+                course, ebentalCourse, stadtfeldCourse, kalkgratCourse, meerengeCourse, yalikoyCourse,
+                coastCourse, weissjochCourse, motorwayCourse, linkCourse, ringPath, ringCourse,
+                ringAccessPath, bahcePath, bahceCourse, bahceAccessPath, circuitShape, towns, waters,
+                spawns);
 
             EditorSceneManager.SaveScene(scene, WorldScenePath);
             return spawns;
@@ -2014,14 +2365,700 @@ namespace Horizon.EditorTools
         /// carriageway, because that is what their distances were measured along. Ten metres of offset
         /// is nothing at map scale; a third carriageway is not.</para>
         /// </summary>
+        /// <summary>
+        /// Everything the circuit builders need to know about <i>which</i> circuit they are building.
+        ///
+        /// <para><b>This exists because a second one arrived and five builders were wired to the
+        /// first.</b> <c>BuildPaddock</c>, <c>BuildLapTiming</c>, <c>BuildSectorGates</c>,
+        /// <c>BuildStartingGrid</c> and <c>AddPaddockSamples</c> all read <c>WeissjochringCourse</c>
+        /// directly and all wrote mesh assets under fixed names, so calling any of them twice would
+        /// have built the Bahçe Ring's furniture over the Weissjochring's and left one circuit with no
+        /// paddock, no kerbs and no timing — silently, with a correct triangle count in the log each
+        /// time. It is the same trap <c>BuildMotorwayMerge</c> and <c>TrunkForkBuilder</c> have each
+        /// already been through, which is why both of those take a name.</para>
+        /// </summary>
+        private readonly struct CircuitBuild
+        {
+            /// <summary>What the circuit is called, on the timing board and in the log.</summary>
+            public readonly string Name;
+
+            /// <summary>ASCII stem for generated assets and scene objects. Must be unique per circuit.</summary>
+            public readonly string Label;
+
+            /// <summary>Where the start/finish line is, along the path.</summary>
+            public readonly float LineDistance;
+
+            /// <summary>Which hand the infield is on. See <c>CircuitMeshes.Append</c>.</summary>
+            public readonly float PaddockSide;
+
+            /// <summary>Centre of the level apron.</summary>
+            public readonly Vector3 PaddockCentre;
+
+            /// <summary>Radius of the level apron.</summary>
+            public readonly float PaddockRadius;
+
+            public CircuitBuild(string name, string label, float lineDistance, float paddockSide,
+                Vector3 paddockCentre, float paddockRadius)
+            {
+                Name = name;
+                Label = label;
+                LineDistance = lineDistance;
+                PaddockSide = paddockSide;
+                PaddockCentre = paddockCentre;
+                PaddockRadius = paddockRadius;
+            }
+        }
+
+        /// <summary>The Weissjochring, as the builders below want it.</summary>
+        private static CircuitBuild Weissjochring => new CircuitBuild(
+            WeissjochringCourse.CircuitName,
+            "Weissjochring",
+            WeissjochringCourse.LineDistance,
+            WeissjochringCourse.PaddockSide,
+            WeissjochringCourse.PaddockCentre,
+            WeissjochringCourse.PaddockRadius);
+
+        /// <summary>The Bahçe Ring, likewise.</summary>
+        private static CircuitBuild BahceRing => new CircuitBuild(
+            BahceRingCourse.CircuitName,
+            "BahceRing",
+            BahceRingCourse.LineDistance,
+            BahceRingCourse.PaddockSide,
+            BahceRingCourse.PaddockCentre,
+            BahceRingCourse.PaddockRadius);
+
+        /// <summary>
+        /// How many gates a lap has to pass. Six, so they fall roughly every two kilometres — close
+        /// enough that no useful short cut exists between two of them, far enough apart that a lap is
+        /// not a slalom between painted lines.
+        /// </summary>
+        private const int GateCount = 6;
+
+        /// <summary>Paints the sector gates. See <see cref="CircuitMeshes.AppendGates"/> for why.</summary>
+        private static void BuildSectorGates(
+            Transform parent, RoadPath ring, in RoadShape shape, in CircuitBuild circuit,
+            float[] distances, PrototypeMaterials materials)
+        {
+            var buffer = new VegetationMeshBuffer(CircuitMeshes.CircuitSubmeshCount);
+
+            CircuitMeshes.AppendGates(ring, shape, distances, buffer);
+            buffer.MergeTinted(CircuitMeshes.SurfaceTints());
+
+            var used = new List<int>(CircuitMeshes.CircuitSubmeshCount);
+            Mesh mesh = buffer.ToMesh($"SectorGate{circuit.Label}Mesh", used);
+
+            if (mesh == null)
+            {
+                Debug.LogWarning($"[Horizon] {circuit.Name}'s sector gates came out empty.");
+                return;
+            }
+
+            mesh = HorizonAssetUtility.ReplaceAsset(
+                mesh, GeneratedFolder + $"/SectorGate{circuit.Label}Mesh.asset");
+
+            var meshMaterials = new Material[used.Count];
+            for (int i = 0; i < used.Count; i++)
+            {
+                meshMaterials[i] = materials.RoadTint;
+            }
+
+            GameObject gates = CreateMeshObject(
+                parent, $"SectorGates{circuit.Label}", mesh, meshMaterials);
+
+            WorldChunk chunk = gates.AddComponent<WorldChunk>();
+            chunk.RecalculateBounds();
+            chunk.SetBounds(chunk.Center, 100000f);
+        }
+
+        /// <summary>
+        /// Bakes the twelve starting slots into a <see cref="StartingGrid"/>.
+        ///
+        /// <para>Read out of <c>CircuitMeshes.GridSlot</c> rather than counted here, because the boxes
+        /// painted on the road come from the same call. See <see cref="StartingGrid"/> for why this is
+        /// worth having before there is anything to race.</para>
+        /// </summary>
+        private static void BuildStartingGrid(
+            Transform parent, RoadPath ring, in RoadShape shape, in CircuitBuild circuit,
+            float rideHeight)
+        {
+            var gridObject = new GameObject($"StartingGrid{circuit.Label}");
+            gridObject.transform.SetParent(parent, false);
+
+            var positions = new Vector3[CircuitMeshes.GridSlots];
+            var headings = new float[CircuitMeshes.GridSlots];
+
+            for (int slot = 0; slot < CircuitMeshes.GridSlots; slot++)
+            {
+                CircuitMeshes.GridSlot(slot, circuit.LineDistance, shape,
+                    out float along, out float across);
+
+                // Wrapped, not clamped: every slot is behind the line and therefore at a negative
+                // distance, which on a closed course is the far end of the main straight.
+                float at = ring.NormalizeDistance(along);
+
+                Vector3 forward = ring.GetDirectionAtDistance(at);
+
+                positions[slot] = ring.GetPositionAtDistance(at)
+                                  + ring.GetRightAtDistance(at) * across
+                                  + Vector3.up * rideHeight;
+
+                headings[slot] = Quaternion.LookRotation(forward, Vector3.up).eulerAngles.y;
+            }
+
+            StartingGrid grid = gridObject.AddComponent<StartingGrid>();
+            grid.SetGrid(circuit.Name, positions, headings);
+
+            EditorUtility.SetDirty(grid);
+
+            // Measured across the road rather than along a world axis: the straight runs whichever way
+            // it runs, and a stagger reported in world x said 0.4 m for two boxes 6.5 m apart.
+            CircuitMeshes.GridSlot(0, circuit.LineDistance, shape,
+                out float poleAlong, out float poleAcross);
+            CircuitMeshes.GridSlot(1, circuit.LineDistance, shape,
+                out float secondAlong, out float secondAcross);
+
+            Debug.Log($"[Horizon] Starting grid: {grid.SlotCount} slots on the "
+                      + $"{circuit.Name}, in {CircuitMeshes.GridSlots / 2} rows. "
+                      + $"Pole sits {circuit.LineDistance - poleAlong:0} m behind the line, "
+                      + $"{Mathf.Abs(secondAcross - poleAcross):0.0} m across from second and "
+                      + $"{Mathf.Abs(secondAlong - poleAlong):0} m ahead of it.");
+        }
+
+        /// <summary>
+        /// Bakes the start/finish line and a coarse walk of the circuit into a <see cref="LapTiming"/>.
+        ///
+        /// <para>The line is taken from the path at distance zero rather than from the course's own
+        /// start pose, for the reason <c>BuildTrunkFork</c> records about the fork: a course's distance
+        /// is the sum of its straights and arcs while a path's is arc length along the Catmull-Rom
+        /// curve through the same points, and the two disagree. What the car actually crosses is the
+        /// path.</para>
+        ///
+        /// <para>The walk is deliberately coarse. It answers one question — is the car on the circuit at
+        /// all — four times a second, and eighty metres between samples against a seventy-metre reach
+        /// leaves the pair overlapping everywhere.</para>
+        /// </summary>
+        private static void BuildLapTiming(
+            Transform parent, RoadPath ring, in RoadShape shape, in CircuitBuild circuit,
+            PrototypeMaterials materials)
+        {
+            const float SampleSpacing = 80f;
+
+            var timingObject = new GameObject($"LapTiming{circuit.Label}");
+            timingObject.transform.SetParent(parent, false);
+
+            int count = Mathf.Max(2, Mathf.CeilToInt(ring.Length / SampleSpacing));
+            var samples = new Vector3[count];
+
+            for (int i = 0; i < count; i++)
+            {
+                samples[i] = ring.GetPositionAtDistance(ring.Length * i / count);
+            }
+
+            LapTiming timing = timingObject.AddComponent<LapTiming>();
+
+            float lineAt = circuit.LineDistance;
+
+            timing.SetCircuit(
+                circuit.Name,
+                ring.GetPositionAtDistance(lineAt),
+                ring.GetDirectionAtDistance(lineAt),
+                shape.OuterHalfWidth,
+                samples);
+
+            // Spread evenly round the lap and deliberately not at the line: the first gate sits a
+            // seventh of the way round, the last a seventh short of home, so neither can be tripped by
+            // the same crossing that starts or ends the lap.
+            var gatePoints = new Vector3[GateCount];
+            var gateForwards = new Vector3[GateCount];
+            var gateDistances = new float[GateCount];
+
+            for (int i = 0; i < GateCount; i++)
+            {
+                float at = ring.NormalizeDistance(lineAt + ring.Length * (i + 1) / (GateCount + 1f));
+
+                gateDistances[i] = at;
+                gatePoints[i] = ring.GetPositionAtDistance(at);
+                gateForwards[i] = ring.GetDirectionAtDistance(at);
+            }
+
+            timing.SetGates(gatePoints, gateForwards);
+            EditorUtility.SetDirty(timing);
+
+            BuildSectorGates(parent, ring, shape, circuit, gateDistances, materials);
+
+            ValidateLapGates(ring, lineAt, gatePoints, gateForwards, shape.OuterHalfWidth, circuit.Name);
+
+            Vector3 line = ring.GetPositionAtDistance(lineAt);
+
+            Debug.Log($"[Horizon] Lap timing on the {circuit.Name}: the start/finish line "
+                      + $"{lineAt:0} m along, at "
+                      + $"({line.x:0}, {line.z:0}), {shape.OuterHalfWidth:0.0} m either side of the "
+                      + $"centreline, over {timing.SampleCount} samples of circuit. {GateCount} gates "
+                      + $"every {ring.Length / (GateCount + 1f) / 1000f:0.0} km, all of which have to be "
+                      + "passed in order before the line will take a time.");
+        }
+
+        /// <summary>
+        /// Whether a lap driven on the centreline actually passes every gate.
+        ///
+        /// <para><b>Nothing else in the build asks, and the answer is not obvious.</b> A gate is a plane
+        /// with a window in it: <c>LapTiming</c> waits for the car to go from the negative side of the
+        /// one it is expecting to the positive side, within half a road's width of the point on the
+        /// centreline. Every part of that can be true of the geometry and false of the drive — a circuit
+        /// that doubles back can leave the car already on a gate's positive side when the lap starts,
+        /// and a gate laid across a corner tight enough can be crossed outside its own window. The
+        /// consequence is a lap that never counts, with the readout sitting on <c>0/6</c> and the road
+        /// saying nothing about why.</para>
+        ///
+        /// <para>So this walks the path from the line, once round, running exactly the test the runtime
+        /// runs. A driver does not follow the centreline, but a centreline that cannot pass the gates is
+        /// a circuit no line can.</para>
+        /// </summary>
+        private static void ValidateLapGates(
+            RoadPath ring,
+            float lineAt,
+            Vector3[] gatePoints,
+            Vector3[] gateForwards,
+            float halfWidth,
+            string what)
+        {
+            if (ring == null || gatePoints == null || gatePoints.Length == 0)
+            {
+                return;
+            }
+
+            const float Step = 1f;
+
+            int passed = 0;
+            float previous = 0f;
+            bool hasPrevious = false;
+            float worstAcross = 0f;
+
+            // A little over a lap: the last gate sits close to the line, and a walk that stopped exactly
+            // on it would be reporting a rounding error rather than a gate.
+            for (float walked = 0f; walked <= ring.Length + Step && passed < gatePoints.Length;
+                 walked += Step)
+            {
+                Vector3 at = ring.GetPositionAtDistance(ring.NormalizeDistance(lineAt + walked));
+
+                Vector3 forward = gateForwards[passed];
+                forward.y = 0f;
+                forward = forward.sqrMagnitude > 0.0001f ? forward.normalized : Vector3.forward;
+
+                Vector3 offset = at - gatePoints[passed];
+                offset.y = 0f;
+
+                float side = Vector3.Dot(offset, forward);
+
+                if (hasPrevious && previous < 0f && side >= 0f)
+                {
+                    float across = (offset - forward * side).magnitude;
+                    worstAcross = Mathf.Max(worstAcross, across);
+
+                    if (across <= halfWidth)
+                    {
+                        passed++;
+                        hasPrevious = false;
+                        continue;
+                    }
+                }
+
+                previous = side;
+                hasPrevious = true;
+            }
+
+            if (passed < gatePoints.Length)
+            {
+                Debug.LogError($"[Horizon] A lap of the {what} driven down the middle of the road passes "
+                               + $"{passed} of its {gatePoints.Length} gates. It stalls on gate "
+                               + $"{passed + 1}, so no lap on this circuit can ever be timed and the "
+                               + "readout will sit at 0/" + gatePoints.Length + " for as long as anybody "
+                               + "drives it. Either that gate falls where the lap does not cross its "
+                               + "plane cleanly, or it is crossed further than "
+                               + $"{halfWidth:0.0} m off the centreline — the worst crossing measured "
+                               + $"{worstAcross:0.0} m out.");
+                return;
+            }
+
+            Debug.Log($"[Horizon] Lap gates on the {what}: all {gatePoints.Length} pass on a centreline "
+                      + $"lap, the worst crossing {worstAcross:0.0} m off centre against a "
+                      + $"{halfWidth:0.0} m window.");
+        }
+
+        /// <summary>
+        /// The paddock at the start/finish line. See <see cref="CircuitMeshes"/> for what stands there
+        /// and why the board is on a slot of its own.
+        /// </summary>
+        private static void BuildPaddock(
+            Transform parent,
+            IRoadPath path,
+            in RoadShape shape,
+            in CircuitBuild circuit,
+            PrototypeMaterials materials)
+        {
+            var buffer = new VegetationMeshBuffer(CircuitMeshes.CircuitSubmeshCount);
+
+            CircuitMeshes.Append(path, shape, circuit.LineDistance, circuit.PaddockSide, buffer);
+            buffer.MergeTinted(CircuitMeshes.SurfaceTints());
+
+            var used = new List<int>(CircuitMeshes.CircuitSubmeshCount);
+            Mesh mesh = buffer.ToMesh($"Paddock{circuit.Label}Mesh", used);
+
+            if (mesh == null)
+            {
+                Debug.LogWarning($"[Horizon] {circuit.Name}'s paddock came out empty.");
+                return;
+            }
+
+            mesh = HorizonAssetUtility.ReplaceAsset(
+                mesh, GeneratedFolder + $"/Paddock{circuit.Label}Mesh.asset");
+
+            var meshMaterials = new Material[used.Count];
+            for (int i = 0; i < used.Count; i++)
+            {
+                // The board takes the filling stations' plain bright face and is deliberately not
+                // registered with TownLights, for the reason CircuitMeshes records. The paint goes on
+                // the road's own tinted material so it sits at asphalt smoothness rather than at a
+                // building's; everything else is structure.
+                meshMaterials[i] = used[i] == CircuitMeshes.BoardSubmesh
+                    ? materials.SignFace
+                    : used[i] == CircuitMeshes.PaintSubmesh
+                        ? materials.RoadTint
+                        : materials.BuildingTint;
+            }
+
+            GameObject paddock = CreateMeshObject(
+                parent, $"Paddock{circuit.Label}", mesh, meshMaterials);
+
+            WorldChunk chunk = paddock.AddComponent<WorldChunk>();
+            chunk.RecalculateBounds();
+            chunk.SetBounds(chunk.Center, 100000f);
+
+            Debug.Log($"[Horizon] Paddock on the {circuit.Name}: {mesh.triangles.Length / 3} "
+                      + $"triangles in {used.Count} draw "
+                      + "call(s) at the start/finish line — gantry, pit block, grandstand, the line and "
+                      + "the grid. Three is the expected count: structure, board, paint.");
+        }
+
+        /// <summary>
+        /// Whether the circuit actually closes, and whether it closes <i>smoothly</i>.
+        ///
+        /// <para>Nothing else in the build asks. A closure that misses by a metre still paves, still
+        /// carries rails and kerbs, still passes the clearance sweep and still draws on the map — it is
+        /// simply a step or a kink across the one piece of road every lap crosses, at the fastest point
+        /// on the circuit. The three questions here are the three ways <c>RoadCourseBuilder.Close</c>
+        /// can come out wrong while reporting nothing: the flag never got set, the solve landed
+        /// somewhere else, or it landed in the right place facing the wrong way.</para>
+        /// </summary>
+        private static void ValidateCircuitClosure(RoadCourse course, RoadPath path, string what)
+        {
+            if (course == null || path == null)
+            {
+                return;
+            }
+
+            if (!course.IsClosed)
+            {
+                Debug.LogError($"[Horizon] {what} is not a closed course. It will be paved as a road "
+                               + "with two ends a few metres apart, which looks like a circuit from "
+                               + "everywhere except the start/finish line. Call Close() on the builder.");
+                return;
+            }
+
+            IReadOnlyList<Vector3> points = course.ControlPoints;
+            float gap = Plan(points[points.Count - 1] - points[0]).magnitude;
+
+            // Close() trims the point the solve landed on, because a looping RoadPath draws the segment
+            // from the last control point back to the first itself. So what should be left is one
+            // ordinary point spacing, not zero — and much more than that means the solve did not
+            // actually reach the start pose.
+            if (gap > 18f)
+            {
+                Debug.LogError($"[Horizon] {what} closes {gap:0.0} m short of its own start. The Dubins "
+                               + "solve is exact, so this is not drift: either the closure emitted "
+                               + "nothing, or the walk above it was retuned and the target pose no "
+                               + "longer belongs to it.");
+            }
+
+            // Read off the finished path rather than the control points, because the Catmull-Rom curve
+            // through them is what the car drives and what the ribbon is extruded along.
+            float length = path.Length;
+            Vector3 before = path.GetDirectionAtDistance(length - 6f);
+            Vector3 after = path.GetDirectionAtDistance(6f);
+            float turn = Vector3.Angle(Plan(before), Plan(after));
+
+            if (turn > 4f)
+            {
+                Debug.LogError($"[Horizon] {what} has a {turn:0.0}° kink at the start/finish line. The "
+                               + "two ends meet but they do not agree about which way the road is "
+                               + "going, and this is the fastest point on the lap. The line has to sit "
+                               + "on straight track with straight track behind it.");
+            }
+
+            float step = Mathf.Abs(
+                path.GetPositionAtDistance(length - 3f).y - path.GetPositionAtDistance(3f).y);
+
+            if (step > 0.6f)
+            {
+                Debug.LogWarning($"[Horizon] {what} steps {step:0.00} m in height across the line. "
+                                 + "Close() derives one uniform grade over the whole solve, so a step "
+                                 + "this size means the approach is still climbing where the straight "
+                                 + "has gone level.");
+            }
+
+            Debug.Log($"[Horizon] {what}: closed loop, {length / 1000f:0.00} km a lap, meeting itself "
+                      + $"within {gap:0.0} m and {turn:0.0}° at the line.");
+        }
+
+        /// <summary>
+        /// Whether the ground inside a closed circuit exists.
+        ///
+        /// <para><b>This is the check the shape of the Weissjochring was designed around, and nothing
+        /// else in the build can stand in for it.</b> Terrain tiles are chosen by distance to a road —
+        /// <c>TerrainShape.CorridorWidth</c>, 200 m — so a loop that encloses more than about four
+        /// hundred metres of open ground has a hole in the middle of it. Every other check here looks
+        /// along a road or across it; a hole in an infield is not near any road at all, which is
+        /// precisely why it is invisible to all of them. From the car it reads as the world ending in
+        /// mid-air on the inside of a corner.</para>
+        ///
+        /// <para><b>It asks the tile builder rather than guessing, and it did not always.</b> The first
+        /// version measured distance-to-road against the corridor width and errored past it — a proxy,
+        /// and a proxy strict enough to condemn a circuit that has no hole in it at all. A tile is kept
+        /// if its <i>centre</i> is within the corridor plus most of a tile, so ground reaches a good way
+        /// further out than 200 m, and a fold like Istanbul Park's doubles back often enough that every
+        /// tile it encloses is one the corridor already pulls in. The check now builds the same list
+        /// <c>BuildTerrainTiles</c> is about to build and asks whether the point falls on one of them,
+        /// which is the rule this file states elsewhere: a checker with an opinion of its own agrees
+        /// with the builder right up until one of them is wrong.</para>
+        ///
+        /// <para>The corridor distance is still measured and still reported, because it says something
+        /// worth knowing — how much of the infield is ground the roads shaped and how much is ground the
+        /// tile grid merely reached. It is a line in the log rather than an error.</para>
+        /// </summary>
+        private static void ValidateInfieldCoverage(
+            MountainField field, in TerrainShape terrainShape, RoadPath path, string what)
+        {
+            if (field == null || path == null)
+            {
+                return;
+            }
+
+            const float Sample = 12f;
+            const float Grid = 25f;
+
+            int steps = Mathf.Max(8, Mathf.CeilToInt(path.Length / Sample));
+            var outline = new Vector2[steps];
+
+            for (int i = 0; i < steps; i++)
+            {
+                Vector3 on = path.GetPositionAtDistance(path.Length * i / steps);
+                outline[i] = new Vector2(on.x, on.z);
+            }
+
+            float minX = float.MaxValue, maxX = float.MinValue;
+            float minZ = float.MaxValue, maxZ = float.MinValue;
+
+            for (int i = 0; i < steps; i++)
+            {
+                minX = Mathf.Min(minX, outline[i].x);
+                maxX = Mathf.Max(maxX, outline[i].x);
+                minZ = Mathf.Min(minZ, outline[i].y);
+                maxZ = Mathf.Max(maxZ, outline[i].y);
+            }
+
+            // The list the tile builder is about to fill, rather than this check's own opinion of where
+            // ground will be. Asked without the extra bounds the towns and the water bands contribute,
+            // so it is a subset of what actually gets built: a point this finds covered is covered.
+            float tileSize = TerrainTileBuilder.TileSize(terrainShape);
+            List<TerrainTileKey> tiles = TerrainTileBuilder.ListTiles(
+                field, terrainShape, terrainShape.CorridorWidth);
+
+            var built = new HashSet<long>();
+            for (int i = 0; i < tiles.Count; i++)
+            {
+                built.Add(((long)tiles[i].Column << 32) ^ (uint)tiles[i].Row);
+            }
+
+            float worst = 0f;
+            Vector2 worstAt = Vector2.zero;
+            int inside = 0;
+            int beyondCorridor = 0;
+            int missing = 0;
+            Vector2 missingAt = Vector2.zero;
+
+            for (float z = minZ; z <= maxZ; z += Grid)
+            {
+                for (float x = minX; x <= maxX; x += Grid)
+                {
+                    if (!Encloses(outline, x, z))
+                    {
+                        continue;
+                    }
+
+                    inside++;
+
+                    float away = field.DistanceToRoad(x, z);
+                    if (away > terrainShape.CorridorWidth)
+                    {
+                        beyondCorridor++;
+                    }
+
+                    if (away > worst)
+                    {
+                        worst = away;
+                        worstAt = new Vector2(x, z);
+                    }
+
+                    long key = ((long)Mathf.FloorToInt(x / tileSize) << 32)
+                               ^ (uint)Mathf.FloorToInt(z / tileSize);
+
+                    if (!built.Contains(key))
+                    {
+                        missing++;
+                        missingAt = new Vector2(x, z);
+                    }
+                }
+            }
+
+            if (missing > 0)
+            {
+                Debug.LogError($"[Horizon] {missing} sampled points inside {what} fall on tiles the "
+                               + "terrain builder will not produce — one of them at "
+                               + $"({missingAt.x:0}, {missingAt.y:0}). That is a hole in the world in "
+                               + "the middle of the circuit. Either fold the lap tighter, or ask for "
+                               + "the tiles with a bounds the way the paddock and the water bands do.");
+                return;
+            }
+
+            if (beyondCorridor > 0)
+            {
+                Debug.Log($"[Horizon] {what} infield: {inside} sampled points inside the loop, ground "
+                          + $"under all of them. {beyondCorridor} of them sit outside the "
+                          + $"{terrainShape.CorridorWidth:0} m corridor — the furthest {worst:0} m from "
+                          + $"tarmac, at ({worstAt.x:0}, {worstAt.y:0}) — so the terrain there is "
+                          + "carried by tiles the corridor pulled in rather than authored around a "
+                          + "road. Flat infield, which is what an infield is.");
+            }
+            else
+            {
+                Debug.Log($"[Horizon] {what} infield: {inside} sampled points inside the loop, the "
+                          + $"furthest {worst:0} m from tarmac against a {terrainShape.CorridorWidth:0} m "
+                          + "corridor.");
+            }
+        }
+
+        /// <summary>Whether a point is inside a closed polyline, by crossing count.</summary>
+        private static bool Encloses(Vector2[] outline, float x, float z)
+        {
+            bool inside = false;
+
+            for (int i = 0, j = outline.Length - 1; i < outline.Length; j = i++)
+            {
+                Vector2 a = outline[i];
+                Vector2 b = outline[j];
+
+                if (a.y > z != b.y > z
+                    && x < (b.x - a.x) * (z - a.y) / (b.y - a.y) + a.x)
+                {
+                    inside = !inside;
+                }
+            }
+
+            return inside;
+        }
+
+        /// <summary>
+        /// Lays the circuit's kerbs. See <see cref="KerbBuilder"/> for why they are worth more than
+        /// anything else built on this road.
+        /// </summary>
+        private static void BuildKerbs(
+            Transform parent,
+            IRoadPath path,
+            in RoadShape shape,
+            RoadCourse course,
+            in CircuitBuild circuit,
+            PrototypeMaterials materials)
+        {
+            var buffer = new VegetationMeshBuffer(KerbBuilder.KerbSubmeshCount);
+
+            KerbBuilder.Append(path, shape, course, buffer);
+            buffer.MergeTinted(KerbBuilder.KerbTints());
+
+            var used = new List<int>(KerbBuilder.KerbSubmeshCount);
+            Mesh mesh = buffer.ToMesh($"Kerb{circuit.Label}Mesh", used);
+
+            if (mesh == null)
+            {
+                Debug.LogWarning("[Horizon] The circuit's kerbs came out empty — either every corner on "
+                                 + "it is gentler than KerbBuilder.CornerRadius, or the path handed in "
+                                 + "is not the one that was paved.");
+                return;
+            }
+
+            mesh = HorizonAssetUtility.ReplaceAsset(
+                mesh, GeneratedFolder + $"/Kerb{circuit.Label}Mesh.asset");
+
+            var meshMaterials = new Material[used.Count];
+            for (int i = 0; i < used.Count; i++)
+            {
+                meshMaterials[i] = materials.RoadTint;
+            }
+
+            GameObject kerbObject = CreateMeshObject(
+                parent, $"Kerbs{circuit.Label}", mesh, meshMaterials);
+
+            WorldChunk chunk = kerbObject.AddComponent<WorldChunk>();
+            chunk.RecalculateBounds();
+            chunk.SetBounds(chunk.Center, 100000f);
+
+            // One submesh is the right answer, not a missing colour: MergeTinted folds both tinted
+            // slots into the first and bakes the red and the white into the vertices, which is the whole
+            // reason the kerbs cost one draw call and no material of their own.
+            Debug.Log($"[Horizon] Kerbs on the {circuit.Name}: {mesh.triangles.Length / 3} "
+                      + $"triangles in {used.Count} draw "
+                      + $"call(s), red and white, on the corners of {path.Length / 1000f:0.0} km of "
+                      + "circuit.");
+        }
+
+        /// <summary>
+        /// Fills the circuit's paddock with level samples, so the apron the pit buildings and the grid
+        /// stand on is a floor rather than a hillside.
+        ///
+        /// <para>The grid pitch has to stay under twice <c>MountainField.Verge</c> or the shelves the
+        /// samples raise do not merge into one and the apron comes out corrugated. Half the verge is
+        /// comfortably inside that and costs a few hundred samples.</para>
+        /// </summary>
+        private static void AddPaddockSamples(
+            List<Vector3> levelSamples, in TerrainShape terrainShape, in CircuitBuild circuit)
+        {
+            Vector3 centre = circuit.PaddockCentre;
+            float radius = circuit.PaddockRadius;
+            float pitch = Mathf.Max(terrainShape.VergeWidth, terrainShape.CellSize * 2f) * 0.5f;
+
+            for (float z = -radius; z <= radius; z += pitch)
+            {
+                for (float x = -radius; x <= radius; x += pitch)
+                {
+                    if (x * x + z * z > radius * radius)
+                    {
+                        continue;
+                    }
+
+                    levelSamples.Add(new Vector3(centre.x + x, centre.y, centre.z + z));
+                }
+            }
+        }
+
         private static void BuildWorldMap(
             RoadPath pass,
             in RoadShape roadShape,
             RoadPath ebental,
+            RoadPath stadtfeld,
             RoadPath kalkgrat,
             RoadPath meerenge,
             RoadPath yalikoy,
             RoadPath coast,
+            RoadPath weissjoch,
             IRoadPath westbound,
             IRoadPath eastbound,
             in RoadShape motorwayShape,
@@ -2029,12 +3066,21 @@ namespace Horizon.EditorTools
             RoadPath motorway,
             RoadCourse passCourse,
             RoadCourse ebentalCourse,
+            RoadCourse stadtfeldCourse,
             RoadCourse kalkgratCourse,
             RoadCourse meerengeCourse,
             RoadCourse yalikoyCourse,
             RoadCourse coastCourse,
+            RoadCourse weissjochCourse,
             RoadCourse motorwayCourse,
             RoadCourse linkCourse,
+            RoadPath ring,
+            RoadCourse ringCourse,
+            RoadPath ringAccess,
+            RoadPath bahce,
+            RoadCourse bahceCourse,
+            RoadPath bahceAccess,
+            in RoadShape circuitShape,
             IReadOnlyList<TownBuild> towns,
             IReadOnlyList<WaterBody> waters,
             IReadOnlyList<SpawnPoint> spawns)
@@ -2045,25 +3091,44 @@ namespace Horizon.EditorTools
             {
                 new WorldMapBuilder.Road(pass, MapLineKind.Trunk, half),
                 new WorldMapBuilder.Road(ebental, MapLineKind.Trunk, half),
+                new WorldMapBuilder.Road(stadtfeld, MapLineKind.Trunk, half),
                 new WorldMapBuilder.Road(kalkgrat, MapLineKind.Trunk, half),
                 new WorldMapBuilder.Road(meerenge, MapLineKind.Trunk, half),
                 new WorldMapBuilder.Road(yalikoy, MapLineKind.Trunk, half),
                 new WorldMapBuilder.Road(coast, MapLineKind.Trunk, half),
+                new WorldMapBuilder.Road(weissjoch, MapLineKind.Trunk, half),
                 new WorldMapBuilder.Road(westbound, MapLineKind.Motorway, motorwayShape.HalfWidth),
                 new WorldMapBuilder.Road(eastbound, MapLineKind.Motorway, motorwayShape.HalfWidth),
                 new WorldMapBuilder.Road(link, MapLineKind.Motorway, half),
+
+                // Its own kind, so the one closed loop in the world does not read as another country
+                // road that happens to bend a lot. The key beside the full-screen map reads its swatch
+                // off MapGraphic.ColourOf, so adding the kind is the whole of the change there.
+                new WorldMapBuilder.Road(ring, MapLineKind.Circuit, circuitShape.HalfWidth),
+                new WorldMapBuilder.Road(ringAccess, MapLineKind.Trunk, half),
+
+                // The second one takes the same kind rather than a colour of its own. What the kind
+                // says is "closed loop, driven for its own sake"; that is true of both, and a map with
+                // one red circuit and one of something else would be claiming a difference there is
+                // not. They are two thousand kilometres apart on the map and cannot be confused.
+                new WorldMapBuilder.Road(bahce, MapLineKind.Circuit, circuitShape.HalfWidth),
+                new WorldMapBuilder.Road(bahceAccess, MapLineKind.Trunk, half),
             };
 
             var featured = new List<WorldMapBuilder.Featured>
             {
                 new WorldMapBuilder.Featured(pass, passCourse),
                 new WorldMapBuilder.Featured(ebental, ebentalCourse),
+                new WorldMapBuilder.Featured(stadtfeld, stadtfeldCourse),
+                new WorldMapBuilder.Featured(weissjoch, weissjochCourse),
                 new WorldMapBuilder.Featured(kalkgrat, kalkgratCourse),
                 new WorldMapBuilder.Featured(meerenge, meerengeCourse),
                 new WorldMapBuilder.Featured(yalikoy, yalikoyCourse),
                 new WorldMapBuilder.Featured(coast, coastCourse),
                 new WorldMapBuilder.Featured(motorway, motorwayCourse),
                 new WorldMapBuilder.Featured(link, linkCourse),
+                new WorldMapBuilder.Featured(ring, ringCourse),
+                new WorldMapBuilder.Featured(bahce, bahceCourse),
             };
 
             var settlements = new List<WorldMapBuilder.Town>(towns.Count);
@@ -2243,17 +3308,26 @@ namespace Horizon.EditorTools
             RoadPath seeburgAxis,
             RoadPath ebental,
             RoadCourse ebentalCourse,
+            RoadPath stadtfeld,
             RoadPath kalkgrat,
             RoadPath meerenge,
             RoadCourse meerengeCourse,
             RoadPath yalikoy,
+            RoadPath weissjoch,
+            RoadCourse weissjochCourse,
+            RoadPath ring,
+            RoadCourse ringCourse,
+            RoadPath bahce,
             float rideHeight)
         {
-            var spawns = new List<SpawnPoint>(10);
+            var spawns = new List<SpawnPoint>(14);
 
             void Add(string name, IRoadPath path, float distance, float across, float lift)
             {
-                float at = Mathf.Clamp(distance, 0f, path.Length);
+                // NormalizeDistance, not a clamp: on a closed course a distance behind the start line is
+                // negative, and clamping it to zero puts every grid slot on the line itself. It clamps
+                // exactly as before on every road that has two ends.
+                float at = path.NormalizeDistance(distance);
 
                 Vector3 forward = path.GetDirectionAtDistance(at);
                 Vector3 position = path.GetPositionAtDistance(at)
@@ -2295,6 +3369,45 @@ namespace Horizon.EditorTools
             // crest is a local rise of eighteen metres a third of the way along. A summit walk would
             // put the player back at the join facing away from everything.
             Add("Ebental", ebental, ViewpointDistance(ebentalCourse, "Hochwiese"), passLane, rideHeight);
+
+            // On the Stadtfeld road's last crest, facing the fork three hundred metres below it — so
+            // the first thing on screen is the junction that makes the world a ring rather than a line.
+            //
+            // From HighestDistance rather than from a counted distance, and unlike the Ebental's spawn
+            // that is the right tool here: this road's high point is its last crest by two metres, it
+            // is the only place on the leg that sees anything, and the profile is the whole design, so
+            // a summit walk lands where the road was aimed even after it is retuned.
+            Add("Stadtfeld", stadtfeld, HighestDistance(stadtfeld), passLane, rideHeight);
+
+            // On the col at 906 m, facing the way the road falls away from it. The highest place a car
+            // can stand in this world by four and a half times, and the only start point where the whole
+            // of what follows is downhill.
+            //
+            // Taken from the viewpoint the course marks there rather than from HighestDistance, for the
+            // reason the Ebental's spawn is: the summit is a two-hundred-metre level plateau, so a
+            // highest-point walk lands wherever the noise happens to peak on it.
+            Add(WeissjochCourse.ColName, weissjoch,
+                ViewpointDistance(weissjochCourse, WeissjochCourse.ColName), passLane, rideHeight);
+
+            // On pole, in the painted box, facing the line. This one is not a convenience: the circuit
+            // is twenty-five kilometres and nine hundred metres of climb from anywhere else in the
+            // world, and a race track nobody can get to in under a quarter of an hour is a race track
+            // nobody drives.
+            //
+            // On the grid rather than on the line, and that is what makes it read as a start. Standing
+            // astride the timing line there is nothing to say which way round the lap goes or where it
+            // begins; sixteen metres back, in the first box, with eleven more behind, the answer is
+            // painted on the road. The slot comes from CircuitMeshes' own table so the car lands on the
+            // box rather than beside it.
+            CircuitMeshes.GridSlot(0, WeissjochringCourse.LineDistance, RoadShape.Circuit,
+                out float poleAlong, out float poleAcross);
+            Add(WeissjochringCourse.CircuitName, ring, poleAlong, poleAcross, rideHeight);
+
+            // And pole on the other one, for the same reasons. The Bahçe Ring is at the far end of the
+            // eastern branch, which is further from the pass than the Weissjochring is.
+            CircuitMeshes.GridSlot(0, BahceRingCourse.LineDistance, RoadShape.Circuit,
+                out float bahcePoleAlong, out float bahcePoleAcross);
+            Add(BahceRingCourse.CircuitName, bahce, bahcePoleAlong, bahcePoleAcross, rideHeight);
 
             // At the tunnel mouth on the Kalkgrat, facing the reveal. Everything about that road is
             // arranged around this one frame, so it is the place to arrive at — and, less romantically,
@@ -2651,6 +3764,7 @@ namespace Horizon.EditorTools
         /// </summary>
         private static void BuildMotorwayMerge(
             Transform parent,
+            string name,
             out float capOnMedian,
             out float mergeOnMedian,
             IRoadPath motorwayPath,
@@ -2703,14 +3817,14 @@ namespace Horizon.EditorTools
             buffer.MergeTinted(MotorwayMergeBuilder.SurfaceTints());
 
             var used = new List<int>(MotorwayMergeBuilder.MergeSubmeshCount);
-            Mesh mesh = buffer.ToMesh("MotorwayMergeMesh", used);
+            Mesh mesh = buffer.ToMesh(name + "Mesh", used);
             if (mesh == null)
             {
-                Debug.LogWarning("[Horizon] The motorway merge came out empty.");
+                Debug.LogWarning($"[Horizon] {name} came out empty.");
                 return;
             }
 
-            mesh = HorizonAssetUtility.ReplaceAsset(mesh, GeneratedFolder + "/MotorwayMergeMesh.asset");
+            mesh = HorizonAssetUtility.ReplaceAsset(mesh, GeneratedFolder + "/" + name + "Mesh.asset");
 
             var meshMaterials = new Material[used.Count];
             for (int i = 0; i < used.Count; i++)
@@ -2718,7 +3832,7 @@ namespace Horizon.EditorTools
                 meshMaterials[i] = materials.RoadTint;
             }
 
-            GameObject merge = CreateMeshObject(parent, "MotorwayMerge", mesh, meshMaterials);
+            GameObject merge = CreateMeshObject(parent, name, mesh, meshMaterials);
 
             WorldChunk chunk = merge.AddComponent<WorldChunk>();
             chunk.RecalculateBounds();
@@ -2735,7 +3849,7 @@ namespace Horizon.EditorTools
 
             ValidateMergeSeam(carriageway, motorwayShape, linkPath, linkShape, atDistance, side, mouthWidth);
 
-            Debug.Log($"[Horizon] Motorway merge: {MotorwayMergeBuilder.TotalLength:0} m of acceleration "
+            Debug.Log($"[Horizon] {name}: {MotorwayMergeBuilder.TotalLength:0} m of acceleration "
                       + $"lane on the {(side < 0f ? "left" : "right")} of the carriageway, opening "
                       + $"{mouthWidth:0.0} m wide at the link's cap and closing to nothing. The ramp's "
                       + $"paving and the {lateral - motorwayShape.HalfWidth - linkShape.HalfWidth:0.0} m "
@@ -2743,6 +3857,113 @@ namespace Horizon.EditorTools
         }
 
         /// <summary>
+        /// The paved mouth where a branch road leaves a trunk road out in the country.
+        ///
+        /// <para>Mirrors <see cref="BuildMotorwayMerge"/> in every respect that is bookkeeping — fill a
+        /// buffer, tint it, bake the mesh, hang it on a chunk that never unloads — and differs in the
+        /// two things it measures rather than assumes. Which <i>end</i> of the branch the mouth is at
+        /// is worked out from the geometry, because a branch grafted onto a fork starts there and a
+        /// branch solved into one finishes there, and the two run opposite ways. Which way the throat
+        /// then walks follows from that. <c>AppendTrunkMouth</c> records what assuming the equivalent
+        /// cost it: five town streets with their mouths built on the wrong side of the road.</para>
+        /// </summary>
+        private static void BuildTrunkFork(
+            Transform parent,
+            string name,
+            IRoadPath trunk,
+            in RoadShape trunkShape,
+            Vector3 fork,
+            IRoadPath branch,
+            in RoadShape branchShape,
+            PrototypeMaterials materials)
+        {
+            if (trunk == null || branch == null)
+            {
+                return;
+            }
+
+            // The mouth is found on the trunk by <b>position</b>, not by the course distance the fork was
+            // marked at, and the difference is not academic. A RoadCourse's distance is the sum of its
+            // straights and arcs; a RoadPath's is arc length along the Catmull-Rom curve through the same
+            // control points, and the two disagree — the Ebental is 5073 m as a course and 5074 m as a
+            // path. Sampled at 4873 m that put the throat 0.8 m up the road from the fork it is the mouth
+            // of, and the agreement check below reported it as two courses that had drifted apart when
+            // nothing had. It is the same trap BuildMotorwayMerge records for the median line and its
+            // carriageways, which is why it uses the same helper.
+            float atDistance = NearestDistanceOn(trunk, fork);
+
+            // Whichever end of the branch is nearer the mark is the one that meets it. Squared distance
+            // in plan, because a branch that arrives from below is still the branch that arrives.
+            Vector3 atZero = branch.GetPositionAtDistance(0f);
+            Vector3 atEnd = branch.GetPositionAtDistance(branch.Length);
+
+            float toZero = Plan(atZero - fork).sqrMagnitude;
+            float toEnd = Plan(atEnd - fork).sqrMagnitude;
+
+            bool mouthAtStart = toZero <= toEnd;
+
+            float branchAt = mouthAtStart ? 0f : branch.Length;
+            float branchSign = mouthAtStart ? 1f : -1f;
+
+            float miss = Mathf.Sqrt(Mathf.Min(toZero, toEnd));
+
+            // A fork is the one feature two courses have to agree about, and this is where that
+            // agreement is checked rather than trusted. Half a metre is generous for two poses that
+            // should be identical; anything above it means the mark and the graft have come apart, and
+            // the throat would be laid between two roads that do not meet.
+            if (miss > 0.5f)
+            {
+                Debug.LogError(
+                    $"[Horizon] The branch's end is {miss:0.0} m from the junction mark on the road it "
+                    + "leaves. One of the two has been retuned without the other — the fork's pose is "
+                    + "published by the trunk's course and read by the branch's, so neither should be a "
+                    + "literal.");
+            }
+
+            var buffer = new VegetationMeshBuffer(TrunkForkBuilder.ForkSubmeshCount);
+
+            TrunkForkBuilder.Append(
+                trunk, trunkShape, atDistance, branch, branchShape, branchAt, branchSign, buffer);
+
+            buffer.MergeTinted(TrunkForkBuilder.SurfaceTints());
+
+            var used = new List<int>(TrunkForkBuilder.ForkSubmeshCount);
+            Mesh mesh = buffer.ToMesh(name + "Mesh", used);
+
+            if (mesh == null)
+            {
+                Debug.LogWarning($"[Horizon] {name} came out empty.");
+                return;
+            }
+
+            mesh = HorizonAssetUtility.ReplaceAsset(mesh, GeneratedFolder + "/" + name + "Mesh.asset");
+
+            var meshMaterials = new Material[used.Count];
+            for (int i = 0; i < used.Count; i++)
+            {
+                meshMaterials[i] = materials.RoadTint;
+            }
+
+            GameObject forkObject = CreateMeshObject(parent, name, mesh, meshMaterials);
+
+            WorldChunk chunk = forkObject.AddComponent<WorldChunk>();
+            chunk.RecalculateBounds();
+            chunk.SetBounds(chunk.Center, 100000f);
+
+            Debug.Log($"[Horizon] {name} at {atDistance:0} m, opening from the branch's "
+                      + $"{branchShape.HalfWidth:0.0} m half-width to "
+                      + $"{TrunkForkBuilder.MouthHalfWidth(branchShape, trunkShape):0.0} m at the "
+                      + "mouth. The branch meets the mark "
+                      + $"within {miss:0.00} m.");
+        }
+
+        /// <summary>The same vector with its height thrown away. Junctions are a question in plan.</summary>
+        private static Vector3 Plan(Vector3 v)
+        {
+            v.y = 0f;
+            return v;
+        }
+
         /// <summary>
         /// Bakes the water into something the running game can test a car against.
         ///
@@ -4296,28 +5517,28 @@ namespace Horizon.EditorTools
             var vegetationTotal = new VegetationStats();
             int heaviestTile = 0;
             string heaviestTileName = "none";
+            int snowTriangles = 0;
+            int petalTriangles = 0;
 
             // How much of a tile came out as shore, read back off the finished mesh rather than counted
             // while it was built. The tint is one line inside the tile builder's own colour choice and
             // it would be a poor trade to grow that method's signature by an out-parameter to say so.
-            static int CountShore(Mesh mesh)
+            static int CountTinted(Mesh mesh, Color32 want)
             {
                 Color32[] colours = mesh.colors32;
-                int sand = 0;
+                int found = 0;
 
                 for (int i = 0; i < colours.Length; i += 3)
                 {
                     Color32 colour = colours[i];
 
-                    if (colour.r == TerrainTileBuilder.SandTint.r
-                        && colour.g == TerrainTileBuilder.SandTint.g
-                        && colour.b == TerrainTileBuilder.SandTint.b)
+                    if (colour.r == want.r && colour.g == want.g && colour.b == want.b)
                     {
-                        sand++;
+                        found++;
                     }
                 }
 
-                return sand;
+                return found;
             }
 
             var townTotals = new TownStats[towns.Count];
@@ -4385,7 +5606,17 @@ namespace Horizon.EditorTools
                 {
                     Mesh mesh = TerrainTileBuilder.BuildTile(key, field, terrainShape, name, region);
                     totalTriangles += mesh.triangles.Length / 3;
-                    shoreTriangles += CountShore(mesh);
+                    shoreTriangles += CountTinted(mesh, TerrainTileBuilder.SandTint);
+
+                // The snow, counted the same way and for a better reason than symmetry: it is decided by
+                // an elevation against a region's own line, so it is exactly the kind of thing that comes
+                // out as nothing at all — or as the whole mountain — without the build saying a word.
+                snowTriangles += CountTinted(mesh, TerrainTileBuilder.SnowTint);
+
+                // And the Bahçe's blossom drift, for the same reason once more. It is one parcel value
+                // in four inside one region, so it is the smallest thing in this build that anybody
+                // would notice missing and the least likely to announce itself.
+                petalTriangles += CountTinted(mesh, LandRegion.BahcePetal);
 
                     mesh = HorizonAssetUtility.ReplaceAsset(mesh, $"{GeneratedFolder}/{name}.asset");
 
@@ -4530,6 +5761,38 @@ namespace Horizon.EditorTools
                 Debug.LogWarning("[Horizon] There are bodies of water in the field and not one tile "
                                  + "carries a surface. Either every basin fell outside the terrain "
                                  + "corridor, or the surfaces are being solved above their own banks.");
+            }
+
+            // Snow, reported outside the water block because it has nothing to do with water — and
+            // reported at all for a better reason than symmetry with the shoreline: it is decided by an
+            // elevation against a region's own line, so it is exactly the kind of thing that comes out
+            // as nothing, or as the whole mountain, without the build saying a word.
+            if (snowTriangles > 0)
+            {
+                Debug.Log($"[Horizon] Snow line: {snowTriangles} terrain triangles tinted snow, "
+                          + $"{snowTriangles * 100f / Mathf.Max(1, totalTriangles):0.0} % of the terrain "
+                          + "— same material, same draw call as the rock under it.");
+            }
+            else
+            {
+                Debug.LogWarning(
+                    "[Horizon] Nothing came out above a snow line. Either no region carries one, or the "
+                    + "mountain never reaches it, or every face up there is steep enough to count as "
+                    + "rock — see TerrainTileBuilder.SnowTint. A winter region with no snow in it builds "
+                    + "and validates exactly like one that works.");
+            }
+
+            if (petalTriangles > 0)
+            {
+                Debug.Log($"[Horizon] Blossom drift: {petalTriangles} terrain triangles tinted petal in "
+                          + "the Bahçe — same material, same draw call as the meadow beside it.");
+            }
+            else
+            {
+                Debug.LogWarning(
+                    "[Horizon] No ground came out tinted blossom. Either LandRegion.Bahce is not in the "
+                    + "regions array, or it is shadowed there by one listed before it, or its parcel "
+                    + "palette lost its fourth entry — see LandRegion.BahcePetal.");
             }
 
             Debug.Log($"[Horizon] Terrain: {tiles.Count} tiles of {tileSize:0} m, "
@@ -5145,9 +6408,10 @@ namespace Horizon.EditorTools
         /// </summary>
         private static List<Vector3> DrawCallStations(
             RoadPath path, RoadPath motorway, RoadPath arterial, RoadPath seeburgAxis,
-            RoadPath ebental, RoadPath kalkgrat, RoadPath meerenge, RoadPath yalikoy)
+            RoadPath ebental, RoadPath stadtfeld, RoadPath kalkgrat, RoadPath meerenge,
+            RoadPath yalikoy, RoadPath weissjoch, RoadPath ring, RoadPath bahce)
         {
-            var stations = new List<Vector3>(22);
+            var stations = new List<Vector3>(24);
 
             float[] fractions = { 0.06f, 0.30f, 0.55f, 0.78f, 0.95f };
             for (int i = 0; i < fractions.Length; i++)
@@ -5177,6 +6441,47 @@ namespace Horizon.EditorTools
             {
                 stations.Add(arterial.GetPositionAtDistance(arterial.Length * 0.15f));
                 stations.Add(arterial.GetPositionAtDistance(arterial.Length * 0.5f));
+            }
+
+            if (weissjoch != null)
+            {
+                // The densest road geometry in the world: twenty-eight hairpins inside 1.7 km, with the
+                // verge furniture of all of them. Sampled low, at the tree line and at the col, because
+                // the three carry completely different loads — forest, bare rock and snow — and a budget
+                // taken at one of them says nothing about the other two.
+                stations.Add(weissjoch.GetPositionAtDistance(weissjoch.Length * 0.15f));
+                stations.Add(weissjoch.GetPositionAtDistance(weissjoch.Length * 0.55f));
+                stations.Add(weissjoch.GetPositionAtDistance(weissjoch.Length));
+            }
+
+            if (ring != null)
+            {
+                // The circuit, at the paddock and at the bottom of it. The paddock is the one place on
+                // the mountain with buildings on it; the Kesselgrund is the only stretch of the lap
+                // under the tree line, and therefore the only one carrying a forest as well as two
+                // carriageways' worth of rails and kerbs. A budget taken at one says nothing about the
+                // other.
+                stations.Add(ring.GetPositionAtDistance(0f));
+                stations.Add(ring.GetPositionAtDistance(ring.Length * 0.5f));
+            }
+
+            if (bahce != null)
+            {
+                // The other circuit, at its paddock and out on the lap. Same argument, different loads:
+                // the paddock carries the buildings, and the far side of the lap carries an orchard
+                // valley at a density no other flat country here is built at.
+                stations.Add(bahce.GetPositionAtDistance(0f));
+                stations.Add(bahce.GetPositionAtDistance(bahce.Length * 0.5f));
+            }
+
+            if (stadtfeld != null)
+            {
+                // The fork, and the city edge the other end of the road. The fork is the one place in
+                // the world where two courses' verges, two sets of vegetation and a laid-on throat are
+                // all in one frame; the city edge is where open country meets Hochstadt's perimeter
+                // blocks, and a budget measured on either side of that line misses it.
+                stations.Add(stadtfeld.GetPositionAtDistance(stadtfeld.Length));
+                stations.Add(stadtfeld.GetPositionAtDistance(stadtfeld.Length * 0.05f));
             }
 
             if (ebental != null)
@@ -6519,6 +7824,21 @@ namespace Horizon.EditorTools
             // a rounding error against the world's total, so its absence would not show there.
             Debug.Log($"[Horizon] Anadolu: {stats.Cypresses} cypresses.");
 
+            // And the Bahçe's, for the same reason again — this one more sharply than either, because
+            // a region whose whole character is that it is in flower reads as any other valley if the
+            // number is nought, and nothing else in the build would say so.
+            if (stats.CherryTrees == 0)
+            {
+                Debug.LogWarning("[Horizon] Bahçe: no cherry trees anywhere. The region is bound to a "
+                                 + "path, carries a BlossomChance and is listed in the regions array, "
+                                 + "or it is not — see LandRegion.Bahce. A valley meant to be in "
+                                 + "blossom builds and validates exactly like one that works.");
+            }
+            else
+            {
+                Debug.Log($"[Horizon] Bahçe: {stats.CherryTrees} cherry trees.");
+            }
+
             float minimum = roadShape.OuterHalfWidth + 1f;
             if (stats.ClosestToRoad < minimum)
             {
@@ -7077,10 +8397,18 @@ namespace Horizon.EditorTools
                 return;
             }
 
+            // The world position as well as the distance along, because the two answer different
+            // questions. A distance says where on this road to look; a position is what lets the cause
+            // be found, and the cause is very often another road. The Weissjochring's own worst
+            // breach — 183 m of terrain standing on the carriageway — was a second road passing eighty
+            // metres away and a hundred and eighty metres higher, and the distance-along alone said
+            // nothing about that at all.
+            Vector3 worstPoint = path.GetPositionAtDistance(worstAt);
+
             Debug.LogWarning(
                 $"[Horizon] {what} clearance: terrain stands above the asphalt at {breaches} sampled points. "
                 + $"Worst is {worst:0.00} m at {worstAt:0} m along the course, {worstAcross:0.0} m across "
-                + "from the centreline.");
+                + $"from the centreline — at ({worstPoint.x:0}, {worstPoint.y:0}, {worstPoint.z:0}).");
         }
 
         /// <summary>
@@ -7323,8 +8651,15 @@ namespace Horizon.EditorTools
         /// longer than a tank is the map stranding somebody, which is the one thing this feature must
         /// never do.</para>
         /// </summary>
+        /// <param name="roads">
+        /// One entry per carriageway. <c>Closed</c> says the road is a circuit, and it changes the gap
+        /// arithmetic rather than switching the check off: on an open road the two ends count, because
+        /// the start of a road is somewhere a driver can be, while on a loop there are no ends and the
+        /// gap between the last pump and the first one wraps past the line.
+        /// </param>
         private static void ValidateFuelStations(
-            params (IRoadPath Path, RoadCourse Course, RoadShape Shape, string Where, float Side)[] roads)
+            params (IRoadPath Path, RoadCourse Course, RoadShape Shape, string Where, float Side,
+                bool Closed)[] roads)
         {
             int counted = 0;
             float worstGap = 0f;
@@ -7332,7 +8667,8 @@ namespace Horizon.EditorTools
 
             for (int r = 0; r < roads.Length; r++)
             {
-                (IRoadPath road, RoadCourse course, RoadShape shape, string where, float side) = roads[r];
+                (IRoadPath road, RoadCourse course, RoadShape shape, string where, float side,
+                    bool closed) = roads[r];
 
                 if (road == null || course == null)
                 {
@@ -7344,6 +8680,7 @@ namespace Horizon.EditorTools
                 // start of a road is somewhere a driver can be.
                 float previous = 0f;
                 bool any = false;
+                float firstAt = 0f;
 
                 for (int i = 0; i < course.Features.Count; i++)
                 {
@@ -7360,9 +8697,22 @@ namespace Horizon.EditorTools
                     }
 
                     counted++;
-                    any = true;
 
                     float at = Mathf.Clamp(feature.StartDistance, 0f, road.Length);
+
+                    if (!any)
+                    {
+                        firstAt = at;
+
+                        // On a loop the run-up to the first pump is not a gap: it is the far side of
+                        // the wrap, and it is counted once at the bottom of the walk instead.
+                        if (closed)
+                        {
+                            previous = at;
+                        }
+                    }
+
+                    any = true;
 
                     if (course.IsBridged(at, 40f) || course.IsCoveredOrNear(at, 40f))
                     {
@@ -7413,7 +8763,9 @@ namespace Horizon.EditorTools
                     previous = at;
                 }
 
-                float tail = road.Length - previous;
+                // Past the last pump: on an open road, to the end of it; on a loop, round to the first
+                // pump again.
+                float tail = road.Length - previous + (closed ? firstAt : 0f);
                 if (any && tail > worstGap)
                 {
                     worstGap = tail;

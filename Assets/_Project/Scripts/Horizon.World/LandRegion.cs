@@ -99,7 +99,13 @@ namespace Horizon.World
             float startAlong = 0f,
             float spireChance = 0f,
             bool autumnCanopy = false,
-            bool farmed = false)
+            bool farmed = false,
+            float treeLineElevation = float.NaN,
+            float snowLineElevation = float.NaN,
+            float treeDensity = 1f,
+            float clumpThreshold = float.NaN,
+            float treeMaxSlopeDegrees = float.NaN,
+            float blossomChance = 0f)
         {
             Name = name;
             this.road = road;
@@ -109,6 +115,12 @@ namespace Horizon.World
             SpireChance = spireChance;
             AutumnCanopy = autumnCanopy;
             Farmed = farmed;
+            TreeLineElevation = treeLineElevation;
+            SnowLineElevation = snowLineElevation;
+            TreeDensity = treeDensity;
+            ClumpThreshold = clumpThreshold;
+            TreeMaxSlopeDegrees = treeMaxSlopeDegrees;
+            BlossomChance = blossomChance;
 
             cosAngle = Mathf.Cos(FieldAngleDegrees * Mathf.Deg2Rad);
             sinAngle = Mathf.Sin(FieldAngleDegrees * Mathf.Deg2Rad);
@@ -165,6 +177,89 @@ namespace Horizon.World
         /// eventually stands on a dry hillside, it is not a hay bale.</para>
         /// </summary>
         public bool Farmed { get; }
+
+        /// <summary>
+        /// Where the trees stop here, in absolute metres — or <c>NaN</c> where this region has no
+        /// opinion and the world's own tree line applies.
+        ///
+        /// <para><b>Absolute, and that is the whole point of it existing.</b> Everywhere else the tree
+        /// line is <c>VegetationShape.TreeLineHeight</c>, a fraction of the span between the mountain
+        /// pass's lowest point and its summit — 0.82 of 203 m, which puts it at 160 m. That axis is
+        /// normalised against <i>one course</i>, so a mountain four times higher somewhere else clamps
+        /// to the top of it and comes out bare from the valley floor up. Stretching the axis to cover
+        /// both is worse: it would move the tree line to over seven hundred metres everywhere and wood
+        /// the pass to its own summit, which is the failure <c>VegetationBuilder</c>'s own remarks warn
+        /// about.</para>
+        ///
+        /// <para>So a region may hold its own, and <see cref="HasAltitudeBands"/> is what tells the
+        /// builders which rule to apply. The fraction stays exactly as it was for every road that had
+        /// one, which is what keeps this from being a change to the whole world.</para>
+        /// </summary>
+        public float TreeLineElevation { get; }
+
+        /// <summary>
+        /// Where the snow starts here, absolute metres, or <c>NaN</c> for a region with no snow.
+        ///
+        /// <para>Read by <c>TerrainTileBuilder</c> in the slot the shoreline's sand already occupies:
+        /// one more colour in a per-triangle comparison on a shared vertex-tinted material, so it costs
+        /// no material, no draw call and no vertices.</para>
+        /// </summary>
+        public float SnowLineElevation { get; }
+
+        /// <summary>
+        /// Whether this region decides its own tree and snow lines by elevation. See
+        /// <see cref="TreeLineElevation"/>.
+        /// </summary>
+        public bool HasAltitudeBands => !float.IsNaN(TreeLineElevation);
+
+        /// <summary>
+        /// How many trees this region wants per unit of ground, against the world's one.
+        ///
+        /// <para><b>Applied to the candidate grid rather than to a dice roll, which is the only way it
+        /// gets a forest rather than a thicker scatter.</b> <c>VegetationShape.TreeCellSize</c> lays one
+        /// candidate every 11 m and everything after that only ever removes candidates — so no amount of
+        /// relaxing the filters can put more trees down than the grid offered. The cell is divided by the
+        /// square root of this, because the grid is two-dimensional and doubling the trees means
+        /// tightening the spacing by 1.41 rather than by 2.</para>
+        /// </summary>
+        public float TreeDensity { get; }
+
+        /// <summary>
+        /// This region's share of hillside that is clearing rather than wood, or <c>NaN</c> to use
+        /// <c>VegetationShape.ClumpThreshold</c>.
+        ///
+        /// <para>The world's 0.34 is right for country that is meant to read as open with stands in it.
+        /// A mountain forest is the other thing: continuous, with the clearings being the exception, and
+        /// at the world's value a winter hillside came out as scattered copses on bare ground.</para>
+        /// </summary>
+        public float ClumpThreshold { get; }
+
+        /// <summary>
+        /// How steep ground may be here before nothing will grow on it, or <c>NaN</c> for the world's
+        /// <c>VegetationShape.TreeMaxSlopeDegrees</c>.
+        ///
+        /// <para><b>This is the one that made the Weissjoch bald and it was invisible in the log.</b>
+        /// The world's limit is 30°, chosen against a pass whose face is 63 % — but that is the
+        /// <i>mean</i>, and <c>MountainField</c> blends the ground between two stacked legs with an
+        /// inverse-fifth power, so the middle of every face is far steeper than its average. On a
+        /// twenty-eight hairpin stack that rejected the trees on every face and kept only the ones on
+        /// the flat shelves, which is a mountain with stripes on it. Real spruce holds ground no
+        /// engineer would build a road on.</para>
+        /// </summary>
+        public float TreeMaxSlopeDegrees { get; }
+
+        /// <summary>
+        /// What share of this region's trees are cherries in flower.
+        ///
+        /// <para>The exact analogue of <see cref="SpireChance"/>, and it does two jobs from one number:
+        /// it picks the wild trees, and where <see cref="Farmed"/> is also set it puts the orchard rows
+        /// into blossom instead of the Ebental's rust. One knob, because a region with pink woods and
+        /// rust orchards would be two places rather than one.</para>
+        ///
+        /// <para>Unlike the cypress, this one is a mesh of its own — see <c>PlantMeshes.AddCherry</c>
+        /// for why a repaint was not enough here.</para>
+        /// </summary>
+        public float BlossomChance { get; }
 
         /// <summary>The region the rest of the world is in: none of it, and the colours it already had.</summary>
         public static LandRegion None { get; } = new LandRegion(
@@ -258,6 +353,167 @@ namespace Horizon.World
                 spireChance: 0.3f);
         }
 
+        /// <summary>
+        /// The Weissjoch: nine hundred metres of mountain north of the motorway, and the first winter
+        /// in the world.
+        ///
+        /// <para><b>It is the first region that decides anything by altitude</b> — see
+        /// <see cref="TreeLineElevation"/> for why it has to, and why the world's own tree line could
+        /// not simply be stretched to cover it. Below 460 m it is spruce forest, above it bare rock and
+        /// alpine grass, and above 650 m snow.</para>
+        ///
+        /// <para><b>Not farmed, and no spires.</b> Nobody farms at nine hundred metres, so the orchard
+        /// rows, the bales and the walled boundaries stay off — the far shore of the Meerenge is the
+        /// recorded case of what happens when that flag is left on for a place it does not belong to.
+        /// The trees here are the conifers the vegetation builder already biases towards with height;
+        /// what makes this read as a mountain rather than as the pass writ large is the rock and the
+        /// snow above them, not a new species.</para>
+        ///
+        /// <para>The ground is a colder grey than the world's own. Rock at nine hundred metres under
+        /// snow is not the warm brown of a valley crag, and the two sitting side by side in one frame —
+        /// which they do, on every leg of the stack — is most of what says how high this is.</para>
+        /// </summary>
+        public static LandRegion Weissjoch(IRoadPath path)
+        {
+            return new LandRegion(
+                "Weissjoch",
+                new RoadProximity(path),
+                new GroundPalette(
+                    // Alpine grass: cooler and paler than the world's 0.36/0.48/0.26, because it spends
+                    // half the year under the snow above it.
+                    new Color(0.40f, 0.45f, 0.33f),
+                    // Cold grey rather than the world's warm brown crag.
+                    new Color(0.50f, 0.51f, 0.54f),
+                    // No fields. Nobody farms up here, and a null palette is what says so.
+                    null),
+                // Dense. This is mountain forest below the tree line, not cleared farmland and not a dry
+                // hillside — the two reasons the other regions thin their scatter do not apply, and a
+                // thin wood under a snow line reads as a mountain that has been logged.
+                // No thinning at all. The two regions that thin do it because somebody cleared the
+                // wood or because the climate never grew one; neither is true of a mountain flank.
+                wildTreeChance: 1f,
+                treeLineElevation: WeissjochCourse.TreeLineElevation,
+                snowLineElevation: WeissjochCourse.SnowLineElevation,
+
+                // Two and a bit times the world's density, almost no clearings, and trees on ground
+                // half again as steep as anywhere else will take them. Together these are what turns a
+                // striped hillside into a forest — see each property for which failure it answers.
+                treeDensity: 2.4f,
+                clumpThreshold: 0.10f,
+                treeMaxSlopeDegrees: 44f);
+        }
+
+        /// <summary>
+        /// The Weissjochring: the same mountain as <see cref="Weissjoch"/>, one shoulder lower, and
+        /// deliberately not the same forest.
+        ///
+        /// <para><b>The palette and both altitude bands are shared, and that is the point.</b> The
+        /// circuit is cut into the same massif the climb is, and a region boundary that could be seen
+        /// from the car would say there were two mountains. What it inherits is exactly what makes this
+        /// place itself: cold grey rock rather than the world's warm crag, alpine grass, no fields, and
+        /// the tree line at 700 m with the snow line a hundred metres <i>below</i> it.</para>
+        ///
+        /// <para><b>What it does not inherit is the density, and that is a tile budget rather than a
+        /// taste.</b> The heaviest tile in this world is already a Weissjoch tile, well over
+        /// <c>VegetationShape.MaxTrianglesPerTile</c>, and <see cref="TreeDensity"/> 2.4 with a
+        /// <see cref="ClumpThreshold"/> of 0.10 is most of the reason. Those two numbers exist to stop a
+        /// twenty-eight hairpin switchback stack coming out striped — trees on the flat shelves and
+        /// nowhere else. A circuit is not a stack: its rungs are 340 m apart rather than 60, so there is
+        /// real ground between them at ordinary slopes, and the world's own density is enough to wood
+        /// it. Fifteen kilometres of road at the stack's density would have moved the world total by
+        /// more than the whole Ebental.</para>
+        ///
+        /// <para><b>And unlike the stack, the distance falloff actually works here.</b>
+        /// <c>VegetationShape.FarDensity</c> thins what stands more than 100 m from a carriageway; a
+        /// switchback stack has no such ground and so nothing to thin, which is why
+        /// <see cref="TreeDensity"/> had to be the knob up there. A ladder with 340 m between its rungs
+        /// is half falloff country, and it pays for itself.</para>
+        ///
+        /// <para><see cref="TreeMaxSlopeDegrees"/> is kept at the mountain's 44°. The faces between two
+        /// stacked rungs run to about 35°, and the world's 30° would put trees on the rungs and nowhere
+        /// in between — the striped hillside, one landform along.</para>
+        /// </summary>
+        public static LandRegion Weissjochring(IRoadPath path)
+        {
+            return new LandRegion(
+                CircuitName,
+                new RoadProximity(path),
+                new GroundPalette(
+                    new Color(0.40f, 0.45f, 0.33f),
+                    new Color(0.50f, 0.51f, 0.54f),
+                    null),
+                wildTreeChance: 1f,
+                treeLineElevation: WeissjochCourse.TreeLineElevation,
+                snowLineElevation: WeissjochCourse.SnowLineElevation,
+                treeDensity: 1.3f,
+                clumpThreshold: 0.22f,
+                treeMaxSlopeDegrees: 44f);
+        }
+
+        /// <summary>
+        /// The Bahçe: the valley the second circuit is cut into, east of Yalıköy, and the only place in
+        /// this world that is in flower.
+        ///
+        /// <para><b>No altitude bands, deliberately.</b> The lap runs between 28 and 60 m, and the
+        /// world's own tree line is at 160 — so every metre of this region is below it by construction
+        /// and <see cref="TreeLineElevation"/> would be answering a question nobody asks here. Setting
+        /// one anyway is the trap <c>VegetationBuilder.ClimbAt</c> exists to make visible: the axis is
+        /// shared with the mountain pass, and a region that stretches it moves the vegetation of the
+        /// whole world. The build log must still read "Tree line around 160 m" after this.</para>
+        ///
+        /// <para><b>Farmed, and that is what makes it a place rather than a colour.</b> Anadolu one
+        /// road back is dry hillside nobody clears; this is a valley of orchards, so it gets the rows,
+        /// the walled boundaries and the cut meadows — and <see cref="BlossomChance"/> puts the rows
+        /// into flower rather than into the Ebental's rust. The four parcels keep the meanings the rest
+        /// of the project already gives them: orchards stand on 0 and 1, bales on 2, and 3 is the one
+        /// that is nothing but ground, which here is petals lying on it.</para>
+        ///
+        /// <para><see cref="WildTreeChance"/> sits between the Ebental's 0.18 and the mountain's 1.
+        /// Cleared enough to read as worked, wooded enough that the groves are groves.</para>
+        /// </summary>
+        /// <summary>
+        /// The Bahçe's rarest parcel: ground with fallen blossom lying on it.
+        ///
+        /// <para>Its own constant so the build can count it. A parcel colour is decided per triangle
+        /// against a region's own weight, which makes it exactly the kind of thing that comes out as
+        /// nothing at all, or as the whole valley, with the log saying not a word — the argument
+        /// <c>TerrainTileBuilder.SnowTint</c> already carries.</para>
+        /// </summary>
+        public static readonly Color32 BahcePetal = new Color(0.86f, 0.79f, 0.79f);
+
+        public static LandRegion Bahce(IRoadPath path, float startAlong = 0f)
+        {
+            var fields = new Color32[]
+            {
+                new Color(0.46f, 0.60f, 0.31f),  // meadow, the ground note of the valley
+                new Color(0.39f, 0.53f, 0.28f),  // orchard floor, mown and a shade deeper
+                new Color(0.72f, 0.73f, 0.44f),  // cut for hay, and where the bales stand
+                BahcePetal,                      // the rarest parcel, and the signature
+            };
+
+            return new LandRegion(
+                BlossomName,
+                new RoadProximity(path),
+                new GroundPalette(
+                    new Color(0.46f, 0.60f, 0.31f),
+                    // Pale warm stone rather than the world's brown crag or the Weissjoch's cold grey.
+                    // There is very little rock showing here; what there is should not read as either
+                    // of the two mountains.
+                    new Color(0.62f, 0.57f, 0.49f),
+                    fields),
+                wildTreeChance: 0.7f,
+                startAlong: startAlong,
+                farmed: true,
+                clumpThreshold: 0.30f,
+                blossomChance: 0.55f);
+        }
+
+        /// <summary>Name of the circuit's region. Its own constant so the course and this agree.</summary>
+        private const string CircuitName = "Weissjochring";
+
+        /// <summary>Name of the Bahçe's region, for the same reason.</summary>
+        private const string BlossomName = "Bahçe";
+
         /// <summary>How much of this region applies at a point: 0 outside it, 1 well inside.</summary>
         public float Weight(float x, float z)
         {
@@ -279,8 +535,16 @@ namespace Horizon.World
             // InverseLerp inside a SmoothStep, and a weight that is never positive is a region that
             // silently does nothing.
             float across = 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(CoreReach, EdgeReach, distance));
-            float entry = Mathf.SmoothStep(
-                0f, 1f, Mathf.InverseLerp(StartAlong, StartAlong + EntryFade, along));
+
+            // A closed road has no start, so there is nothing for the entry fade to fade in from. On a
+            // circuit `along` runs back to zero at the start line, and the fade was therefore thinning
+            // the region over the first four hundred metres of the lap — which on both circuits is the
+            // main straight and the paddock, the one stretch anybody looks at closely. The fade exists
+            // to blend one region into the next along a road they share; a lap shares its road with
+            // itself.
+            float entry = road.IsLoop
+                ? 1f
+                : Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(StartAlong, StartAlong + EntryFade, along));
 
             return across * entry;
         }
@@ -432,8 +696,18 @@ namespace Horizon.World
         private readonly float[] along;
         private readonly Dictionary<long, List<int>> buckets = new Dictionary<long, List<int>>();
 
+        /// <summary>
+        /// Whether the road this samples closes on itself.
+        ///
+        /// <para>Read by <see cref="LandRegion.Weight"/> for one reason: a closed road has no start, so
+        /// the entry fade has nothing to fade in from. See there.</para>
+        /// </summary>
+        public bool IsLoop { get; }
+
         public RoadProximity(IRoadPath path)
         {
+            IsLoop = path != null && path.IsLoop;
+
             float length = path != null ? path.Length : 0f;
             int count = Mathf.Max(2, Mathf.CeilToInt(length / Spacing) + 1);
 

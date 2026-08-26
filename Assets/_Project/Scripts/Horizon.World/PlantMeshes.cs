@@ -437,7 +437,62 @@ namespace Horizon.World
         /// </summary>
         public const int CypressSubmesh = 10;
 
-        public const int SubmeshCount = 11;
+        /// <summary>
+        /// The two other greens a conifer can be.
+        ///
+        /// <para><b>A wood in one colour is a texture, not a wood.</b> Every spruce in the world shared
+        /// <see cref="ConiferSubmesh"/>, so a hillside of four hundred of them was four hundred copies of
+        /// exactly the same green — the trees varied in height by a factor of nearly two and it made no
+        /// difference, because what the eye sorts a forest by at distance is tone before shape. Three
+        /// tones and the same stand reads as depth.</para>
+        ///
+        /// <para>Free, and that is why it is three and not one: a slot with an entry in
+        /// <see cref="FoliageTints"/> is merged into the same draw call as the rest. The cost of this is
+        /// two lines in a table.</para>
+        /// </summary>
+        public const int ConiferDarkSubmesh = 11;
+
+        /// <summary>See <see cref="ConiferDarkSubmesh"/>.</summary>
+        public const int ConiferPaleSubmesh = 12;
+
+        /// <summary>
+        /// The two other greens a broadleaf can be, for the reason <see cref="ConiferDarkSubmesh"/>
+        /// gives and with the same arithmetic behind it: forty-five thousand of them shared one colour.
+        ///
+        /// <para><b>Only the wild ones.</b> The autumn canopy and the orchard keep their single palettes
+        /// on purpose — those two <i>are</i> a signature, and the Ebental's gold reads as one country
+        /// precisely because it does not vary.</para>
+        /// </summary>
+        public const int BroadleafDeepSubmesh = 13;
+
+        /// <summary>See <see cref="BroadleafDeepSubmesh"/>.</summary>
+        public const int BroadleafLightSubmesh = 14;
+
+        /// <summary>
+        /// A second undergrowth green. The floor of a wood is the largest single count in the world —
+        /// two hundred and twenty thousand bushes — and it was one flat colour under all of it.
+        /// </summary>
+        public const int UndergrowthDeepSubmesh = 15;
+
+        /// <summary>
+        /// Cherry blossom, and the two tones a tree in the Bahçe can be.
+        ///
+        /// <para><b>The only pale, cool colours in the world.</b> Everything else growing anywhere here
+        /// is between 0.09 and 0.62 of green, plus three warm autumn tones — so a canopy at
+        /// 0.93/0.74/0.80 does not have to compete for attention, it simply is not the same kind of
+        /// thing. That is the whole reason the Bahçe reads as a place rather than as another hillside,
+        /// and by the arithmetic of <see cref="FoliageTints"/> it costs a row in a table.</para>
+        ///
+        /// <para>Two tones and not one, unlike the cypress and the autumn canopy. Those two are a
+        /// signature seen from a moving car at forty metres; a blossom grove is walked past at the
+        /// paddock and stood in at a viewpoint, and at that range one flat pink is a wall.</para>
+        /// </summary>
+        public const int BlossomSubmesh = 16;
+
+        /// <summary>See <see cref="BlossomSubmesh"/>. The near-white one.</summary>
+        public const int BlossomPaleSubmesh = 17;
+
+        public const int SubmeshCount = 18;
 
         /// <summary>
         /// The colour each plant submesh is tinted with when they are merged, or null to keep its own
@@ -459,6 +514,18 @@ namespace Horizon.World
 
             tints[BarkSubmesh] = new Color(0.29f, 0.21f, 0.16f);
             tints[ConiferSubmesh] = new Color(0.16f, 0.29f, 0.22f);
+
+            // Either side of it, and further apart than looks sensible written down. On a flat-shaded
+            // low-poly tree under one directional light the whole canopy is a handful of facets, so a
+            // subtle difference between two of them is no difference at all by the time it is forty
+            // metres away — which is where nearly every tree in this world is seen from.
+            tints[ConiferDarkSubmesh] = new Color(0.09f, 0.20f, 0.16f);
+            tints[ConiferPaleSubmesh] = new Color(0.27f, 0.41f, 0.25f);
+
+            // The same either side of the broadleaf and the undergrowth.
+            tints[BroadleafDeepSubmesh] = new Color(0.31f, 0.44f, 0.20f);
+            tints[BroadleafLightSubmesh] = new Color(0.56f, 0.62f, 0.29f);
+            tints[UndergrowthDeepSubmesh] = new Color(0.22f, 0.34f, 0.18f);
             tints[BroadleafSubmesh] = new Color(0.43f, 0.53f, 0.24f);
             tints[UndergrowthSubmesh] = new Color(0.32f, 0.44f, 0.22f);
 
@@ -479,6 +546,13 @@ namespace Horizon.World
             // for the avenue five kilometres back up the road.
             tints[CypressSubmesh] = new Color(0.18f, 0.26f, 0.19f);
 
+            // Cherry blossom. Pink and near-white, and both of them lighter than they look written down
+            // for the reason the three greens are further apart than they look: a flat-shaded canopy
+            // under one directional light is a handful of facets, and a subtle difference between two
+            // of these is no difference at all by forty metres.
+            tints[BlossomSubmesh] = new Color(0.93f, 0.70f, 0.78f);
+            tints[BlossomPaleSubmesh] = new Color(0.97f, 0.90f, 0.91f);
+
             return tints;
         }
 
@@ -490,27 +564,45 @@ namespace Horizon.World
         {
             var random = new PlantRandom(place.Seed);
 
-            float height = random.Range(6.5f, 11.5f);
-            float trunkHeight = height * 0.30f;
-            float trunkRadius = height * random.Range(0.028f, 0.042f);
-            float canopyRadius = height * random.Range(0.17f, 0.23f);
+            // Which of the three greens, and which of the two shapes. Both are drawn before anything
+            // else so that a tree's colour and its build are decided by its own seed and by nothing
+            // about its neighbours — a hillside sorted by position would band, which is the failure
+            // this is fixing rather than a new one.
+            float tone = random.Next();
+            int needles = tone < 0.34f ? ConiferDarkSubmesh
+                : tone < 0.64f ? ConiferPaleSubmesh
+                : ConiferSubmesh;
+
+            // <b>Two silhouettes, and the narrow one is the point.</b> Every conifer here was the same
+            // three-tier cone at 0.17–0.23 of its height, which at any distance is one shape repeated —
+            // and shape is what survives when the tone has gone grey in the fog. A spruce is tall,
+            // narrow and five-tiered against the fir's broad three, and the two read as a mixed wood
+            // where one read as wallpaper.
+            bool spruce = random.Next() < 0.45f;
+
+            float height = spruce ? random.Range(9f, 15f) : random.Range(6f, 11f);
+            float trunkHeight = height * (spruce ? 0.22f : 0.30f);
+            float trunkRadius = height * random.Range(0.026f, 0.040f);
+            float canopyRadius = height * (spruce ? random.Range(0.11f, 0.15f)
+                                                  : random.Range(0.18f, 0.25f));
             float phase = random.Range(0f, Mathf.PI * 2f);
 
             AddTube(buffer, place, BarkSubmesh, 6, trunkRadius, trunkRadius * 0.7f,
                 -Burial, trunkHeight, phase);
 
-            const int tiers = 3;
+            int tiers = spruce ? 5 : 3;
             float tierBase = trunkHeight * 0.62f;
             float span = height - tierBase;
+            float step = 0.90f / tiers;
 
             for (int tier = 0; tier < tiers; tier++)
             {
-                float baseY = tierBase + span * (tier * 0.30f);
-                float apexY = tierBase + span * (0.42f + tier * 0.29f);
-                float radius = canopyRadius * (1f - tier * 0.28f);
+                float baseY = tierBase + span * (tier * step);
+                float apexY = tierBase + span * (step * 1.4f + tier * step);
+                float radius = canopyRadius * (1f - tier * (0.84f / tiers));
 
                 // Only the lowest tier gets an underside; the others sit inside the skirt below them.
-                AddCone(buffer, place, ConiferSubmesh, 6, radius, baseY, apexY,
+                AddCone(buffer, place, needles, 6, radius, baseY, Mathf.Min(apexY, height),
                     phase + tier * 0.4f, tier == 0);
             }
         }
@@ -518,7 +610,15 @@ namespace Horizon.World
         /// <summary>A broadleaf: a stem with a jittered eight-sided blob on top. 44 triangles.</summary>
         public static void AddBroadleaf(VegetationMeshBuffer buffer, in PlantPlacement place)
         {
-            AddBroadleaf(buffer, place, BroadleafSubmesh);
+            // One of three greens, by the tree's own seed. The overload below keeps taking an explicit
+            // slot, because the autumn canopy and the orchard are signatures rather than scatter.
+            var random = new PlantRandom(place.Seed);
+            float tone = random.Next();
+
+            AddBroadleaf(buffer, place,
+                tone < 0.33f ? BroadleafDeepSubmesh
+                : tone < 0.63f ? BroadleafLightSubmesh
+                : BroadleafSubmesh);
         }
 
         /// <summary>
@@ -616,6 +716,19 @@ namespace Horizon.World
         /// </summary>
         public static void AddFruitTree(VegetationMeshBuffer buffer, in PlantPlacement place)
         {
+            AddFruitTree(buffer, place, OrchardSubmesh);
+        }
+
+        /// <summary>
+        /// The same tree in another crown colour, so a region can plant its own orchards.
+        ///
+        /// <para>The overload above delegates straight here rather than drawing a tone first, unlike
+        /// <see cref="AddBroadleaf"/>: an orchard is a signature and every tree in one is the same
+        /// colour, so there is nothing to draw. That also keeps the Ebental's rows byte-identical.</para>
+        /// </summary>
+        public static void AddFruitTree(
+            VegetationMeshBuffer buffer, in PlantPlacement place, int crownSubmesh)
+        {
             var random = new PlantRandom(place.Seed);
 
             float height = random.Range(3.2f, 4.4f);
@@ -627,9 +740,56 @@ namespace Horizon.World
             AddTube(buffer, place, BarkSubmesh, 6, trunkRadius, trunkRadius * 0.85f,
                 -Burial, trunkHeight + crownRadius * 0.25f, phase);
 
-            AddBlob(buffer, place, OrchardSubmesh, 8, crownRadius,
+            AddBlob(buffer, place, crownSubmesh, 8, crownRadius,
                 trunkHeight + (height - trunkHeight) * 0.38f, height, trunkHeight * 0.7f,
                 phase, 0.22f, ref random);
+        }
+
+        /// <summary>
+        /// A cherry in flower: a short stem under two billows of blossom, five to seven metres. About 44
+        /// triangles.
+        ///
+        /// <para><b>Its own silhouette, not a broadleaf in pink.</b> Tone is what sorts a wood at
+        /// distance and shape is what survives when the fog has taken the tone — which is the argument
+        /// the spruce and the fir already make against each other. A broadleaf is a stem under one round
+        /// crown; this is squat, twice as wide as the stem is tall, and lumpy at the top, so a grove of
+        /// them reads as an orchard gone wild rather than as the same wood repainted.</para>
+        ///
+        /// <para>Two blobs rather than one, and that is the whole of the extra cost. A single wide blob
+        /// came out as a mushroom — the jitter is a fraction of the radius, so the wider the crown the
+        /// smoother its outline, and a cherry is the opposite of smooth.</para>
+        /// </summary>
+        public static void AddCherry(VegetationMeshBuffer buffer, in PlantPlacement place)
+        {
+            // The tone first, off the tree's own seed, so a grove is mixed rather than banded by
+            // position — the reason AddConifer draws its needles before anything else.
+            var random = new PlantRandom(place.Seed);
+
+            AddCherry(buffer, place, random.Next() < 0.62f ? BlossomSubmesh : BlossomPaleSubmesh);
+        }
+
+        /// <summary>The same tree in a named blossom colour. See <see cref="AddBroadleaf"/> for why the
+        /// slot version re-seeds: the geometry must not depend on which tone was drawn.</summary>
+        public static void AddCherry(
+            VegetationMeshBuffer buffer, in PlantPlacement place, int blossomSubmesh)
+        {
+            var random = new PlantRandom(place.Seed);
+
+            float height = random.Range(4.6f, 7f);
+            float trunkHeight = height * random.Range(0.24f, 0.32f);
+            float trunkRadius = height * random.Range(0.05f, 0.07f);
+            float crownRadius = height * random.Range(0.46f, 0.58f);
+            float phase = random.Range(0f, Mathf.PI * 2f);
+
+            AddTube(buffer, place, BarkSubmesh, 6, trunkRadius, trunkRadius * 0.7f,
+                -Burial, trunkHeight + crownRadius * 0.3f, phase);
+
+            AddBlob(buffer, place, blossomSubmesh, 8, crownRadius,
+                trunkHeight + (height - trunkHeight) * 0.30f, height * 0.86f, trunkHeight * 0.55f,
+                phase, 0.30f, ref random);
+
+            AddBlob(buffer, place, blossomSubmesh, 6, crownRadius * 0.62f,
+                height * 0.80f, height, height * 0.62f, phase + 1.9f, 0.26f, ref random);
         }
 
         /// <summary>A low bush: one squashed blob, no stem. About 12 triangles.</summary>
@@ -644,7 +804,12 @@ namespace Horizon.World
             float radius = height * random.Range(0.42f, 0.62f);
             float phase = random.Range(0f, Mathf.PI * 2f);
 
-            AddBlob(buffer, place, UndergrowthSubmesh, 6, radius,
+            // Two greens rather than one. A bush is a six-sided blob two metres across, so the only
+            // thing distinguishing one from the next at driving speed is its tone, and there are more of
+            // these in the world than everything else put together.
+            int leaves = random.Next() < 0.42f ? UndergrowthDeepSubmesh : UndergrowthSubmesh;
+
+            AddBlob(buffer, place, leaves, 6, radius,
                 height * 0.42f, height, -Burial * 0.4f, phase, 0.35f, ref random);
         }
 

@@ -36,10 +36,21 @@ namespace Horizon.World
         /// <summary>Distances along the arterial that carry a cross street, metres.</summary>
         private static readonly float[] Along = { 200f, 400f, 600f, 800f, 1000f };
 
-        /// <summary>Where the boulevard starts — the motorway's last metre — and where it ends.</summary>
-        private const float BoulevardStart = 0f;
+        /// <summary>
+        /// Where the boulevard starts — the motorway's last metre — and where it ends.
+        ///
+        /// <para><b>Taken from the course rather than typed, since <see cref="StadtfeldCourse"/>.</b>
+        /// These were literal copies of <see cref="HochstadtCourse.CityStart"/> and
+        /// <see cref="HochstadtCourse.CityEnd"/>, which was harmless while the only thing that cared
+        /// was this layout. The road out of the city is now grafted onto
+        /// <see cref="HochstadtCourse.EastGatePoint"/>, which is the arterial at <c>CityEnd</c> — so if
+        /// these two numbers ever came apart, the country road would arrive where the boulevard is not
+        /// and there is no check anywhere that would say so.</para>
+        /// </summary>
+        private const float BoulevardStart = HochstadtCourse.CityStart;
 
-        private const float BoulevardEnd = 1180f;
+        /// <summary>See <see cref="BoulevardStart"/>.</summary>
+        private const float BoulevardEnd = HochstadtCourse.CityEnd;
 
         /// <summary>The tower core, as a box in town-local coordinates.</summary>
         private const float CoreAcross = 130f;

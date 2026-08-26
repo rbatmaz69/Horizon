@@ -134,9 +134,26 @@ namespace Horizon.World
         /// What the whole world costs at the settings below, measured rather than estimated, so the next
         /// person changing a density knows what they are moving away from.
         ///
-        /// <para>1332 tiles, 5.91 M triangles of vegetation, densest tile 20 062 — 184 676 shrubs,
-        /// 67 813 tufts, 37 183 conifers, 31 765 broadleaves. Measured off a full rebuild of the world as
-        /// it stands, with the pass, the Ebental, the Kalkgrat, the Meerenge and Yalıköy all in it.</para>
+        /// <para>1503 tiles, 9.50 M triangles of vegetation, densest tile 27 052 — 234 210 shrubs,
+        /// 95 516 tufts, 69 709 conifers, 55 978 broadleaves. Measured off a full rebuild of the world as
+        /// it stands, with the pass, the Ebental, the Stadtfeld, the Kalkgrat, the Meerenge, Yalıköy and
+        /// the Weissjoch all in it.</para>
+        ///
+        /// <para><b>It was 6.83 M, and the two steps that moved it are worth telling apart.</b> The
+        /// world's own woods were thickened — <see cref="ClumpThreshold"/> 0.42 → 0.34,
+        /// <see cref="TreeClearance"/> 14 m → 11 — which cost twenty per cent of the total and three
+        /// per cent of the heaviest tile, and left that tile the one it had always been. Then the
+        /// Weissjoch was given a forest of its own through <c>LandRegion</c>, and <b>that moved the
+        /// heaviest tile in the world from Terrain_8_6 at 20 750 to a Weissjoch tile at 27 052.</b> The
+        /// budget below has been breached since the Kalkgrat; it is now breached by a different road and
+        /// by more than twice.</para>
+        ///
+        /// <para><b><see cref="FarDensity"/> cannot help there, and the reason is the shape of the
+        /// road.</b> It thins what stands more than 100 m from a carriageway — but a switchback stack
+        /// puts its legs 52 to 72 m apart, so on that mountain there is no ground that is far from a
+        /// road and nothing for the falloff to thin. A stacked climb is all near field. The knob that
+        /// does work there is <c>LandRegion.TreeDensity</c>, on the region alone, which is where it
+        /// belongs.</para>
         ///
         /// <para><b>The figure this replaced said 290 000 over 55 tiles, and it had been wrong by twenty
         /// times for three features.</b> It was measured when the world was one mountain pass and was
@@ -152,7 +169,7 @@ namespace Horizon.World
         /// memory; growing <i>a tile</i> costs frame time. <see cref="MaxTrianglesPerTile"/> is the
         /// number that actually guards anything.</para>
         /// </summary>
-        public const int MeasuredWorldTriangles = 5908380;
+        public const int MeasuredWorldTriangles = 11498856;
 
         public static VegetationShape Default => new VegetationShape
         {
@@ -171,9 +188,16 @@ namespace Horizon.World
             TuftCellSize = 4f,
             BoulderCellSize = 20f,
 
-            // RoadShape.OuterHalfWidth is 6.75 m and the rails stand a little outside that. 14 m leaves a
-            // driveable-feeling corridor without a bare strip.
-            TreeClearance = 14f,
+            // RoadShape.OuterHalfWidth is 6.75 m and the rails stand a little outside that.
+            //
+            // <b>11 m, down from 14, and the reason is the picture rather than the number.</b> Fourteen
+            // left four metres of shoulder and then another seven of nothing before the first trunk, and
+            // at driver's eye that bald ring reads as a mown verge on both sides of every road in the
+            // world — the wood looked like something standing back from the road rather than something
+            // the road was cut through. Eleven still clears the rails by a comfortable margin and puts
+            // the near trunks where they pass the window, which is most of what makes a forest road feel
+            // like one.
+            TreeClearance = 11f,
             ShrubClearance = 9f,
 
             // 8.5 m, up from 7.5. Grass is the one of these that grows right up to the road, so it is
@@ -201,7 +225,17 @@ namespace Horizon.World
 
             // 0.012 gives stands and clearings roughly 80-150 m across, which is the scale a corner reveals.
             ClumpScale = 0.012f,
-            ClumpThreshold = 0.42f,
+
+            // <b>0.34, down from 0.42.</b> The mask rejects everything below it, so this is the fraction
+            // of the hillside that is clearing rather than wood — and at 0.42 that was most of it. The
+            // stands were real and the clearings between them were bare ground, which reads as scrub
+            // with the odd copse rather than as forest. Lowering it thickens the stands without touching
+            // their scale, which is what ClumpScale is for and this is not.
+            //
+            // It is the one change here that costs triangles rather than being free, so it is the one to
+            // pull back on if MaxTrianglesPerTile starts reporting new tiles rather than the one it has
+            // always reported.
+            ClumpThreshold = 0.34f,
 
             FarDensity = 0.5f,
             FarDensityStart = 100f,

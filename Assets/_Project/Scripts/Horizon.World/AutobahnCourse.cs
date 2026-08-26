@@ -100,6 +100,11 @@ namespace Horizon.World
             Vector3 right = Quaternion.Euler(0f, LinkStartHeading, 0f) * Vector3.right;
             JunctionPoint = LinkStart - right * MergeOffset;
 
+            // Walked from the origin purely to measure where the leg ends up. It also runs the ramp's
+            // cap solve against the wrong origin — harmless, because the full walk below repeats it from
+            // MainStart and overwrites it. That ordering is load-bearing: WeissjochCapPoint is only
+            // meaningful after the last AppendWestLeg in this constructor, and Build() re-runs it from
+            // MainStart too, so nothing outside sees the probe's answer.
             var westProbe = new RoadCourseBuilder(Vector3.zero);
             AppendWestLeg(westProbe);
             RoadCourse walkedWest = westProbe.Build();
@@ -128,6 +133,47 @@ namespace Horizon.World
 
         /// <summary>Heading there. 0 faces +Z, increasing turns towards +X.</summary>
         public static float EndHeading { get; }
+
+        /// <summary>
+        /// How far along the median the Weissjoch ramp leaves, metres.
+        ///
+        /// <para><b>1078 and not a rounder number, because the window is narrow.</b> A ramp needs
+        /// <c>MotorwayMergeBuilder.TotalLength</c> of carriageway (315 m) plus the link's own 150 m of
+        /// parallel taper, so about 465 m of straight, off-structure, off-forecourt track. The west leg
+        /// offers three straights and only two are long enough: this one, 818–1338 at +0.3 %, and
+        /// 2197–2837, whose last 340 m are past the Raststätten mark. This one is also the further from
+        /// the existing interchange, which is worth something on a road with two of them.</para>
+        /// </summary>
+        public const float WeissjochExitDistance = 1078f;
+
+        /// <summary>
+        /// Where that ramp's cap stands, beside the westbound carriageway rather than on the median.
+        ///
+        /// <para>Set from the walk rather than typed, the way <c>EbentalCourse.ForkPoint</c> is, and for
+        /// the reason <c>RoadCourseBuilder.AddJunction</c> gives: a junction is the one feature two
+        /// courses have to agree about, and a literal in either file is a junction that moves on one
+        /// road and not the other.</para>
+        ///
+        /// <para><b>The same <see cref="MergeOffset"/>, so the same side.</b> Its sign puts the ramp on
+        /// the median's left, which on this leg's easterly headings is north — the side the Weissjoch
+        /// stands on, and the side the existing link is already on. A ramp on the far side would have to
+        /// cross both carriageways, and the note on that constant records what the terrain does about
+        /// that.</para>
+        /// </summary>
+        public static Vector3 WeissjochCapPoint { get; private set; }
+
+        /// <summary>Heading of the motorway, and therefore of the ramp's taper, at that cap.</summary>
+        public static float WeissjochCapHeading { get; private set; }
+
+        /// <summary>
+        /// The motorway's grade where the ramp leaves it, percent.
+        ///
+        /// <para>Not <see cref="MotorwayGradeAtJunction"/>: that one belongs to the east leg and is
+        /// 0.3 % by coincidence rather than by rule. This is the grade of the instruction the cap falls
+        /// inside, and the taper has to carry it for the reason that constant gives — two ribbons that
+        /// touch must agree about their grade or the join is a step.</para>
+        /// </summary>
+        public const float WeissjochGradeAtExit = 0.3f;
 
         /// <summary>Where the link road meets the motorway, on the median line.</summary>
         public static Vector3 JunctionPoint { get; }
@@ -224,7 +270,21 @@ namespace Horizon.World
         {
             builder.Straight(420f, -0.3f);
             builder.Turn(950f, 24f, -0.4f);
-            builder.Straight(520f, 0.3f);
+
+            // Split 260 + 260 around the Weissjoch ramp's cap. Both halves divide by the 10 m point
+            // spacing and they still sum to 520, so the motorway is the motorway it was — the same trick
+            // every filling station on every course already uses. See WeissjochExitDistance for why the
+            // cap is here and nowhere else on this leg.
+            builder.Straight(260f, WeissjochGradeAtExit);
+
+            {
+                Vector3 right = Quaternion.Euler(0f, builder.HeadingDegrees, 0f) * Vector3.right;
+
+                WeissjochCapHeading = builder.HeadingDegrees;
+                WeissjochCapPoint = builder.Position + right * MergeOffset;
+            }
+
+            builder.Straight(260f, WeissjochGradeAtExit);
 
             // Portals on straight track, for the same reason the pass puts them there: TunnelBuilder
             // sweeps a massif well past each portal, and through a curve that body folds through itself.

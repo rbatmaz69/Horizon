@@ -22,6 +22,36 @@ namespace Horizon.World
 
         /// <summary>One carriageway of the motorway, or the link off it.</summary>
         Motorway = 3,
+
+        /// <summary>
+        /// A closed circuit — today, the Weissjochring and only it.
+        ///
+        /// <para>A kind of its own rather than another <see cref="Trunk"/>, because on a map the one
+        /// thing worth knowing about this road is that it comes back to where it started. Drawn as a
+        /// trunk road it would read as a country road with an improbable number of bends in it, which
+        /// is exactly the wrong impression: nothing about a circuit is a way of getting somewhere.</para>
+        /// </summary>
+        Circuit = 4,
+    }
+
+    /// <summary>
+    /// How many kinds of line there are.
+    ///
+    /// <para><b>This exists because adding a kind without it broke the whole map.</b>
+    /// <c>MapGraphic</c> bins the segments it is going to draw into one bucket per kind, and those
+    /// buckets were allocated as a literal <c>new int[4][]</c>. Adding <see cref="MapLineKind.Circuit"/>
+    /// made that an index out of range on the first segment of the new kind — thrown inside
+    /// <c>OnPopulateMesh</c>, which Unity catches per frame, so what it looked like was not an error at
+    /// all: the minimap and the full-screen map simply drew <i>nothing</i>, everywhere, including every
+    /// road that had been fine the day before. The preview said <c>0 vertices, 4305 segments</c>, which
+    /// is the one place it was visible.</para>
+    ///
+    /// <para>Kept beside the enum rather than in the drawing code, so the next kind is one line in one
+    /// place. Anything that sizes an array by kind reads this.</para>
+    /// </summary>
+    public static class MapLine
+    {
+        public const int KindCount = 5;
     }
 
     /// <summary>A filled shape rather than a stroked line. Both kinds are convex, so both fan.</summary>

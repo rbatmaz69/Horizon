@@ -53,6 +53,33 @@ namespace Horizon.World
         public static readonly Color32 SandTint = new Color(0.76f, 0.70f, 0.55f);
 
         /// <summary>
+        /// Ground above a region's snow line.
+        ///
+        /// <para>Free for the reason <see cref="SandTint"/> is free: a fourth choice inside a comparison
+        /// this method was making anyway, on the one shared vertex-tinted material, so nine hundred
+        /// metres of mountain draws in the same call as the valley under it. No material, no draw call,
+        /// no vertices.</para>
+        ///
+        /// <para>Blue rather than white. Snow lit by a low sun is warm on one face and blue in shadow,
+        /// and a flat white reads as a hole in the frame — the terrain shader is unlit-ish enough that
+        /// a pure white face has nowhere left to go.</para>
+        /// </summary>
+        public static readonly Color32 SnowTint = new Color(0.84f, 0.87f, 0.92f);
+
+        /// <summary>
+        /// How far the snow line wanders, metres either side.
+        ///
+        /// <para>A snow line laid on flat is a contour drawn round a mountain, which is what a map does
+        /// and not what weather does. One noise lookup breaks it into drifts and bare patches — the same
+        /// trick <c>VegetationShape.TreeLineJitter</c> plays on the tree line, and for the same
+        /// reason.</para>
+        /// </summary>
+        private const float SnowLineJitter = 22f;
+
+        /// <summary>Scale of that wander. Coarse — drifts are tens of metres across, not metres.</summary>
+        private const float SnowJitterScale = 0.0035f;
+
+        /// <summary>
         /// How far above a water surface the sand reaches.
         ///
         /// <para>Three metres, and it is the second of the two limits rather than the only one — see
@@ -525,12 +552,33 @@ namespace Horizon.World
                 }
             }
 
+            // Snow, where the region has a line and the ground is not too steep to hold any.
+            //
+            // The slope test is what makes it a mountain rather than a white sheet: MountainField gives
+            // the face between two stacked switchback legs a local peak far past RockSlopeThreshold, so
+            // the flanks come out bare rock with snow lying on everything gentler either side of them.
+            // Uniform white above a line is a cake.
+            if (!steep && region != null && !float.IsNaN(region.SnowLineElevation)
+                && region.Weight(centre.x, centre.z) > 0f)
+            {
+                float jitter = (Mathf.PerlinNoise(
+                    (centre.x + 512f) * SnowJitterScale,
+                    (centre.z + 512f) * SnowJitterScale) - 0.5f) * 2f * SnowLineJitter;
+
+                if (centre.y > region.SnowLineElevation + jitter)
+                {
+                    tint = SnowTint;
+                }
+            }
+
             if (nearWater)
             {
                 if (field.IsShore(centre.x, centre.z, centre.y, ShoreHeight, ShoreReach))
                 {
-                    // Over everything, region included. A shore is a shore in any country, and a
-                    // ploughed field running to a waterline reads as a bug rather than as a bank.
+                    // Over everything, region and snow included. A shore is a shore in any country, and
+                    // a ploughed field running to a waterline reads as a bug rather than as a bank.
+                    // Nothing in this world has both a shore and a snow line, but the order is written
+                    // down rather than left to chance for the day something does.
                     tint = SandTint;
                 }
             }

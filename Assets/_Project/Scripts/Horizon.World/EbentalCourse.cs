@@ -18,13 +18,15 @@ namespace Horizon.World
     /// where the long straight is, so the fast part of the road is also the part that loads the
     /// engine.</para>
     ///
-    /// <para><b>It ends provisionally, and that is deliberate too.</b> The run-out simply stops, the
-    /// way the pass's own did until this road was built. What comes after is a later decision — so
-    /// <see cref="EndPoint"/> and <see cref="EndHeading"/> are published the way
-    /// <see cref="AutobahnCourse"/> and <see cref="CoastCourse"/> publish theirs, and the next stretch
-    /// is grafted onto them instead of being fitted to them. The end faces 122°: south-east, with
-    /// 2.4 km of empty ground between it and Hochstadt's arterial. That is the obvious next leg, and
-    /// noting it here is cheaper than rediscovering it.</para>
+    /// <para><b>It no longer ends provisionally, and it is the road that closes the world's only
+    /// ring.</b> This file used to record that the end faced 122° with 2.4 km of empty ground between
+    /// it and Hochstadt's arterial, and that this was the obvious next leg. It was, and
+    /// <see cref="StadtfeldCourse"/> is it. Everything east of here is still grafted onto
+    /// <see cref="EndPoint"/> and <see cref="EndHeading"/> — <see cref="KalkgratCourse"/> takes them
+    /// unchanged — but the branch to the city leaves 200 m short of that end, at
+    /// <see cref="ForkPoint"/>. Talheim, the pass, this road, the Stadtfeld, Hochstadt and the
+    /// motorway are one loop, and the whole eastern half of the world hangs off the fork as a
+    /// branch.</para>
     ///
     /// <para><b>No village.</b> <c>TownShape.LimitAcross</c> refuses a settlement deeper than
     /// 0.65 · R on its trunk road, and at the 180 m corner that is 117 m — not a place, a row of
@@ -92,6 +94,26 @@ namespace Horizon.World
 
         /// <summary>Heading there. 0 faces +Z, increasing turns towards +X.</summary>
         public static float EndHeading { get; }
+
+        /// <summary>What the fork to Hochstadt is called, on the course and on the map.</summary>
+        public const string JunctionName = "Abzweig Stadtfeld";
+
+        /// <summary>
+        /// Where the branch to Hochstadt leaves this road, in world space.
+        ///
+        /// <para>Set from the walk rather than typed, the way <see cref="LakeCentre"/> is and for the
+        /// same reason — and it matters more here, because a fork is the one feature two courses have
+        /// to agree about. <see cref="StadtfeldCourse"/> solves its arrival onto this pose with
+        /// <c>RoadCourseBuilder.ConnectTo</c>, so retuning anything above moves both roads together.
+        /// A literal in either file would be a fork that moved on one road and not the other.</para>
+        /// </summary>
+        public static Vector3 ForkPoint { get; private set; }
+
+        /// <summary>Heading of <i>this</i> road at the fork, not of the branch. See <see cref="ForkPoint"/>.</summary>
+        public static float ForkHeading { get; private set; }
+
+        /// <summary>How far along this course the fork falls, metres. What <c>TrunkForkBuilder</c> lays the mouth around.</summary>
+        public static float ForkAlong { get; private set; }
 
         /// <summary>
         /// Plan centre of the lake the loop wraps, in world x/z.
@@ -173,11 +195,35 @@ namespace Horizon.World
             builder.Turn(300f, -40f, -1.6f);
             builder.Straight(380f, -0.8f);
             builder.Turn(500f, 30f, -0.4f);
-            builder.Straight(420f, -0.2f);
 
-            // Somewhere to arrive at, so the provisional end reads as a place the road reaches rather
-            // than as a road that was not finished.
-            builder.AddViewpoint("Ebenkopf");
+            // --- The fork to Hochstadt. Split 220 + 200 around it, and neither number is a taste.
+            //
+            // AddJunction wants straight and level track: the throat is laid on top of the carriageway
+            // at MotorwayMergeBuilder.Lift, and laid-on paving only sits flush where the surface under
+            // it has no camber to follow. This closing straight is the only stretch within a kilometre
+            // that is both — the Kalkgrat's own first instruction is straight but climbs at 1.6 %, and
+            // it carries a forecourt 300 m in. So the mouth goes here rather than on the join, which
+            // also means only two courses have to agree about it instead of three: EndPoint and
+            // EndHeading do not move, and KalkgratCourse is untouched.
+            //
+            // 200 m of run-on past the mouth because the branch peels away at 32° and MountainField
+            // gives every road a shelf 80 m wide; leaving the fork on the join would have put the
+            // Kalkgrat's first corner inside the branch's own ground. Both halves divide by the 10 m
+            // point spacing and they still sum to 420, so the road above is the road it was.
+            builder.Straight(220f, -0.2f);
+
+            ForkAlong = builder.Distance;
+            ForkPoint = builder.Position;
+            ForkHeading = builder.HeadingDegrees;
+            builder.AddJunction(JunctionName);
+
+            builder.Straight(200f, -0.2f);
+
+            // The Ebenkopf viewpoint used to stand here. It existed because the road stopped —
+            // "somewhere to arrive at, so the provisional end reads as a place the road reaches rather
+            // than as a road that was not finished" — and the road does not stop any more. A layby
+            // 200 m past a junction mouth is clutter where a reason used to be, and its planting
+            // clearance sat across the fork's own approach.
         }
 
         /// <summary>

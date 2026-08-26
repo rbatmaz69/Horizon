@@ -276,7 +276,22 @@ namespace Horizon.EditorTools
                     continue;
                 }
 
-                graphic.SetView(Hairpins(graphic), 340f / Mathf.Max(1f, rect.rect.width), 35f);
+                // Span and forward bias both taken from the component that drives this widget in the
+                // game rather than typed again here — a preview with its own copy of either is a
+                // preview of a HUD nobody ships. The car sprite is fixed geometry below the middle, so
+                // the view has to run ahead by the same amount or the marker sits beside the road.
+                var minimap = rect.GetComponentInParent<Minimap>();
+                float across = minimap != null ? minimap.MetresAcross : 440f;
+                float metres = across / Mathf.Max(1f, rect.rect.width);
+
+                Vector2 centre = Hairpins(graphic);
+                float radians = 35f * Mathf.Deg2Rad;
+                var ahead = new Vector2(Mathf.Sin(radians), Mathf.Cos(radians));
+
+                graphic.SetView(
+                    centre + ahead * (rect.rect.height * 0.5f * Minimap.ForwardBias * metres),
+                    metres,
+                    35f);
             }
         }
 

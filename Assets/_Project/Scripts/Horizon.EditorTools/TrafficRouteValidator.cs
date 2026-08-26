@@ -650,18 +650,45 @@ namespace Horizon.EditorTools
                 host.transform.SetParent(under, false);
 
                 RoadPath built = host.AddComponent<RoadPath>();
-                built.SetControlPoints(from.ControlPoints);
+
+                // The loop flag travels with the course. Without it the circuit's rebuilt path stops at
+                // the start/finish line instead of wrapping through it, and every lane within a couple
+                // of hundred metres of that line would be measured against a road that ends there.
+                built.SetControlPoints(from.ControlPoints, from.IsClosed);
                 return built;
             }
+
+            // Named rather than indexed, because the town list below needs this one and used to reach
+            // for it as trunkRoads[Length - 1]. That worked exactly as long as Yalıköy stayed last:
+            // adding the Stadtfeld road after it would have repointed Yalıköy's whole street network
+            // onto a road eight kilometres away, and CheckLanesFollowTheirStreets would have reported
+            // every lane in the village as a car on the pavement. That is the third time this file has
+            // been able to fail that way; a name cannot.
+            RoadPath yalikoyPaved = Paved("Yalikoy", YalikoyCourse.Build());
 
             trunkRoads = new[]
             {
                 trunk,
                 Paved("Ebental", EbentalCourse.Build()),
+                // No traffic runs on it yet, and it belongs here anyway: CheckLanesFollowTheTrunkRoad
+                // holds every lane in the world against the nearest of these, so a paved road missing
+                // from the list is one that lanes near it are measured against something further away.
+                Paved("Stadtfeld", StadtfeldCourse.Build()),
+                // No traffic on it either, and here for the same reason: this check holds every
+                // lane in the world against the nearest paved road, so one missing from the list
+                // is one that lanes near it get measured against something further away.
+                Paved("Weissjoch", WeissjochCourse.Build()),
                 Paved("Coast", CoastCourse.Build()),
                 Paved("Kalkgrat", KalkgratCourse.Build()),
                 Paved("Meerenge", MeerengeCourse.Build()),
-                Paved("Yalikoy", YalikoyCourse.Build()),
+                yalikoyPaved,
+                // Both of these carry no traffic at all, and both belong here for the reason given
+                // twice above. The circuit is also the one road in the world that is paved as a loop,
+                // which Paved now carries through.
+                Paved("Weissjochring", WeissjochringCourse.Build()),
+                Paved("WeissjochringAccess", WeissjochringCourse.BuildAccess()),
+                Paved("BahceRing", BahceRingCourse.Build()),
+                Paved("BahceRingAccess", BahceRingCourse.BuildAccess()),
             };
 
             // Seeburg's axis, which like the arterial is a coordinate line and never paved.
@@ -684,8 +711,8 @@ namespace Horizon.EditorTools
                 RebuildTown(SeeburgLayout.Build(), seeburgAxis, TownShape.Seeburg, scratch.transform),
 
                 // Yalıköy is the one town whose trunk is a road people drive rather than an axis, so it
-                // takes the same RoadPath the bake did — the last of the paved roads above.
-                RebuildTown(YalikoyLayout.Build(), trunkRoads[trunkRoads.Length - 1],
+                // takes the same RoadPath the bake did.
+                RebuildTown(YalikoyLayout.Build(), yalikoyPaved,
                     TownShape.Yalikoy, scratch.transform),
             };
         }

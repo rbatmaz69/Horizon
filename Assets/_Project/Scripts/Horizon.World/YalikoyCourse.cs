@@ -195,6 +195,16 @@ namespace Horizon.World
         /// <summary>Heading there. 0 faces +Z, increasing turns towards +X.</summary>
         public static float EndHeading { get; }
 
+        /// <summary>
+        /// The grade this road is still on where it runs out, in percent.
+        ///
+        /// <para>A constant rather than a literal in the table below, because whatever is built on from
+        /// here has to open on it: two ribbons that touch and disagree about their grade meet in a step.
+        /// <c>WeissjochCourse.EndGrade</c> exists for the same reason and is read by
+        /// <c>WeissjochringCourse.BuildAccess</c>; this one is read by <c>BahceRingCourse</c>.</para>
+        /// </summary>
+        public const float EndGrade = 0.3f;
+
         /// <summary>Where the seafront begins — the first station the village may reach along.</summary>
         public static float CityStart { get; private set; }
 
@@ -321,7 +331,7 @@ namespace Horizon.World
             builder.AddFuelStation("Yayla Benzinlik", 1f);
             builder.Straight(240f, 0.8f);
             builder.Turn(420f, 28f, 0.5f);
-            builder.Straight(320f, 0.3f);
+            builder.Straight(320f, EndGrade);
         }
     }
 }

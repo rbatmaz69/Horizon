@@ -155,16 +155,39 @@ namespace Horizon.World
         private readonly List<Vector3> controlPoints;
         private readonly List<RoadFeature> features;
 
-        internal RoadCourse(List<Vector3> controlPoints, List<RoadFeature> features, float plannedLength)
+        internal RoadCourse(
+            List<Vector3> controlPoints,
+            List<RoadFeature> features,
+            float plannedLength,
+            bool isClosed = false)
         {
             this.controlPoints = controlPoints;
             this.features = features;
             PlannedLength = plannedLength;
+            IsClosed = isClosed;
         }
 
         public IReadOnlyList<Vector3> ControlPoints => controlPoints;
 
         public IReadOnlyList<RoadFeature> Features => features;
+
+        /// <summary>
+        /// True if the last control point runs back into the first — a circuit rather than a road with
+        /// two ends.
+        ///
+        /// <para>Set only by <see cref="RoadCourseBuilder.Close"/>, and it exists to be handed straight
+        /// to <c>RoadPath.SetControlPoints(points, loop)</c>. Everything downstream of that wraps on its
+        /// own: the arc-length table closes on segment zero, <c>NormalizeDistance</c> repeats rather than
+        /// clamps, and the Catmull-Rom neighbours come from the far end of the list — so the ribbon, the
+        /// guard rails, the height field and the map all cross the start/finish line without a seam.</para>
+        ///
+        /// <para>The alternative was to let the walk end exactly on its own start and butt the two ends
+        /// together under the line. That gives a duplicate ring, a Catmull-Rom curve that is straightened
+        /// at both ends by extrapolation rather than by its true neighbours, and a joint that is only
+        /// invisible for as long as the start/finish stays dead straight and level. The loop flag was
+        /// already written and had simply never been passed by anything.</para>
+        /// </summary>
+        public bool IsClosed { get; }
 
         /// <summary>
         /// Length as walked by the builder. The finished <see cref="RoadPath"/> is a Catmull-Rom curve
@@ -357,12 +380,26 @@ namespace Horizon.World
         private float headingDegrees;
         private float traveled;
 
+        /// <summary>
+        /// The pose the walk began at, kept so <see cref="Close"/> can aim back at it.
+        ///
+        /// <para>Not derivable afterwards. <c>points[0]</c> gives the position, but nothing records the
+        /// heading — and a closure that arrived at the right place facing the wrong way would be a kink
+        /// across the one piece of road every lap crosses.</para>
+        /// </summary>
+        private readonly Vector3 startPosition;
+        private readonly float startHeadingDegrees;
+
+        private bool closed;
+
         /// <param name="start">Starting position; its Y is the starting elevation.</param>
         /// <param name="startHeadingDegrees">0 faces +Z, increasing turns towards +X.</param>
         public RoadCourseBuilder(Vector3 start, float startHeadingDegrees = 0f)
         {
             position = start;
             headingDegrees = startHeadingDegrees;
+            this.startPosition = start;
+            this.startHeadingDegrees = startHeadingDegrees;
             points.Add(start);
         }
 
@@ -432,6 +469,10 @@ namespace Horizon.World
         /// <summary>
         /// Constant-radius corner. A positive angle turns right, negative turns left; a hairpin is
         /// simply a small radius and about 170°.
+        ///
+        /// <para>An arc shorter than <see cref="PointSpacing"/> × 0.4 moves the pose but emits nothing —
+        /// see the note beside that test for why a corner too short to hold control points is worse than
+        /// no corner at all.</para>
         /// </summary>
         public RoadCourseBuilder Turn(float radius, float angleDegrees, float gradePercent = 0f)
         {
@@ -446,6 +487,31 @@ namespace Horizon.World
 
             // Centre of the arc sits one radius to the side we are turning towards.
             Vector3 center = position + Right() * (radius * sign);
+
+            // A corner shorter than a fraction of a control point's spacing gets no control points at
+            // all, and the pose is carried across it instead.
+            //
+            // The step count below has a floor of two, so an arc of a metre puts two points half a metre
+            // apart with ten-metre neighbours either side — and a Catmull-Rom through that is not a
+            // road. Its parameterisation stops being anything like arc length across the short span, so
+            // the tangent swings through it and every reader of the curve believes there is a corner
+            // there: <c>RoadPathExtensions.GetRadiusAtDistance</c> reports centimetres, and
+            // <c>RoadShape</c>'s banking rolls the carriageway right over on the strength of it.
+            //
+            // Not hypothetical. <see cref="ConnectTo"/> emits a micro-arc whenever the solve is nearly
+            // exact — which is exactly what a well-authored closure is — and the Bahçe Ring's put a
+            // 1.6 m radius across its own start line, on the fastest part of the lap, with the build
+            // reporting it only as one number in <c>ReportCourse</c>'s "tightest radius".
+            if (arcLength < PointSpacing * 0.4f)
+            {
+                Vector3 carried = center + Quaternion.Euler(0f, angleDegrees, 0f) * (position - center);
+                carried.y = position.y + rise;
+
+                position = carried;
+                headingDegrees += angleDegrees;
+                traveled += arcLength;
+                return this;
+            }
             Vector3 offset = position - center;
             float startY = position.y;
             float startHeading = headingDegrees;
@@ -552,6 +618,78 @@ namespace Horizon.World
             Straight(straight, grade);
             Turn(radius, secondAngle, grade);
 
+            return this;
+        }
+
+        /// <summary>
+        /// Runs the walk back into its own start pose, turning the course into a circuit.
+        ///
+        /// <para><b>This is the only way to build a closed road here, and it is deliberately not just a
+        /// <see cref="ConnectTo"/> call at the end of a table.</b> Three things have to happen together
+        /// and each of them fails silently on its own.</para>
+        ///
+        /// <para><b>One: the solve can come out as a loop of carriageway and report success.</b>
+        /// <see cref="TurnBy"/> goes the long way round rather than crossing zero, so the shortest
+        /// Dubins family that <i>exists</i> can turn through three hundred degrees — geometrically
+        /// exact, arriving on the target to the millimetre, logging nothing and validating cleanly.
+        /// <c>StadtfeldCourse</c> records what that costs on an open road; on a circuit it is a lap with
+        /// a spare circle in it. <paramref name="limit"/> is the guard, and it is not optional.</para>
+        ///
+        /// <para><b>Two: a self-closure can degenerate and build nothing at all.</b> The target pose is
+        /// this walk's own start, so if the table above ends near it the two turning circles coincide,
+        /// <see cref="TrySame"/> bails out as concentric and <see cref="Solve"/> can fail outright.
+        /// <see cref="ConnectTo"/> then logs and emits nothing, which leaves a circuit with a gap in it.
+        /// Author the lap to arrive a few hundred metres short of the line and roughly on its bearing,
+        /// then close.</para>
+        ///
+        /// <para><b>Three: the last control point has to go.</b> The solve lands exactly on
+        /// <c>points[0]</c>, and a looping <c>RoadPath</c> generates the segment from the last point back
+        /// to the first itself — so leaving the duplicate in gives a zero-length span at the one place
+        /// on the road every lap crosses. Trimming it here rather than at the call site is the point of
+        /// this method: it is the sort of thing that would otherwise be re-derived, differently, in each
+        /// place that ever paved a circuit.</para>
+        /// </summary>
+        /// <param name="radius">Radius of both corners in the solve.</param>
+        /// <param name="limit">
+        /// Longest closure to accept, metres. Anything past it is the three-hundred-degree family and
+        /// wants the instructions above retuned, not a wider radius.
+        /// </param>
+        public RoadCourseBuilder Close(float radius, float limit)
+        {
+            float before = traveled;
+            int pointsBefore = points.Count;
+
+            ConnectTo(startPosition, startHeadingDegrees, radius);
+
+            float connected = traveled - before;
+
+            if (points.Count == pointsBefore)
+            {
+                Debug.LogError(
+                    $"[Horizon] The circuit's closing solve emitted nothing from ({position.x:0}, "
+                    + $"{position.z:0}) facing {headingDegrees:0}°. Its target is this walk's own start, "
+                    + "so the two turning circles are close enough to be concentric and the solve has no "
+                    + "family left. The road now stops short of its own start line and nothing "
+                    + "downstream will say so. End the table further from the line, or on a bearing "
+                    + "nearer to it.");
+
+                return this;
+            }
+
+            if (connected > limit)
+            {
+                Debug.LogError(
+                    $"[Horizon] The circuit's closing solve came out {connected:0} m long against a "
+                    + $"{limit:0} m limit. ConnectTo takes the shortest Dubins family that exists and one "
+                    + "of them loops the long way round, so this is a lap with a circle in it rather "
+                    + "than a lap that failed to build. Retune the instructions above so the walk ends "
+                    + "nearer the start line and closer to its heading.");
+            }
+
+            // The solve lands on points[0]; a looping RoadPath draws that segment itself.
+            points.RemoveAt(points.Count - 1);
+
+            closed = true;
             return this;
         }
 
@@ -782,7 +920,8 @@ namespace Horizon.World
 
         public RoadCourse Build()
         {
-            return new RoadCourse(new List<Vector3>(points), new List<RoadFeature>(features), traveled);
+            return new RoadCourse(
+                new List<Vector3>(points), new List<RoadFeature>(features), traveled, closed);
         }
     }
 }

@@ -407,6 +407,640 @@ remarks describe, one town later. It now takes all four.
 `Tools > Horizon > Render Anadolu Preview` photographs the leg, day and night. Every fault above came out
 of those pictures.
 
+## The Stadtfeld
+
+`StadtfeldCourse` runs 3.7 km from Hochstadt's east gate back up to the Ebental, and it is the first
+road here that exists for the shape of the network rather than for the ground it crosses. Before it
+the world was a thirty-kilometre strand with two dead ends and one fork — the motorway interchange —
+so the only decision a driver ever made was whether to turn round. It closes the loop
+Talheim → pass → Ebental → Stadtfeld → Hochstadt → motorway, and everything east of the fork (the
+Kalkgrat, the Meerenge, Yalıköy) becomes a branch off a ring instead of the far end of a corridor.
+
+**The city's arterial is not a road, and a leg grafted onto its end would have started in a field.**
+`HochstadtCourse` is never paved: `PrototypeSetup` builds it as `ArterialPath` and hands it straight
+to `PrepareTown`, because a town's trunk road only has to be a coordinate frame and a height datum.
+What is driven through Hochstadt is the boulevard in `HochstadtLayout`, which ends at a degree-one
+node at `CityEnd` — 120 m short of where the arterial does, and those 120 m are bare datum for the
+skirt rings. So the leg hangs off `HochstadtCourse.EastGatePoint` at `CityEnd`, and its first
+instruction carries `HochstadtCourse.Grade` rather than a grade of its own, for the reason
+`AutobahnCourse.MotorwayGradeAtJunction` gives. `HochstadtLayout`'s `BoulevardStart`/`BoulevardEnd`
+were literal copies of `CityStart`/`CityEnd`; they now read the constants, because if those two ever
+came apart the country road would arrive where the boulevard is not and nothing would say so.
+
+**24 m over three kilometres is what decided the character.** Every other road here is defined by its
+radii and each is the opposite of its neighbour — 20 m hairpins at 9.5 %, nothing under 150 m and
+nothing over 3 %, 240–450 m sweepers at 6.6 %, nothing under 850 m. This one physically cannot be a
+climb or a descent, so its interest is the profile instead: ordinary 260–320 m corners, and a road
+that rises 25 m out of the city, drops 13, climbs 12, drops 10 and climbs 15 again, so a corner exit
+is regularly over a rise. That is the Ebental's one crest — "the one genuinely demanding moment on an
+otherwise open road" — stated for a whole leg, and it is the only character on the list that stands
+being driven in both directions, which the closing side of a ring will be. **No distant set-piece:**
+the first crest stands 25 m over Hochstadt and the city is still 2 km away, which is the
+Kalkgrattunnel's mistake exactly. The city arrives in the last few hundred metres or not at all.
+
+**Two branches of a fork must agree in *height* while they are close, not merely get apart.** They
+have to be close — that is what a fork is — and `MountainField` gives every road a shelf 80 m wide
+and a coarse grid reaching 250 m, so near the mouth the two shelves are one whatever the plan says.
+The rule that matters is therefore the vertical: 1.1 m apart at 44 m of separation, under 3 m at
+100 m. `AutobahnCourse.MergeOffset` records what the alternative looks like — a five-metre ridge
+standing through a carriageway. `ForkDeflection` is 32° because below about 29° the two roads are
+still inside each other's coarse grid after 500 m, and because the honest bearing to Hochstadt is
+only 20° off the Ebental's own, at which angle the junction reads as a road that widens.
+
+**`RoadCourseBuilder.ConnectTo` has a failure mode that reports success.** It takes the shortest of
+four Dubins families and `TurnBy` deliberately goes the long way round rather than crossing zero, so
+when the authored road above ends in a pose the target does not suit, the shortest family that exists
+can be one that turns through 300°. That is a full loop of carriageway in the middle of a country
+road: geometrically exact, arriving on the target to the millimetre, logging nothing, and validating
+cleanly. It is 359 m here; at four degrees more or less on the corner out of the city it is 2200, and
+no radius between 220 and 380 m rescues it. `StadtfeldCourse.ConnectLimit` is the guard, and the
+corner is 122° because that sits in the middle of a four-degree plateau rather than on its edge.
+
+The fork is marked on the **Ebental**, 200 m before its end, because `AddJunction` wants straight and
+level track and the Kalkgrat's own first instruction climbs at 1.6 % and carries a forecourt. Only two
+courses therefore have to agree about it, and `KalkgratCourse` is untouched. The `Ebenkopf` viewpoint
+that stood at the Ebental's end is gone: it existed because the road stopped there, and it does not.
+
+`TrunkForkBuilder` lays the mouth — the class three doc comments had been asserting the existence of
+for some time. It is a flared throat in the **branch's** frame, because the only line through a fork
+that is not already paved is the one turning off; the surface is projected onto the trunk's local
+plane at the mouth and blended to the branch's own over one verge width, which is what makes
+`AddJunction`'s straight-and-level rule load-bearing rather than advisory. Laid on at
+`MotorwayMergeBuilder.Lift` for the reason recorded there. Unmarked, for the reason
+`StreetJunctionBuilder.AppendTrunkMouth` gives.
+
+**Traffic does not use it yet, and that is visible rather than hidden.** `TrafficNetworkBuilder`'s
+`OnwardRoad` is a chain, not a graph; a car choosing at a fork needs a node with three edges. Until
+then the ring is drawn, driveable and empty, and traffic still runs Ebental → Kalkgrat.
+
+`TrafficRouteValidator`'s `trunkRoads` gained an entry, and the way it gained one matters: Yalıköy's
+street network was reaching for `trunkRoads[trunkRoads.Length - 1]`, so appending would have repointed
+the whole village onto a road eight kilometres away and reported every lane in it as a car on the
+pavement — the same failure this file has already had twice. The path is a named local now.
+
+`Tools > Horizon > Render Stadtfeld Preview` photographs the leg day and night. `_10_ForkPlan` is the
+acceptance shot: it is the only frame anywhere that would show a ridge standing between the two
+branches of the fork.
+
+## The Weissjoch
+
+`WeissjochCourse` leaves the motorway's western leg at median 1078 m and climbs thirteen kilometres to
+a col at **906 m**. Before it the whole world topped out at 196 m and the tree line sat at 160, so only
+the top thirty-six metres of anything was above the trees. It is the first winter here, the first
+region that decides anything by altitude, and the only road built as a dead end on purpose — the
+descent is the drive back.
+
+**The road is the mountain, and that is not a figure of speech.** `MountainField` averages road samples
+inside `CoarseReach` (250 m), takes the nearest sample's height verbatim beyond that, and clamps the
+boundary value at the edge of its grid; terrain exists only inside a 200 m corridor. There is no ground
+anywhere in this world that the roads did not put there. A high pass with long traverses out into open
+country therefore does not make a mountain — it makes a **plateau in the sky** at its own height, with
+no valley beneath it and no summit above it. Altitude is only visible where a *lower* leg runs within a
+couple of hundred metres of a higher one. The climb is one compact stack for that reason and not a
+tour, and the first plan for it — three stacks joined by long traverses — was wrong for exactly this.
+
+**The stack advances north, so the face looks south at the motorway.** The ground is steep only *along*
+the direction the stack advances; across it the field clamps to leg height and goes flat. That grain is
+the mountain's one free decision, and pointing it at the road that leads there means the wall is
+visible from the carriageway.
+
+**Hairpins are 176° with a 4° leg sweep, and the two summing to 180 is the whole point.** The pass uses
+170 and 14, which sums to 184: it over-rotates four degrees a corner and alternates so the error
+cancels over a pair, which is what fans its switchbacks around the summit. Fanning costs advance —
+measured over this table, 170/14 spreads the stack 2273 m for the same climb and gives a 39 % face,
+while 176/4 spreads it 1850 m and gives 48 %. A mountain is the steeper of those. Face steepness is
+`(leg × grade + hairpin arc × 4 %) / (2 × radius)` and it scales without limit, so the stack is
+deliberately *wider* than the pass's: 26–36 m hairpins against its 20, because 927 m in the pass's own
+40 m footprint would be vertical.
+
+**Length is not a choice.** Legs stay at or under the world's steepest 9.5 %, which gives about 8.5 %
+effective once the flattened hairpins are counted, so 938 m of climb costs thirteen kilometres. Four
+stages — 420 m legs at 8 %, then 360 at 9 %, then 300 at 9.5 %, then 240 — and the **tree line at 460 m
+lands on the top of stage B and the snow line at 650 m on the top of stage C**, so the stages are four
+places rather than one corner told twenty-eight times.
+
+**The tree line used to be a fraction of the Passhöhe, and that had to change.**
+`VegetationContext.ClimbFraction` normalises elevation against `MountainPassCourse` alone and
+`TreeLineHeight` is 0.82 of that span. A mountain four times higher elsewhere clamps to 1 and comes out
+**bare rock from the valley floor up**. Stretching the axis to cover both is worse: it would move the
+world's tree line past 700 m and wood the pass to its own summit. So `LandRegion` may now carry an
+**absolute** `TreeLineElevation` and `SnowLineElevation`, and `VegetationBuilder.ClimbAt` maps a region
+that has them onto the same 0..1 axis with its tree line landing exactly on `TreeLineHeight`. Every
+constant tuned against that axis — the snag band, the shrink-towards-the-line ramp, `BroadleafBelow`,
+the boulder test, the shrub thinning — keeps meaning what it meant; only the elevation it means it at
+moves. **The build log must still say "Tree line around 160 m" after any change here.** If it moved,
+the axis leaked and the vegetation of the entire world moved with it.
+
+`ScatterShrubs` was given the region for the first time, and only so it can read that line — shrub
+appearance is still nobody's business but the shape's.
+
+**Snow is a fourth colour in a comparison the tile builder was already making**, on the one shared
+vertex-tinted material, in the slot the shoreline's sand occupies: no material, no draw call, no
+vertices, for nine hundred metres of mountain. Two things make it read as snow rather than as paint.
+It is **skipped on steep faces**, so the flanks between stacked legs come out bare rock with snow lying
+either side of them — uniform white above a height is a cake. And the line is **jittered** by one noise
+lookup, because a snow line laid on flat is a contour drawn round a mountain, which is what a map does
+and not what weather does. `Snow line: N terrain triangles tinted snow` is in the build log, and it
+**warns when nothing comes out** — a winter region with no snow in it builds and validates exactly like
+one that works.
+
+**Two pumps and nothing between them, and `ValidateFuelStations` warns about it correctly.** A forecourt
+has to be poured flat and plants a level shelf a whole verge width around itself; there is no such
+ground on eleven kilometres of switchback, which is the same reason the pass's second station is at its
+foot rather than its summit. The col's pad sits 240 m of run-out clear of the last hairpin, because the
+pass records a summit platform dropping twenty metres of ground onto the carriageway below it.
+
+**The viewpoint at the col looks down its own road.** Nine hundred metres of altitude buys nothing you
+can see: the valley is far outside the 600 m far plane with the fog wall inside it. What is within half
+a kilometre is the last four hairpins, directly underneath. This is the Kalkgrattunnel's lesson and
+this was the likeliest place in the project to repeat it.
+
+The bore and the avalanche gallery each get **a traverse of their own**, and the arithmetic is why: a
+stage-C leg is 300 m of which the straight halves are 143 m each, while a 190 m bore with 60 m of
+approach at either end needs 310. `TunnelBuilder` also sweeps its massif 40 m to each side, which the
+26–36 m hairpins here clear comfortably where the pass's 20 m ones barely do.
+
+**Traffic does not use the ramp.** `TrafficNetworkBuilder` is written for exactly one interchange —
+scalar parameters, one `bool merging`, one node, and a lane cut that breaks the nearside westbound lane
+into exactly two pieces. `BuildMotorwayMerge` now takes a name so a second wedge does not overwrite the
+first's mesh asset, and the second call throws its out-params away. Cars stream past this exit and none
+of them take it; with the Stadtfeld road also empty, that is two, and it is the argument for doing the
+branching-traffic job as its own change.
+
+**The mountain is not visible from the motorway, and the stack was turned for nothing.** Its grain was
+aimed south so the wall would face the road that leads to it; the frame taken to check that came back
+as flat forest, twice, once yawed straight at the massif. Nine hundred metres of altitude buys no
+silhouette from six hundred metres away when the far plane is six hundred and the fog wall is inside
+it: the base is at the limit and the summit is 1750 m of slant range. This is the third time the same
+lesson has been paid for here — the Kalkgrattunnel's reveal, Köprü Manzarası, and now this — and it is
+the first time it was written into a plan as a risk *and then walked into anyway*. The Weissjoch
+reveals itself by being climbed. Nothing else was ever going to work, and the orientation is kept only
+because it costs nothing.
+
+`Tools > Horizon > Render Weissjoch Preview` photographs the climb day and night. `_2_Valley` and
+`_10_Above` are the two that carry it: from the valley floor it reads as arriving at the foot of
+something big, and from above the three bands — forest, rock, snow — are unmistakable.
+
+**`_8_Face` does not work yet and is left in deliberately.** It exists to answer the one question the
+build cannot — whether the ground between two stacked legs reads as a mountainside or as a staircase of
+flat shelves, which `MountainField` produces just as quietly — and three attempts at the camera failed
+to frame it: first into the uphill cutting, then over the top of the leg below, then at a downhill face
+so deep in its own shadow that terrain and background are the same grey. **So that question is open.**
+It is worth more as a frame that admits it than as one quietly deleted.
+
+## The Weissjochring
+
+A closed circuit on the shoulder below the col: **14.6 km**, 810 m down to 560 and back, and the first
+road here that is driven for its own sake rather than to get somewhere. It is also the first closed
+loop in the project and the longest single piece of road in the world.
+
+**A circuit with a real enclosed area cannot exist here, and that decided the shape before anything
+else.** `TerrainShape.CorridorWidth` is 200 m — ground exists only that far from a road — so an oval,
+or anything shaped like a modern Grand Prix track, has a hole a kilometre across in the middle of it
+and nothing in the build says so. So the lap folds: **six rungs running across the mountain, a
+hairpin's own diameter apart, with a long straight down one side joining the two loose ends.** The
+furthest point inside the whole loop is **192 m** from tarmac against that 200 m corridor, which
+`ValidateInfieldCoverage` measures — and that check exists because a hole in an infield is near no road
+at all, so every other check in this build is blind to it.
+
+**A circuit is a footprint, not a line, and that is a placement problem nothing here had before.**
+Every other road is positioned relative to the one it leaves, which is safe for a leg carrying on from
+somewhere — a leg cannot double back over a world it has not reached yet. This one can. Placed 360 m
+off the col it ran its rungs two kilometres south at 810 m, straight over `MountainPassCourse` a
+hundred metres above sea level, and the build reported **terrain standing 674 m above the asphalt at
+1709 points of the pass**. Note where that was reported: against the road that was there first.
+`ValidateRoadClearance` on the circuit itself said nothing. `LineAcross` is now measured against every
+other road's plan bounds, and it costs nothing — the footprint lands inside the world's existing
+bounds in both axes, so the coarse height grid does not grow.
+
+**A level pad reaches a quarter of a kilometre past its own rim.** The paddock apron went in at a 190 m
+radius pushed 150 m towards the ladder, and level samples behave exactly like road samples: the coarse
+field averages them out to `CoarseReach`. The build reported terrain **162 m above the asphalt at 699
+points** on a rung that ran through the disc. It is 120 m now and centred on the main straight, where
+it is levelling ground the carriageway had already levelled — the same rule the forecourts follow,
+which is that a pad plants a whole verge width of level ground around itself and has to be given room
+for it.
+
+**A clearance breach reported on one road can be another road's fault, and the distance along says
+nothing about it.** The access road's closing solve ended 340 m from the pit mouth facing 58° away
+from it — two poses that close with a 260 m turning circle is exactly the case `Close` warns about, and
+the shortest Dubins family that existed came out **1935 m long**. The road built at 3546 m instead of
+1700, looped back through the circuit, and put a carriageway at 810 m within eighty metres of a rung at
+649. What the build said was *terrain standing 183 m above the asphalt at 312 points of the
+Weissjochring* — a complaint about the circuit, caused by the road that joins it, with nothing anywhere
+naming the culprit. `ValidateRoadClearance` now prints the world position as well as the distance
+along, because a distance says where to look on this road and a position is what lets the cause be
+found on another.
+
+**The fold is also what makes the altitude visible.** `MountainField` derives the ground from the
+roads, so two rungs 340 m apart with 170 m of height between them build a real hillside between
+themselves — the switchback stack's own mechanism (legs 40 m apart for a 65 % face) opened out by a
+factor of eight. From the climb out you look across at the descent below you, which inside a 600 m far
+plane is the only way height has ever been visible in this world.
+
+**Consecutive rungs are translates of one another, not mirror images, and that is one line of code.**
+Each rung snakes — a rung that did not would be a ruler — and a snake traversed backwards is a snake
+mirrored, which pulls two neighbours together by twice the amplitude in the middle. The rung's whole
+snake therefore flips sign with each hairpin. Without it the closest approach anywhere on the circuit
+was **73 m**; with it, 246. The amplitudes vary (41–55 m) so the rungs differ in character, and what
+two neighbours actually vary by is the *difference* of their amplitudes rather than the sum.
+
+**The height table is pinned to the region's bands, not to taste.** `LandRegion.Weissjoch` puts the
+tree line at 700 m and the snow line at 600. A lap running 810 → 560 → 810 crosses both twice: snowy
+rock at the top, dark spruce on white ground through the middle, green forest on the floor of the
+Kesselgrund. `PaddockElevation` is therefore an absolute number and the access road's grade is what
+absorbs whatever the climb above it does — which is also why the paddock is **96 m below the col**
+rather than level with it. Level with it, the last kilometre of the lap climbs back to 906 m at eleven
+per cent, and a main straight that is really a hill climb.
+
+**`RoadPath.isLoop` already existed and had never once been passed `true`.** The arc-length table
+closes on segment zero, `NormalizeDistance` repeats rather than clamps, and the Catmull-Rom neighbours
+wrap — so a course marked closed is paved, railed, sampled for terrain and drawn on the map with no
+seam at all. That is strictly better than butting two ends together under the line, which gives a
+duplicate ring and a curve straightened at both ends by extrapolation. `RoadCourseBuilder.Close` is
+the only way to set it, because three things have to happen together: the guard against the
+three-hundred-degree Dubins family, the guard against a **self**-closure degenerating and emitting
+nothing at all (the target is the walk's own start, so the two turning circles can be concentric), and
+the trim of the final control point the solve lands on.
+
+**Kerbs are the cheapest thing in this project that changes what a road *is*.** Thirteen metres of
+asphalt with no centre line is a wide road; the same ribbon with kerbs is a race track and nobody has
+to be told. Two vertex-tinted submeshes on the existing `RoadTint` material — one draw call, no new
+material. Which side is the inside is asked per sample, not per corner, because the rungs snake and a
+kerb laid on one hand throughout spends half the lap on the wrong side. No collider: a kerb is meant
+to be driven over, and a `MeshCollider` on one would be the row of re-entrant corners
+`GuardRailBuilder.BuildCollision` exists to avoid.
+
+**No centre line costs nothing.** `RoadTextureBuilder.BuildSurface` paints `laneCount − 1` interior
+lines, so the atlas is asked for with **one** lane. `RoadShape.Circuit`'s `MaxBankDegrees` is 3 and not
+6: the camber drops the inner edge by `HalfWidth × sin(bank)` and that has to stay under
+`TerrainShape.RoadShelfDrop`, and this carriageway is a quarter wider than the pass's, so every degree
+costs a quarter more.
+
+**Two checks that nothing else in the build can stand in for.** `ValidateCircuitClosure` asks whether
+the lap meets itself, and whether it meets itself *facing the same way* — a closure that misses by a
+metre still paves, still carries rails and kerbs, still passes the clearance sweep and still draws on
+the map. `ValidateInfieldCoverage` samples the ground inside the loop against `DistanceToRoad`: every
+other check here looks along a road or across it, and a hole in an infield is near no road at all,
+which is exactly why they are all blind to it.
+
+**`ValidateFuelStations` was taught what a loop is rather than switched off for one.** On an open road
+the two ends count, because the start of a road is somewhere a driver can be; on a circuit there are no
+ends and the gap wraps past the line. One pump, in the paddock: a lap is inside a tank driven hard, and
+three filling stations round a race track to satisfy a rule written for a country road would be the
+check wearing the costume of a feature.
+
+**A null tint is not a mistake here, it is an instruction.** `VegetationMeshBuffer.MergeTinted` folds
+*every* slot carrying a tint into the first one and bakes the colour into its vertices — which is why
+the kerbs are one draw call carrying two colours, and it is exactly wrong for the two things in the
+paddock that exist because they need a material of their own: the start/finish board, which must not
+swap at dusk, and the road paint, which wants asphalt smoothness rather than a building's. Tinting
+them merged the lot onto one material and the build said nothing louder than `1 of 4`. So the rule that
+goes with this mechanism is not "never a null tint" — it is that a tint means "fold me in" and a null
+means "keep me, I have my own material", and every slot has to mean one of the two on purpose.
+
+**What it costs: +256 terrain tiles and +2.0 M world triangles, and the heaviest tile does not move.**
+It is still `Terrain_-16_-6` at 27 052, which is a Weissjoch tile and was already the heaviest before
+this existed. Growing the world costs streaming; growing a tile costs frame time, and only the second
+is a budget. That is what `LandRegion.Weissjochring`'s lower density bought.
+
+**The starting grid is data, not paint.** Twelve slots, staggered either side, six rows — and the
+poses come out of the same `CircuitMeshes.GridSlot` table the boxes are painted from. Two copies of
+that arithmetic would be twelve cars parked beside their boxes rather than on them: obvious in a
+picture and impossible to attribute, because each half looks right on its own. Nothing races yet;
+`StartingGrid` exists because deriving those places later, off a finished mesh, would be guesswork —
+the argument `RoadCourse` already makes for carrying its features rather than re-reading them.
+
+**The crown rises towards the middle of the road; it does not fall away from it.** `AppendRing`'s
+section is +`Crown` on the centreline, three quarters of it at the quarter points and zero at the
+asphalt edges — a shallow ridge, not a shallow dish. The start line and all twelve grid boxes were laid
+with that sign inverted *and* at the merge's 2 cm lift rather than on top of the ribbon's own 8, so
+they sat eleven centimetres inside the tarmac down the middle of the lane and broke the surface only at
+the very edge. Built, counted correctly in the log at fifty triangles, and completely invisible.
+
+This is the specific shape of the trap already recorded as "laid-on paving only sits flush where the
+surface under it has no camber to follow", and getting the camber's *sign* wrong is worse than ignoring
+it: ignoring it leaves the paint floating at the edges, where it can at least be seen. It also took
+three passes to find, because the triangle count was right every time — the failure mode every laid-on
+thing here has is that the number says it is there and only a picture says where.
+
+**And getting the sign right was not enough: the shape has to be followed too.** The start line and all
+six sector gates span the full width of the carriageway, and each was laid as a **single quad**. The
+crown is a parabola across the road; a quad spanning both edges is a chord drawn under it, so the band
+met the tarmac at the two kerbs and sat the whole `Crown` — eleven centimetres — *below* it down the
+middle. Both circuits' start lines and all twelve gates were invisible, on the road, in daylight, with
+every log line about them reading correctly and the grid boxes beside them showing perfectly (they are
+0.16 m rails, too narrow to sag). `CircuitMeshes.AddStripe` lays a full-width band in eight spans now,
+which leaves a third of a millimetre of sag. **The player's report was that none of the gates were
+visible, and no build, check or preview frame had said a word.**
+
+**The grid staggers by half a row, and the first version did not.** Advancing a row every two slots put
+pole and second line abreast — six pairs of cars, not a grid. The build said it in one number and
+nothing else would have: `0 m ahead of it`.
+
+**The order along the main straight is the whole design of it: mouth, pumps, grid, line, turn one.**
+The first version had the line at distance zero with the pit mouth 180 m after it, which put the grid on
+the *far* side of the line — on the closure's climbing approach, and behind a car arriving from the col.
+Reaching pole meant turning round, and the grid sat on a five per cent slope. A start you have to drive
+backwards to is not a start. `LineDistance` is 530 m now and everything that has to agree about the line
+reads it: the paint, the grid poses, the timing plane, the spawn point and the preview cameras. It is a
+sum of the table above it rather than a number, so it cannot drift.
+
+**The circuit's start place is on pole, not on the line.** Astride the timing line there is nothing to
+say which way round the lap goes or where it begins. Sixteen metres back, in the first painted box,
+with eleven more behind it, the road answers both. `BuildSpawnTable`'s `Add` now takes
+`NormalizeDistance` rather than a clamp, because a grid slot can be at a negative distance and a clamp
+put all twelve on the line.
+
+**A lap only counts if it was driven.** Without gates the fastest possible time is: cross the line, turn
+round, cross it again — four seconds, and it would sit at the top of the board forever. Six gates,
+every 2.1 km, and they have to be passed **in order** — in order, not merely all of them, because any
+weaker rule is satisfied by driving back and forth over one gate. Crossing the line always *restarts*
+the lap whether or not it counted, which is the gentler of the two designs and the right one here:
+nothing is refused, the clock simply starts again. They are **painted** — a pair of white bands, two of
+them so a gate is not mistaken for the line — because a rule the player cannot see reads as the game
+being broken, and the HUD carries a `GATES n/6` row so a lap that will not count says so while it is
+still being driven rather than at the line.
+
+**Whether a lap can pass them at all is now measured rather than assumed.** A gate is a plane with a
+window in it, and every part of that can be true of the geometry and false of the drive: a circuit that
+doubles back can leave the car already on a gate's positive side when the lap begins, and a gate laid
+across a tight enough corner can be crossed outside its own window. The consequence is a readout stuck
+on `0/6` with nothing anywhere saying why. `ValidateLapGates` walks the path from the line, once round,
+running exactly the test the runtime runs. A driver does not follow the centreline — but a centreline
+that cannot pass the gates is a circuit no line can. `LapTiming.SetGates` also flattens and normalises
+the gate directions, which its own tooltip had claimed since the day it was written and which only
+`SetCircuit` actually did for the line.
+
+**No traffic, and that is a decision rather than an omission** — said in the comment beside it, the way
+the Weissjoch ramp says it. `TrunkForkBuilder` gained a name for its mesh asset at the same time, for
+exactly the reason `BuildMotorwayMerge` already had one: the second call was overwriting the first.
+
+`Tools > Horizon > Render Weissjochring Preview` photographs the lap day and night. **`_2_Line` and
+`_8_Infield` are the two that carry it** — the first contains the closure seam at the fastest point on
+the circuit, the second looks square across the middle of the ladder, and neither fault appears in any
+log. Both come back clean: unbroken tarmac under the gantry, and ground all the way across the infield.
+
+**Two things the pictures say are not right yet, recorded rather than hidden.**
+
+- **There is almost no snow on it, and the cause is the steepness test rather than the snow line.**
+  `TerrainTileBuilder` skips snow on faces past `RockSlopeThreshold` — deliberately, because uniform
+  white above a height is a cake and the flanks between stacked legs should come out bare. But the
+  detail noise is 5 m of amplitude at a 33 m wavelength, so *open* ground is locally steep almost
+  everywhere, and a circuit with 340 m between its legs is nearly all open ground. What is left gentle
+  is the road's own shelf. The Weissjoch's stack does not have this problem because its legs are 52–72 m
+  apart and the shelves are most of the mountain. So the ring at 810 m reads as rock where it should
+  read as snowfield. The honest fix is a slope threshold that belongs to the region rather than to the
+  world, and that is a change to make on purpose rather than in passing.
+- **`_3_Fork` photographs the filling station instead of the fork.** The yaw sends the camera down the
+  forecourt frontage and the pit mouth is off frame, so the one question it exists for — is there a
+  ridge standing between the branch and the trunk — is still unanswered. It is worth more as a frame
+  that admits it than as one quietly deleted, which is the same call `_8_Face` on the Weissjoch got.
+
+What the pictures do say is right: the kerbs read as kerbs at any distance, the closure is invisible,
+the tree line lands where 700 m says it does (bare rock and snags above it in `_4_Descent`, dense
+spruce below it in `_6_Kessel`), and the infield is ground rather than a hole.
+
+## The Bahçe Ring
+
+A second closed circuit, five and a third kilometres, in the empty quadrant beyond the end of
+Yalıköy — and the first road here whose shape came from somewhere else. It is **Istanbul Park**,
+measured rather than remembered.
+
+**The layout was traced, and the trace checked itself.** The reference plan was decoded to a
+centreline, chained out of its twelve drawn segments, scaled so the lap comes to the real circuit's
+5338 m, and reduced to fourteen corners. Two things then fell out that nobody put in: the net turn
+came to **−360.0°**, and the corners split **eight left and six right**, which is exactly the count
+the real circuit publishes. Neither was a target. That is the whole argument that the shape is the
+place rather than an impression of it, and it is why the angles in `BahceRingCourse.Corners` are not
+to be edited casually.
+
+**An enclosed circuit was supposed to be impossible here, and measuring it is what said otherwise.**
+`TerrainShape.CorridorWidth` is 200 m, which is why the Weissjochring is folded into a ladder instead
+of being shaped like a race track. But Istanbul Park is not an oval — it doubles back on itself
+twice — so at full scale the furthest point inside the loop is 281 m from tarmac and, far more to the
+point, **every terrain tile the loop encloses is one `TerrainTileBuilder.ListTiles` already asks
+for**: a tile is kept when its *centre* is within the corridor plus most of a tile, which reaches
+319 m. There is no hole.
+
+**Which exposed that `ValidateInfieldCoverage` was measuring a proxy.** It compared distance-to-road
+against the corridor and errored past it — and would therefore have condemned a circuit that has
+ground under all of it. It now builds the same tile list the builder is about to build and asks
+whether the point lands on one, which is the rule this file states elsewhere: *a checker with an
+opinion of its own agrees with the builder right up until one of them is wrong.* The corridor
+distance is still measured and still printed, because how much of an infield is ground the roads
+shaped and how much is ground the tile grid merely reached is worth knowing. It is a line in the log
+now, not an error.
+
+**The angles are the measurement; the radii and the straights are a fit.** A traced polyline carries
+a few per cent of drift, and a few per cent over five kilometres is a lap that ends **431 m from
+where it began, facing a hundred degrees wrong**. Every radius and every straight was solved as a
+constrained least-squares against its measured value, so none of them moved far, until the walk ends
+300 m short of the line. **Change an angle and the fit has to be redone**, and `CloseLimit` is what
+stands there to catch it not having been.
+
+**The table sums to exactly −360°, and the first version did not.** It stopped at the fourteenth
+corner and left the last 36° for `Close` to lay. `TurnBy` goes the long way round rather than
+crossing zero, so the shortest family that *existed* took the road most of the way round a 260 m
+circle: the closure came out **1965 m**, the lap built at **6.99 km instead of 5.37**, and the spare
+loop of carriageway ran through the access road's own corridor — which the build then reported as
+*terrain standing 12 m above the asphalt of the Bahçe Ring*, a complaint about the circuit caused by
+the shape of the circuit's own closure. `CloseLimit` was the only thing that named it. **A closure
+asked to change the heading is a closure asked to gamble; asked only to cover ground, it is a
+straight line.**
+
+**Thirty metres of valley, and the main straight is level.** The real circuit falls about forty
+metres into Turn 1 and climbs back over its last sector; here everything after Turn 1 drops to 30 m
+by the exit of the eighth corner and the 730 m back straight climbs it all back. The straight itself
+is 0 % over its whole authored length, and that is not taste: the fork mouth, the start line and
+twelve grid boxes are all laid *on* it, and laid-on paving only sits flush where the surface under it
+has no camber to follow.
+
+**The access road comes in from outside, and that is not a free choice.** North of the start line
+there is no circuit at all — the closure arrives from the south-east — so a road down the west side
+reaches the pit mouth without crossing tarmac. The infield is on the other hand, and anything wanting
+to be *in* it would have to go under the track.
+
+Placement follows `WeissjochringCourse.LineAcross`'s rule to the letter: measured against every other
+road's **plan bounds**, not against the pose of the road it hangs off. The footprint is
+x 12090…13170, z −2250…−410 — inside the world's existing extent in both axes, so it costs streaming
+and not a wider height grid; the nearest carriageway is the Yalıköy leg 1.8 km north and the nearest
+water another two kilometres past that.
+
+**Five builders were wired to one circuit, and it took a second one to find out.** `BuildPaddock`,
+`BuildLapTiming`, `BuildSectorGates`, `BuildStartingGrid` and `AddPaddockSamples` all read
+`WeissjochringCourse` directly and all wrote mesh assets under fixed names, so a second call would
+have built one circuit's furniture over the other's and left one of them with no paddock, no kerbs
+and no timing — silently, with a correct triangle count logged each time. `CircuitBuild` carries the
+name, the label the assets are stemmed from, the line distance, the infield hand and the apron. It is
+the same trap `BuildMotorwayMerge` and `TrunkForkBuilder` have each already been through.
+
+**A corner too short to hold control points is worse than no corner at all, and closing a lap
+cleanly is what produces one.** With the heading right, `Close`'s Dubins solve came out as two arcs
+of a fifth of a degree either side of a 300 m straight — and `RoadCourseBuilder.Turn` has a floor of
+two steps, so a one-metre arc emitted two control points half a metre apart between ten-metre
+neighbours. A Catmull-Rom through that is not a road: across the short span the parameterisation
+stops resembling arc length, the tangent swings, and every reader of the curve believes there is a
+corner there. `GetRadiusAtDistance` read **1.6 m**, on the start line, on the fastest part of the
+lap — and `RoadShape`'s banking would have rolled the carriageway over on the strength of it. `Turn`
+now carries the pose across an arc shorter than 0.4 of a point's spacing and emits nothing. The only
+thing that ever reported this was `ReportCourse`'s "tightest radius"; `ValidateCircuitClosure` said
+0.3 m and 0.2°, which is to say it said the closure was excellent.
+
+**`LapTimer` resolved its `LapTiming` with `FindFirstObjectByType`, which two circuits turn into a
+coin toss** — half the time the readout would sit blank on the circuit being driven while faithfully
+timing the other one four hundred kilometres away. It finds them all once and reads whichever reports
+`OnCircuit`.
+
+**A closed road has no start, so it has no entry fade.** `LandRegion.Weight` ramps a region in over
+the first 400 m of its road, which is right where two regions share one — and wrong on a lap, where
+`along` runs back to zero at the start line. It was thinning both circuits' regions over the main
+straight and the paddock, the one stretch of either that anybody looks at closely. `RoadProximity`
+now carries `IsLoop` and the fade is skipped; the Weissjochring's paddock gets it back too.
+
+**The valley is in flower, and that is a region rather than a colour.** `LandRegion.Bahce` is farmed
+— orchard rows, walled boundaries, cut meadows — with a fresh spring green under it and pale warm
+stone rather than either mountain's rock. `BlossomChance` mirrors `SpireChance` exactly and does two
+jobs from one number: it picks the wild trees and it puts the orchard rows into blossom instead of
+the Ebental's rust, because a region with pink woods and rust orchards would be two places. The
+fourth parcel — the slot the Ebental ploughs — is petal drift, which is the honest way to get blossom
+on the ground: `LandRegion.Parcel` already does the work, and it costs no triangle, no draw call and
+no new mechanism. It is counted in the build log for the reason the snow line is.
+
+**Whatever is not in flower here is a broadleaf, and never a spruce.** Left to fall through to the
+world's own coin, about one tree in five of the orchard valley came out alpine conifer:
+`ClimbFraction` is normalised against the mountain pass, so down at 40 m it is nought, `coniferBias`
+with it, and the spruce probability sits at its floor of 0.45. A dark five-tiered conifer standing in
+a cherry orchard is the one thing in the frame that says this is the same mountain as everywhere
+else, which is exactly what a region exists to deny. It is the argument `AutumnCanopy` already makes
+one region along — and **the log was correct throughout; only `_5_Blossom` and `_7_Infield` showed
+it.**
+
+**The cherry is a mesh of its own where the cypress was only a repaint.** Tone sorts a wood at
+distance and shape is what survives when the fog has taken the tone — the argument the spruce and the
+fir already make against each other. `AddCherry` is squat, twice as wide as its stem is tall, and
+lumpy on top: two blobs, because one wide one came out a mushroom (the jitter is a fraction of the
+radius, so a wider crown is a smoother outline, and a cherry is the opposite of smooth). The two
+blossom tints are the only pale cool colours anywhere in this world, which is most of why the place
+reads as somewhere else.
+
+**The blossom branch goes *after* `SpireChance` and `AutumnCanopy`, not before.** Every draw from a
+plant's random stream shifts every draw after it, so a new `random.Next()` in front of those two
+would have moved every tree on the far shore of the Meerenge by a species — a change to a region
+nobody touched, reported nowhere.
+
+**No altitude bands, deliberately.** The lap runs between 30 and 60 m and the world's tree line is at
+160, so every metre of this region is below it by construction. Setting one anyway is the trap
+`VegetationBuilder.ClimbAt` exists to make visible. **The build log must still read "Tree line around
+160 m" after any change here.**
+
+**The pit road meets the track at 18°, where every other fork in this world uses 32.** At 32 the
+branch arrives pointing *across* the carriageway and its last twenty-five metres of paving lie over
+the racing line — which is how it was reported: a road that does not meet the track flush but runs
+straight into the middle of it. `StadtfeldCourse`'s 32° is not a rule about forks, it is a rule about
+**height**: two branches close together share one shelf whatever the plan says, so a shallow angle
+keeps them near each other for longer and a disagreement about elevation becomes a ridge. Here they
+agree by construction — the main straight is level at `PaddockElevation` and the access road arrives on
+it — so the reason for the wider angle is absent and the cost of it is not. It cannot go much below 18
+either: `TrunkForkBuilder.ThroatLength` is 70 m and a branch at eighteen degrees crosses a 19 m
+carriageway over 61 m of its own length.
+
+**And the mouth was sized from the wrong road.** `TrunkForkBuilder` computed its widest half-width as
+`branchShape.OuterHalfWidth + MouthOverlap` — the branch alone, with no reference to what it opens
+onto. On this world's first two forks that is the same number written twice, so nothing showed; a
+circuit is 6.5 m of asphalt inside a 9.5 m half-width, and the same expression still returned 6.8, a
+bell **narrower at its widest than the road it opens onto**. The junction pinched shut exactly where it
+should have been at its most open. `AppendFillets` had always taken its reach from the trunk's own
+edge; this is the same fact and it belonged there too.
+
+**The build had been reporting that number from its own second copy of the formula**, printing
+`branchShape.OuterHalfWidth` and calling it "at the mouth". It was right by coincidence for as long as
+both forks joined two roads of one class, and it went on being right-looking for the first build after
+the fix — the one line anybody would have read to check. `TrunkForkBuilder.MouthHalfWidth` is the
+number now, and the log asks for it.
+
+**The one pump has no advance sign, and that is accepted rather than fixed.** `ValidateFuelStations`
+wants 250–600 m of road behind a station clear of bores, spans and bends under 90 m; on a lap that
+wraps into the closing corners there is no such stretch, and there does not need to be. Nobody is
+looking for this forecourt from a distance — it is thirty metres past the pit mouth, on the way in.
+
+**No traffic**, like the Weissjochring and the Stadtfeld, and said in the comment beside it rather
+than hidden. That is now three roads without it, which is the argument for doing the branching-traffic
+job as its own change.
+
+`Tools > Horizon > Render Bahçe Ring Preview` photographs the lap day and night. **`_2_Line`,
+`_7_Infield` and `_5_Blossom` are the three that carry it** — the closure seam at the fastest point
+on the lap, the ground square across the middle of the loop, and the only frame anywhere that says
+whether a valley meant to be in flower reads as one. `_3_Fork` is aimed at the throat rather than
+along the road, which is the fault the Weissjochring's own `_3_Fork` still has.
+
+## The woods
+
+**A wood in one colour is a texture, not a wood.** Every conifer in the world shared one green, every
+broadleaf another and every bush a third — so a hillside of four hundred trees was four hundred copies
+of the same three tones. The trees already varied in height by nearly a factor of two and it made no
+difference: what the eye sorts a forest by at distance is **tone before shape**, and there was one tone
+per species.
+
+There are now three greens for conifers, three for broadleaves and two for undergrowth, each drawn from
+the plant's own seed. **It costs nothing.** A submesh with an entry in `PlantMeshes.FoliageTints` is
+merged into the same draw call as the rest — `PlantMaterials` hands everything but `RockSubmesh` the
+same tinted material — so the rebuild came back with the identical triangle count, the identical tile
+count and the identical draw calls, and a different-looking world. The one rule is the one already
+written down: never add a slot with a null tint.
+
+**The tones are further apart than looks sensible written down.** On a flat-shaded low-poly tree under
+one directional light the canopy is a handful of facets, so a subtle difference between two greens is
+no difference at all by forty metres — which is where nearly every tree here is seen from.
+
+**Two conifer silhouettes, because shape is what survives when tone has gone grey in the fog.** The
+spruce is tall, narrow and five-tiered against the fir's broad three; a stand of both reads as a mixed
+wood where one read as wallpaper. Same triangle order, chosen by seed.
+
+**The autumn canopy and the orchard keep their single palettes on purpose.** Those two *are* a
+signature — the Ebental reads as one country precisely because its gold does not vary — so
+`AddBroadleaf`'s explicit-slot overload is left alone and only the wild scatter picks a tone.
+
+**Two density changes, and they are the only part of this that costs anything.** `TreeClearance` 14 m →
+11: fourteen left four metres of shoulder and then seven of nothing before the first trunk, which reads
+as a mown verge on both sides of every road in the world — the wood stood back from the road instead of
+the road being cut through the wood. And `ClumpThreshold` 0.42 → 0.34, which is the fraction of hillside
+that is clearing rather than wood; at 0.42 the stands were real and everything between them was bare.
+
+That pair is +20 % on the world total and **+3 % on the heaviest tile, which is the same tile it has
+always been**. Growing the world costs streaming; growing a tile costs frame time, and only the second
+is a budget. `ClumpThreshold` is the knob to pull back on if `MaxTrianglesPerTile` ever starts naming a
+tile other than Terrain_8_6.
+
+**A region may now ask for a forest rather than a scatter, and the Weissjoch does.** Three things were
+keeping a nine-hundred-metre mountain bald and only the first was obvious:
+
+- Its tree line was at 460 m of a 906 m summit, so three quarters of the climb had nothing growing on
+  it by construction. It is 700 m now, and the **snow line at 600 sits below it on purpose** — the band
+  where dark spruce stands on white ground is the whole picture a winter region is for.
+- **`TreeMaxSlopeDegrees` was rejecting every tree on every face.** The world's 30° was chosen against a
+  pass whose face is 63 % — but that is the *mean*, and `MountainField` blends between stacked legs with
+  an inverse-fifth power, so the middle of a face is far steeper than its average. On a twenty-eight
+  hairpin stack that kept the trees on the flat shelves and nowhere else, which is a hillside with
+  stripes on it. The region carries 44°.
+- Density and clearing share are global, so the mountain was as open as the farmland. `TreeDensity` 2.4
+  and a `ClumpThreshold` of 0.10 are the region's own.
+
+`TreeDensity` divides `TreeCellSize` by its square root, and it has to be applied **to the candidate
+grid** — everything after that only ever removes candidates, so no amount of relaxing filters can plant
+more trees than the grid offered.
+
+**The undergrowth follows the region's clearings but deliberately not its density.** Multiplying the
+shrub count too was the obvious next line: it cost 0.44 M triangles and five thousand off the heaviest
+tile to say nothing, because a two-metre bush under a twelve-metre canopy is not visible. Density there
+buys nothing and is paid for per tile.
+
+**And `FarDensity` cannot help on a mountain like this.** It thins what stands more than 100 m from a
+carriageway; a switchback stack puts its legs 52–72 m apart, so there is no ground on that mountain far
+from a road and nothing for the falloff to thin. A stacked climb is all near field — which is exactly
+why its tiles are the heaviest in the world, and why `LandRegion.TreeDensity` is the knob rather than
+`FarDensity`.
+
 ## The map
 
 A minimap in the top-left corner, and the whole world behind a tap on it (`MenuPage.Map`). Both are one
@@ -466,6 +1100,17 @@ Heading-up on the minimap, because the only question asked of it at speed is whi
 goes; the full-screen map is north-up, because it answers a different one and a world that spins under the
 reader answers it badly.
 
+**And the car does not sit in the middle of it.** A heading-up map centred on the car spends half of
+itself on road already driven, which is worth almost nothing — the mirror is not the instrument for
+that. The widget is 300 units across and clips to the inner 80 %, so at the original 340 m span a
+driver could see **136 m** of road ahead: five seconds at a hundred kilometres an hour, which is not
+enough to read a corner off a map. The span is 440 m now and `Minimap.ForwardBias` slides the car 40 %
+of the half-height down the disc while the view is pushed the same distance forward, which buys another
+half again of forward reach at no zoom cost — about 260 m ahead, still inside the 600 m far plane, so
+it is not telling the player about ground they could not otherwise know. That constant is `public` for
+one reason: this component shifts the view and `TouchUiSetup` places the marker, and two copies of it
+would agree until the first retune and then put the car beside the road it is drawn over.
+
 **The full-screen map carries a key**, and every swatch in it is read off the `MapGraphic` beside it
 through `ColourOf`. A palette typed out a second time in `MenuUiSetup` would agree until the first time
 somebody retuned one of them, and a key that quietly lies is worse than no key.
@@ -473,6 +1118,42 @@ somebody retuned one of them, and a key that quietly lies is worse than no key.
 **Street lines and feature marks are dropped past a zoom.** Not tidiness: one canvas mesh holds 65 535
 vertices, and the four towns are 189 street lines that at a zoom where a town is forty units wide are not
 streets but hatching.
+
+**A new `MapLineKind` broke the entire map, and the way it broke is the lesson.** `MapGraphic` bins the
+segments it is about to draw into one bucket per kind, and those buckets were `new int[4][]` — a
+literal. Adding `Circuit` made that an index out of range on the first segment of the new kind, thrown
+inside `OnPopulateMesh`, which Unity catches per frame. So there was no broken map and no error the
+player could see: every road, every town, both views simply drew **nothing**, including everything that
+had worked the day before. The only place it was visible was `MapPreview_World.png: 0 vertices, 4305
+segments` — which is exactly the distinction `LastVertexCount` starting at −1 was put there to make.
+`MapLine.KindCount` lives beside the enum now, and anything sizing an array by kind reads it. A kind
+also has to be added to `OnPopulateMesh`'s emit list or it is collected and never drawn, which is the
+quieter half of the same mistake.
+
+**And a colour has to be chosen against the palette, not in isolation.** The circuit's first one was
+0.88/0.55/0.28 against the motorway's 0.96/0.55/0.28 — so the one closed loop in the world came back
+reading as another stretch of motorway, which is the exact impression a kind of its own exists to
+avoid. It is red now. The key beside the full-screen map reads its swatch off `MapGraphic.ColourOf`, so
+that half looked after itself.
+
+**Marks are silhouettes, not four colours of the same diamond.** A square is a filling station, a
+triangle a viewpoint, a hollow diamond a start place, a solid one a tunnel or a bridge — one `AddNgon`
+covers all of them, and the rotation is what turns a diamond into a square without a second case. A
+shape needs no legend to be told apart, it survives being four pixels across (which is the size a mark
+is read at on the minimap), and it does not fail for anyone who cannot separate the green from the
+orange. Colour still carries the meaning; the shape is what makes it legible. Every mark also sits on a
+dark backing, because it stands over roads, water, town blocks and bare ground by turns and a flat
+silhouette disappears against whichever is under it.
+
+**The car marker is its own sprite, and the shape of it is the whole point.** It was the arrows' glyph
+rotated ninety degrees — a near equilateral triangle, so at 34 units across which way it points is a
+guess, on a heading-up minimap whose only job is to answer that. It is 0.62 wide against 1.8 long now,
+with a notched tail and a dark rim.
+
+**Whatever the map draws, the key has to draw too.** `LegendMark` gained `Square` and `Triangle` the
+same day `AddMarker` did, and `MapMarkerKind.Place` is a hollow *diamond* rather than the ring it wanted
+to be for exactly that reason: a shape family the key cannot show is a key that quietly lies, which this
+file already says is worse than no key.
 
 **A place that shares a town's name gets no mark.** The picture came back with "Seeburg" printed twice over
 itself — the start place at the waterfront and the town at its centroid, a hundred metres apart.

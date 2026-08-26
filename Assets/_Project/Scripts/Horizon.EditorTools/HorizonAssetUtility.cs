@@ -727,6 +727,89 @@ namespace Horizon.EditorTools
         /// art pipeline, and a caption reading "GAS" is a label rather than a control. A symbol is also
         /// the only version of this that works in any language.</para>
         /// </summary>
+        /// <summary>
+        /// The car marker on the minimap: a sharp navigation dart with a dark outline.
+        ///
+        /// <para><b>It replaced a rotated arrow glyph, and the reason is that the glyph was a near
+        /// equilateral triangle.</b> A shape that wide reads as a blob at 34 units across — which way it
+        /// points is a guess, and on a heading-up minimap "which way am I pointing" is the one thing the
+        /// widget exists to answer. This is 0.62 wide against 1.8 long with a notched tail, so the tip
+        /// is unambiguous even when it is twelve pixels tall.</para>
+        ///
+        /// <para>The outline is not decoration either. The marker sits over roads, water, town blocks
+        /// and bare ground by turns, and a flat silhouette disappears against whichever of those happens
+        /// to be under it. A dark rim means it never has to be looked for.</para>
+        /// </summary>
+        public static Sprite LoadOrCreateCarMarkerSprite(string assetPath, int size = 128)
+        {
+            var existing = AssetDatabase.LoadAssetAtPath<Sprite>(assetPath);
+            if (existing != null)
+            {
+                return existing;
+            }
+
+            var texture = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            float half = size * 0.5f;
+
+            // Tip, the two barbs, and the notch between them. Pointing +Y.
+            //
+            // Broad rather than needle-sharp, and that is a correction: the first cut ran 0.62 wide
+            // against 1.8 long and read as a splinter. What makes a heading legible is the *taper* —
+            // one end obviously narrower than the other — not the angle at the tip, and a shape with
+            // some width to it survives being tinted, shrunk and drawn over a busy map. The notch is
+            // shallow for the same reason: deep enough to say which end is the back, not so deep that
+            // the marker becomes two thin barbs with a gap.
+            var tip = new Vector2(0f, 0.84f);
+            var left = new Vector2(-0.80f, -0.62f);
+            var right = new Vector2(0.80f, -0.62f);
+            var notch = new Vector2(0f, -0.16f);
+
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    var point = new Vector2((x + 0.5f - half) / half, (y + 0.5f - half) / half);
+
+                    bool inside = InDart(point, 1f, tip, left, right, notch);
+                    bool rim = !inside && InDart(point, 1.34f, tip, left, right, notch);
+
+                    Color colour = inside
+                        ? Color.white
+                        : rim ? new Color(0.05f, 0.06f, 0.08f, 1f) : new Color(1f, 1f, 1f, 0f);
+
+                    texture.SetPixel(x, y, colour);
+                }
+            }
+
+            texture.Apply();
+            return SaveSpriteTexture(texture, assetPath);
+        }
+
+        /// <summary>Point-in-dart, as the two triangles either side of the notch.</summary>
+        private static bool InDart(
+            Vector2 point, float scale, Vector2 tip, Vector2 left, Vector2 right, Vector2 notch)
+        {
+            point /= scale;
+            return InTriangle(point, tip, left, notch) || InTriangle(point, tip, notch, right);
+        }
+
+        private static bool InTriangle(Vector2 p, Vector2 a, Vector2 b, Vector2 c)
+        {
+            float d1 = Cross(p - a, b - a);
+            float d2 = Cross(p - b, c - b);
+            float d3 = Cross(p - c, a - c);
+
+            bool negative = d1 < 0f || d2 < 0f || d3 < 0f;
+            bool positive = d1 > 0f || d2 > 0f || d3 > 0f;
+
+            return !(negative && positive);
+        }
+
+        private static float Cross(Vector2 a, Vector2 b)
+        {
+            return a.x * b.y - a.y * b.x;
+        }
+
         public static Sprite LoadOrCreateGlyphSprite(string assetPath, string glyph, int size = 128)
         {
             var existing = AssetDatabase.LoadAssetAtPath<Sprite>(assetPath);

@@ -342,21 +342,33 @@ namespace Horizon.EditorTools
                 labelObject.SetActive(false);
             }
 
-            // The arrows' own triangle, stood on end below. Loaded rather than regenerated: it is
-            // already an asset by the time any page is built.
+            // The arrows' own triangle, still used by the key below.
             Sprite arrow = HorizonAssetUtility.LoadOrCreateGlyphSprite(
                 $"{SpriteFolder}/UI_Right.png", "right");
 
-            RectTransform car = TouchUiSetup.Panel(view, "Car", arrow, TouchUiSetup.AccentTint,
-                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(40f, 40f), Vector2.zero);
+            // The car marker is the minimap's sprite, not that glyph — and the reason is a bug rather
+            // than a preference. This rect used to be built with a 90° rest rotation, because the glyph
+            // points right and the marker has to point up. But MapScreen assigns localRotation outright
+            // every frame to carry the heading, so the rest rotation was overwritten on the first
+            // update and the arrow spent the whole time pointing ninety degrees off the car's actual
+            // bearing. On a north-up map that is not a cosmetic fault: the one thing the marker is for
+            // is which way you are facing, and it was reliably wrong.
+            //
+            // The proper sprite points up already, so nothing has to be added afterwards for MapScreen
+            // to overwrite. Bigger than the minimap's, too: this view is zoomed out far enough that the
+            // car is a speck among the roads.
+            Sprite carSprite = HorizonAssetUtility.LoadOrCreateCarMarkerSprite(
+                $"{SpriteFolder}/UI_CarMarker.png");
+
+            RectTransform car = TouchUiSetup.Panel(view, "Car", carSprite, TouchUiSetup.AccentTint,
+                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(36f, 46f), Vector2.zero);
 
             Image carImage = car.GetComponent<Image>();
             carImage.type = Image.Type.Simple;
             carImage.raycastTarget = false;
 
-            // Pointing up at rest; MapScreen turns it to the car's heading, which the north-up view
-            // leaves as an honest bearing.
-            car.localRotation = Quaternion.Euler(0f, 0f, 90f);
+            // No rest rotation on purpose. MapScreen turns this to the car's heading, which the
+            // north-up view leaves as an honest bearing — and anything set here is overwritten by it.
 
             // --- Controls, over the map rather than beside it.
             page.ZoomIn = MapButton(page.Panel, box, "ZoomIn", "+", new Vector2(-110f, 400f));
@@ -434,13 +446,20 @@ namespace Horizon.EditorTools
 
             LegendRow(panel, box, graphic.ColourOf(MapLineKind.Motorway), "MOTORWAY", LegendMark.Line);
             LegendRow(panel, box, graphic.ColourOf(MapLineKind.Trunk), "ROAD", LegendMark.Line);
+            LegendRow(panel, box, graphic.ColourOf(MapLineKind.Circuit), "CIRCUIT", LegendMark.Line);
             LegendRow(panel, box, graphic.ColourOf(MapLineKind.Street), "TOWN STREET", LegendMark.Line);
             LegendRow(panel, box, graphic.ColourOf(MapLineKind.River), "WATER", LegendMark.Block);
             LegendRow(panel, box, graphic.TownColour, "BUILT UP", LegendMark.Block);
 
             LegendRow(panel, box, graphic.ColourOf(MapMarkerKind.Place), "START PLACE", LegendMark.Diamond);
-            LegendRow(panel, box, graphic.ColourOf(MapMarkerKind.FuelStation), "FUEL", LegendMark.Diamond);
-            LegendRow(panel, box, graphic.ColourOf(MapMarkerKind.Viewpoint), "VIEWPOINT", LegendMark.Diamond);
+            // The shapes match what MapGraphic.AddMarker actually draws, kind for kind. They are shapes
+            // rather than four colours of the same diamond because a silhouette needs no legend to be
+            // told apart and survives being four pixels across, which is the size a mark is read at on
+            // the minimap — and because a key that shows a shape the map does not draw is worse than no
+            // key at all.
+            LegendRow(panel, box, graphic.ColourOf(MapMarkerKind.FuelStation), "FUEL", LegendMark.Square);
+            LegendRow(panel, arrow, graphic.ColourOf(MapMarkerKind.Viewpoint), "VIEWPOINT",
+                LegendMark.Triangle);
             LegendRow(panel, box, graphic.ColourOf(MapMarkerKind.Tunnel), "TUNNEL, BRIDGE", LegendMark.Diamond);
 
             LegendRow(panel, arrow, TouchUiSetup.AccentTint, "YOU", LegendMark.Arrow);
@@ -457,6 +476,12 @@ namespace Horizon.EditorTools
 
             /// <summary>The marker shape, which is a square stood on its corner.</summary>
             Diamond,
+
+            /// <summary>A square stood square, which is what a filling station is drawn as.</summary>
+            Square,
+
+            /// <summary>A triangle on its base, which is what a viewpoint is drawn as.</summary>
+            Triangle,
 
             /// <summary>The car, which is the arrows' triangle stood on end.</summary>
             Arrow,
@@ -495,9 +520,11 @@ namespace Horizon.EditorTools
 
             // Simple for the diamond and the arrow: both are drawn from the middle of their own square,
             // and a nine-slice would stretch a border that is not there.
-            image.type = mark == LegendMark.Diamond || mark == LegendMark.Arrow
-                ? Image.Type.Simple
-                : Image.Type.Sliced;
+            // Simple for every mark drawn from the middle of its own square: a nine-slice would
+            // stretch a border that is not there.
+            image.type = mark == LegendMark.Line || mark == LegendMark.Block
+                ? Image.Type.Sliced
+                : Image.Type.Simple;
 
             image.raycastTarget = false;
 
@@ -505,7 +532,7 @@ namespace Horizon.EditorTools
             {
                 swatch.localRotation = Quaternion.Euler(0f, 0f, 45f);
             }
-            else if (mark == LegendMark.Arrow)
+            else if (mark == LegendMark.Arrow || mark == LegendMark.Triangle)
             {
                 swatch.localRotation = Quaternion.Euler(0f, 0f, 90f);
             }

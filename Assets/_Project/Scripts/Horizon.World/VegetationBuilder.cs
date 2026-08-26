@@ -23,6 +23,13 @@ namespace Horizon.World
         /// </summary>
         public int Cypresses;
 
+        /// <summary>
+        /// The Bahçe's cherries. Counted apart from <see cref="Broadleaves"/> for the reason
+        /// <see cref="Cypresses"/> is counted apart from <see cref="Poplars"/>: it is the one number
+        /// that says whether a region whose entire character is its blossom actually planted any.
+        /// </summary>
+        public int CherryTrees;
+
         public int FruitTrees;
         public int HayBales;
         public int WallRuns;
@@ -56,7 +63,7 @@ namespace Horizon.World
         public readonly List<int> Submeshes = new List<int>(PlantMeshes.SubmeshCount);
 
         public int Plants => Conifers + Broadleaves + Shrubs + Tufts + Boulders + Snags
-                             + Poplars + Cypresses + FruitTrees;
+                             + Poplars + Cypresses + CherryTrees + FruitTrees;
 
         public void Add(VegetationStats other)
         {
@@ -73,6 +80,7 @@ namespace Horizon.World
             // and were missed, and the log said "0 cypresses" over eleven hundred of them — which read
             // as a region that had stopped planting rather than as a line missing from a sum.
             Cypresses += other.Cypresses;
+            CherryTrees += other.CherryTrees;
             FruitTrees += other.FruitTrees;
             HayBales += other.HayBales;
             WallRuns += other.WallRuns;
@@ -771,7 +779,10 @@ namespace Horizon.World
 
             ScatterTrees(buffer, field, terrainShape, shape, context, originX, originZ, tileSize, stats,
                 tileRegion);
-            ScatterShrubs(buffer, field, terrainShape, shape, context, originX, originZ, tileSize, stats);
+            // The region reaches the shrubs now, and only so they can read its tree line. Their
+            // appearance is still nobody's business but the shape's — see ClimbAt.
+            ScatterShrubs(buffer, field, terrainShape, shape, context, originX, originZ, tileSize, stats,
+                tileRegion);
             ScatterTufts(buffer, field, terrainShape, shape, context, originX, originZ, tileSize, stats);
             ScatterBoulders(buffer, field, terrainShape, shape, context, originX, originZ, tileSize, stats,
                 tileRegion);
@@ -801,6 +812,36 @@ namespace Horizon.World
             return buffer.ToMesh(meshName, stats.Submeshes);
         }
 
+        /// <summary>
+        /// Where a point sits up the climb, on the 0..1 axis every altitude constant in
+        /// <see cref="VegetationShape"/> is tuned against.
+        ///
+        /// <para><b>Two axes, and which one applies is the region's decision.</b> The world's own is
+        /// <c>VegetationContext.ClimbFraction</c>, normalised against the mountain pass — right for
+        /// everything grafted onto that pass, and useless for a mountain four times higher somewhere
+        /// else, which clamps to 1 and comes out bare from the valley floor up. A region carrying its
+        /// own <see cref="LandRegion.TreeLineElevation"/> gets a linear map instead, chosen so that its
+        /// tree line lands exactly on <c>shape.TreeLineHeight</c>.</para>
+        ///
+        /// <para>That choice of map is the point. Everything downstream — the snag band above the line,
+        /// the ramp that shrinks trees towards it, <c>BroadleafBelow</c>, the boulder test, the shrub
+        /// thinning — is a number tuned against this axis, and none of them has to change or even know:
+        /// they keep meaning what they meant, and the only thing that moves is the elevation they mean
+        /// it at. On the Weissjoch a tree line of 460 m puts the broadleaf/conifer change at 146 m and
+        /// the snag band between 460 and 527 m, which is what a mountain looks like.</para>
+        /// </summary>
+        private static float ClimbAt(
+            VegetationContext context, in VegetationShape shape, LandRegion region, float elevation)
+        {
+            if (region != null && region.HasAltitudeBands)
+            {
+                return Mathf.Clamp01(
+                    elevation / Mathf.Max(1f, region.TreeLineElevation) * shape.TreeLineHeight);
+            }
+
+            return context.ClimbFraction(elevation);
+        }
+
         private static void ScatterTrees(
             VegetationMeshBuffer buffer,
             MountainField field,
@@ -813,8 +854,32 @@ namespace Horizon.World
             VegetationStats stats,
             LandRegion region)
         {
+            // A region that wants a forest rather than a scatter has to say so <b>here</b>, before the
+            // grid is laid: everything below this point only ever removes candidates, so no amount of
+            // relaxing the filters can put down more trees than the cell size offered in the first place.
             float cell = shape.TreeCellSize;
-            float minSlopeCosine = Mathf.Cos(shape.TreeMaxSlopeDegrees * Mathf.Deg2Rad);
+            float clumpThreshold = shape.ClumpThreshold;
+            float maxSlopeDegrees = shape.TreeMaxSlopeDegrees;
+
+            if (region != null)
+            {
+                if (region.TreeDensity > 0f)
+                {
+                    cell /= Mathf.Sqrt(region.TreeDensity);
+                }
+
+                if (!float.IsNaN(region.ClumpThreshold))
+                {
+                    clumpThreshold = region.ClumpThreshold;
+                }
+
+                if (!float.IsNaN(region.TreeMaxSlopeDegrees))
+                {
+                    maxSlopeDegrees = region.TreeMaxSlopeDegrees;
+                }
+            }
+
+            float minSlopeCosine = Mathf.Cos(maxSlopeDegrees * Mathf.Deg2Rad);
 
             int fromX = Mathf.FloorToInt(originX / cell);
             int toX = Mathf.CeilToInt((originX + tileSize) / cell);
@@ -840,7 +905,7 @@ namespace Horizon.World
                         continue;
                     }
 
-                    if (Clump(x, z, shape.ClumpScale, 0f) < shape.ClumpThreshold)
+                    if (Clump(x, z, shape.ClumpScale, 0f) < clumpThreshold)
                     {
                         continue;
                     }
@@ -882,7 +947,7 @@ namespace Horizon.World
                         continue;
                     }
 
-                    float climb = context.ClimbFraction(point.y);
+                    float climb = ClimbAt(context, shape, region, point.y);
                     float treeLine = shape.TreeLineHeight
                                      + (Clump(x, z, 0.004f, 71.3f) - 0.5f) * 2f * shape.TreeLineJitter;
 
@@ -939,6 +1004,36 @@ namespace Horizon.World
                         if (region.AutumnCanopy)
                         {
                             PlantMeshes.AddBroadleaf(buffer, placement, PlantMeshes.AutumnCanopySubmesh);
+                            stats.Broadleaves++;
+                            Record(stats, toRoad, context, x, z);
+                            continue;
+                        }
+
+                        // Cherry, and it goes *after* the two above rather than before them. Every draw
+                        // from this stream shifts every draw after it, so a new random.Next() in front
+                        // of SpireChance would have moved every tree on the far shore of the Meerenge
+                        // by a species — a change to a region nobody touched, reported nowhere. The
+                        // guard on BlossomChance keeps regions without one from drawing at all.
+                        if (region.BlossomChance > 0f && random.Next() < region.BlossomChance)
+                        {
+                            PlantMeshes.AddCherry(buffer, placement);
+                            stats.CherryTrees++;
+                            Record(stats, toRoad, context, x, z);
+                            continue;
+                        }
+
+                        // And whatever is not in flower here is a broadleaf, never a spruce. Falling
+                        // through to the coin below put about one tree in five of the orchard valley
+                        // in alpine conifer — ClimbFraction is normalised against the pass, so down at
+                        // 40 m it is nought, coniferBias with it, and the spruce probability sits at
+                        // its floor of 0.45. A dark five-tiered conifer standing in a cherry orchard
+                        // is the one thing in the frame that says this is the same mountain as
+                        // everywhere else, which is exactly what a region exists to deny. The same
+                        // argument AutumnCanopy makes one region along, and it took a picture to see
+                        // it: the count in the log was correct throughout.
+                        if (region.BlossomChance > 0f)
+                        {
+                            PlantMeshes.AddBroadleaf(buffer, placement);
                             stats.Broadleaves++;
                             Record(stats, toRoad, context, x, z);
                             continue;
@@ -1111,7 +1206,16 @@ namespace Horizon.World
                         continue;
                     }
 
-                    PlantMeshes.AddFruitTree(buffer, Place(point, normal, ref random, random.Range(0.9f, 1.1f)));
+                    // The rows take the region's own crown colour. One number decides both the wild
+                    // trees and the planted ones — see LandRegion.BlossomChance for why a region with
+                    // pink woods and rust orchards would be two places rather than one.
+                    PlantMeshes.AddFruitTree(
+                        buffer,
+                        Place(point, normal, ref random, random.Range(0.9f, 1.1f)),
+                        region.BlossomChance > 0f
+                            ? PlantMeshes.BlossomSubmesh
+                            : PlantMeshes.OrchardSubmesh);
+
                     stats.FruitTrees++;
                     Record(stats, toRoad, context, x, z);
                 }
@@ -1341,9 +1445,22 @@ namespace Horizon.World
             float originX,
             float originZ,
             float tileSize,
-            VegetationStats stats)
+            VegetationStats stats,
+            LandRegion region)
         {
+            // The floor of a wood follows the wood's <i>clearings</i> but not its density, and the
+            // asymmetry is deliberate.
+            //
+            // A region that asks for a forest needs its undergrowth to be continuous rather than
+            // patchy, or the trees stand in stripes of bare ground — that is what the clump override is
+            // for. Multiplying the shrub count as well was the obvious next line and it is the wrong
+            // one: bushes are two metres high under trees that are twelve, so under a dense canopy
+            // almost none of them can be seen, and they were costing about as many triangles as the
+            // trees they were hiding under. Density here buys nothing and is paid for per tile.
             float cell = shape.ShrubCellSize;
+            float shrubClump = region != null && !float.IsNaN(region.ClumpThreshold)
+                ? region.ClumpThreshold * 0.7f
+                : shape.ClumpThreshold * 0.7f;
             float minSlopeCosine = Mathf.Cos(shape.ShrubMaxSlopeDegrees * Mathf.Deg2Rad);
 
             int fromX = Mathf.FloorToInt(originX / cell);
@@ -1372,7 +1489,7 @@ namespace Horizon.World
 
                     // Offset noise, so bushes are not simply the same stands as the trees. They thin out
                     // rather than stopping, which is what fills a clearing instead of leaving bare grass.
-                    if (Clump(x, z, shape.ClumpScale * 1.6f, 17.9f) < shape.ClumpThreshold * 0.7f)
+                    if (Clump(x, z, shape.ClumpScale * 1.6f, 17.9f) < shrubClump)
                     {
                         continue;
                     }
@@ -1400,7 +1517,7 @@ namespace Horizon.World
                     // Dwarf scrub carries on past the tree line, thinning towards the summit but never
                     // stopping dead. Cutting it off at a line left the top of the pass as plain green
                     // ground with a few rocks on it, which read as unfinished rather than as high.
-                    float climb = context.ClimbFraction(point.y);
+                    float climb = ClimbAt(context, shape, region, point.y);
                     if (climb > shape.TreeLineHeight)
                     {
                         float above = Mathf.InverseLerp(shape.TreeLineHeight, 1f, climb);
@@ -1553,7 +1670,7 @@ namespace Horizon.World
                     // Boulders are the answer to the ground vegetation refuses: screes and the bare summit.
                     // Everywhere else they are occasional, so a meadow still gets the odd erratic.
                     bool steep = normal.y < steepCosine;
-                    bool high = context.ClimbFraction(point.y) > shape.TreeLineHeight;
+                    bool high = ClimbAt(context, shape, region, point.y) > shape.TreeLineHeight;
                     float chance = steep || high ? 0.7f : 0.1f;
 
                     // Erratics get cleared off farmland — that is what the walls are built out of. Not to

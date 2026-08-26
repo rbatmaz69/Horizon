@@ -174,6 +174,64 @@ namespace Horizon.World
             SolidLineBelowRadius = 0f,
             DashedLineAboveRadius = 1f,
         };
+
+        /// <summary>
+        /// The Weissjochring: one wide ribbon with no lanes marked on it, and a gravel run-off either
+        /// side rather than a verge.
+        ///
+        /// <para><b>Thirteen metres of asphalt, which is the widest the Nordschleife ever gets.</b> The
+        /// road shapes here are already generous — the car is 1.86 m across and tilt steering is not
+        /// precise to the centimetre — but a racing line needs room to be got wrong, and the whole point
+        /// of a circuit is that a corner can be taken more than one way.</para>
+        ///
+        /// <para><b>No centre line, and it costs nothing to say so.</b>
+        /// <c>RoadTextureBuilder.BuildSurface</c> paints <c>laneCount − 1</c> interior lines, so the
+        /// atlas for this shape is asked for with one lane: two edge lines and bare asphalt between
+        /// them, which is what a race track is. A dashed line down the middle of a circuit would read as
+        /// a country road that had been widened.</para>
+        ///
+        /// <para><b><see cref="MaxBankDegrees"/> is 3 and not the 6 an alpine hairpin is built with, and
+        /// the arithmetic is the one <see cref="Default"/>'s <see cref="ShoulderDrop"/> records.</b> The
+        /// camber lowers the inner edge of the carriageway by <c>HalfWidth × sin(bank)</c>, and the
+        /// terrain shelf has to sit below <i>that</i> or the hillside comes up through the asphalt on the
+        /// inside of every corner. This carriageway is a quarter wider than the pass's, so every degree
+        /// costs a quarter more: 6.5 × sin 3° is 0.34 m against a 0.45 m shelf, which leaves 0.11 m —
+        /// more margin than the pass has, and the number to watch if this ever widens again.
+        /// <c>ValidateRoadClearance</c> measures it.</para>
+        /// </summary>
+        public static RoadShape Circuit => new RoadShape
+        {
+            HalfWidth = 6.5f,
+
+            // Run-off, not a verge. Wide enough that going off is a moment rather than an event, and
+            // it is the strip the kerbs are laid along.
+            ShoulderWidth = 3f,
+
+            // Between the pass's 0.5 and the motorway's 0.7, in proportion to the carriageway over it.
+            ShoulderDrop = 0.55f,
+
+            // 4 m rather than the pass's 2.5. StepLength is set by the tightest radius a shape is used
+            // on, and nothing here is under 170 m, where 4 m steps are 1.3° apart.
+            StepLength = 4f,
+            SurfaceLift = 0.08f,
+
+            // The same ~2 % cross-fall over a wider carriageway.
+            Crown = 0.11f,
+
+            Markings = RoadMarkings.Default,
+
+            MaxBankDegrees = 3f,
+
+            // Reaching much further out than the pass's 30 m, because the corners are. At 30 a 400 m
+            // sweeper would get no bank at all, and a circuit that feels flat is a wide road.
+            FullBankRadius = 150f,
+
+            // Effectively never solid. There is no interior line on this atlas to be solid, so these
+            // only matter to RoadMeshBuilder.ResolveLineVariants, which must be kept off the solid
+            // variant entirely — the same setting the motorway uses and for the same reason.
+            SolidLineBelowRadius = 0f,
+            DashedLineAboveRadius = 1f,
+        };
     }
 
     /// <summary>

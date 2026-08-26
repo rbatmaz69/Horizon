@@ -752,6 +752,18 @@ namespace Horizon.EditorTools
             return FindRoad("YalikoyRoadPath");
         }
 
+        /// <summary>The road from Hochstadt back up to the Ebental, or null before it has been built.</summary>
+        private static RoadPath FindStadtfeldRoad()
+        {
+            return FindRoad("StadtfeldRoadPath");
+        }
+
+        /// <summary>The road up to the Weissjoch, or null before it has been built.</summary>
+        private static RoadPath FindWeissjochRoad()
+        {
+            return FindRoad("WeissjochRoadPath");
+        }
+
         private static RoadPath FindRoad(string objectName)
         {
             RoadPath[] paths = Object.FindObjectsByType<RoadPath>(FindObjectsSortMode.None);
@@ -1182,6 +1194,425 @@ namespace Horizon.EditorTools
             }
         }
 
+        [MenuItem("Tools/Horizon/Render Stadtfeld Preview", priority = 47)]
+        public static void RenderStadtfeld()
+        {
+            Scene scene = SceneManager.GetSceneByPath(WorldScenePath);
+            bool openedHere = !scene.isLoaded;
+
+            if (openedHere)
+            {
+                scene = EditorSceneManager.OpenScene(WorldScenePath, OpenSceneMode.Additive);
+            }
+
+            RoadPath stadtfeld = FindStadtfeldRoad();
+            RoadPath ebental = FindEbentalRoad();
+
+            if (stadtfeld == null || ebental == null)
+            {
+                Debug.LogError("[Horizon] No Stadtfeld road or no Ebental road in the world scene. Run "
+                               + "Rebuild Prototype Scene first.");
+                return;
+            }
+
+            var clock = Object.FindFirstObjectByType<TimeOfDayController>();
+            var lights = Object.FindFirstObjectByType<TownLights>();
+
+            float hoursWere = clock != null ? clock.TimeOfDayHours : 0f;
+            bool runningWas = clock != null && clock.Running;
+
+            string directory = Directory.GetParent(Application.dataPath).FullName;
+            var cameraObject = new GameObject("StadtfeldPreviewCamera");
+
+            try
+            {
+                Camera camera = cameraObject.AddComponent<Camera>();
+                camera.clearFlags = CameraClearFlags.Skybox;
+                camera.enabled = false;
+
+                for (int pass = 0; pass < 2; pass++)
+                {
+                    bool night = pass == 1;
+                    string suffix = night ? "_Night" : string.Empty;
+
+                    if (clock != null)
+                    {
+                        clock.Running = false;
+                        clock.TimeOfDayHours = night ? NightHours : 16.5f;
+                        clock.Apply();
+                    }
+
+                    if (lights != null)
+                    {
+                        lights.Refresh();
+                    }
+
+                    CaptureStadtfeld(camera, stadtfeld, ebental, directory, suffix);
+                }
+            }
+            finally
+            {
+                Object.DestroyImmediate(cameraObject);
+
+                if (clock != null)
+                {
+                    clock.TimeOfDayHours = hoursWere;
+                    clock.Running = runningWas;
+                    clock.Apply();
+                }
+
+                if (lights != null)
+                {
+                    lights.Refresh();
+                }
+
+                if (openedHere)
+                {
+                    EditorSceneManager.CloseScene(scene, true);
+                }
+            }
+
+            Debug.Log("[Horizon] Stadtfeld preview written beside the project. Look for: a boulevard "
+                      + "that becomes a country road without a step or a change of width in _Gate; a "
+                      + "corner you cannot see the exit of in _Crest, because if you can, the profile is "
+                      + "the whole design and it is not working; a mouth that reads as a choice rather "
+                      + "than as a widening in _ForkFromEbental and _ForkFromBranch; asphalt that is "
+                      + "continuous and flat across the throat in _ForkThroat rather than two surfaces "
+                      + "at slightly different heights; and above all, no ridge standing between the two "
+                      + "branches in _ForkPlan — that is MountainField averaging two shelves, it is what "
+                      + "AutobahnCourse.MergeOffset records five metres of, and no other frame shows it.");
+        }
+
+        /// <summary>
+        /// The road out of Hochstadt, its three crests, and both sides of the fork it ends at.
+        ///
+        /// <para>The course is rebuilt here rather than read off the scene, the way
+        /// <see cref="CaptureStrait"/> does it: the distances below are the course's own, and a
+        /// <c>RoadPath</c> only knows arc length along a smoothed spline.</para>
+        /// </summary>
+        private static void CaptureStadtfeld(
+            Camera camera, RoadPath stadtfeld, RoadPath ebental, string directory, string suffix)
+        {
+            void FromRoad(RoadPath road, float at, float back, float lift, float pitch, float yaw,
+                string name)
+            {
+                float distance = Mathf.Clamp(at, 0f, road.Length);
+                Vector3 on = road.GetPositionAtDistance(distance);
+                Vector3 forward = road.GetDirectionAtDistance(distance);
+
+                Vector3 look = Quaternion.Euler(0f, yaw, 0f) * forward;
+
+                camera.fieldOfView = 60f;
+                camera.farClipPlane = 900f;
+                camera.nearClipPlane = 0.3f;
+                camera.transform.position = on - forward * back + Vector3.up * lift;
+                camera.transform.rotation = Quaternion.LookRotation(
+                    (look + Vector3.up * pitch).normalized, Vector3.up);
+
+                Capture(camera, Path.Combine(directory, $"WorldPreview_Stadtfeld_{name}{suffix}.png"));
+            }
+
+            float fork = EbentalCourse.ForkAlong;
+
+            // 1. Sixty metres out of the city, looking back at the gate. The one frame that answers
+            // whether a 13.5 m country ribbon meets a boulevard without a step or a jump in width — the
+            // handover this leg exists to make, and the reason it is grafted onto the boulevard's last
+            // node rather than onto the end of an axis nobody paves.
+            FromRoad(stadtfeld, 60f, 0f, 2.4f, -0.02f, 180f, "1_Gate");
+
+            // 2. Leaving, from the same place facing out. Open country should start immediately: this is
+            // also where the LandRegion question is settled, because a road that came up on the pass's
+            // grey rather than the Ebental's farmland is a road with no region on it.
+            FromRoad(stadtfeld, 240f, 0f, 2.4f, 0f, 0f, "2_Leaving");
+
+            // 3. On the first crest, 25 m above the city. The corner beyond it must not be in frame; if
+            // it is, the profile is doing nothing and this road is a bend in a field.
+            FromRoad(stadtfeld, 1170f, 0f, 2.4f, -0.01f, 0f, "3_Crest");
+
+            // 4. In the deeper of the two hollows, looking up at the climb out. The opposite check: from
+            // down here the road ahead should be readable all the way, because a dip that hides as much
+            // as a crest is fog rather than shape.
+            FromRoad(stadtfeld, 1609f, 0f, 2.4f, 0.02f, 0f, "4_Hollow");
+
+            // 5. The last crest, with the fork 359 m ahead and three metres below. The junction has to be
+            // in sight from here — it is the one place on this road where hiding what is coming would be
+            // a fault rather than the feature.
+            FromRoad(stadtfeld, 3307f, 0f, 2.4f, -0.02f, 0f, "5_LastCrest");
+
+            // 6. Arriving at the mouth. Does the branch read as joining a road, or as running into one?
+            //
+            // Thirty metres and not the fifty-five it was first taken from. The corner paving reaches
+            // about forty metres up the branch, so a camera outside that photographs two roads running
+            // near each other with grass between — which is a true picture of a place that is not the
+            // junction, and it cost a rebuild to work out that it was the camera and not the geometry.
+            FromRoad(stadtfeld, stadtfeld.Length - 30f, 0f, 2.4f, -0.02f, 0f, "6_ForkFromBranch");
+
+            // 7. The fork from the Ebental, driven the way most of the world reaches it — down off the
+            // pass. A mouth that reads as a wide bit of verge here is a fork nobody will take.
+            FromRoad(ebental, fork - 120f, 0f, 2.4f, 0f, 0f, "7_ForkFromEbental");
+
+            // 8. And from the other side, coming back off the Kalkgrat. Yawed rather than driven,
+            // because the Ebental has no lane running that way; what is being checked is the geometry,
+            // not the traffic.
+            FromRoad(ebental, fork + 120f, 0f, 2.4f, 0f, 180f, "8_ForkFromKalkgrat");
+
+            // 9. The throat itself, low and close. Two roads' paving and a laid-on wedge in one frame:
+            // if the surfaces fight for the depth buffer or step against one another, it is here.
+            FromRoad(ebental, fork + 8f, 0f, 1.1f, -0.16f, 118f, "9_ForkThroat");
+
+            // 10. The fork from directly above, fog off. <b>The acceptance shot for the whole change.</b>
+            // MountainField derives the ground from the roads, so two carriageways diverging slowly are
+            // two shelves being averaged into one — and what that produces is a ridge standing between
+            // them. It builds without a word and no other frame in this file would show it.
+            {
+                Vector3 mouth = ebental.GetPositionAtDistance(Mathf.Clamp(fork, 0f, ebental.Length));
+
+                bool fogWasOn = RenderSettings.fog;
+                RenderSettings.fog = false;
+
+                try
+                {
+                    camera.fieldOfView = 60f;
+                    camera.farClipPlane = 1200f;
+                    camera.transform.position = mouth + Vector3.up * 260f;
+                    camera.transform.rotation = Quaternion.LookRotation(Vector3.down, Vector3.forward);
+                    Capture(camera,
+                        Path.Combine(directory, $"WorldPreview_Stadtfeld_10_ForkPlan{suffix}.png"));
+
+                    // 11. And the whole leg, so the ring can be read as one shape: the city at one end,
+                    // the fork at the other, and the road curving clear of Hochstadt's corner between
+                    // them rather than cutting across it.
+                    Vector3 middle = stadtfeld.GetPositionAtDistance(stadtfeld.Length * 0.5f);
+
+                    camera.farClipPlane = 6000f;
+                    camera.transform.position = middle + Vector3.up * 2600f;
+                    camera.transform.rotation = Quaternion.LookRotation(Vector3.down, Vector3.forward);
+                    Capture(camera,
+                        Path.Combine(directory, $"WorldPreview_Stadtfeld_11_Above{suffix}.png"));
+                }
+                finally
+                {
+                    RenderSettings.fog = fogWasOn;
+                }
+            }
+        }
+
+        [MenuItem("Tools/Horizon/Render Weissjoch Preview", priority = 47)]
+        public static void RenderWeissjoch()
+        {
+            Scene scene = SceneManager.GetSceneByPath(WorldScenePath);
+            bool openedHere = !scene.isLoaded;
+
+            if (openedHere)
+            {
+                scene = EditorSceneManager.OpenScene(WorldScenePath, OpenSceneMode.Additive);
+            }
+
+            RoadPath weissjoch = FindWeissjochRoad();
+            RoadPath motorway = FindRoad("MotorwayPath");
+
+            if (weissjoch == null || motorway == null)
+            {
+                Debug.LogError("[Horizon] No Weissjoch road or no motorway in the world scene. Run "
+                               + "Rebuild Prototype Scene first.");
+                return;
+            }
+
+            var clock = Object.FindFirstObjectByType<TimeOfDayController>();
+            var lights = Object.FindFirstObjectByType<TownLights>();
+
+            float hoursWere = clock != null ? clock.TimeOfDayHours : 0f;
+            bool runningWas = clock != null && clock.Running;
+
+            string directory = Directory.GetParent(Application.dataPath).FullName;
+            var cameraObject = new GameObject("WeissjochPreviewCamera");
+
+            try
+            {
+                Camera camera = cameraObject.AddComponent<Camera>();
+                camera.clearFlags = CameraClearFlags.Skybox;
+                camera.enabled = false;
+
+                for (int pass = 0; pass < 2; pass++)
+                {
+                    bool night = pass == 1;
+                    string suffix = night ? "_Night" : string.Empty;
+
+                    if (clock != null)
+                    {
+                        clock.Running = false;
+                        clock.TimeOfDayHours = night ? NightHours : 16.5f;
+                        clock.Apply();
+                    }
+
+                    if (lights != null)
+                    {
+                        lights.Refresh();
+                    }
+
+                    CaptureWeissjoch(camera, weissjoch, motorway, directory, suffix);
+                }
+            }
+            finally
+            {
+                Object.DestroyImmediate(cameraObject);
+
+                if (clock != null)
+                {
+                    clock.TimeOfDayHours = hoursWere;
+                    clock.Running = runningWas;
+                    clock.Apply();
+                }
+
+                if (lights != null)
+                {
+                    lights.Refresh();
+                }
+
+                if (openedHere)
+                {
+                    EditorSceneManager.CloseScene(scene, true);
+                }
+            }
+
+            Debug.Log("[Horizon] Weissjoch preview written beside the project. Look for: a mountain "
+                      + "behind the exit in _Merge rather than a slip road into fog — that frame is the "
+                      + "whole argument for which way the stack was turned; forest that ENDS in "
+                      + "_TreeLine rather than thinning to nothing; snow that arrives as a line with "
+                      + "drifts in it rather than as a painted contour in _SnowLine; bare rock on the "
+                      + "steep flanks with snow lying either side of them, because uniform white above "
+                      + "a height is a cake; and above all a mountainside rather than a staircase of "
+                      + "flat shelves in _Face and _Above — MountainField builds the second one just as "
+                      + "quietly as the first.");
+        }
+
+        /// <summary>
+        /// The climb, its three altitude bands, and the two frames that say whether the mountain is a
+        /// mountain.
+        /// </summary>
+        private static void CaptureWeissjoch(
+            Camera camera, RoadPath weissjoch, RoadPath motorway, string directory, string suffix)
+        {
+            RoadCourse course = WeissjochCourse.Build();
+
+            void FromRoad(RoadPath road, float at, float back, float lift, float pitch, float yaw,
+                string name)
+            {
+                float distance = Mathf.Clamp(at, 0f, road.Length);
+                Vector3 on = road.GetPositionAtDistance(distance);
+                Vector3 forward = road.GetDirectionAtDistance(distance);
+                Vector3 look = Quaternion.Euler(0f, yaw, 0f) * forward;
+
+                camera.fieldOfView = 60f;
+                camera.farClipPlane = 900f;
+                camera.nearClipPlane = 0.3f;
+                camera.transform.position = on - forward * back + Vector3.up * lift;
+                camera.transform.rotation = Quaternion.LookRotation(
+                    (look + Vector3.up * pitch).normalized, Vector3.up);
+
+                Capture(camera, Path.Combine(directory, $"WorldPreview_Weissjoch_{name}{suffix}.png"));
+            }
+
+            // 1. From the westbound carriageway, a few hundred metres before the ramp. The question this
+            // frame exists for: is there a mountain behind the exit? The stack was turned so its face
+            // looks south at this road, and if that paid, it paid here and nowhere else.
+            {
+                float at = Mathf.Clamp(AutobahnCourse.WeissjochExitDistance - 380f, 0f, motorway.Length);
+                Vector3 on = motorway.GetPositionAtDistance(at);
+                Vector3 forward = motorway.GetDirectionAtDistance(at);
+                Vector3 right = motorway.GetRightAtDistance(at);
+
+                camera.fieldOfView = 60f;
+                camera.farClipPlane = 900f;
+                // Yawed to the north, at the mountain, and not along the road. Looking forward down the
+                // carriageway put the massif entirely off the left of the frame and came back as a
+                // picture of flat forest — a true photograph of somewhere that is not the subject. What
+                // this frame is for is whether a driver on the way to Seeburg can see what the exit
+                // leads to, and that question is asked out of the side window.
+                camera.transform.position = on - right * 10.5f + Vector3.up * 2.4f;
+                camera.transform.rotation = Quaternion.LookRotation(
+                    (Quaternion.Euler(0f, -70f, 0f) * forward + Vector3.up * 0.10f).normalized,
+                    Vector3.up);
+
+                Capture(camera, Path.Combine(directory, $"WorldPreview_Weissjoch_1_Merge{suffix}.png"));
+            }
+
+            // 2. On the valley floor by the last pump, looking at what is to be climbed.
+            FromRoad(weissjoch, 1457f, 0f, 2.4f, 0.08f, 0f, "2_Valley");
+
+            // 3. Mid stage B, inside the forest and on the switchbacks.
+            FromRoad(weissjoch, 5400f, 0f, 2.4f, 0.02f, 0f, "3_Forest");
+
+            // 4. The tree line, from the Waldkanzel. The forest has to END here — if it thins to nothing
+            // over half a kilometre the band is not landing where the numbers say it does, and the three
+            // stages stop being three places.
+            FromRoad(weissjoch, ViewpointOn(course, "Waldkanzel"), 0f, 2.4f, -0.04f, 150f, "4_TreeLine");
+
+            // 5. The bore's mouth, on its own traverse between two hairpin groups.
+            FromRoad(weissjoch,
+                FeatureStart(course, RoadFeatureKind.Tunnel, "Graugrattunnel") - 70f,
+                0f, 2.4f, 0.02f, 0f, "5_Tunnel");
+
+            // 6. The snow line, at the top of the rock band.
+            FromRoad(weissjoch, 9520f, 0f, 2.4f, 0.04f, 0f, "6_SnowLine");
+
+            // 7. Out of the avalanche gallery at 663 m, which is the first structure in this world with
+            // snow on both sides of it.
+            FromRoad(weissjoch,
+                FeatureStart(course, RoadFeatureKind.Gallery, "Lawinengalerie") + 90f,
+                0f, 2.4f, 0f, 0f, "7_Gallery");
+
+            // 8. Across the stack from a leg high in the snow, looking back down at the legs below.
+            // <b>The acceptance shot for MountainField.</b> The ground between two stacked legs is an
+            // inverse-fifth-power blend and it is meant to read as a face; the failure it hides is a
+            // staircase of flat shelves, and that is only visible across the stack, never along it.
+            {
+                // Which way is downhill has to be measured, not guessed. The stack advances north, so the
+                // legs below are always to the south — but a leg heads east or west depending on which
+                // hairpin it came out of, and the first version of this frame guessed wrong and came
+                // back as a photograph of the cutting on the uphill side, with one boulder in it.
+                const float at = 11800f;
+                Vector3 right = weissjoch.GetRightAtDistance(Mathf.Clamp(at, 0f, weissjoch.Length));
+                float faceYaw = right.z > 0f ? -100f : 100f;
+
+                // Pitched hard down, and the number comes from the stack rather than from taste: the
+                // next leg below is 52 m away in plan and 26 m under, which is 27° — a shallower angle
+                // photographs the horizon over the top of it, which is what the first two attempts did.
+                FromRoad(weissjoch, at, 0f, 4f, -0.62f, faceYaw, "8_Face");
+            }
+
+            // 9. The col. The valley is nine hundred metres below and far outside the far plane, so what
+            // has to be here is the road: the last hairpins under the parapet, and somewhere that reads
+            // as arriving.
+            FromRoad(weissjoch, ViewpointOn(course, WeissjochCourse.ColName), 0f, 2.4f, -0.06f, 168f,
+                "9_Col");
+
+            // 10. The whole massif from above, fog off. Is it a mountain or a ramp? This is also where a
+            // wrong choice of stacking direction shows — the shoulders either side of the stack are flat
+            // by construction, and from up here you can see which way the grain runs.
+            {
+                Vector3 middle = weissjoch.GetPositionAtDistance(weissjoch.Length * 0.6f);
+
+                bool fogWasOn = RenderSettings.fog;
+                RenderSettings.fog = false;
+
+                try
+                {
+                    camera.fieldOfView = 60f;
+                    camera.farClipPlane = 9000f;
+                    camera.transform.position = middle + Vector3.up * 2600f - Vector3.forward * 1800f;
+                    camera.transform.rotation = Quaternion.LookRotation(
+                        (Vector3.down * 2f + Vector3.forward).normalized, Vector3.up);
+                    Capture(camera,
+                        Path.Combine(directory, $"WorldPreview_Weissjoch_10_Above{suffix}.png"));
+                }
+                finally
+                {
+                    RenderSettings.fog = fogWasOn;
+                }
+            }
+        }
+
         private static void CaptureStrait(
             Camera camera, RoadPath kalkgrat, RoadPath meerenge, string directory, string suffix)
         {
@@ -1378,6 +1809,402 @@ namespace Horizon.EditorTools
         private static float ViewpointOn(RoadCourse course, string name)
         {
             return FeatureStart(course, RoadFeatureKind.Viewpoint, name);
+        }
+
+        [MenuItem("Tools/Horizon/Render Weissjochring Preview", priority = 48)]
+        public static void RenderWeissjochring()
+        {
+            Scene scene = SceneManager.GetSceneByPath(WorldScenePath);
+            bool openedHere = !scene.isLoaded;
+
+            if (openedHere)
+            {
+                scene = EditorSceneManager.OpenScene(WorldScenePath, OpenSceneMode.Additive);
+            }
+
+            RoadPath ring = FindRoad("WeissjochringPath");
+            RoadPath access = FindRoad("WeissjochringAccessPath");
+
+            if (ring == null || access == null)
+            {
+                Debug.LogError("[Horizon] No Weissjochring in the world scene. Run Rebuild Prototype "
+                               + "Scene first.");
+                return;
+            }
+
+            var clock = Object.FindFirstObjectByType<TimeOfDayController>();
+            var lights = Object.FindFirstObjectByType<TownLights>();
+
+            float hoursWere = clock != null ? clock.TimeOfDayHours : 0f;
+            bool runningWas = clock != null && clock.Running;
+
+            string directory = Directory.GetParent(Application.dataPath).FullName;
+            var cameraObject = new GameObject("WeissjochringPreviewCamera");
+
+            try
+            {
+                Camera camera = cameraObject.AddComponent<Camera>();
+                camera.clearFlags = CameraClearFlags.Skybox;
+                camera.enabled = false;
+
+                for (int pass = 0; pass < 2; pass++)
+                {
+                    bool night = pass == 1;
+                    string suffix = night ? "_Night" : string.Empty;
+
+                    if (clock != null)
+                    {
+                        clock.Running = false;
+                        clock.TimeOfDayHours = night ? NightHours : 16.5f;
+                        clock.Apply();
+                    }
+
+                    if (lights != null)
+                    {
+                        lights.Refresh();
+                    }
+
+                    CaptureWeissjochring(camera, ring, access, directory, suffix);
+                }
+            }
+            finally
+            {
+                Object.DestroyImmediate(cameraObject);
+
+                if (clock != null)
+                {
+                    clock.TimeOfDayHours = hoursWere;
+                    clock.Running = runningWas;
+                    clock.Apply();
+                }
+
+                if (lights != null)
+                {
+                    lights.Refresh();
+                }
+
+                if (openedHere)
+                {
+                    EditorSceneManager.CloseScene(scene, true);
+                }
+            }
+
+            Debug.Log("[Horizon] Weissjochring preview written beside the project. The two frames that "
+                      + "carry it: _2_Line, where the lap closes on itself — anything other than "
+                      + "unbroken tarmac under the gantry is a closure that missed, and it is the "
+                      + "fastest point on the circuit; and _8_Infield, which looks across the middle of "
+                      + "the ladder — terrain that stops in mid-air there is the hole the corridor width "
+                      + "makes, and no other frame in this project would show it. Then: kerbs that read "
+                      + "as kerbs rather than as stripes in _7_Gratkehre; forest that ENDS where 700 m "
+                      + "says it does between _5_TreeLine and _6_Kessel, with snow still lying under it; "
+                      + "a mountainside rather than a staircase of flat shelves in _9_Face; and in "
+                      + "_3_Fork, no ridge standing between the pit road and the straight it joins.");
+        }
+
+        /// <summary>
+        /// The circuit, its three altitude bands, and the two frames that say whether it is a circuit at
+        /// all.
+        /// </summary>
+        private static void CaptureWeissjochring(
+            Camera camera, RoadPath ring, RoadPath access, string directory, string suffix)
+        {
+            RoadCourse course = WeissjochringCourse.Build();
+
+            void FromRoad(RoadPath road, float at, float back, float lift, float pitch, float yaw,
+                string name)
+            {
+                float distance = road.IsLoop
+                    ? Mathf.Repeat(at, road.Length)
+                    : Mathf.Clamp(at, 0f, road.Length);
+
+                Vector3 on = road.GetPositionAtDistance(distance);
+                Vector3 forward = road.GetDirectionAtDistance(distance);
+                Vector3 look = Quaternion.Euler(0f, yaw, 0f) * forward;
+
+                camera.fieldOfView = 60f;
+                camera.farClipPlane = 900f;
+                camera.nearClipPlane = 0.3f;
+                camera.transform.position = on - forward * back + Vector3.up * lift;
+                camera.transform.rotation = Quaternion.LookRotation(
+                    (look + Vector3.up * pitch).normalized, Vector3.up);
+
+                Capture(camera, Path.Combine(directory, $"WorldPreview_Ring_{name}{suffix}.png"));
+            }
+
+            float lap = ring.Length;
+
+            // 1. Coming down the access road. The question: does the place arrive? A circuit reached by
+            // a lane that simply stops at it is a wide road with a gantry over it.
+            FromRoad(access, access.Length - 190f, 0f, 2.4f, -0.04f, 0f, "1_Approach");
+
+            // 2. THE acceptance frame. Standing 130 m short of the line on the main straight, looking
+            // through it. The lap closes at distance zero, so this frame contains the seam — and a
+            // closure that missed by a metre, or arrived a few degrees off, shows here and in no build
+            // log anywhere.
+            FromRoad(ring, WeissjochringCourse.LineDistance - 130f, 0f, 2.0f, 0.02f, 0f, "2_Line");
+
+            // 2b. The grid, from behind the back row and low. Its own frame because everything painted
+            // on a road is invisible from anywhere else: the start line is 0.9 m of white seen edge-on
+            // and a grid box is two 16 cm rails, so at any ordinary camera height and distance they are
+            // a pixel each. This is also the only frame that says whether the boxes stagger.
+            FromRoad(ring, WeissjochringCourse.LineDistance - 108f, 0f, 1.1f, -0.05f, 0f, "2b_Grid");
+
+            // 3. The pit mouth, from the straight and pointing at it. Yawed 55° off the road rather
+            // than 26: at 26 the camera looked past the mouth and down the forecourt frontage, so the
+            // frame came back as a photograph of the filling station and the one question it exists for
+            // — is there a ridge standing between the branch and the trunk — went unanswered for a while.
+            FromRoad(ring, WeissjochringCourse.LineDistance - 480f, 0f, 2.4f, -0.06f, 55f, "3_Fork");
+
+            // 4. Off the top of the descent, looking down and across at the rung below. This is the
+            // frame the whole ladder shape exists for: if the circuit reads as flat, it reads as flat
+            // here.
+            FromRoad(ring, lap * 0.20f, 0f, 3.0f, -0.10f, 62f, "4_Descent");
+
+            // 5. Through the tree line at 700 m. The wood has to END rather than thin away over half a
+            // kilometre — if it thins, the band is not landing where the table says it is.
+            FromRoad(ring, lap * 0.36f, 0f, 2.4f, -0.02f, 0f, "5_TreeLine");
+
+            // 6. The bottom, from the layby there. Under the tree line and above the snow line for most
+            // of it: dark spruce standing on white ground is the one picture a winter region is for.
+            FromRoad(ring, ViewpointOn(course, WeissjochringCourse.BottomName), 0f, 2.4f, 0f, -30f,
+                "6_Kessel");
+
+            // 7. The Gratkehre, from just before it. The kerbs are in every frame on this circuit, and
+            // this is the one where they are the subject.
+            FromRoad(ring, ViewpointOn(course, WeissjochringCourse.SummitName) - 60f, 0f, 1.6f, -0.05f,
+                0f, "7_Gratkehre");
+
+            // 8. THE other acceptance frame. From the climb out, looking square across the middle of the
+            // ladder. Terrain exists only 200 m from a road, so a lap folded too loosely has a hole in
+            // the middle of it — and a hole in an infield is near no road at all, which is exactly why
+            // every other check in this build is blind to it.
+            FromRoad(ring, lap * 0.78f, 0f, 3.0f, -0.06f, 90f, "8_Infield");
+
+            // 9. The face between two stacked rungs, seen along it. MountainField will build a
+            // staircase of flat shelves just as quietly as it builds a mountainside, and the difference
+            // is not in any number the build prints.
+            FromRoad(ring, lap * 0.83f, 0f, 4.0f, -0.14f, 118f, "9_Face");
+        }
+
+        [MenuItem("Tools/Horizon/Render Bahçe Ring Preview", priority = 49)]
+        public static void RenderBahceRing()
+        {
+            Scene scene = SceneManager.GetSceneByPath(WorldScenePath);
+            bool openedHere = !scene.isLoaded;
+
+            if (openedHere)
+            {
+                scene = EditorSceneManager.OpenScene(WorldScenePath, OpenSceneMode.Additive);
+            }
+
+            RoadPath ring = FindRoad("BahceRingPath");
+            RoadPath access = FindRoad("BahceRingAccessPath");
+
+            if (ring == null || access == null)
+            {
+                Debug.LogError("[Horizon] No Bahçe Ring in the world scene. Run Rebuild Prototype "
+                               + "Scene first.");
+                return;
+            }
+
+            var clock = Object.FindFirstObjectByType<TimeOfDayController>();
+            var lights = Object.FindFirstObjectByType<TownLights>();
+
+            float hoursWere = clock != null ? clock.TimeOfDayHours : 0f;
+            bool runningWas = clock != null && clock.Running;
+
+            string directory = Directory.GetParent(Application.dataPath).FullName;
+            var cameraObject = new GameObject("BahceRingPreviewCamera");
+
+            try
+            {
+                Camera camera = cameraObject.AddComponent<Camera>();
+                camera.clearFlags = CameraClearFlags.Skybox;
+                camera.enabled = false;
+
+                for (int pass = 0; pass < 2; pass++)
+                {
+                    bool night = pass == 1;
+                    string suffix = night ? "_Night" : string.Empty;
+
+                    if (clock != null)
+                    {
+                        clock.Running = false;
+                        clock.TimeOfDayHours = night ? NightHours : 16.5f;
+                        clock.Apply();
+                    }
+
+                    if (lights != null)
+                    {
+                        lights.Refresh();
+                    }
+
+                    CaptureBahceRing(camera, ring, access, directory, suffix);
+                }
+            }
+            finally
+            {
+                Object.DestroyImmediate(cameraObject);
+
+                if (clock != null)
+                {
+                    clock.TimeOfDayHours = hoursWere;
+                    clock.Running = runningWas;
+                    clock.Apply();
+                }
+
+                if (lights != null)
+                {
+                    lights.Refresh();
+                }
+
+                if (openedHere)
+                {
+                    EditorSceneManager.CloseScene(scene, true);
+                }
+            }
+
+            Debug.Log("[Horizon] Bahçe Ring preview written beside the project. The three frames that "
+                      + "carry it: _2_Line, which contains the closure seam at the fastest point on the "
+                      + "lap — anything but unbroken tarmac under the gantry is a closure that missed, "
+                      + "and it appears in no log; _7_Infield, looking square across the middle of the "
+                      + "loop, where ground that stops in mid-air is the corridor hole this layout was "
+                      + "measured against; and _5_Blossom, the only check anywhere on whether a valley "
+                      + "meant to be in flower reads as one. Then: the grid staggered rather than "
+                      + "abreast and its paint actually visible in _2b_Grid; no ridge standing between "
+                      + "the pit road and the straight in _3_Fork; a corner that keeps turning for a "
+                      + "third of a kilometre in _6_Turn8; and orchards rather than scrub either side "
+                      + "of _8_Back.");
+        }
+
+        /// <summary>
+        /// Istanbul Park in an orchard valley, and the frames that say whether it is either of those
+        /// things.
+        /// </summary>
+        private static void CaptureBahceRing(
+            Camera camera, RoadPath ring, RoadPath access, string directory, string suffix)
+        {
+            RoadCourse course = BahceRingCourse.Build();
+
+            void FromRoad(RoadPath road, float at, float back, float lift, float pitch, float yaw,
+                string name)
+            {
+                float distance = road.IsLoop
+                    ? Mathf.Repeat(at, road.Length)
+                    : Mathf.Clamp(at, 0f, road.Length);
+
+                Vector3 on = road.GetPositionAtDistance(distance);
+                Vector3 forward = road.GetDirectionAtDistance(distance);
+                Vector3 look = Quaternion.Euler(0f, yaw, 0f) * forward;
+
+                camera.fieldOfView = 60f;
+                camera.farClipPlane = 900f;
+                camera.nearClipPlane = 0.3f;
+                camera.transform.position = on - forward * back + Vector3.up * lift;
+                camera.transform.rotation = Quaternion.LookRotation(
+                    (look + Vector3.up * pitch).normalized, Vector3.up);
+
+                Capture(camera, Path.Combine(directory, $"WorldPreview_Bahce_{name}{suffix}.png"));
+            }
+
+            float lap = ring.Length;
+            float line = BahceRingCourse.LineDistance;
+
+            // 1. Coming down the access road. Does the place arrive, and does it arrive through
+            // blossom rather than through Anadolu's scrub carried two kilometres too far?
+            FromRoad(access, access.Length - 200f, 0f, 2.4f, -0.04f, 0f, "1_Approach");
+
+            // 2. THE acceptance frame. On the main straight, looking through the line — the lap closes
+            // at distance zero, so the seam is in this picture and in no log anywhere.
+            FromRoad(ring, line - 130f, 0f, 2.0f, 0.02f, 0f, "2_Line");
+
+            // 2b. The grid, from behind the back row and low. Everything painted on a road is invisible
+            // from anywhere else, and the sign of the crown decides whether it is visible at all: laid
+            // with it inverted the boxes sit eleven centimetres inside the tarmac, built, counted
+            // correctly and completely unseen.
+            FromRoad(ring, line - 108f, 0f, 1.1f, -0.05f, 0f, "2b_Grid");
+
+            // 3. The pit mouth. Standing seventy metres short of it and yawed towards the throat rather
+            // than along the road: the branch arrives from behind and to the right, so a camera pointed
+            // down the straight photographs the forecourt instead — which is exactly what the
+            // Weissjochring's own _3_Fork does, and why that one still cannot answer this question.
+            FromRoad(ring, 30f, 0f, 2.4f, -0.05f, 45f, "3_Fork");
+
+            // 3b/3c. The mouth itself, from the two lines that actually cross it: a driver arriving
+            // down the access road, and a driver on the circuit looking back at where it came in.
+            FromRoad(access, access.Length - 55f, 0f, 2.2f, -0.10f, 0f, "3b_Mouth");
+            FromRoad(ring, 175f, 0f, 3.0f, -0.14f, 180f, "3c_MouthBack");
+
+            // 3d. The mouth in plan, which is the only frame that shows the whole of it at once. A
+            // junction is the one piece of road whose fault is a shape rather than a step, and a shape
+            // is not readable from inside it.
+            {
+                Vector3 mouth = BahceRingCourse.JunctionPoint;
+
+                // Fog off for this one. It is a plan of a shape rather than a view of a place, and two
+                // hundred metres of the world's own haze turns a junction into a smudge — which is what
+                // the first two attempts at this frame came back as.
+                bool fogWasOn = RenderSettings.fog;
+                RenderSettings.fog = false;
+
+                try
+                {
+                    camera.fieldOfView = 60f;
+                    camera.farClipPlane = 900f;
+                    camera.nearClipPlane = 0.3f;
+                    camera.transform.rotation = Quaternion.LookRotation(Vector3.down, Vector3.forward);
+
+                    camera.transform.position = mouth + Vector3.up * 220f;
+                    Capture(camera,
+                        Path.Combine(directory, $"WorldPreview_Bahce_3d_MouthPlan{suffix}.png"));
+
+                    // And close, because the fillets live in the last sixty metres and at two hundred
+                    // they are three pixels of tone against the verge.
+                    camera.transform.position = mouth + Vector3.up * 110f;
+                    Capture(camera,
+                        Path.Combine(directory, $"WorldPreview_Bahce_3e_MouthClose{suffix}.png"));
+                }
+                finally
+                {
+                    RenderSettings.fog = fogWasOn;
+                }
+            }
+
+            // 4. Turn 1, from its entry: the fastest corner on the lap and the start of the descent
+            // into the valley. If the profile is doing anything, it is doing it here.
+            FromRoad(ring, line + 60f, 0f, 2.2f, -0.03f, 0f, "4_Turn1");
+
+            // 5. The blossom, from the layby in it. The one frame that asks whether "in flower" reads
+            // as anything at all — a tint table and a mesh both build perfectly while looking like a
+            // slightly odd wood.
+            FromRoad(access, ViewpointOn(BahceRingCourse.BuildAccess(), BahceRingCourse.GroveName),
+                0f, 2.4f, 0f, -35f, "5_Blossom");
+
+            // 6. The eighth corner, entered. It is 330 m of continuous left; a frame taken here should
+            // still be turning at the far edge of it, and if it is not, the fit has straightened the
+            // one corner this circuit is known for.
+            FromRoad(ring, ViewpointOn(course, BahceRingCourse.Turn8Name) - 30f, 0f, 2.2f, -0.02f, 0f,
+                "6_Turn8");
+
+            // 7. THE other acceptance frame. Square across the middle of the loop from the back
+            // straight. The infield is on the left of travel everywhere — the lap runs anti-clockwise —
+            // so a fixed −90° yaw looks into it wherever it is taken.
+            FromRoad(ring, ViewpointOn(course, BahceRingCourse.SlowName) - 420f, 0f, 3.0f, -0.05f, -90f,
+                "7_Infield");
+
+            // 8. Down the back straight, the longest on the lap and the only place with enough distance
+            // to see what the valley is planted with rather than what is beside the kerb.
+            FromRoad(ring, ViewpointOn(course, BahceRingCourse.SlowName) - 640f, 0f, 2.4f, -0.01f, 0f,
+                "8_Back");
+
+            // 9. The first sector gate, from sixty metres short of it and low. Its own frame because
+            // the whole of a gate is two 0.5 m bands of paint seen nearly edge-on, and paint is the one
+            // thing in this project that builds, counts and validates perfectly while being invisible —
+            // see CircuitMeshes.AddStripe. A rule the player cannot see reads as the game being broken,
+            // so this is the frame that says the rule exists.
+            // Close and high, looking down: 0.5 m of white across a 13 m road is a couple of pixels
+            // from any ordinary driving pose, so a frame taken from one answers nothing.
+            FromRoad(ring, line + lap / 7f - 24f, 0f, 3.4f, -0.34f, 0f, "9_Gate");
         }
 
         [MenuItem("Tools/Horizon/Render Fuel Station Preview", priority = 44)]

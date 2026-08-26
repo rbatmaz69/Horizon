@@ -33,12 +33,42 @@ namespace Horizon.Game
         /// <summary>
         /// How much world the widget spans, metres.
         ///
-        /// <para>Three hundred and forty, against a camera whose far plane is 600 m and a fog wall
-        /// inside that. Wider and the map would be showing ground the player has no other way of
-        /// knowing about, which is the full-screen map's job; narrower and a hairpin stack would not
-        /// fit in it, which is the one thing a map of this world has to show.</para>
+        /// <para><b>Four hundred and forty, and it was 340.</b> The old number was argued from the far
+        /// plane — wider than 600 m and the map would be telling the player about ground they have no
+        /// other way of knowing, which is the full-screen map's job. That is still true, and 340 turned
+        /// out to be the wrong side of a different limit: the widget is 300 units across and its clip
+        /// takes the inner 80 %, so a car in the middle of it could see <b>136 m</b> of road ahead.
+        /// At a hundred kilometres an hour that is five seconds, which is not enough to read a corner
+        /// off a map — the complaint was that a road coming towards you cannot be guessed at.</para>
+        ///
+        /// <para>Zoom alone would have paid for that by shrinking everything, so most of it is bought
+        /// with <see cref="ForwardBias"/> instead. Together they give about 260 m ahead, still inside
+        /// the far plane.</para>
         /// </summary>
-        [SerializeField] private float metresAcross = 340f;
+        [SerializeField] private float metresAcross = 440f;
+
+        /// <summary>
+        /// How much world the widget spans, metres. Read by the HUD preview, which used to carry its
+        /// own copy of the number and therefore photographed the old zoom for as long as it took anybody
+        /// to notice.
+        /// </summary>
+        public float MetresAcross => metresAcross;
+
+        /// <summary>
+        /// How far down the widget the car sits, as a fraction of its half-height.
+        ///
+        /// <para><b>A heading-up map with the car in the middle spends half of itself on where the
+        /// driver has just been.</b> That half is worth very little: the road behind has been driven and
+        /// the mirror is not the instrument for it. Sliding the car down the disc and pushing the view
+        /// the same distance forward buys fifty per cent more road ahead at no zoom cost at all, which
+        /// is what the widget is actually asked for.</para>
+        ///
+        /// <para>Public and a constant because <b>two things have to agree about it</b>: this component
+        /// shifts the view, and <c>TouchUiSetup</c> places the car sprite. Written twice they would
+        /// agree until the first time one of them was retuned, and the symptom would be a marker that
+        /// no longer sits on the road it is meant to be on.</para>
+        /// </summary>
+        public const float ForwardBias = 0.4f;
 
         /// <summary>
         /// How far the car has to move, and how far it has to turn, before the mesh is rebuilt.
@@ -100,7 +130,13 @@ namespace Horizon.Game
             shownScale = scale;
             everShown = true;
 
-            graphic.SetView(centre, scale, heading);
+            // The view runs ahead of the car by exactly as far as the sprite sits behind the middle,
+            // so the marker still lands on the road under it. See ForwardBias.
+            var ahead = new Vector2(forward.x, forward.z);
+            ahead = ahead.sqrMagnitude > 0.0001f ? ahead.normalized : Vector2.up;
+
+            graphic.SetView(
+                centre + ahead * (rect.rect.height * 0.5f * ForwardBias * scale), scale, heading);
 
             if (northNeedle != null)
             {

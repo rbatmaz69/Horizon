@@ -46,6 +46,15 @@ namespace Horizon.Game
         [SerializeField] private Color townColour = new Color(0.20f, 0.20f, 0.22f, 1f);
         [SerializeField] private Color streetColour = new Color(0.42f, 0.42f, 0.44f, 1f);
         [SerializeField] private Color trunkColour = new Color(0.78f, 0.78f, 0.80f, 1f);
+
+        /// <summary>
+        /// The circuit. Red, and it was orange first — which was a mistake the picture caught
+        /// immediately: <see cref="motorwayColour"/> is 0.96/0.55/0.28 and the circuit had been given
+        /// 0.88/0.55/0.28, so the one closed loop in the world read as another stretch of motorway. The
+        /// point of giving it a kind of its own is that it is not a road you get somewhere on, and the
+        /// colour has to say that against the palette that is already there rather than in isolation.
+        /// </summary>
+        [SerializeField] private Color circuitColour = new Color(0.86f, 0.27f, 0.31f, 1f);
         [SerializeField] private Color motorwayColour = new Color(0.96f, 0.55f, 0.28f, 1f);
 
         [Header("Marks")]
@@ -57,6 +66,13 @@ namespace Horizon.Game
         [Tooltip("Half-size of a marker, in canvas units. Fixed rather than scaled with the zoom: a "
                + "symbol that shrinks with the world stops being a symbol.")]
         [SerializeField] private float markerRadius = 7f;
+
+        /// <summary>
+        /// What every mark is backed with, and what a start place's hole is punched in. Near the map's
+        /// own ground rather than pure black, so a mark reads as cut out of the map instead of dropped
+        /// on top of it.
+        /// </summary>
+        [SerializeField] private Color markerBackingColour = new Color(0.07f, 0.08f, 0.10f, 0.95f);
 
         [SerializeField] private bool showMarkers = true;
 
@@ -81,6 +97,13 @@ namespace Horizon.Game
         [SerializeField] private float minStreetWidth = 1.6f;
         [SerializeField] private float minTrunkWidth = 3f;
         [SerializeField] private float minMotorwayWidth = 3.5f;
+
+        /// <summary>
+        /// The circuit's minimum drawn width. The widest line on the map, because at any zoom where the
+        /// Weissjochring is on screen at all it is the thing the reader is looking for, and a closed
+        /// loop drawn at a country road's weight disappears into the hairpins around it.
+        /// </summary>
+        [SerializeField] private float minCircuitWidth = 4f;
 
         /// <summary>
         /// Where the emission stops.
@@ -260,6 +283,9 @@ namespace Horizon.Game
             EmitLines(vh, MapLineKind.Trunk, minTrunkWidth);
             EmitLines(vh, MapLineKind.Motorway, minMotorwayWidth);
 
+            // Last of the lines, so it is drawn over the roads that lead to it rather than under them.
+            EmitLines(vh, MapLineKind.Circuit, minCircuitWidth);
+
             if (showMarkers)
             {
                 EmitMarkers(vh, min, max);
@@ -308,18 +334,21 @@ namespace Horizon.Game
         /// <summary>Walks the grid once and files every visible segment under its line's kind.</summary>
         private void Collect(Vector2 min, Vector2 max)
         {
+            // Sized from the enum, never from a literal. See MapLine.KindCount for what the literal
+            // that used to be here cost: one new kind and the entire map — every road, every town, both
+            // views — silently drew nothing.
             if (byKind == null)
             {
-                byKind = new int[4][];
-                byKindCount = new int[4];
+                byKind = new int[MapLine.KindCount][];
+                byKindCount = new int[MapLine.KindCount];
 
-                for (int i = 0; i < 4; i++)
+                for (int i = 0; i < MapLine.KindCount; i++)
                 {
                     byKind[i] = new int[1024];
                 }
             }
 
-            for (int i = 0; i < 4; i++)
+            for (int i = 0; i < MapLine.KindCount; i++)
             {
                 byKindCount[i] = 0;
             }
@@ -483,7 +512,7 @@ namespace Horizon.Game
                     continue;
                 }
 
-                AddDiamond(vh, ToLocal(at), markerRadius, ColourOf(map.MarkerKindOf(i)));
+                AddMarker(vh, ToLocal(at), map.MarkerKindOf(i));
             }
         }
 
@@ -503,6 +532,8 @@ namespace Horizon.Game
                     return motorwayColour;
                 case MapLineKind.Trunk:
                     return trunkColour;
+                case MapLineKind.Circuit:
+                    return circuitColour;
                 case MapLineKind.Street:
                     return streetColour;
                 default:
@@ -709,14 +740,71 @@ namespace Horizon.Game
             AddConvex(vh, 4, colour);
         }
 
-        private void AddDiamond(VertexHelper vh, Vector2 at, float radius, Color32 colour)
+        /// <summary>
+        /// One feature mark: a dark disc with a coloured shape on it, and the shape says which kind.
+        ///
+        /// <para><b>Every mark used to be the same diamond in a different colour</b>, which asks the
+        /// reader to hold five colours in their head and fails outright for anyone who cannot separate
+        /// the green from the orange. A silhouette does not need a legend to be told apart, and it
+        /// survives being four pixels across on a minimap, which is the size these are actually read
+        /// at. Colour still carries the meaning; the shape is what makes it legible.</para>
+        ///
+        /// <para>The dark backing is the other half. A mark stands over roads, water, town blocks and
+        /// bare ground by turns, and a flat silhouette disappears against whichever is under it — the
+        /// same reason the car marker has a rim.</para>
+        /// </summary>
+        private void AddMarker(VertexHelper vh, Vector2 at, MapMarkerKind kind)
         {
-            clipFront[0] = at + new Vector2(0f, radius);
-            clipFront[1] = at + new Vector2(radius, 0f);
-            clipFront[2] = at + new Vector2(0f, -radius);
-            clipFront[3] = at + new Vector2(-radius, 0f);
+            AddNgon(vh, at, markerRadius * 1.5f, 8, 22.5f, markerBackingColour);
 
-            AddConvex(vh, 4, colour);
+            Color32 colour = ColourOf(kind);
+
+            switch (kind)
+            {
+                case MapMarkerKind.Place:
+                    // A hollow diamond rather than a filled one: a start place is somewhere you go to,
+                    // not a thing that stands there, and the hole is what says so at a glance. Kept a
+                    // diamond, not made a disc, because the key beside the full-screen map draws these
+                    // shapes too and a shape family it cannot show is a key that quietly lies.
+                    AddNgon(vh, at, markerRadius * 1.05f, 4, 0f, colour);
+                    AddNgon(vh, at, markerRadius * 0.45f, 4, 0f, markerBackingColour);
+                    break;
+
+                case MapMarkerKind.FuelStation:
+                    AddNgon(vh, at, markerRadius * 0.95f, 4, 45f, colour);
+                    break;
+
+                case MapMarkerKind.Viewpoint:
+                    AddNgon(vh, at, markerRadius * 1.12f, 3, 0f, colour);
+                    break;
+
+                default:
+                    AddNgon(vh, at, markerRadius, 4, 0f, colour);
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// A regular polygon, clipped and fanned like everything else here.
+        ///
+        /// <para>Three sides is a triangle, four a diamond, six a hexagon, eight near enough a disc —
+        /// one routine covers every mark on the map, and the rotation is what turns a diamond into a
+        /// square without a second case.</para>
+        /// </summary>
+        private void AddNgon(
+            VertexHelper vh, Vector2 at, float radius, int sides, float rotationDegrees, Color32 colour)
+        {
+            sides = Mathf.Clamp(sides, 3, clipFront.Length);
+            float step = Mathf.PI * 2f / sides;
+            float phase = rotationDegrees * Mathf.Deg2Rad;
+
+            for (int i = 0; i < sides; i++)
+            {
+                float angle = phase + i * step;
+                clipFront[i] = at + new Vector2(Mathf.Sin(angle), Mathf.Cos(angle)) * radius;
+            }
+
+            AddConvex(vh, sides, colour);
         }
     }
 }
