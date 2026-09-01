@@ -52,6 +52,13 @@ namespace Horizon.EditorTools
             EnsureFolders();
             HorizonAssetUtility.BeginGeneratedRun();
 
+            taggedCarriageways = 0;
+            taggedGround = 0;
+            surfaceProbes = 0;
+            surfaceProbeMisses = 0;
+            surfaceVergeSamples = 0;
+            surfaceVergeBuried = 0;
+
             // Make sure the configs exist on disk, but deliberately do not keep the references:
             // see the note on LoadVehicleConfig for why they must be re-loaded after a scene switch.
             CreateVehicleConfigs();
@@ -74,6 +81,7 @@ namespace Horizon.EditorTools
             }
 
             List<SpawnPoint> spawns = BuildWorldScene(vehiclePrefab);
+            ReportSurfaces();
             BuildBootstrapScene(spawns);
             RegisterScenesInBuildSettings();
 
@@ -237,6 +245,22 @@ namespace Horizon.EditorTools
             /// the fog every frame, so what is set here is only a starting point.
             /// </summary>
             public readonly Material AirRush;
+
+            /// <summary>Falling water. Stretched billboards, so it wants its own thin bright material.</summary>
+            public readonly Material Rain;
+
+            /// <summary>The grey dome that goes up in bad weather. Null if the shader is missing.</summary>
+            public readonly Material OvercastSkybox;
+
+            /// <summary>
+            /// The wet counterparts, in the order <see cref="WetRoadMaterials"/> lists the dry ones.
+            ///
+            /// <para>Whole assets rather than a colour written onto the dry ones at run time, for the
+            /// reason <c>WetSurfaces</c> gives: Unity does not roll an asset edit back when Play mode
+            /// ends, so a player who tried the rain once would leave M_RoadSurface.mat modified in the
+            /// working tree.</para>
+            /// </summary>
+            public readonly Material[] RoadWet;
 
             /// <summary>
             /// Tyre smoke. Lighter and far less transparent than the exhaust plume: burnt rubber is
@@ -492,7 +516,186 @@ namespace Horizon.EditorTools
                 AirRush = HorizonAssetUtility.LoadOrCreateParticleMaterial(
                     MaterialsFolder + "/M_AirRush.mat", "M_AirRush", smokeTexture,
                     new Color(0.9f, 0.9f, 0.92f, 0.45f));
+
+                // Cool and pale rather than white, and thin. A raindrop seen against a stormy sky is
+                // nearly the colour of the sky, and pure white streaks read as scratches on the lens.
+                Rain = HorizonAssetUtility.LoadOrCreateParticleMaterial(
+                    MaterialsFolder + "/M_Rain.mat", "M_Rain", smokeTexture,
+                    new Color(0.86f, 0.90f, 0.96f, 0.62f));
+
+                // Darker, and only a little smoother. The darkening does nearly all the work and the
+                // smoothness is a garnish — which is the opposite of what the first version assumed,
+                // and the pictures were unambiguous about it.
+                //
+                // <b>0.80 turned every road in the world into a mirror of the sky.</b> This project has
+                // no reflection probes by budget, so URP's environment reflection is the skybox itself:
+                // past about half smoothness the carriageway stops being asphalt and becomes a sheet of
+                // blue, the lane markings disappear under it entirely, and the effect does not even stop
+                // at a portal — the bore came back with a blue river running through it. A wet road is
+                // dark first and shiny second.
+                RoadWet = new[]
+                {
+                    WetVariant(MaterialsFolder + "/M_RoadSurfaceWet.mat", "M_RoadSurfaceWet",
+                        RoadSurface, new Color(0.52f, 0.53f, 0.57f), 0.46f),
+                    WetVariant(MaterialsFolder + "/M_MotorwaySurfaceWet.mat", "M_MotorwaySurfaceWet",
+                        MotorwaySurface, new Color(0.52f, 0.53f, 0.57f), 0.46f),
+                    WetVariant(MaterialsFolder + "/M_CircuitSurfaceWet.mat", "M_CircuitSurfaceWet",
+                        CircuitSurface, new Color(0.52f, 0.53f, 0.57f), 0.46f),
+
+                    // The verge barely moves. Gravel holds water in it rather than on it, so a shoulder
+                    // shining like the carriageway would read as a second lane.
+                    WetVariant(MaterialsFolder + "/M_RoadShoulderWet.mat", "M_RoadShoulderWet",
+                        RoadShoulder, new Color(0.68f, 0.68f, 0.70f), 0.22f),
+
+                    WetVariant(MaterialsFolder + "/M_LaneWet.mat", "M_LaneWet",
+                        Lane, new Color(0.17f, 0.17f, 0.19f), 0.44f),
+                };
+
+                OvercastSkybox = OvercastSky();
             }
+
+            /// <summary>
+            /// The wet twin of a road material: same texture, darker tint, higher smoothness.
+            ///
+            /// <para><b>The tint is written after the asset is made, and only when it is made.</b>
+            /// <c>LoadOrCreateMaterial</c> forces <c>_BaseColor</c> to white whenever a base map is
+            /// given, and it is right to — for a dry road the tint multiplies the marking atlas and
+            /// anything but white would darken the paint. Here darkening is the point, so the colour has
+            /// to go back on afterwards. Only on creation, because that helper returns an existing asset
+            /// untouched so hand-retints survive a rebuild, and re-writing the tint every run would make
+            /// this the one material in the project that cannot be adjusted.</para>
+            /// </summary>
+            private static Material WetVariant(
+                string assetPath, string name, Material dry, Color tint, float smoothness)
+            {
+                bool existed = AssetDatabase.LoadAssetAtPath<Material>(assetPath) != null;
+
+                Material wet = HorizonAssetUtility.LoadOrCreateMaterial(
+                    assetPath, name, tint, smoothness, 0f,
+                    dry != null ? dry.GetTexture("_BaseMap") as Texture2D : null);
+
+                if (!existed && wet != null)
+                {
+                    wet.SetColor("_BaseColor", tint);
+                    EditorUtility.SetDirty(wet);
+                }
+
+                return wet;
+            }
+
+            /// <summary>
+            /// The bad-weather sky: a flat grey gradient, painted rather than simulated.
+            ///
+            /// <para><b>The procedural sky cannot do overcast, and the first attempt proved it.</b>
+            /// <c>Skybox/Procedural</c> models atmospheric scattering, so its one "more weather" knob —
+            /// <c>_AtmosphereThickness</c> — means *more air*, and more air means more scattering: the
+            /// frame came back with a gold sunset at the horizon and a green zenith over a rainstorm.
+            /// Thickness is a sunset knob wearing a weather name. It also keeps taking its colour from
+            /// <c>RenderSettings.sun</c>, which at four in the afternoon is warm gold, so no tint on top
+            /// could have rescued it.</para>
+            ///
+            /// <para>What overcast actually is, is a flat low-contrast dome that does not know where the
+            /// sun is. That is two colours and a gradient, so it is generated as a small equirectangular
+            /// texture and hung on <c>Skybox/Panoramic</c> — 64 × 32, because it is nothing but a
+            /// vertical ramp and bilinear filtering does the rest. The horizon is the lighter end, which
+            /// is the one thing a real overcast sky reliably does.</para>
+            ///
+            /// <para><b>It is also what every smooth surface in the world reflects</b>, there being no
+            /// reflection probes here, so this is half of why wet asphalt stopped looking like a canal.
+            /// </para>
+            /// </summary>
+            private static Material OvercastSky()
+            {
+                const string assetPath = MaterialsFolder + "/M_SkyOvercast.mat";
+
+                Material existing = AssetDatabase.LoadAssetAtPath<Material>(assetPath);
+                if (existing != null)
+                {
+                    return existing;
+                }
+
+                Shader shader = Shader.Find("Skybox/Panoramic");
+                if (shader == null)
+                {
+                    Debug.LogWarning(
+                        "[Horizon] No Skybox/Panoramic shader, so bad weather keeps the fair sky. "
+                        + "Rain will fall out of a blue afternoon, which is the fault this material "
+                        + "exists to fix.");
+                    return null;
+                }
+
+                Texture2D dome = HorizonAssetUtility.LoadOrCreateTexture(
+                    ProjectRoot + "/Art/T_SkyOvercast.png", BuildOvercastDome, anisoLevel: 1);
+
+                var sky = new Material(shader) { name = "M_SkyOvercast" };
+                sky.SetTexture("_MainTex", dome);
+                sky.SetColor("_Tint", Color.white);
+                sky.SetFloat("_Exposure", 1f);
+                sky.SetFloat("_Rotation", 0f);
+
+                // Latitude-longitude, and the whole sphere rather than a hemisphere: the ground half is
+                // never seen — terrain covers it — but a half-sphere layout would stretch the ramp over
+                // twice the arc and put the horizon line halfway up the frame.
+                sky.SetFloat("_Mapping", 1f);
+                sky.SetFloat("_ImageType", 0f);
+
+                AssetDatabase.CreateAsset(sky, assetPath);
+                return AssetDatabase.LoadAssetAtPath<Material>(assetPath);
+            }
+
+            /// <summary>
+            /// The overcast dome: a cool grey ramp, lighter at the horizon than overhead.
+            ///
+            /// <para>Equirectangular, so v runs from the nadir at 0 to the zenith at 1 and the horizon
+            /// sits exactly halfway. Both halves are painted — the lower one is never seen through
+            /// terrain, but a sky that went black below the horizon would show as a dark band under
+            /// every distant ridge the moment the fog thinned.</para>
+            /// </summary>
+            private static Texture2D BuildOvercastDome()
+            {
+                const int width = 64;
+                const int height = 32;
+
+                var horizon = new Color(0.66f, 0.68f, 0.71f);
+                var zenith = new Color(0.40f, 0.43f, 0.48f);
+
+                var texture = new Texture2D(width, height, TextureFormat.RGB24, false)
+                {
+                    name = "T_SkyOvercast",
+                    wrapModeU = TextureWrapMode.Repeat,
+                    wrapModeV = TextureWrapMode.Clamp,
+                    filterMode = FilterMode.Bilinear,
+                };
+
+                var row = new Color[width];
+
+                for (int y = 0; y < height; y++)
+                {
+                    // Distance from the horizon, 0 at it and 1 at either pole. Smoothstepped so the band
+                    // just above the skyline stays pale for a while rather than darkening immediately,
+                    // which is what makes a grey sky read as high cloud instead of as a dome.
+                    float v = (y + 0.5f) / height;
+                    float up = Mathf.Abs(v - 0.5f) * 2f;
+
+                    Color colour = Color.Lerp(horizon, zenith, Mathf.SmoothStep(0f, 1f, up));
+
+                    for (int x = 0; x < width; x++)
+                    {
+                        row[x] = colour;
+                    }
+
+                    texture.SetPixels(0, y, width, 1, row);
+                }
+
+                texture.Apply();
+                return texture;
+            }
+
+            /// <summary>The dry road materials, in the order <see cref="RoadWet"/> gives their wet twins.</summary>
+            public Material[] WetRoadMaterials => new[]
+            {
+                RoadSurface, MotorwaySurface, CircuitSurface, RoadShoulder, Lane,
+            };
         }
 
         /// <summary>
@@ -768,6 +971,59 @@ namespace Horizon.EditorTools
             HorizonAssetUtility.AssertReferenceAssigned(engineAudio, "tyreSource");
             HorizonAssetUtility.AssertReferenceAssigned(engineAudio, "turboSource");
 
+            // The three contact layers. Placed after the engine because they are the same kind of thing
+            // and read the same car — see ContactAudio for why all three live on one component.
+            //
+            // Barely spatialised at all. A crash and a scrape happen at the bodywork, which at chase
+            // distance is close enough to the listener that panning them only smears the transient; the
+            // rumble is under the wheels, which is where the tyre squeal already sits at 0.1.
+            AudioSource impactSource = CreateAudioSource(root.transform, "Audio_Impact", 0.12f);
+            impactSource.loop = false;
+            impactSource.volume = 1f;
+
+            AudioSource scrapeSource = CreateAudioSource(root.transform, "Audio_Scrape", 0.12f);
+            AudioSource rumbleSource = CreateAudioSource(root.transform, "Audio_Rumble", 0.1f);
+
+            // The verge's own voice, crossfaded against the one above it on a single level — see
+            // ContactAudio.UpdateRumble for why the pair is one contact patch and not two sounds.
+            AudioSource gritSource = CreateAudioSource(root.transform, "Audio_Grit", 0.1f);
+
+            // Fully 2D, which nothing else on this car is. Rain has no position: it is not coming from
+            // the engine bay or from under the wheels, it is everywhere the car is, and any spatial
+            // blend at all would make it swing around the listener as the camera turns.
+            AudioSource rainSource = CreateAudioSource(root.transform, "Audio_Rain", 0f);
+
+            ContactAudio contactAudio = root.AddComponent<ContactAudio>();
+            HorizonAssetUtility.Configure(contactAudio, serialized =>
+            {
+                serialized.FindProperty("impactSource").objectReferenceValue = impactSource;
+                serialized.FindProperty("scrapeSource").objectReferenceValue = scrapeSource;
+                serialized.FindProperty("rumbleSource").objectReferenceValue = rumbleSource;
+                serialized.FindProperty("gritSource").objectReferenceValue = gritSource;
+            });
+
+            // Same argument as the engine layers above, and it bites harder here: two of these three are
+            // silent until the car touches something it should not, so a missing reference is a layer
+            // nobody discovers until the day they crash and hear nothing. The vehicle reference is
+            // asserted further down, where the controller exists.
+            HorizonAssetUtility.AssertReferenceAssigned(contactAudio, "impactSource");
+            HorizonAssetUtility.AssertReferenceAssigned(contactAudio, "scrapeSource");
+            HorizonAssetUtility.AssertReferenceAssigned(contactAudio, "rumbleSource");
+            HorizonAssetUtility.AssertReferenceAssigned(contactAudio, "gritSource");
+
+            // On the car and not on the camera, for the one reason that matters: VehicleCover is here.
+            // A tunnel has to silence the sky, and the upward ray that already fades the engine's reverb
+            // is the answer — see RainAudio. Its level is written by WeatherDirector.
+            RainAudio rainAudio = root.AddComponent<RainAudio>();
+            HorizonAssetUtility.Configure(rainAudio, serialized =>
+            {
+                serialized.FindProperty("source").objectReferenceValue = rainSource;
+                serialized.FindProperty("cover").objectReferenceValue = cover;
+            });
+
+            HorizonAssetUtility.AssertReferenceAssigned(rainAudio, "source");
+            HorizonAssetUtility.AssertReferenceAssigned(rainAudio, "cover");
+
             VehicleLights lights = root.AddComponent<VehicleLights>();
             HorizonAssetUtility.Configure(lights, serialized =>
             {
@@ -857,6 +1113,13 @@ namespace Horizon.EditorTools
             // an explicit reference is one less thing to be surprised by.
             HorizonAssetUtility.Configure(lights, serialized =>
                 serialized.FindProperty("controller").objectReferenceValue = controller);
+
+            // And the contact layers, for the same reason and in the same shape: the sources were made
+            // with the rest of the audio, but the car they listen to is only born here.
+            HorizonAssetUtility.Configure(contactAudio, serialized =>
+                serialized.FindProperty("vehicle").objectReferenceValue = controller);
+
+            HorizonAssetUtility.AssertReferenceAssigned(contactAudio, "vehicle");
 
             // --- The garage. Last, because it needs the collider, the controller and the lights.
             VehicleBodySet bodySet = root.AddComponent<VehicleBodySet>();
@@ -1092,7 +1355,8 @@ namespace Horizon.EditorTools
 
             // Material order follows the Submesh constants on RoadMeshBuilder.
             GameObject roadObject = CreateMeshObject(worldRoot.transform, "Road", roadMesh,
-                new[] { materials.RoadSurface, materials.RoadShoulder });
+                new[] { materials.RoadSurface, materials.RoadShoulder },
+                surfaces: CarriagewaySurfaces);
 
             // The road is a chunk of its own with a radius large enough that it never unloads: it is a
             // thin ribbon costing little, and the car is by definition standing on it.
@@ -1116,7 +1380,8 @@ namespace Horizon.EditorTools
                 ebentalMesh, GeneratedFolder + "/EbentalRoadMesh.asset");
 
             GameObject ebentalObject = CreateMeshObject(worldRoot.transform, "EbentalRoad", ebentalMesh,
-                new[] { materials.RoadSurface, materials.RoadShoulder });
+                new[] { materials.RoadSurface, materials.RoadShoulder },
+                surfaces: CarriagewaySurfaces);
 
             WorldChunk ebentalChunk = ebentalObject.AddComponent<WorldChunk>();
             ebentalChunk.RecalculateBounds();
@@ -1148,7 +1413,8 @@ namespace Horizon.EditorTools
                 stadtfeldMesh, GeneratedFolder + "/StadtfeldRoadMesh.asset");
 
             GameObject stadtfeldObject = CreateMeshObject(worldRoot.transform, "StadtfeldRoad",
-                stadtfeldMesh, new[] { materials.RoadSurface, materials.RoadShoulder });
+                stadtfeldMesh, new[] { materials.RoadSurface, materials.RoadShoulder },
+                surfaces: CarriagewaySurfaces);
 
             WorldChunk stadtfeldChunk = stadtfeldObject.AddComponent<WorldChunk>();
             stadtfeldChunk.RecalculateBounds();
@@ -1178,7 +1444,8 @@ namespace Horizon.EditorTools
                 kalkgratMesh, GeneratedFolder + "/KalkgratRoadMesh.asset");
 
             GameObject kalkgratObject = CreateMeshObject(worldRoot.transform, "KalkgratRoad",
-                kalkgratMesh, new[] { materials.RoadSurface, materials.RoadShoulder });
+                kalkgratMesh, new[] { materials.RoadSurface, materials.RoadShoulder },
+                surfaces: CarriagewaySurfaces);
 
             WorldChunk kalkgratChunk = kalkgratObject.AddComponent<WorldChunk>();
             kalkgratChunk.RecalculateBounds();
@@ -1198,7 +1465,8 @@ namespace Horizon.EditorTools
                 meerengeMesh, GeneratedFolder + "/MeerengeRoadMesh.asset");
 
             GameObject meerengeObject = CreateMeshObject(worldRoot.transform, "MeerengeRoad",
-                meerengeMesh, new[] { materials.RoadSurface, materials.RoadShoulder });
+                meerengeMesh, new[] { materials.RoadSurface, materials.RoadShoulder },
+                surfaces: CarriagewaySurfaces);
 
             WorldChunk meerengeChunk = meerengeObject.AddComponent<WorldChunk>();
             meerengeChunk.RecalculateBounds();
@@ -1226,7 +1494,8 @@ namespace Horizon.EditorTools
                 yalikoyMesh, GeneratedFolder + "/YalikoyRoadMesh.asset");
 
             GameObject yalikoyObject = CreateMeshObject(worldRoot.transform, "YalikoyRoad",
-                yalikoyMesh, new[] { materials.RoadSurface, materials.RoadShoulder });
+                yalikoyMesh, new[] { materials.RoadSurface, materials.RoadShoulder },
+                surfaces: CarriagewaySurfaces);
 
             WorldChunk yalikoyChunk = yalikoyObject.AddComponent<WorldChunk>();
             yalikoyChunk.RecalculateBounds();
@@ -1280,7 +1549,8 @@ namespace Horizon.EditorTools
                 linkMesh, GeneratedFolder + "/MotorwayLinkMesh.asset");
 
             GameObject linkObject = CreateMeshObject(worldRoot.transform, "MotorwayLink", linkMesh,
-                new[] { materials.RoadSurface, materials.RoadShoulder });
+                new[] { materials.RoadSurface, materials.RoadShoulder },
+                surfaces: CarriagewaySurfaces);
 
             WorldChunk linkChunk = linkObject.AddComponent<WorldChunk>();
             linkChunk.RecalculateBounds();
@@ -1302,7 +1572,8 @@ namespace Horizon.EditorTools
                 weissjochMesh, GeneratedFolder + "/WeissjochRoadMesh.asset");
 
             GameObject weissjochObject = CreateMeshObject(worldRoot.transform, "WeissjochRoad",
-                weissjochMesh, new[] { materials.RoadSurface, materials.RoadShoulder });
+                weissjochMesh, new[] { materials.RoadSurface, materials.RoadShoulder },
+                surfaces: CarriagewaySurfaces);
 
             WorldChunk weissjochChunk = weissjochObject.AddComponent<WorldChunk>();
             weissjochChunk.RecalculateBounds();
@@ -1332,7 +1603,8 @@ namespace Horizon.EditorTools
                 ringMesh, GeneratedFolder + "/WeissjochringMesh.asset");
 
             GameObject ringObject = CreateMeshObject(worldRoot.transform, "Weissjochring",
-                ringMesh, new[] { materials.CircuitSurface, materials.RoadShoulder });
+                ringMesh, new[] { materials.CircuitSurface, materials.RoadShoulder },
+                surfaces: CarriagewaySurfaces);
 
             WorldChunk ringChunk = ringObject.AddComponent<WorldChunk>();
             ringChunk.RecalculateBounds();
@@ -1355,7 +1627,8 @@ namespace Horizon.EditorTools
 
             GameObject ringAccessObjectMesh = CreateMeshObject(worldRoot.transform,
                 "WeissjochringAccess", ringAccessMesh,
-                new[] { materials.RoadSurface, materials.RoadShoulder });
+                new[] { materials.RoadSurface, materials.RoadShoulder },
+                surfaces: CarriagewaySurfaces);
 
             WorldChunk ringAccessChunk = ringAccessObjectMesh.AddComponent<WorldChunk>();
             ringAccessChunk.RecalculateBounds();
@@ -1382,7 +1655,8 @@ namespace Horizon.EditorTools
                 bahceMesh, GeneratedFolder + "/BahceRingMesh.asset");
 
             GameObject bahceObject = CreateMeshObject(worldRoot.transform, "BahceRing",
-                bahceMesh, new[] { materials.CircuitSurface, materials.RoadShoulder });
+                bahceMesh, new[] { materials.CircuitSurface, materials.RoadShoulder },
+                surfaces: CarriagewaySurfaces);
 
             WorldChunk bahceChunk = bahceObject.AddComponent<WorldChunk>();
             bahceChunk.RecalculateBounds();
@@ -1405,7 +1679,8 @@ namespace Horizon.EditorTools
 
             GameObject bahceAccessMeshObject = CreateMeshObject(worldRoot.transform,
                 "BahceRingAccess", bahceAccessMesh,
-                new[] { materials.RoadSurface, materials.RoadShoulder });
+                new[] { materials.RoadSurface, materials.RoadShoulder },
+                surfaces: CarriagewaySurfaces);
 
             WorldChunk bahceAccessChunk = bahceAccessMeshObject.AddComponent<WorldChunk>();
             bahceAccessChunk.RecalculateBounds();
@@ -1434,7 +1709,8 @@ namespace Horizon.EditorTools
                 coastMesh, GeneratedFolder + "/CoastRoadMesh.asset");
 
             GameObject coastObject = CreateMeshObject(worldRoot.transform, "CoastRoad", coastMesh,
-                new[] { materials.RoadSurface, materials.RoadShoulder });
+                new[] { materials.RoadSurface, materials.RoadShoulder },
+                surfaces: CarriagewaySurfaces);
 
             WorldChunk coastChunk = coastObject.AddComponent<WorldChunk>();
             coastChunk.RecalculateBounds();
@@ -2328,10 +2604,27 @@ namespace Horizon.EditorTools
                 serialized.FindProperty("sun").objectReferenceValue = sun;
             });
 
+            // The fair sky is whatever the scene already had — the built-in default — captured rather
+            // than recreated, so the good weather looks exactly as it always has and only the bad
+            // weather is new.
+            HorizonAssetUtility.Configure(timeOfDay, serialized =>
+            {
+                serialized.FindProperty("clearSky").objectReferenceValue = RenderSettings.skybox;
+                serialized.FindProperty("overcastSky").objectReferenceValue = materials.OvercastSkybox;
+            });
+
             HorizonAssetUtility.AssertReferenceAssigned(timeOfDay, "profile");
             HorizonAssetUtility.AssertReferenceAssigned(timeOfDay, "sun");
+            HorizonAssetUtility.AssertReferenceAssigned(timeOfDay, "clearSky");
+            HorizonAssetUtility.AssertReferenceAssigned(timeOfDay, "overcastSky");
 
             BuildSpeedAtmosphere(atmosphereObject.transform, timeOfDay, materials);
+
+            // The camera's answer to a crash. On the Atmosphere object rather than the camera, because
+            // it is the world reacting to the car and not the camera having an opinion of its own —
+            // which is the same argument BuildSpeedAtmosphere makes for the grit. Created here and
+            // wired further down, once the rig it kicks exists.
+            ImpactEffects impacts = atmosphereObject.AddComponent<ImpactEffects>();
 
             // --- Vehicle, dropped onto the road among the houses rather than at the start of the course.
             // The arrival road in front of the town is 700 m of scenery to drive *back* along, not
@@ -2385,6 +2678,39 @@ namespace Horizon.EditorTools
                 serialized.FindProperty("obstacleMask").intValue = 1;
             });
 
+            // The rig is wired explicitly and the vehicle is left empty, which is the split
+            // BuildSpeedAtmosphere already makes: the camera is in this scene and never replaced, the
+            // car's shell is swapped by the garage.
+            HorizonAssetUtility.Configure(impacts, serialized =>
+                serialized.FindProperty("chaseCamera").objectReferenceValue = chaseCamera);
+
+            HorizonAssetUtility.AssertReferenceAssigned(impacts, "chaseCamera");
+
+            // The rain hangs off the camera rather than off the car, and it is the only effect in this
+            // project that does. The grit is emitted into world space ahead of the *car* because the
+            // whole point of it is the car passing it; rain falls everywhere and what has to be filled
+            // is the frame. Parented here it costs one box of drops whichever way the player is looking,
+            // and the simulation stays in world space so they fall straight down rather than being
+            // dragged sideways with the rig.
+            ParticleSystem rainParticles = BuildRain(cameraObject.transform, materials);
+
+            // The registry of everything that changes when it rains, swept off the finished world by the
+            // materials the builders themselves assigned. Must run after every road, street, forecourt
+            // and deck exists — which is here, and is why it is not next to the material creation.
+            WetSurfaces wetSurfaces = BuildWetSurfaces(worldRoot.transform, materials);
+
+            WeatherDirector weather = atmosphereObject.AddComponent<WeatherDirector>();
+            HorizonAssetUtility.Configure(weather, serialized =>
+            {
+                serialized.FindProperty("rain").objectReferenceValue = rainParticles;
+                serialized.FindProperty("surfaces").objectReferenceValue = wetSurfaces;
+            });
+
+            // The cover probe is deliberately left empty and found at run time, because it is on the
+            // car — the same split BuildSpeedAtmosphere makes and for the same reason.
+            HorizonAssetUtility.AssertReferenceAssigned(weather, "rain");
+            HorizonAssetUtility.AssertReferenceAssigned(weather, "surfaces");
+
             timeOfDay.Apply();
 
             // Rendered here, while the world objects are in the active scene and before it is saved, so
@@ -2410,6 +2736,22 @@ namespace Horizon.EditorTools
                 coastCourse, weissjochCourse, motorwayCourse, linkCourse, ringPath, ringCourse,
                 ringAccessPath, bahcePath, bahceCourse, bahceAccessPath, circuitShape, towns, waters,
                 spawns);
+
+            // Last, because it is the only check in this build that asks the *scene* rather than the
+            // data — every collider and every tile has to exist before a ray can be cast at one.
+            ValidateSurfaces(path, roadShape, course, "Mountain pass");
+            ValidateSurfaces(ebentalPath, roadShape, ebentalCourse, "Ebental");
+            ValidateSurfaces(stadtfeldPath, roadShape, stadtfeldCourse, "Stadtfeld");
+            ValidateSurfaces(kalkgratPath, roadShape, kalkgratCourse, "Kalkgrat");
+            ValidateSurfaces(meerengePath, roadShape, meerengeCourse, "Meerenge");
+            ValidateSurfaces(yalikoyPath, roadShape, yalikoyCourse, "Yalikoy");
+            ValidateSurfaces(weissjochPath, roadShape, weissjochCourse, "Weissjoch");
+            ValidateSurfaces(coastPath, roadShape, coastCourse, "Coast road");
+            ValidateSurfaces(westbound, motorwayShape, motorwayCourse, "Motorway westbound");
+            ValidateSurfaces(eastbound, motorwayShape, motorwayCourse, "Motorway eastbound");
+            ValidateSurfaces(ringPath, circuitShape, ringCourse, "Weissjochring");
+            ValidateSurfaces(bahcePath, circuitShape, bahceCourse, "Bahce Ring");
+
 
             EditorSceneManager.SaveScene(scene, WorldScenePath);
             return spawns;
@@ -3801,7 +4143,8 @@ namespace Horizon.EditorTools
                     int index, string name,
                     float streamLoad, float streamUnload, float streamMargin,
                     int trafficBudget, float trafficLoad, float trafficRecycle,
-                    bool shadows, bool exhaust, bool tyreSmoke, bool airRush, int frameRate)
+                    bool shadows, bool exhaust, bool tyreSmoke, bool airRush, float rainDrops,
+                    int frameRate)
                 {
                     SerializedProperty level = levels.GetArrayElementAtIndex(index);
                     level.FindPropertyRelative("Name").stringValue = name;
@@ -3815,6 +4158,7 @@ namespace Horizon.EditorTools
                     level.FindPropertyRelative("ExhaustParticles").boolValue = exhaust;
                     level.FindPropertyRelative("TyreSmokeParticles").boolValue = tyreSmoke;
                     level.FindPropertyRelative("AirRushParticles").boolValue = airRush;
+                    level.FindPropertyRelative("RainDrops").floatValue = rainDrops;
                     level.FindPropertyRelative("TargetFrameRate").intValue = frameRate;
                 }
 
@@ -3823,14 +4167,18 @@ namespace Horizon.EditorTools
                 // constantly; tyre smoke is feedback — it is how the player sees that the car has let
                 // go — and taking that away on a weak phone would remove information rather than
                 // decoration. It also costs nothing at all until something actually slides.
+                // Rain is the one effect here that is thinned rather than switched off, and Low still
+                // draws a third of it. The other three are decoration; rain is a state the world is in,
+                // and a phone that showed none of it while the road was slippery and the roof was
+                // rattling would be lying about the weather rather than saving a frame.
                 Set((int)QualityPreset.Low, "Low",
-                    380f, 500f, 140f, 24, 320f, 460f, false, false, true, false, 30);
+                    380f, 500f, 140f, 24, 320f, 460f, false, false, true, false, 0.33f, 30);
 
                 Set((int)QualityPreset.Balanced, "Balanced",
-                    650f, 820f, 220f, 56, 650f, 900f, true, true, true, true, 60);
+                    650f, 820f, 220f, 56, 650f, 900f, true, true, true, true, 0.7f, 60);
 
                 Set((int)QualityPreset.High, "High",
-                    820f, 1000f, 260f, TrafficPoolSize, 800f, 1050f, true, true, true, true, 60);
+                    820f, 1000f, 260f, TrafficPoolSize, 800f, 1050f, true, true, true, true, 1f, 60);
             });
         }
 
@@ -4487,7 +4835,8 @@ namespace Horizon.EditorTools
             mesh = HorizonAssetUtility.ReplaceAsset(mesh, $"{GeneratedFolder}/{name}Mesh.asset");
 
             GameObject carriageway = CreateMeshObject(parent, name, mesh,
-                new[] { materials.MotorwaySurface, materials.RoadShoulder });
+                new[] { materials.MotorwaySurface, materials.RoadShoulder },
+                surfaces: CarriagewaySurfaces);
 
             // Never unloads, for the same reason the pass road does not: it is a thin ribbon, and the
             // car is by definition standing on one of them.
@@ -4876,6 +5225,178 @@ namespace Horizon.EditorTools
 
             HorizonAssetUtility.AssertReferenceAssigned(speed, "atmosphere");
             HorizonAssetUtility.AssertReferenceAssigned(speed, "rush");
+        }
+
+        /// <summary>
+        /// The rain, as a box of drops hanging over the camera.
+        ///
+        /// <para><b>Parented to the rig but simulated in world space</b>, which is the whole of why this
+        /// works. The emitter box travels with the camera so there is always rain in frame wherever the
+        /// player looks; the drops, once emitted, belong to the world and fall straight down. Simulated
+        /// in local space instead they would be dragged sideways with the car and lean into every
+        /// corner, which reads as the rain being attached to the windscreen.</para>
+        ///
+        /// <para>Emitted by rate rather than by hand, unlike <see cref="BuildSpeedAtmosphere"/>'s grit.
+        /// That one has to be placed relative to the direction of travel so the car meets it head on;
+        /// rain only has to be everywhere, and a rate on a box shape is what a particle system is for.
+        /// The rate itself is the one thing <c>WeatherDirector</c> writes.</para>
+        ///
+        /// <para>Stretched billboards, and the stretch comes from velocity rather than from a fixed
+        /// length: a drop is a streak because it is moving, and a fixed length makes standing rain look
+        /// like falling rain in a still frame — which is exactly the frame the preview tools take.</para>
+        /// </summary>
+        private static ParticleSystem BuildRain(Transform cameraTransform, PrototypeMaterials materials)
+        {
+            var rainObject = new GameObject("Rain");
+            rainObject.transform.SetParent(cameraTransform, false);
+
+            // Above and slightly ahead. Ahead because the camera looks forward and rain behind the lens
+            // is rain nobody sees; the drops fall through the frame from the top, which is where they
+            // are wanted.
+            rainObject.transform.localPosition = new Vector3(0f, 14f, 8f);
+
+            ParticleSystem particles = rainObject.AddComponent<ParticleSystem>();
+
+            ParticleSystem.MainModule main = particles.main;
+            main.duration = 1f;
+            main.loop = true;
+            main.simulationSpace = ParticleSystemSimulationSpace.World;
+            main.playOnAwake = true;
+
+            // A drop from 14 m up at 22 m/s and accelerating is out of frame in well under a second.
+            // Longer lifetimes only pay for drops that have already fallen past the road.
+            main.startLifetime = new ParticleSystem.MinMaxCurve(0.75f, 1.05f);
+            main.startSpeed = new ParticleSystem.MinMaxCurve(20f, 26f);
+            main.startSize = new ParticleSystem.MinMaxCurve(0.06f, 0.11f);
+            main.gravityModifier = 1.1f;
+            main.startColor = new Color(0.88f, 0.92f, 0.98f, 0.85f);
+
+            // Rate over time only, and set to nothing here. The system plays from the first frame so
+            // that the first drop of a shower is not a burst of the entire box arriving at once, and
+            // WeatherDirector opens the tap.
+            ParticleSystem.EmissionModule emission = particles.emission;
+            emission.enabled = true;
+            emission.rateOverTime = 0f;
+
+            // Sized to the far plane rather than to the box it falls from: 90 m across is wider than the
+            // frame at any sane field of view, and drops outside it are drops drawn behind the camera.
+            ParticleSystem.ShapeModule shape = particles.shape;
+            shape.enabled = true;
+            shape.shapeType = ParticleSystemShapeType.Box;
+            shape.scale = new Vector3(90f, 1f, 60f);
+            shape.rotation = new Vector3(90f, 0f, 0f);
+
+            main.maxParticles = 2400;
+
+            var renderer = rainObject.GetComponent<ParticleSystemRenderer>();
+            renderer.renderMode = ParticleSystemRenderMode.Stretch;
+            renderer.velocityScale = 0.07f;
+            renderer.lengthScale = 1f;
+            renderer.cameraVelocityScale = 0f;
+            renderer.sharedMaterial = materials.Rain;
+            renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            renderer.receiveShadows = false;
+
+            return particles;
+        }
+
+        /// <summary>
+        /// Sweeps the finished world for everything painted like a road, and records the wet twin of
+        /// each slot.
+        ///
+        /// <para><b>Found by material identity rather than told by the builders.</b> Roads are painted
+        /// by a dozen builders — the ribbons, the town streets, the forecourt aprons, the fork throats,
+        /// the motorway merges and termini, the bridge decks — and threading a flag through all of them
+        /// is a dozen places to forget one, with no symptom but a stretch of tarmac that stays dry. The
+        /// test here is the exact asset the builder assigned, so a surface is a road if and only if a
+        /// builder painted it as one. That is not the checker forming its own opinion; it is reading the
+        /// builder's.</para>
+        ///
+        /// <para><b>Town streets are deliberately not in the list, and cannot be.</b> They are painted
+        /// <c>M_TerrainTint</c> — the one vertex-tinted material that also carries grass, rock, sand and
+        /// snow — so wetting them would wet every hillside in the world. Giving the streets a material
+        /// of their own is the honest fix and it is a change to make on purpose rather than in passing,
+        /// which is the same call the Weissjochring's missing snow got. Until then a shower darkens the
+        /// carriageways and leaves the towns dry.</para>
+        /// </summary>
+        private static WetSurfaces BuildWetSurfaces(Transform worldRoot, PrototypeMaterials materials)
+        {
+            Material[] dry = materials.WetRoadMaterials;
+            Material[] wet = materials.RoadWet;
+
+            var groups = new List<WetSurfaces.Group>();
+            var slots = new List<int>();
+            var dryFound = new List<Material>();
+            var wetFound = new List<Material>();
+
+            MeshRenderer[] renderers = worldRoot.GetComponentsInChildren<MeshRenderer>(true);
+
+            for (int i = 0; i < renderers.Length; i++)
+            {
+                Material[] assigned = renderers[i].sharedMaterials;
+
+                slots.Clear();
+                dryFound.Clear();
+                wetFound.Clear();
+
+                for (int slot = 0; slot < assigned.Length; slot++)
+                {
+                    int match = System.Array.IndexOf(dry, assigned[slot]);
+                    if (match < 0 || match >= wet.Length || wet[match] == null)
+                    {
+                        continue;
+                    }
+
+                    slots.Add(slot);
+                    dryFound.Add(assigned[slot]);
+                    wetFound.Add(wet[match]);
+                }
+
+                if (slots.Count == 0)
+                {
+                    continue;
+                }
+
+                groups.Add(new WetSurfaces.Group
+                {
+                    Renderer = renderers[i],
+                    Slots = slots.ToArray(),
+                    Dry = dryFound.ToArray(),
+                    Wet = wetFound.ToArray(),
+                });
+            }
+
+            var holder = new GameObject("WetSurfaces");
+            holder.transform.SetParent(worldRoot, false);
+
+            WetSurfaces surfaces = holder.AddComponent<WetSurfaces>();
+            surfaces.SetGroups(groups.ToArray());
+            EditorUtility.SetDirty(surfaces);
+
+            int slotCount = 0;
+            for (int i = 0; i < groups.Count; i++)
+            {
+                slotCount += groups[i].Slots.Length;
+            }
+
+            // Read back off the component rather than printed from the local list, which is the same
+            // number twice until the day SetGroups refuses one of them. TrunkForkBuilder.MouthHalfWidth
+            // is here because the build reported a fork's width from its own second copy of the formula
+            // and went on looking right after the formula had been fixed.
+            Debug.Log($"[Horizon] Rain: {surfaces.GroupCount} renderers carrying {slotCount} road material "
+                      + "slots will darken when it rains, found by the material the builder assigned. "
+                      + "Town streets are not among them — they share M_TerrainTint with the hillsides.");
+
+            if (groups.Count == 0)
+            {
+                Debug.LogWarning(
+                    "[Horizon] Nothing in the world is painted with a road material, so rain will fall "
+                    + "on tarmac that never darkens. Either the sweep ran before the roads were built, "
+                    + "or PrototypeMaterials.WetRoadMaterials has drifted from what the builders "
+                    + "actually assign.");
+            }
+
+            return surfaces;
         }
 
         /// <summary>
@@ -5819,7 +6340,8 @@ namespace Horizon.EditorTools
                     mesh = HorizonAssetUtility.ReplaceAsset(mesh, $"{GeneratedFolder}/{name}.asset");
 
                     tileObject = CreateMeshObject(
-                        terrainRoot.transform, name, mesh, new[] { materials.TerrainTint });
+                        terrainRoot.transform, name, mesh, new[] { materials.TerrainTint },
+                        surfaces: TerrainSurfaces);
                 }
 
                 Mesh water = WaterTileBuilder.BuildTile(
@@ -9935,6 +10457,302 @@ namespace Horizon.EditorTools
             return string.IsNullOrEmpty(label) ? "the pass" : label;
         }
 
+        /// <summary>Asphalt, then gravel. The submesh order <c>RoadMeshBuilder</c> builds every ribbon in.</summary>
+        private static readonly SurfaceKind[] CarriagewaySurfaces =
+        {
+            SurfaceKind.Asphalt,
+            SurfaceKind.Shoulder,
+        };
+
+        /// <summary>Terrain. One kind, because a tile's grass, rock and snow are tints on one mesh.</summary>
+        private static readonly SurfaceKind[] TerrainSurfaces = { SurfaceKind.Ground };
+
+        /// <summary>How many objects came out of this build carrying a surface tag, and of which kind.</summary>
+        private static int taggedCarriageways;
+
+        private static int taggedGround;
+
+        /// <summary>How many surface probes <see cref="ValidateSurfaces"/> cast, and how many missed.</summary>
+        private static int surfaceProbes;
+
+        private static int surfaceProbeMisses;
+
+        /// <summary>Verge probes cast, and how many found terrain standing over the gravel.</summary>
+        private static int surfaceVergeSamples;
+
+        private static int surfaceVergeBuried;
+
+        /// <summary>
+        /// Marks a collider with what it drives like, so <c>VehicleController</c> can read it off its own
+        /// wheel raycast rather than searching the road network every physics step.
+        ///
+        /// <para><b>Only where it is asked for, and that is deliberate.</b> Untagged geometry reads as
+        /// asphalt (see <see cref="GroundSurface"/> for why that is the safe default), so a building, a
+        /// guard rail or a tunnel wall needs no component — and this world has some thousands of those.
+        /// Two things actually have to be said: that a terrain tile is not a road, and that the outer
+        /// strips of a carriageway are gravel.</para>
+        ///
+        /// <para><b>The runs are measured off the collision mesh, never the rendered one.</b> The tunnels
+        /// are built with the two deliberately different, and <see cref="RaycastHit.triangleIndex"/>
+        /// indexes whatever the ray actually hit. Taking the counts from the visible mesh would put the
+        /// asphalt/gravel boundary at a triangle number that means nothing in the mesh being asked.</para>
+        /// </summary>
+        /// <summary>
+        /// Says what the world came out tagged as.
+        ///
+        /// <para><b>And warns when either count is nought, which is the whole reason it exists.</b>
+        /// Untagged geometry drives like asphalt, so a build that tagged nothing at all is a build in
+        /// which the car has full grip in a ploughed field and the verges are as fast as the road —
+        /// which looks exactly like a build with no surfaces in it, and there is nothing on screen and
+        /// nothing in the physics that would say so. It is the same argument the snow line makes one
+        /// system over.</para>
+        /// </summary>
+        /// <summary>
+        /// Casts a ray at the built world and asks what the car will be told it is standing on.
+        ///
+        /// <para><b>This is a picture's job done by measurement, and that is deliberate.</b> Every other
+        /// feature in this project is checked by photographing it, because what goes wrong is visible
+        /// and silent. A surface is the opposite: it is invisible and silent. A carriageway whose gravel
+        /// run starts in the middle of the road looks exactly like one that does not, in every frame
+        /// this project can take, day or night — and the only symptom is a car that is mysteriously
+        /// slippery down the crown of the road. So it is asked rather than looked at.</para>
+        ///
+        /// <para><b>It asks the scene, not the data.</b> Three separate things have to line up before a
+        /// wheel gets the right answer — the submesh order the mesh was built in, the triangle counts the
+        /// tag was given, and the collider actually being the mesh that was measured — and only a real
+        /// raycast tests all three at once. A check that recomputed the boundaries from the course would
+        /// agree with the builder right up until one of them was wrong, which is the rule this project
+        /// keeps having to relearn.</para>
+        ///
+        /// <para><b>The crown is an error and the verge is a measurement, and that asymmetry is the
+        /// finding this check was written to make.</b> A carriageway that does not read asphalt is
+        /// always wrong. A verge that does not read gravel very often is not: <c>ShoulderDrop</c> is
+        /// 0.5 m and <c>TerrainShape.RoadShelfDrop</c> is 0.45, so the shoulder already hangs below the
+        /// shelf on level ground, and the camber on the inside of a corner takes it a further
+        /// <c>sin(bank)</c> down. The hillside stands over the outer half of the verge there — so a
+        /// wheel running wide genuinely touches terrain, and reporting the terrain it touches is right.
+        /// <c>RoadShape.ShoulderDrop</c> states this rule for the *asphalt* edge and stops there;
+        /// nothing had ever measured what happens to the gravel behind it, because
+        /// <c>ValidateRoadClearance</c> asks about the carriageway and <c>ValidateRoadSupport</c> asks
+        /// whether the ground is too low rather than too high.</para>
+        ///
+        /// <para>So the verge is counted and reported, and only a <i>majority</i> failing is an error —
+        /// that is the shape of a submesh boundary in the wrong place, where a scattering is the shape
+        /// of banked corners.</para>
+        ///
+        /// <para>Off the road entirely is deliberately not probed: at 25 m from a carriageway the honest
+        /// answer is sometimes a bridge deck, a forecourt, a town street or the next road over, and a
+        /// check that called any of those a fault would be a check nobody reads.</para>
+        /// </summary>
+        private static void ValidateSurfaces(
+            IRoadPath path, in RoadShape shape, RoadCourse course, string what)
+        {
+            // Coarse on purpose: this is asking whether the tagging is right in principle, and a
+            // boundary that is wrong is wrong for kilometres. 37 m rather than a round number so the
+            // samples do not land on the same phase of every ribbon's control points.
+            const float step = 37f;
+
+            // Half a sample's spacing past whatever the junction itself claims, so the one probe that
+            // lands just outside a terminus — where the paving has already begun converging away from
+            // this carriageway's centreline — is not read as a hole in the road.
+            const float JunctionProbeMargin = step * 0.5f;
+
+            float shoulderAcross = shape.HalfWidth + shape.ShoulderWidth * 0.5f;
+
+            int samples = 0;
+            int missed = 0;
+            int crownWrong = 0;
+            int vergeSamples = 0;
+            int vergeWrong = 0;
+
+            SurfaceKind crownFound = SurfaceKind.Asphalt;
+            Vector3 crownAt = Vector3.zero;
+            float crownDistance = -1f;
+
+            for (float distance = step; distance < path.Length; distance += step)
+            {
+                // A junction is where a ribbon deliberately stops: MotorwayTerminusBuilder replaces
+                // 200 m of both carriageways and BuildBranchRoad trims a branch back by twenty to forty
+                // metres, so the probe drops through where the road used to be and lands on the shelf.
+                // Skipped by the same predicate the guard rails and the kerbs read — a checker with an
+                // opinion of its own about where a road ends agrees with the builder right up until one
+                // of them is wrong.
+                if (course != null && course.IsJunction(distance, JunctionProbeMargin))
+                {
+                    continue;
+                }
+
+                Vector3 centre = path.GetPositionAtDistance(distance);
+                Vector3 across = path.GetRightAtDistance(distance);
+
+                samples++;
+
+                if (!ProbeSurface(centre, out SurfaceKind crown))
+                {
+                    missed++;
+                }
+                else if (crown != SurfaceKind.Asphalt)
+                {
+                    crownWrong++;
+
+                    if (crownDistance < 0f)
+                    {
+                        crownFound = crown;
+                        crownAt = centre;
+                        crownDistance = distance;
+                    }
+                }
+
+                for (int side = -1; side <= 1; side += 2)
+                {
+                    if (!ProbeSurface(centre + across * (shoulderAcross * side), out SurfaceKind verge))
+                    {
+                        continue;
+                    }
+
+                    vergeSamples++;
+
+                    if (verge != SurfaceKind.Shoulder)
+                    {
+                        vergeWrong++;
+                    }
+                }
+            }
+
+            surfaceProbes += samples;
+            surfaceProbeMisses += missed;
+            surfaceVergeSamples += vergeSamples;
+            surfaceVergeBuried += vergeWrong;
+
+            // Reported before either verdict, and it is the more important of the three. A check whose
+            // rays all miss finds nothing wrong and says nothing at all — which is indistinguishable
+            // from a clean pass, and is what this would be if the colliders were not registered in the
+            // editor or if the ribbon were floating over its own shelf.
+            if (missed > samples / 4)
+            {
+                Debug.LogWarning(
+                    $"[Horizon] {what}: {missed} of {samples} surface probes found no tagged collider "
+                    + "under the road at all. Nothing below can be trusted — a check that cannot reach "
+                    + "its subject reports a clean pass.");
+            }
+
+            if (crownWrong > 0)
+            {
+                Debug.LogWarning(
+                    $"[Horizon] {what}: {crownWrong} of {samples} crown samples do not read asphalt. "
+                    + $"The first is {crownFound} at {crownDistance:0} m along, world "
+                    + $"({crownAt.x:0}, {crownAt.y:0}, {crownAt.z:0}). A wheel reads this off "
+                    + "RaycastHit.triangleIndex, so the causes are a submesh order that no longer "
+                    + "matches RoadMeshBuilder, or terrain standing over the carriageway — and the "
+                    + "world position is what tells those two apart.");
+            }
+
+            // More than half is the shape of a boundary in the wrong place. A scattering is the shape of
+            // banked corners, and is reported as one number for the whole world rather than as eleven
+            // warnings nobody would read past the second of.
+            if (vergeSamples > 0 && vergeWrong * 2 > vergeSamples)
+            {
+                Debug.LogWarning(
+                    $"[Horizon] {what}: {vergeWrong} of {vergeSamples} verge samples do not read gravel. "
+                    + "That is most of the shoulder, which is too many to be the terrain shelf standing "
+                    + "over the outside of banked corners — look at the shoulder submesh boundary.");
+            }
+        }
+
+        /// <summary>
+        /// Drops a ray onto the world and returns what the collider it lands on says it is.
+        ///
+        /// <para>From three metres up and no further, which is what keeps this honest inside a tunnel:
+        /// the bore is over four metres high, so the ray starts in the air under the rock and finds the
+        /// carriageway rather than the massif above it.</para>
+        /// </summary>
+        private static bool ProbeSurface(Vector3 point, out SurfaceKind kind)
+        {
+            kind = SurfaceKind.Asphalt;
+
+            if (!Physics.Raycast(point + Vector3.up * 3f, Vector3.down, out RaycastHit hit, 8f))
+            {
+                return false;
+            }
+
+            var tag = hit.collider.GetComponent<GroundSurface>();
+            if (tag == null)
+            {
+                return false;
+            }
+
+            kind = tag.KindAt(hit.triangleIndex);
+            return true;
+        }
+
+        private static void ReportSurfaces()
+        {
+            Debug.Log($"[Horizon] Surfaces: {taggedCarriageways} carriageways tagged asphalt over gravel, "
+                      + $"{taggedGround} terrain tiles tagged ground. Everything else drives like a road, "
+                      + "which is the default and is deliberate. "
+                      + $"{surfaceProbes - surfaceProbeMisses} of {surfaceProbes} probes reached one.");
+
+            // Not a fault, and worth a line of its own so nobody re-derives it. The shoulder hangs 0.5 m
+            // below the asphalt against a terrain shelf 0.45 m below the crown, so on the inside of a
+            // banked corner the hillside stands over the outer half of the verge — and a wheel that runs
+            // wide there really is on terrain rather than on gravel. What is drawn as gravel and what is
+            // stood on are different questions, and this is the one number that says how far apart.
+            Debug.Log($"[Horizon] Verge: {surfaceVergeBuried} of {surfaceVergeSamples} probes at the "
+                      + $"middle of a shoulder land on terrain rather than gravel "
+                      + $"({surfaceVergeBuried * 100f / Mathf.Max(1, surfaceVergeSamples):0.0} %), "
+                      + "which is the terrain shelf standing over the verge on banked corners. See "
+                      + "RoadShape.ShoulderDrop against TerrainShape.RoadShelfDrop.");
+
+            if (taggedCarriageways == 0 || taggedGround == 0)
+            {
+                Debug.LogWarning(
+                    "[Horizon] One of the two surface kinds came out empty. Untagged geometry reads as "
+                    + "asphalt, so this builds, validates and drives — with a verge that is as quick as "
+                    + "the carriageway, or a hillside that is. Check the surfaces argument on "
+                    + "CreateMeshObject.");
+            }
+        }
+
+        private static void TagSurface(GameObject meshObject, Mesh colliding, SurfaceKind[] surfaces)
+        {
+            if (surfaces == null || surfaces.Length == 0 || colliding == null)
+            {
+                return;
+            }
+
+            var tag = meshObject.AddComponent<GroundSurface>();
+
+            if (surfaces.Length == 1 || colliding.subMeshCount != surfaces.Length)
+            {
+                // A mesh whose submesh count has drifted from the table falls back to its first kind
+                // rather than mapping runs onto boundaries that are no longer where they were. Wrong by
+                // a shoulder is recoverable; a shoulder starting in the middle of the carriageway is not.
+                tag.SetUniform(surfaces[0]);
+            }
+            else
+            {
+                var starts = new int[surfaces.Length];
+                int running = 0;
+
+                for (int i = 0; i < surfaces.Length; i++)
+                {
+                    starts[i] = running;
+                    running += (int)(colliding.GetIndexCount(i) / 3);
+                }
+
+                tag.SetRuns(starts, surfaces);
+            }
+
+            if (surfaces[0] == SurfaceKind.Ground)
+            {
+                taggedGround++;
+            }
+            else
+            {
+                taggedCarriageways++;
+            }
+        }
+
         private static GameObject CreateMeshObject(
             Transform parent,
             string name,
@@ -9943,7 +10761,8 @@ namespace Horizon.EditorTools
             bool addCollider = true,
             bool markStatic = true,
             StaticEditorFlags? staticFlags = null,
-            Mesh collisionMesh = null)
+            Mesh collisionMesh = null,
+            SurfaceKind[] surfaces = null)
         {
             var meshObject = new GameObject(name);
             meshObject.transform.SetParent(parent, false);
@@ -9957,7 +10776,10 @@ namespace Horizon.EditorTools
             {
                 // Usually the rendered mesh is also the collider. Where the two differ — the tunnels — what
                 // you can see and what you can hit are genuinely different questions.
-                meshObject.AddComponent<MeshCollider>().sharedMesh = collisionMesh != null ? collisionMesh : mesh;
+                Mesh colliding = collisionMesh != null ? collisionMesh : mesh;
+                meshObject.AddComponent<MeshCollider>().sharedMesh = colliding;
+
+                TagSurface(meshObject, colliding, surfaces);
             }
 
             if (markStatic)

@@ -141,6 +141,36 @@ There is deliberately **no wind layer**. One existed, driven by speed, and it pu
 engine on every acceleration — see the note on `EngineAudio` for why the obvious variations on it are
 worse rather than better.
 
+**And there is deliberately no ambient world audio either, which is the second time that has been
+decided here.** A full one was built and removed: wind rising with altitude, water at a shore, birds
+in a wood by day and insects in the low country at night, driven by a canopy field baked from the
+trees the world had actually planted, by the distance to the nearest body of water, and by the clock.
+It was removed after being driven, for two reasons given from the car. Wind and water **together**
+were simply irritating — two broadband beds under an engine, however carefully they were separated
+from each other. And **birdsong with no bird anywhere in the frame did not read as a place; it read
+as a notification arriving.** That second one is the more useful of the two, and it generalises: a
+sound with no visible source in a game with a 600 m far plane and no animals in it has nothing to
+attach itself to, so the ear files it under "the device", not "the world".
+
+**The rule that comes out of it: this is a driving game and the car is the subject, so anything in
+the mix that is not the car is competing with it.** The first wind layer was deleted for masking the
+engine; this one was deleted for standing beside it as a second thing to listen to. What conveys the
+world is what the car does *in* it — which is exactly why the one part of that work the player liked
+was the surface under the tyres, and why that is where the effort went instead. If ambient sound ever
+comes back it has to arrive through the car, or be attached to something the driver can see they are
+passing.
+
+**Every measurement in that work was correct, and not one of them was the question.** The build check
+walked all 75 km of road and found three real faults — a canopy normalisation that put birds on 88 %
+of every road, a water range that left the Meerenge corniche hearing the strait on 27 % of a road
+whose entire character is running beside it, and a coast road at 0 % that turned out to be 399 m from
+the nearest water and correct. A second check measured the synthesised clips and found a fourth: the
+wind was a whistle, because a two-pole resonator's gain goes as 1/(1 − r²) and 0.9955 is a gain of a
+hundred and eleven, so the moan drowned its own hiss and normalisation finished the job. All four
+were found by measurement and by nothing else, exactly as intended — and the feature still had to go.
+**A check tells you whether a thing is what you said it was. It can never tell you whether it should
+exist.** The only instrument for that is driving it.
+
 Generated loops must contain a whole number of cycles at the sample rate, or the loop point clicks
 once a second. The engine drone is 56 Hz over exactly one second for that reason; noise beds get their
 tail crossfaded into the head instead.
@@ -1219,6 +1249,343 @@ mouth three metres wider than the road it opens off is a few pixels of dark asph
 asphalt, and every fork frame came back as a photograph of an ordinary road — which is exactly the
 fault already recorded against the two `_3_Fork` shots these replace. A frame that cannot resolve its
 subject is worse than no frame, because it looks like an answer.
+
+## What the car is touching
+
+Two things the world has never told the driver: that they hit something, and what they are standing
+on. There was **no `OnCollisionEnter` anywhere in this project**. Guard rails, the median, viaduct
+parapets and the crossing's have been solid since `f9c6c86`, ambient traffic carries a `BoxCollider`,
+and hitting any of it at any speed produced no sound, no shake and no consequence whatever. Grip was
+one scalar with one writer, so the verge, a ploughed field and the carriageway were the same road.
+
+**A surface is asked of the wheel's own raycast, never of the road network.** `RoadRespawn.TryNearest`
+is the search that answers "where is the nearest road", and its own remarks say why it runs on a
+button press and not per frame: a lane can be a kilometre long and there are three hundred of them.
+Meanwhile `UpdateWheel` already casts four rays a physics step and already knows exactly what it hit.
+`GroundSurface` makes that answer readable, and the whole mechanism costs a reference comparison per
+wheel — the collider is cached and only re-resolved when it changes.
+
+**`GroundSurface` lives in `Horizon.Core`, and that is the module layout rather than a preference.**
+`Horizon.Vehicle` is the reader and may not reference `Horizon.World`. Core is the assembly with no
+dependencies, so it is the only place a type both of them can see is allowed to be.
+
+**Untagged geometry drives like asphalt, and that is the safe direction to be wrong in.** Something
+nobody remembered to tag then behaves as it always did, which is invisible; the other way round, one
+forgotten call puts the car on grass in the middle of a carriageway and reads as the handling model
+having broken. So the build counts what it tagged and **warns when either kind comes out empty** — a
+world with no surfaces in it builds, validates and drives exactly like one that works, which is the
+argument the snow line already makes.
+
+**Three kinds, because three is what the world can actually tell apart.** A terrain tile carries
+grass, rock, sand and snow as *vertex tints on one material in one mesh*, so no amount of asking the
+collider separates a snowfield from a meadow — they are the same triangles. A carriageway genuinely
+does carry its shoulders as a submesh of their own (`RoadMeshBuilder.ShoulderSubmesh`), which is why
+that one distinction exists and the others do not. Adding `Gravel` or `Ice` here before giving them
+geometry of their own would be a kind nothing could ever return.
+
+**The runs are measured off the collision mesh, never the rendered one.** `RaycastHit.triangleIndex`
+counts triangles across the whole mesh in submesh order, so a submesh is a contiguous run and the
+boundaries are prefix sums — but the tunnels are deliberately built with what you can see and what
+you can hit as different meshes, and taking the counts from the visible one puts the asphalt-to-gravel
+boundary at a triangle number that means nothing in the mesh being asked.
+
+**Two grip multipliers, and they mean different things.** `GripScale` is what the world has done to
+the car and applies to all four wheels at once — `WaterHazard` is its one writer today and rain will
+be its second. The surface multiplies *per wheel*, inside `UpdateWheel`. Folding them into one number
+was the first version and it lost the thing worth having: dropping two wheels onto the verge pulls the
+car towards it, where a single car-wide scalar just makes the whole car slippery. It also means the
+two cannot fight — a car climbing out of a lake onto grass does not get full grip back because
+`WaterHazard.Dry` set the number it owns to 1.
+
+**Neither is a cliff.** A verge at half grip would be a wall the car bounces off, which is worse than
+having no surfaces at all: the shoulder is a metre and a half wide and a driver clips it on nearly
+every hairpin exit. 0.78 and 0.62 are tuned so that going wide is a moment the driver feels and
+corrects, not a moment the car is taken away from them.
+
+**Severity is the closing speed along the contact normal, not the speed of the car.** A car leaning
+on the Meerenge parapet through a fast corner is doing 160 km/h and hitting nothing — almost all of
+that velocity is *along* the wall. Taking the magnitude reports every graze as the hardest crash in
+the game, which is the one reading that would make this feature worse than not having it. The wheels
+are raycasts, so the body's collider does not touch the road in ordinary driving: a vertical contact
+means the car has bottomed out or landed, and that thud is deliberately not filtered out.
+
+**Placing the car is not a crash.** A car put down on a road is put down *inside* whatever it lands
+touching, and PhysX reports the push-out as a contact — so every start, every `MoveTo`, every respawn
+out of the water opened with a bang and a shaken camera. `Teleport` suppresses impacts for a third of
+a second, which covers the settle and nothing else.
+
+**A scrape is a state and an impact is an event, and they are delivered differently.** `Impacted` is
+an event with a severity; `ScrapeSpeed` is a number. A car leaning on a barrier through a long corner
+is one continuous noise, and delivering that as a stream of events would be a stream of bangs. It is
+collected in `OnCollisionStay` and published once at the head of the next `FixedUpdate`, because that
+callback runs after the step, may run several times, and may not run at all on a step where the
+contact happened to lapse — read straight from it, the level drops to zero at 50 Hz and buzzes.
+
+**The camera kick is pushed in, and it is a separate cue from the buffeting tremor.** `Horizon.Core`
+has no references, so `ChaseCamera` cannot ask a car whether it has crashed; `Horizon.Vehicle` may not
+know a camera exists. `ImpactEffects` in `Horizon.Game` is the join, which is `SpeedAtmosphere`'s
+shape exactly. Folding the kick into `highSpeedShake` would have put a crash through
+`shakeOnsetSpeedFraction` — so hitting a wall at 30 km/h, below the onset, would shake the camera by
+nothing at all. **The impact offset rolls the horizon where the tremor deliberately does not**: that
+comment says roll at speed reads as a crash rather than as velocity, which is exactly the reading
+wanted when there has been one. The strongest hit wins rather than accumulating, or a long scrape
+rings the camera harder the longer it goes on.
+
+**`ContactAudio` is one component with three layers, and it is not in `EngineAudio`.** That class
+re-synthesises its clips whenever the player changes car, because a diesel and a turbocharged six are
+different notes. None of these three depend on the car at all — a wing hitting a barrier sounds like a
+wing hitting a barrier — so putting them there would mean rebuilding three clips that cannot change
+every time somebody opened the garage. They are one component rather than three because they read one
+car and are shaped by one speed, and the thud and the scrape are two readings of a single contact.
+
+**The scrape and the rumble are separated by register, not by level.** They are the pair most at risk
+of collapsing into one noise — both are filtered white — and they occur together, so level could never
+have told them apart. Metal on steel sits above a kilohertz through a resonator; tyres on loose ground
+sit under two hundred hertz through a two-pole lowpass. A resonator on the rumble gives a hum, which
+reads as engine and fights the one already playing.
+
+**The thud is two resonators and pitches *down* with severity.** Two, because a body hitting a barrier
+is a shell booming around 80 Hz and a panel ringing five times higher; one gives either a boom with no
+edge or a clank with no weight. The high partial decays several times faster, and that difference is
+the impression of mass. Down rather than up because a light tap is a panel and a heavy one is the
+whole structure — pitched up with severity, a big crash sounds like a small one played loudly. The
+loop rule applies to the other two and not to this one: it is a one-shot, so there is no loop point to
+click. The scrape and the rumble get their tails crossfaded into their heads, as the squeal does.
+
+**The rumble is roughness times speed, and it has to be the product.** Roughness alone rumbles at a
+standstill on grass, which is a car that has broken; speed alone rumbles on the motorway.
+
+**Gravel and grass were one clip played at two volumes, and that was the plainest fault this had.**
+Two surfaces separated only by level is one surface at two distances — which is exactly the mistake
+recorded a paragraph above about the scrape and the rumble, and again about the wind and the water,
+and it was sitting inside this feature the whole time. There are two loops now, crossfaded by
+`VehicleController.SurfaceGrit` on **one** level and **one** pitch, the way the engine's two voices
+already are: two levels would be two sounds that happened to be playing, and they would disagree
+every time the car had wheels on both, which is every verge exit. Loose stone is a scatter of
+individual strikes through a band at 900 Hz — the rain's two-layer construction one register down,
+because what the ear picks gravel out by is that it can very nearly count the stones. Soft ground
+keeps the filtered boom, because earth and grass absorb the top and chippings do not.
+
+**And the two volumes were the wrong way round.** `RoughnessOf` read 0.72 for the shoulder against 1
+for open ground, on the reasoning that open ground is the rougher ride — which it is. But that number
+is read by exactly one thing and that thing is the level of a sound, and a gravel verge is far the
+louder of the two. Written as a ride-quality figure and spent as a volume.
+
+**`SurfaceGrit` is weighted by roughness rather than by wheel count.** It is spent crossfading two
+clips whose shared level is `SurfaceRoughness`, so the share that matters is the share of the *noise*
+— by wheel count, a wheel still on the tarmac and contributing nothing to either clip would get a
+vote on what the other three sound like. It is also held rather than reset when the car is back on
+tarmac: at zero level the blend is inaudible, so moving it would be a decision nobody can hear, right
+up until the car reaches the next verge and the blend snaps under a level that is already rising.
+
+**This is the one feature here that a picture cannot check, and it gets a measurement instead.** Every
+other system in this project is verified by photographing it, because what goes wrong is visible and
+silent. A surface is the opposite — invisible and silent. A carriageway whose gravel run starts down
+the middle of the road looks identical to a correct one in every frame this project can take, day or
+night, and the only symptom is a car that is mysteriously slippery on the crown. So `ValidateSurfaces`
+**casts rays at the finished scene** and asks what the wheel will be told, on all twelve carriageways.
+It asks the scene rather than the data on purpose — three things have to line up before a wheel gets
+the right answer, the submesh order, the triangle counts and the collider being the mesh that was
+measured, and only a real raycast tests all three at once. It also warns when **its own rays miss**,
+because a check that cannot reach its subject finds nothing wrong and is indistinguishable from a
+clean pass. Off the road is deliberately not probed: at 25 m from a carriageway the honest answer is
+sometimes a bridge deck, a forecourt or the next road over, and a check that called any of those a
+fault is a check nobody reads.
+
+**The crown is an error and the verge is a measurement, and that asymmetry is what the check found.**
+The first version failed both the same way and reported all eleven roads as broken — 2 crown samples
+out of 2268 and several hundred verge samples. The crown figure is a fault. The verge figure is the
+world: **`ShoulderDrop` is 0.5 m against a `TerrainShape.RoadShelfDrop` of 0.45**, so the gravel
+already hangs below the shelf on level ground, and the camber on the inside of a corner takes it a
+further `sin(bank)` down — the hillside stands over the outer half of the verge there, and a wheel
+running wide genuinely touches terrain rather than gravel. Reporting the terrain it touches is
+correct. `RoadShape.ShoulderDrop`'s own comment states this arithmetic for the **asphalt edge** and
+stops there; nothing had ever measured what becomes of the gravel behind it, because
+`ValidateRoadClearance` asks about the carriageway and `ValidateRoadSupport` asks whether the ground
+is too *low*. So the verge is one counted line in the build log, and only a **majority** failing is an
+error — a majority is the shape of a submesh boundary in the wrong place, where a scattering is the
+shape of banked corners.
+
+**And the crown warning prints the world position, not only the distance along.** That is
+`ValidateRoadClearance`'s own lesson: a distance says where to look on this road, and a position is
+what lets a cause on another road be found. It is also what separated the two possible causes the
+first time it fired — the motorway reported `Ground at 37 m along`, on both carriageways, which is
+the **western terminus**: `MotorwayTerminusBuilder` replaces 200 m of both ribbons with one converging
+surface, so a probe on a carriageway's own centreline drops through where the road used to be. The
+check now skips junction spans, using `RoadCourse.IsJunction` — **the same predicate the guard rails
+and the kerbs read**, rather than a rule of its own about where a ribbon ends. `BuildBranchRoad` trims
+a branch back by twenty to forty metres at a fork for the same reason, and `AddJunction` is on both
+courses, so one predicate covers both cases. Distances line up on a carriageway because
+`OffsetRoadPath.Length` is deliberately the centreline's, not its own.
+
+`DriveDebugOverlay` prints the surface grip, the roughness and the scrape speed, because a surface
+moves no pixel and makes only a noise — driving one wheel onto the verge should take that number off
+1.00, and nothing else in the game would say whether it did.
+
+## Rain
+
+`PlayerChoices.WeatherPreset` used to carry a comment saying there was no rain in this project — no
+particles, no wet road, no audio, nothing the car knew about — and that **a "Rain" button which only
+made the fog heavier would be the menu lying about the world, and the fix for that is a rain system
+rather than a different word.** So the button arrived with the four things that make it true: water
+falling past the camera, a noise that stops under a bridge, a darker sky, and tyres that let go
+earlier.
+
+**Appended to the enum, never inserted, and the clamp moves in two places.** The preset is written to
+PlayerPrefs as a bare integer, so a value added in the middle silently changes what every returning
+player chose. `PlayerChoices.Load` clamps and so does `PauseMenu.SetWeather` — the second one is the
+easy one to miss, and missing it leaves the new button dead rather than broken.
+
+**One owner, four consumers.** `WeatherDirector` reads the preset and pushes it to the drops, the
+road, the tyres and the sound. Four separate reads of `PlayerChoices.Weather`, each with a ramp of its
+own, would be four things able to disagree about whether it is raining — and what would show is a road
+drying while the sound is still falling. It is the boost gauge's argument again: the needle and the
+whistle are the same number.
+
+**The sky is the one thing it does not push, and that is deliberate.** `StartScreen.ApplyConditions`
+and `PauseMenu.SetWeather` have written `TimeOfDayController.Overcast` since long before there was
+rain, and they have to — both call `Apply()` immediately so the player watches the light change behind
+the open menu. A second writer ramping the same field would fight them, and what shows is the sky
+snapping to the new weather and then sliding back off it. The rain's own ramp is short (under a
+second) for the same reason: the light it arrives under changes in one frame, so a long fade would
+have water still building after the scene had finished darkening.
+
+**Rain's `Overcast` is 0.80 against the Overcast preset's 0.90, which looks backwards written down.**
+The rain itself takes light out of the frame on top of the sky, and a rain preset that also asked for
+the heaviest cloud came back as a grey wall with nothing readable in it. The sky is the setting; the
+rain is the weather.
+
+**Three grip factors now, each with exactly one owner.** `GripScale` is what the world has done to the
+car (`WaterHazard`), `WeatherGrip` is what the sky is doing (`WeatherDirector`), and `SurfaceGrip` is
+what one wheel is standing on — applied per wheel rather than car-wide. That is not new machinery, it
+is the rule already written on `GripScale`: *whatever sets it owns putting it back*. Two owners cannot
+both honour it, and the failure is concrete — `WaterHazard.Dry` writes 1 when the car leaves the
+water, so a shared number would hand full grip back to a car climbing out of a lake in a downpour.
+
+**0.82 in the wet, and it is gentler than the real number.** Wet asphalt takes more than that, but the
+car is steered with a thumb on a phone: past about a fifth the pass stops being a road and becomes a
+punishment, and the driver has no seat to feel the back stepping out from. What this is tuned for is a
+corner taken at the dry speed running a little wide — something the player can learn.
+
+**It does not rain inside the mountain, and that had to be reasoned about rather than seen.** The
+emitter box hangs fourteen metres over the camera, which inside a bore is fourteen metres of solid
+rock — so drops were being born in the massif and falling through it into the tunnel. The build would
+never have mentioned it and neither would any existing frame. The drop rate is scaled by
+`1 − VehicleCover.CoverAmount`, which is the probe that already answers this question for the sound
+and for the engine's reverb rather than a second test with its own opinion; being eased, the rain
+fades back in across a portal instead of switching.
+
+**The rain stops under a bridge, and that detail is free.** `VehicleCover` is the single upward ray
+that already fades the engine's reverb in a tunnel, and it is on the car, which is why `RainAudio` is
+too. Not to silence, though — a tunnel silences the sky and not the tyres, and cutting the whole layer
+at the portal reads as the sound breaking rather than as shelter. It goes quieter *and duller*: what a
+roof takes away first is the top of the spectrum, and level alone reads as the rain having moved into
+the distance.
+
+**No speed term on the rain, deliberately.** The obvious next line is to make it louder as the car
+goes faster, and the note against `EngineAudio`'s deleted wind layer is exactly why not: a broadband
+noise that rises with the throttle sits over the engine on every acceleration. Rain sounds like rain
+whether the car is moving or not.
+
+**The rain clip is two layers, because rain is not a hiss.** The bed is the many-drops-at-a-distance
+wash, which on its own is indistinguishable from static or from wind; what makes it read as water is a
+sparse foreground of individual drops close enough to have an attack, laid down at about sixty a
+second through a high resonator. Drop the second layer and it is a noise generator; drop the first and
+it is a leaking tap. It sits above two kilohertz and `ContactAudio`'s rumble sits below two hundred
+hertz, for the reason recorded there: the two play at once, so level could never separate them.
+
+**The road is swapped, never repainted.** Darkening the asphalt by writing `_BaseColor` on the shared
+material is one line — and Unity does not roll asset edits back when Play mode ends, so a player who
+tried the rain once would leave `M_RoadSurface.mat` modified in the working tree. That is the trap
+`QualityDirector` and `TownLights` both document. A `MaterialPropertyBlock` is the other obvious
+answer and it breaks the SRP batcher across every carriageway in the world. So there are two finished
+assets and the renderer is pointed at one or the other, exactly as `TownLights` does at dusk.
+
+**Wet is dark first and shiny second, and the first version had that backwards.** Smoothness 0.80
+turned every carriageway in the world into a mirror of the sky: the lane markings vanished under it
+completely, the motorway came back looking like a canal, and — the frame that settled it — **the bore
+of the Kehrtunnel had a blue river running through it**. There are no reflection probes in this world
+by budget, so URP's environment reflection is the skybox itself, and past about half smoothness the
+asphalt stops being asphalt and becomes whatever the dome above it is. 0.46 against a dry 0.34 is a
+garnish on top of the darkening, which is what actually says "wet". The verge barely moves at all —
+gravel holds water in it rather than on it, and a shoulder shining like the carriageway reads as a
+second lane.
+
+**And nothing in this project had ever changed the sky.** `TimeOfDayController` writes the sun, the
+ambient and the fog; the skybox is a material on `RenderSettings` that only ever read the sun's
+*direction*. So `Overcast` had been dimming the light and thickening the air under an unchanged blue
+dome since the day it was written — for Hazy and for Overcast as much as for rain, and nobody had
+noticed until there was a photograph of a downpour falling out of a clear blue afternoon.
+`M_SkyOvercast` is a second procedural sky, grey and thick and dim, swapped in above an `Overcast` of
+0.6 with hysteresis for the reason `TownLights` gives about dusk. **It is also half of the wet-road
+fix**, and that connection is worth keeping in mind: with no probes, the sky is what every smooth
+surface reflects, so greying it greys the reflection in the same stroke.
+
+**`WetVariant` writes the tint *after* the asset is created and only when it creates it.**
+`LoadOrCreateMaterial` forces `_BaseColor` to white whenever a base map is given, and for a dry road
+that is right — the tint multiplies the marking atlas and anything but white darkens the paint. Here
+darkening is the point. Only on creation, because that helper deliberately returns an existing asset
+untouched so hand-retints survive a rebuild.
+
+**The registry is found by material identity, not by threading a flag through a dozen builders.** The
+ribbons, the town streets, the forecourt aprons, the fork throats, the motorway merges and termini and
+the bridge decks are all painted by different code, and a "you are a road" argument on each is a dozen
+places to forget one — with no symptom but a stretch of tarmac that stays dry. `BuildWetSurfaces`
+sweeps the finished world once and records every renderer slot holding a known dry road material. That
+is not a checker forming an opinion of its own: the test is the exact asset the builder assigned.
+
+**Town streets cannot be wetted, and that is recorded rather than hidden.** They are painted
+`M_TerrainTint` — the one vertex-tinted material that also carries grass, rock, sand and snow — so
+wetting them would wet every hillside in the world. Giving the streets a material of their own is the
+honest fix, and it is a change to make on purpose rather than in passing, which is the same call the
+Weissjochring's missing snow got. Until then a shower darkens the carriageways and leaves the towns
+dry.
+
+**The drops hang off the camera and are simulated in world space.** The grit in `SpeedAtmosphere` is
+placed ahead of the *car* because the whole point of it is the car passing it; rain only has to be
+everywhere the frame is, so the emitter box travels with the rig while the drops, once emitted, belong
+to the world and fall straight down. Simulated in local space they would lean into every corner, which
+reads as rain stuck to the windscreen.
+
+**The streak comes from velocity, not from a fixed length**, because a drop is a streak *because it is
+moving* — and a fixed length makes standing rain look like falling rain in a still frame, which is
+exactly the frame every preview tool here takes.
+
+**Quality thins the rain rather than switching it off**, which is the opposite of what it does to the
+grit, the tailpipe smoke and the tyre smoke. Those three are decoration. Rain is a state the world is
+in — the road is slippery and there is a noise on the roof — so a phone that showed none of it while
+both were true would be telling the player something false. Low draws a third of the drops; the sky,
+the sound and the grip never scale.
+
+**`WeatherDirector` held a reference to the atmosphere for a while — wired, asserted, never read.**
+Once the sky went back to the menus there was nothing left for it to do, and a `[SerializeField]` with
+an `AssertReferenceAssigned` on it looks exactly like a dependency while being a decoration. It is
+gone. The same pass moved the sweep's log line onto `WetSurfaces.GroupCount` instead of counting the
+builder's own local list, which is `TrunkForkBuilder.MouthHalfWidth`'s lesson: the build reported a
+fork's width from its own second copy of the formula and went on looking right after the formula had
+been fixed.
+
+`Tools > Horizon > Render Weather Preview` photographs three places dry, in the rain, and in the rain
+at night. **Three questions have no other answer.** Are the drops visible at all — they are stretched
+billboards whose length comes from *velocity* rather than from a constant, precisely so that standing
+rain does not look like falling rain, and a still frame is exactly where that decision can come back
+empty. Does the carriageway actually darken — the swap is counted in the build log, and a count says
+the material was assigned, never that it looks any different. And does it stay out of the tunnels.
+`_2_Motorway_Rain` is the one that has to carry the sheen, because it is the only frame with a low sun
+down a long straight and smoothness with nothing to reflect looks like nothing at all.
+
+The tool drives the weather itself, because `WeatherDirector` does not run at edit time — the same
+reason `HudPreviewRenderer` has to call `LayOutFace` on the gauges. What it must not do is carry its
+own idea of what "wet" means, so it calls `WetSurfaces.SetWet`, reads the drop rate off
+`WeatherDirector.MaxDropsPerSecond` rather than typing one, and asks `VehicleCover.RoofedAt` — the
+same probe the running game uses — whether the camera is under a roof. **The first version wrote a
+flat rate instead**, which meant `_3_Portal_Rain` showed rain falling through a mountain and would
+have gone on showing it after the fix, because the tool was bypassing the very thing under test. A
+frame that cannot fail is not a check. `VehicleCover.RoofedAt` is static for exactly this caller: a
+frame claiming to show that rain stops under a roof has to be produced by the code that stops it. It also **simulates** the emitter before each shot: nothing ticks outside Play mode, so
+an unsimulated system is an empty one and every rain frame would come back looking exactly like rain
+that does not draw. The rain lives under the chase rig and is reparented to the preview camera and put
+back afterwards, or it would rain wherever the saved scene happens to have parked the car.
 
 ## The map
 
