@@ -71,7 +71,7 @@ namespace Horizon.Game
             // Clear of the top-left corner, which belongs to the pause button. IMGUI always draws over
             // the canvas, so at 12 the overlay hid a button it could not be clicked through — the
             // clicks landed, but you had to know the button was under there.
-            GUILayout.BeginArea(new Rect(12f, 150f, 290f, 260f), GUIContent.none, panelStyle);
+            GUILayout.BeginArea(new Rect(12f, 150f, 290f, 282f), GUIContent.none, panelStyle);
 
             if (vehicle != null)
             {
@@ -109,6 +109,16 @@ namespace Horizon.Game
                 string drifting = vehicle.IsDrifting ? "  DRIFT" : string.Empty;
                 GUILayout.Label($"slip {vehicle.SlipAngle:0}°   rear {vehicle.RearSlip:0.0} m/s"
                               + $"   grip {vehicle.RearGrip:0.00}{drifting}");
+
+                // What the wheels are standing on, which is otherwise unobservable: a surface changes
+                // no pixel and makes only a noise. Driving one wheel onto the verge should move this
+                // off 1.00 and nothing else in the game will say whether it did.
+                string scraping = vehicle.ScrapeSpeed > 0.5f
+                    ? $"   scrape {vehicle.ScrapeSpeed:0.0} m/s"
+                    : string.Empty;
+                GUILayout.Label($"surface {vehicle.SurfaceGrip:0.00}"
+                              + $"   rough {vehicle.SurfaceRoughness:0.00}"
+                              + $"   grit {vehicle.SurfaceGrit:0.00}{scraping}");
             }
             else
             {

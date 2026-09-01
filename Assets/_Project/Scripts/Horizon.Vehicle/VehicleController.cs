@@ -1,3 +1,4 @@
+using Horizon.Core;
 using Horizon.Input;
 using UnityEngine;
 
@@ -84,6 +85,21 @@ namespace Horizon.Vehicle
             /// the mass gives the acceleration the patch slips at, and that settles to a slip speed.</para>
             /// </summary>
             public float SpinSlip;
+
+            /// <summary>What this wheel is standing on. <see cref="SurfaceKind.Asphalt"/> in the air.</summary>
+            public SurfaceKind Surface = SurfaceKind.Asphalt;
+
+            /// <summary>
+            /// The collider the last surface answer came from, so the answer can be reused.
+            ///
+            /// <para>A wheel changes surface a handful of times a minute and asks four times a physics
+            /// step, so this is a reference comparison standing in for a <c>GetComponent</c>. That is
+            /// the difference between a lookup 240 times a second and one at the kerb.</para>
+            /// </summary>
+            public Collider SurfaceCollider;
+
+            /// <summary>The tag found on <see cref="SurfaceCollider"/>, or null if it carries none.</summary>
+            public GroundSurface SurfaceTag;
         }
 
         /// <summary>
@@ -220,6 +236,78 @@ namespace Horizon.Vehicle
         public float GripScale { get; set; } = 1f;
 
         /// <summary>
+        /// A second world-level scale on every tyre, 1 in the dry. Owned by <c>WeatherDirector</c>.
+        ///
+        /// <para><b>A field of its own rather than a second writer of <see cref="GripScale"/>, and that
+        /// is the rule stated above rather than a new one</b> — <i>whatever sets it owns putting it
+        /// back</i>. Two owners cannot both honour that: <c>WaterHazard.Dry</c> writes 1 when the car
+        /// leaves the water, and if rain had been sharing that number a car climbing out of a lake in a
+        /// downpour would have got full grip back and kept it. Each factor has exactly one writer, and
+        /// they multiply.</para>
+        ///
+        /// <para>Three factors now, and each answers a different question: what the world has done to
+        /// the car (<see cref="GripScale"/>), what the sky is doing (this), and what this one wheel is
+        /// standing on (<see cref="SurfaceGrip"/>, applied per wheel rather than car-wide).</para>
+        /// </summary>
+        public float WeatherGrip { get; set; } = 1f;
+
+        /// <summary>
+        /// The average grip multiplier the surfaces under the grounded wheels are asking for, 1 on
+        /// tarmac. Read-only — this is measured, not set.
+        ///
+        /// <para><b>Published as an average and applied per wheel.</b> The force actually uses each
+        /// wheel's own surface, which is what makes dropping the two right-hand wheels onto the verge
+        /// pull the car towards it rather than simply making the whole car slippery. This figure exists
+        /// for the readouts and for the rumble, where one number is the honest answer to "how much of
+        /// the car is off the road".</para>
+        /// </summary>
+        public float SurfaceGrip { get; private set; } = 1f;
+
+        /// <summary>
+        /// How rough what the wheels are rolling over is, 0 on tarmac and 1 on a gravel verge.
+        ///
+        /// <para>Averaged over grounded wheels, so two wheels on the verge is half. Zero in the air,
+        /// which matters: a car that has left the road entirely is not rumbling.</para>
+        /// </summary>
+        public float SurfaceRoughness { get; private set; }
+
+        /// <summary>
+        /// Which off-tarmac surface the car is on: 1 loose stone, 0 soft ground, blended where the wheels
+        /// disagree. Held at its last value on tarmac, where the question does not arise.
+        ///
+        /// <para><b>Weighted by roughness rather than by wheel count, and that is the whole of it.</b>
+        /// The number is spent crossfading two loops whose common level is <see cref="SurfaceRoughness"/>,
+        /// so the share that matters is the share of the *noise* rather than the share of the wheels —
+        /// otherwise a wheel resting on tarmac, contributing nothing to either clip, would still get a
+        /// vote on what the other three sound like.</para>
+        ///
+        /// <para><b>Held rather than reset, because a reset is audible and this is not.</b> With four
+        /// wheels back on tarmac the level is zero and the blend is inaudible, so putting it back to
+        /// either end would be a decision nobody can hear — until the car returns to a verge, when a
+        /// blend snapping from grass to gravel underneath a level that is already rising is exactly the
+        /// wrong moment to move it.</para>
+        /// </summary>
+        public float SurfaceGrit { get; private set; }
+
+        /// <summary>
+        /// Raised when the body hits something, with a severity of 0 to 1 and where it was struck.
+        ///
+        /// <para>The shape <c>EngineAudio.Banged</c> already uses, and for the same reason: the sound
+        /// and the camera kick are two consumers of one event, and a second opinion about how hard the
+        /// car was hit would be a crash you can hear but not feel.</para>
+        /// </summary>
+        public event System.Action<float, Vector3> Impacted;
+
+        /// <summary>
+        /// How fast the body is sliding along whatever it is touching, m/s. Zero when touching nothing.
+        ///
+        /// <para>Its own value rather than part of <see cref="Impacted"/>, because a scrape is a state
+        /// and an impact is an event. A car leaning on a barrier through a long corner is one continuous
+        /// noise, and delivering it as a stream of events would be a stream of bangs.</para>
+        /// </summary>
+        public float ScrapeSpeed { get; private set; }
+
+        /// <summary>
         /// True when the car is meaningfully sideways *and* the rear tyres are the reason.
         ///
         /// Both halves are needed. Slip angle alone counts a car sliding bodily down a wet camber,
@@ -230,6 +318,21 @@ namespace Horizon.Vehicle
             config != null && SlipAngle > config.DriftSlipAngle && RearGrip < 0.92f;
 
         private bool reversing;
+
+        /// <summary>Scrape speed seen since the last physics step, m/s. Collected, then published.</summary>
+        private float scrapeThisStep;
+
+        /// <summary>No impact is reported before this time. See <see cref="Teleport"/>.</summary>
+        private float impactsSuppressedUntil;
+
+        /// <summary>How long a placement is given to settle before impacts count again, seconds.</summary>
+        private const float PlacementSettleSeconds = 0.35f;
+
+        /// <summary>Closing speed below which a contact is not an impact, m/s. Walking pace.</summary>
+        private const float MinImpactSpeed = 1.6f;
+
+        /// <summary>Closing speed that reports a severity of 1, m/s. About 65 km/h into a wall.</summary>
+        private const float FullImpactSpeed = 18f;
 
         /// <summary>How many wheels are touching the ground.</summary>
         public int GroundedWheelCount
@@ -457,6 +560,12 @@ namespace Horizon.Vehicle
                 wheels[i].SpringLength = restLength;
                 wheels[i].Compression01 = 0f;
             }
+
+            // A car put down on a road is put down *inside* whatever it lands touching, and PhysX
+            // reports the push-out as a contact. Every placement — the start screen, the pause menu's
+            // Move to, a respawn out of the water — would otherwise open with a bang and a shaken
+            // camera. The window is short because it only has to cover the settling, not the drive.
+            impactsSuppressedUntil = Time.time + PlacementSettleSeconds;
         }
 
         private void Start()
@@ -482,6 +591,13 @@ namespace Horizon.Vehicle
 
             IDriveInput drive = explicitInput ?? DriveInput.Current;
             float deltaTime = Time.fixedDeltaTime;
+
+            // Published here rather than in OnCollisionStay, because that runs *after* the step and may
+            // run several times or not at all. Collecting into a field and reading it once a step gives
+            // the scrape one value per step, which is what a continuous noise needs — sampled straight
+            // from the callback it would drop to zero on every step with no contact in it and buzz.
+            ScrapeSpeed = scrapeThisStep;
+            scrapeThisStep = 0f;
 
             Vector3 velocity = body.linearVelocity;
             forwardSpeed = Vector3.Dot(velocity, transform.forward);
@@ -534,6 +650,8 @@ namespace Horizon.Vehicle
             {
                 UpdateWheel(i, deltaTime, speed01, driveForcePerWheel, brake, drive.Handbrake);
             }
+
+            UpdateSurfaceState();
 
             ApplyAntiRoll(FrontLeft, FrontRight);
             ApplyAntiRoll(RearLeft, RearRight);
@@ -1001,6 +1119,7 @@ namespace Horizon.Vehicle
 
             wheel.Grounded = true;
             wheel.ContactPoint = hit.point;
+            wheel.Surface = ResolveSurface(wheel, hit);
 
             // --- Suspension: spring pushes out of compression, damper resists the rate of change.
             float springLength = Mathf.Clamp(hit.distance - config.WheelRadius, 0f, config.SuspensionRestLength);
@@ -1083,7 +1202,15 @@ namespace Horizon.Vehicle
             // brings load sensitivity for free: a wheel gone light over a crest or on the inside of a
             // hairpin loses grip on its own, and the anti-roll bar's load transfer starts to mean
             // something.
-            float mu = config.LateralGrip.Evaluate(speed01) * GripScale;
+            // Two multipliers and they mean different things. GripScale is what the world has done to
+            // the car and applies to all four wheels at once — water, and later rain. The surface is
+            // what this one wheel is standing on, so a car with two wheels on the verge is pulled
+            // towards it rather than made uniformly slippery. Folding the two into one number was the
+            // first version and it lost exactly that.
+            float mu = config.LateralGrip.Evaluate(speed01)
+                * GripScale
+                * WeatherGrip
+                * GroundSurface.GripOf(wheel.Surface);
             if (handbrake && !isFront)
             {
                 mu *= config.HandbrakeGrip;
@@ -1230,6 +1357,139 @@ namespace Horizon.Vehicle
             if (right.Grounded)
             {
                 body.AddForceAtPosition(-transform.up * force, right.ContactPoint);
+            }
+        }
+
+        /// <summary>
+        /// What the wheel's raycast landed on, reusing the last answer while the collider has not
+        /// changed.
+        ///
+        /// <para><see cref="RaycastHit.triangleIndex"/> is read every time even when the collider is
+        /// cached, because the shoulder is a submesh of the same road mesh — the answer changes without
+        /// the collider changing, which is the whole case this exists for. It is free: the hit already
+        /// carries it.</para>
+        /// </summary>
+        private static SurfaceKind ResolveSurface(WheelState wheel, RaycastHit hit)
+        {
+            if (hit.collider != wheel.SurfaceCollider)
+            {
+                wheel.SurfaceCollider = hit.collider;
+                wheel.SurfaceTag = hit.collider != null
+                    ? hit.collider.GetComponent<GroundSurface>()
+                    : null;
+            }
+
+            // Untagged geometry drives like a road. See the remarks on GroundSurface for why that is
+            // the safe direction to be wrong in.
+            return wheel.SurfaceTag != null
+                ? wheel.SurfaceTag.KindAt(hit.triangleIndex)
+                : SurfaceKind.Asphalt;
+        }
+
+        /// <summary>
+        /// Averages what the grounded wheels are standing on into the two published figures.
+        ///
+        /// <para>Over grounded wheels only, and airborne is not counted as tarmac. A car mid-jump has
+        /// no surface at all; averaging in a default would have it rumbling over the crest of every
+        /// rise on the Stadtfeld.</para>
+        /// </summary>
+        private void UpdateSurfaceState()
+        {
+            float grip = 0f;
+            float roughness = 0f;
+            float grit = 0f;
+            int grounded = 0;
+
+            for (int i = 0; i < WheelCount; i++)
+            {
+                if (!wheels[i].Grounded)
+                {
+                    continue;
+                }
+
+                float rough = GroundSurface.RoughnessOf(wheels[i].Surface);
+
+                grip += GroundSurface.GripOf(wheels[i].Surface);
+                roughness += rough;
+
+                // Weighted by how much noise this wheel is making, not by the wheel — see SurfaceGrit.
+                grit += GroundSurface.GritOf(wheels[i].Surface) * rough;
+                grounded++;
+            }
+
+            if (grounded == 0)
+            {
+                SurfaceGrip = 1f;
+                SurfaceRoughness = 0f;
+                return;
+            }
+
+            SurfaceGrip = grip / grounded;
+            SurfaceRoughness = roughness / grounded;
+
+            if (roughness > 0.0001f)
+            {
+                SurfaceGrit = grit / roughness;
+            }
+        }
+
+        /// <summary>
+        /// Turns a contact into a severity and raises <see cref="Impacted"/>.
+        ///
+        /// <para><b>The closing speed along the contact normal, not the speed of the car.</b> A car
+        /// leaning into a barrier through a fast corner is doing 160 km/h and hitting nothing: almost
+        /// all of that velocity is along the wall. Taking the magnitude would report every graze on the
+        /// Meerenge parapet as the hardest crash in the game, which is the one reading that would make
+        /// this feature worse than not having it.</para>
+        ///
+        /// <para>The wheels are raycasts, so the body's own collider does not touch the road in normal
+        /// driving — a vertical contact means the car has bottomed out or landed, and that is a thud
+        /// worth hearing. It is deliberately not filtered out.</para>
+        /// </summary>
+        private void OnCollisionEnter(Collision collision)
+        {
+            if (Impacted == null || Time.time < impactsSuppressedUntil)
+            {
+                return;
+            }
+
+            ContactPoint contact = collision.GetContact(0);
+            float closing = Mathf.Abs(Vector3.Dot(collision.relativeVelocity, contact.normal));
+            if (closing < MinImpactSpeed)
+            {
+                return;
+            }
+
+            float severity = Mathf.InverseLerp(MinImpactSpeed, FullImpactSpeed, closing);
+            Impacted.Invoke(severity, contact.point);
+        }
+
+        /// <summary>
+        /// How fast the body is sliding along whatever it is resting against.
+        ///
+        /// <para>From <see cref="Rigidbody.GetPointVelocity"/> projected onto the contact plane, not from
+        /// <c>Collision.relativeVelocity</c>: that field is the velocity at the moment of the collision
+        /// and is not meaningful for a contact that is being maintained, which is exactly the case a
+        /// scrape is.</para>
+        ///
+        /// <para>The largest contact wins rather than the sum. A car pressed against a barrier reports
+        /// several contacts along its flank, and adding them would make one wall sound like four.</para>
+        /// </summary>
+        private void OnCollisionStay(Collision collision)
+        {
+            int count = collision.contactCount;
+            for (int i = 0; i < count; i++)
+            {
+                ContactPoint contact = collision.GetContact(i);
+
+                Vector3 pointVelocity = body.GetPointVelocity(contact.point);
+                Vector3 along = Vector3.ProjectOnPlane(pointVelocity, contact.normal);
+
+                float speed = along.magnitude;
+                if (speed > scrapeThisStep)
+                {
+                    scrapeThisStep = speed;
+                }
             }
         }
 

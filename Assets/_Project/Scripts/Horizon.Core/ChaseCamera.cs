@@ -100,6 +100,21 @@ namespace Horizon.Core
                + "wandering.")]
         [SerializeField] private float shakeFrequency = 11f;
 
+        [Header("Impacts")]
+        [Tooltip("Peak rig kick from a full-severity impact, degrees.\n\n"
+               + "Two orders louder than the buffeting tremor above, and the two are not the same cue "
+               + "wearing different numbers. The tremor exists to be felt and not seen; a crash is the "
+               + "one moment in this game where the frame is allowed to be visibly hit.")]
+        [SerializeField] private float impactShake = 2.6f;
+
+        [Tooltip("How fast an impact kick dies away, per second. High: a hit is an event with an end, "
+               + "and a shake that outstays it reads as the camera having come loose.")]
+        [SerializeField] private float impactShakeDecay = 6.5f;
+
+        [Tooltip("Impact kick frequency, Hz. Deliberately lower than the tremor's — a structure ringing "
+               + "rather than air buffeting.")]
+        [SerializeField] private float impactShakeFrequency = 24f;
+
         [Header("Obstacles")]
         [Tooltip("Layers the camera will not sit inside. Leave empty to disable the check.")]
         [SerializeField] private LayerMask obstacleMask;
@@ -141,12 +156,54 @@ namespace Horizon.Core
         /// </summary>
         private Quaternion smoothedRotation = Quaternion.identity;
 
+        /// <summary>
+        /// How hard the rig is still ringing from the last impact, 0 to 1.
+        ///
+        /// <para><b>Kept apart from the buffeting tremor for the reason that one is kept apart from
+        /// <c>transform.rotation</c>.</b> Folding an impact into <see cref="highSpeedShake"/> would put
+        /// a crash through <see cref="shakeOnsetSpeedFraction"/> — so hitting a wall at 30 km/h, which is
+        /// below the onset, would shake the camera by nothing at all. The two cues answer different
+        /// questions and only share the line they are applied on.</para>
+        /// </summary>
+        private float impactRinging;
+
+        /// <summary>Where in the ring's own noise this impact started, so two hits do not line up.</summary>
+        private float impactSeed;
+
         /// <summary>Assigns the follow target. Called by the scene bootstrap.</summary>
         public void SetTarget(Transform newTarget, Rigidbody newTargetBody = null)
         {
             target = newTarget;
             targetBody = newTargetBody;
             SnapToTarget();
+        }
+
+        /// <summary>
+        /// Kicks the rig, as an impact of the given severity 0 to 1.
+        ///
+        /// <para><b>Pushed in rather than pulled, and that is the assembly layout rather than a
+        /// preference.</b> <c>Horizon.Core</c> has no references by design and this class takes a bare
+        /// <see cref="Transform"/> so it can follow anything — so it cannot ask a vehicle whether it has
+        /// just hit something. <c>Horizon.Game</c> is where the camera and the car are both in scope,
+        /// and <c>SpeedAtmosphere</c> is the existing example of exactly this shape.</para>
+        ///
+        /// <para>The strongest hit wins rather than the sum accumulating. A car scraping down a barrier
+        /// reports a contact every few frames, and adding them would ring the camera harder the longer
+        /// the scrape went on — which is the opposite of what is happening to the car.</para>
+        /// </summary>
+        public void Shake(float severity)
+        {
+            severity = Mathf.Clamp01(severity);
+            if (severity <= impactRinging)
+            {
+                return;
+            }
+
+            impactRinging = severity;
+
+            // Moved on every hit so a second impact does not resume the first one's waveform, which
+            // would make two knocks a tenth of a second apart read as one long one.
+            impactSeed = Random.value * 100f;
         }
 
         private void Awake()
@@ -216,7 +273,7 @@ namespace Horizon.Core
                     1f - Mathf.Exp(-rotationSharpness * Time.deltaTime));
             }
 
-            transform.rotation = smoothedRotation * ShakeOffset();
+            transform.rotation = smoothedRotation * ShakeOffset() * ImpactOffset();
 
             UpdateFieldOfView();
         }
@@ -330,6 +387,37 @@ namespace Horizon.Core
             float yaw = (Mathf.PerlinNoise(0f, t + 37f) - 0.5f) * 2f;
 
             return Quaternion.Euler(pitch * amount, yaw * amount, 0f);
+        }
+
+        /// <summary>
+        /// The decaying kick from the last impact, and the tick that decays it.
+        ///
+        /// <para><b>Roll is included here where the tremor deliberately excludes it.</b> That comment
+        /// says rolling the horizon at speed reads as a crash rather than as velocity — which is exactly
+        /// the reading wanted when there has just been one. It is the cue that tells a bang apart from
+        /// a bump in the road.</para>
+        ///
+        /// <para>Decayed in the same call that reads it, because this runs once per frame from
+        /// <c>LateUpdate</c> and a separate tick would be a second place to forget.</para>
+        /// </summary>
+        private Quaternion ImpactOffset()
+        {
+            if (impactRinging <= 0.0005f)
+            {
+                impactRinging = 0f;
+                return Quaternion.identity;
+            }
+
+            float amount = impactShake * impactRinging;
+
+            float t = Time.time * impactShakeFrequency + impactSeed;
+            float pitch = (Mathf.PerlinNoise(t, 0f) - 0.5f) * 2f;
+            float yaw = (Mathf.PerlinNoise(0f, t + 53f) - 0.5f) * 2f;
+            float roll = (Mathf.PerlinNoise(t + 91f, t) - 0.5f) * 2f;
+
+            impactRinging *= Mathf.Exp(-impactShakeDecay * Time.deltaTime);
+
+            return Quaternion.Euler(pitch * amount, yaw * amount, roll * amount);
         }
 
         private Vector3 ComputeDesiredPosition(out Vector3 aimPoint)

@@ -40,6 +40,16 @@ namespace Horizon.Vehicle
     /// swells when you lift off, which is backwards. If wind comes back it should come back as
     /// something the player can hear *through*, not over.</para>
     ///
+    /// <para><b>It came back once, as a place rather than as a speed, and it was removed again.</b> A
+    /// world-ambience layer put wind on the mountains, water at the shores, birds in the woods and
+    /// insects in the night, none of it driven by anything the driver did — which is exactly what the
+    /// paragraph above asks for, and it was still wrong. Wind and water together were irritating under
+    /// an engine however carefully they were separated from each other, and birdsong with nothing
+    /// visible to have made it read as a notification arriving rather than as a wood. The rule that
+    /// came out of it is on the audio section of <c>CLAUDE.md</c>: the car is the subject, so anything
+    /// in this mix that is not the car is competing with it, and what conveys the world is what the car
+    /// does in it — the tyres, the body, the roof overhead.</para>
+    ///
     /// <para>The turbo whistle is the layer most likely to be mistaken for that one coming back, and
     /// the reasons it is not are set out on <c>VehicleConfig.TurboWhistle</c> — chiefly that it is
     /// driven by boost rather than by road speed, so it dies the moment the driver lifts.</para>
