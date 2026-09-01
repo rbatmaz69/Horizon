@@ -148,6 +148,13 @@ namespace Horizon.Game
         {
             PlayerChoices.Car = index;
             ApplyCar();
+
+            // Saved here rather than left to Drive, for the reason PauseMenu.SetTime already gives:
+            // there is no leaving event on a phone, where the way out of a game is to stop looking at
+            // it. Drive runs once at the start of a session, so a car or a colour chosen from the pause
+            // menu afterwards was applied, shown as chosen, and forgotten by the next launch.
+            PlayerChoices.Save();
+
             RefreshAll();
         }
 
@@ -159,6 +166,11 @@ namespace Horizon.Game
             {
                 bodySet.SetPaint(PlayerChoices.PaintIn(bodySet.PaintCount));
             }
+
+            // See SelectCar. This one is also the only choice on the pause menu that does not move the
+            // car: a repaint mid-drive leaves you exactly where you were, which is why it is safe to
+            // offer there at all.
+            PlayerChoices.Save();
 
             RefreshAll();
         }

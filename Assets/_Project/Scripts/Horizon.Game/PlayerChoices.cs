@@ -3,20 +3,30 @@ using UnityEngine;
 namespace Horizon.Game
 {
     /// <summary>
-    /// How thick the air is. The whole of the weather model, honestly labelled.
+    /// What the weather is doing.
     ///
-    /// <para><b>There is no rain in this project</b> — no particle system, no wet-road shader, no splash
-    /// audio, nothing in the traffic or camera code that knows about it. What exists is
+    /// <para><b>The first three are the whole of the sky and nothing else.</b> They set
     /// <c>TimeOfDayController.Overcast</c>, which dims the sun by up to three quarters and thickens the
-    /// fog by up to 2.6×. These three names describe exactly that and promise nothing else. A "Rain"
-    /// button that only made the fog heavier would be a promise the game does not keep, and the fix for
-    /// that is a rain system rather than a different word.</para>
+    /// fog by up to 2.6×. Those three names describe exactly that and promise nothing more.</para>
+    ///
+    /// <para><b><see cref="Rain"/> was added last and it is a system rather than a word.</b> This
+    /// enum's remarks used to say there was no rain here — no particles, no wet road, no audio, nothing
+    /// the car knew about — and that a button claiming otherwise would be the menu lying about the
+    /// world. So the button arrived with the four things that make it true: water falling past the
+    /// camera, a noise on the roof that stops under a bridge, a darker sky, and tyres that let go
+    /// earlier. <c>WeatherDirector</c> owns all four.</para>
+    ///
+    /// <para><b>Appended, never inserted.</b> The value is written to PlayerPrefs as a bare integer, so
+    /// a preset added in the middle would silently change what every returning player had chosen. The
+    /// clamp in <see cref="Load"/> has to move with it — that is the one line to check when the next
+    /// one arrives.</para>
     /// </summary>
     public enum WeatherPreset
     {
         Clear = 0,
         Hazy = 1,
         Overcast = 2,
+        Rain = 3,
     }
 
     /// <summary>How much world to draw. See <see cref="QualityDirector"/> for what each one moves.</summary>
@@ -100,7 +110,7 @@ namespace Horizon.Game
 
             Weather = (WeatherPreset)Mathf.Clamp(
                 PlayerPrefs.GetInt(WeatherKey, (int)WeatherPreset.Clear),
-                (int)WeatherPreset.Clear, (int)WeatherPreset.Overcast);
+                (int)WeatherPreset.Clear, (int)WeatherPreset.Rain);
 
             Quality = (QualityPreset)Mathf.Clamp(
                 PlayerPrefs.GetInt(QualityKey, (int)QualityPreset.Balanced),
@@ -136,6 +146,11 @@ namespace Horizon.Game
         ///
         /// <para>0.9 rather than 1.0 at the top: at full overcast the sun contributes almost nothing and
         /// the scene is lit by ambient alone, which reads less like bad weather than like a bug.</para>
+        ///
+        /// <para><b>Rain sits just below Overcast rather than above it, and that is not a mistake.</b>
+        /// It is the darker of the two to look at, because the rain itself takes light out of the frame
+        /// on top of this — a rain preset that also asked for the heaviest sky came out as a grey wall
+        /// with nothing readable in it. The sky is the setting; the rain is the weather.</para>
         /// </summary>
         public static float OvercastFor(WeatherPreset preset)
         {
@@ -145,13 +160,25 @@ namespace Horizon.Game
                     return 0.45f;
                 case WeatherPreset.Overcast:
                     return 0.90f;
+                case WeatherPreset.Rain:
+                    return 0.80f;
                 default:
                     return 0f;
             }
         }
 
+        /// <summary>
+        /// How hard it is raining, 0 to 1. One number for all four consumers.
+        ///
+        /// <para>Falling water, the noise, the wet road and the grip are the same weather, so they read
+        /// the same figure — the argument the boost gauge already makes about the needle and the
+        /// whistle. Four constants would be four things able to disagree about whether it is raining.
+        /// </para>
+        /// </summary>
+        public static float RainFor(WeatherPreset preset) => preset == WeatherPreset.Rain ? 1f : 0f;
+
         /// <summary>What the weather buttons say. Index matches <see cref="WeatherPreset"/>.</summary>
-        public static readonly string[] WeatherNames = { "Clear", "Hazy", "Overcast" };
+        public static readonly string[] WeatherNames = { "Clear", "Hazy", "Overcast", "Rain" };
 
         /// <summary>What the quality buttons say. Index matches <see cref="QualityPreset"/>.</summary>
         public static readonly string[] QualityNames = { "Low", "Balanced", "High" };

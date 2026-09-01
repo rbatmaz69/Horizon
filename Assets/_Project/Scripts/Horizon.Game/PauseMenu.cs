@@ -361,7 +361,7 @@ namespace Horizon.Game
             }
 
             PlayerChoices.Weather = (WeatherPreset)Mathf.Clamp(
-                preset, (int)WeatherPreset.Clear, (int)WeatherPreset.Overcast);
+                preset, (int)WeatherPreset.Clear, (int)WeatherPreset.Rain);
 
             timeOfDay.Overcast = PlayerChoices.OvercastFor(PlayerChoices.Weather);
             timeOfDay.Apply();

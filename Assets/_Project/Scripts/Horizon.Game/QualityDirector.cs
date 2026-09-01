@@ -64,6 +64,13 @@ namespace Horizon.Game
                    + "fog closing in — which costs nothing at all — carries the same message without it.")]
             public bool AirRushParticles;
 
+            [Tooltip("How many raindrops of the full count to draw, 0 to 1.\n\n"
+                   + "A fraction rather than a switch, because rain is the one weather effect that has "
+                   + "to be visible at all if it is chosen at all — a Low phone showing no rain while "
+                   + "the sound falls and the road is slippery is a bug, not a saving. The sky, the "
+                   + "noise and the grip never scale with this; only the drop count does.")]
+            public float RainDrops;
+
             [Tooltip("30 on Low is a real thermal and battery win on a weak phone, and a steady 30 "
                    + "reads better than a 60 that cannot hold.")]
             public int TargetFrameRate;
@@ -142,6 +149,25 @@ namespace Horizon.Game
             SetExhaustEnabled(level.ExhaustParticles);
             SetTyreSmokeEnabled(level.TyreSmokeParticles);
             SetAirRushEnabled(level.AirRushParticles);
+            SetRainDrops(level.RainDrops);
+        }
+
+        /// <summary>
+        /// Thins the rain rather than switching it off.
+        ///
+        /// <para>Unlike the three above, and the difference is what the effect is for. Grit, tailpipe
+        /// smoke and tyre smoke are decoration: cutting them costs nothing but polish. Rain is a state
+        /// the world is in — the road is slippery and there is a noise on the roof — and a phone that
+        /// showed none of it while both of those were true would be telling the player something false.
+        /// So Low draws a third of the drops rather than none.</para>
+        /// </summary>
+        private static void SetRainDrops(float scale)
+        {
+            WeatherDirector weather = FindFirstObjectByType<WeatherDirector>();
+            if (weather != null)
+            {
+                weather.DropScale = scale;
+            }
         }
 
         /// <summary>

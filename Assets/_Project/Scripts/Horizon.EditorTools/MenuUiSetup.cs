@@ -853,9 +853,11 @@ namespace Horizon.EditorTools
         /// <summary>
         /// The hour, and how thick the air is.
         ///
-        /// <para>The weather buttons say Clear, Hazy and Overcast because that is all they do — see
-        /// <c>WeatherPreset</c>. There is no rain in this game and a button claiming otherwise would be
-        /// the menu lying about the world, which is the one thing a menu must not do.</para>
+        /// <para>The buttons are built from <c>PlayerChoices.WeatherNames</c> rather than typed out, so
+        /// a preset added to that enum arrives here on its own. Rain did exactly that, and it was only
+        /// allowed to once it meant something: this comment used to say there was no rain in the game
+        /// and that a button claiming otherwise would be the menu lying about the world. That rule has
+        /// not changed — the button arrived with the weather, not before it.</para>
         /// </summary>
         private static ConditionsPage BuildConditionsPage(RectTransform parent, Sprite box)
         {

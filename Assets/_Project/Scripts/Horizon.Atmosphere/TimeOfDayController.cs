@@ -15,6 +15,16 @@ namespace Horizon.Atmosphere
         [SerializeField] private TimeOfDayProfile profile;
         [SerializeField] private Light sun;
 
+        [Header("Sky")]
+        [Tooltip("The fair-weather sky. Whatever the scene was built with.")]
+        [SerializeField] private Material clearSky;
+
+        [Tooltip("The bad-weather sky: grey, thick, and dim.\n\n"
+               + "Two finished materials swapped between, never one material edited — Unity does not "
+               + "roll an asset change back when Play mode ends, so a player who tried the rain once "
+               + "would leave a skybox modified in the working tree. Same rule TownLights follows.")]
+        [SerializeField] private Material overcastSky;
+
         [Header("Clock")]
         [Tooltip("Current time in hours, 0–24. Starts at golden hour.")]
         [Range(0f, 24f)] public float TimeOfDayHours = 17.6f;
@@ -67,6 +77,20 @@ namespace Horizon.Atmosphere
         private float lastAppliedHours = float.NaN;
         private float lastAppliedOvercast = float.NaN;
         private float lastAppliedSpeedHaze = float.NaN;
+
+        /// <summary>Which sky is currently up, so it is only assigned when it actually changes.</summary>
+        private bool skyIsOvercast;
+
+        /// <summary>
+        /// Overcast at which the grey sky comes in, and the one it goes out at.
+        ///
+        /// <para>Hysteresis for the reason <c>TownLights</c> gives about dusk: a single threshold sits
+        /// exactly where a slider is dragged and the sky flickers between the two under the player's
+        /// thumb. Hazy is 0.45 and deliberately below the band — haze is a thin day, not a grey one.</para>
+        /// </summary>
+        private const float OvercastSkyOn = 0.60f;
+
+        private const float OvercastSkyOff = 0.52f;
 
         private void OnEnable()
         {
@@ -147,12 +171,68 @@ namespace Horizon.Atmosphere
             RenderSettings.fogMode = FogMode.ExponentialSquared;
 
             Color fogColor = profile.FogColor.Evaluate(t);
+
+            // Bad weather takes the colour out of the air as well as the light out of the sun, which is
+            // what this class's own remarks have always promised and what it had never actually done.
+            // Left saturated, the fog stayed the hour's warm gold while the sky above it went grey, and
+            // the two halves of the same frame disagreed about the weather. Desaturated rather than
+            // darkened: fog is also what hides the draw distance, and taking light out of it is the one
+            // change that would let the far plane show through.
+            if (Overcast > 0f)
+            {
+                float grey = fogColor.grayscale;
+                fogColor = Color.Lerp(fogColor, new Color(grey, grey, grey), Overcast * 0.7f);
+            }
+
             RenderSettings.fogColor = Color.Lerp(
                 fogColor, fogColor * (1f - SpeedFogDarkening), haze);
 
             RenderSettings.fogDensity = Mathf.Max(0f, profile.FogDensity.Evaluate(t))
                 * (1f + Overcast * 1.6f)
                 * (1f + haze * Mathf.Max(0f, SpeedFogGain));
+
+            ApplySky();
+        }
+
+        /// <summary>
+        /// Puts the grey sky up in bad weather, and the fair one back afterwards.
+        ///
+        /// <para><b>Nothing here had ever touched the sky, and it took a photograph of rain falling out
+        /// of a clear blue afternoon to notice.</b> This class writes the sun, the ambient and the fog;
+        /// the skybox is a material on <c>RenderSettings</c> that only ever read the sun's *direction*.
+        /// So <see cref="Overcast"/> has been dimming the light and thickening the air under an
+        /// unchanged blue dome since the day it was written — for Hazy and Overcast as much as for
+        /// rain.</para>
+        ///
+        /// <para><b>It also decides what smooth surfaces reflect</b>, which is the half nobody would
+        /// predict. With no reflection probes in this world — a budget decision — URP's environment
+        /// reflection is the skybox itself, so a wet road under a blue dome reflects blue. Greying the
+        /// sky greys the reflection in the same stroke.</para>
+        ///
+        /// <para>Assigned only on the frame it changes. <c>RenderSettings.skybox</c> is a scene value
+        /// and writing it every frame at edit time would leave the scene permanently dirty, which is
+        /// the same trap <see cref="Update"/> guards against for everything else here.</para>
+        /// </summary>
+        private void ApplySky()
+        {
+            if (clearSky == null || overcastSky == null)
+            {
+                return;
+            }
+
+            bool wantOvercast = skyIsOvercast
+                ? Overcast > OvercastSkyOff
+                : Overcast > OvercastSkyOn;
+
+            Material wanted = wantOvercast ? overcastSky : clearSky;
+
+            if (skyIsOvercast == wantOvercast && RenderSettings.skybox == wanted)
+            {
+                return;
+            }
+
+            skyIsOvercast = wantOvercast;
+            RenderSettings.skybox = wanted;
         }
     }
 }
