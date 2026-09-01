@@ -110,8 +110,17 @@ namespace Horizon.Game
                 return;
             }
 
-            previous = -1;
             Show(target);
+
+            // Cleared <b>after</b> the show, not before, and that ordering is the whole of it.
+            // <see cref="Show"/> records the page it is leaving as the way back, so clearing first left
+            // the page just departed sitting in <c>previous</c> — and Back from the page underneath
+            // returned to the one it had come from. Two pages ping-ponging, with no way out but the
+            // pause button.
+            //
+            // It could not happen while every page was reached from the start screen or the pause menu
+            // and nothing was ever two deep. The paint page is, now that the garage opens it.
+            previous = -1;
         }
 
         /// <summary>Closes the menu entirely.</summary>

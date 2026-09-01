@@ -682,6 +682,7 @@ namespace Horizon.EditorTools
             public RectTransform Panel;
             public Button[] Rows;
             public Image[] Backgrounds;
+            public Button Paint;
             public Button Back;
         }
 
@@ -742,6 +743,13 @@ namespace Horizon.EditorTools
                     page.Backgrounds[index] = page.Rows[index].GetComponent<Image>();
                 }
             }
+
+            // The way to the paint page, and it is here rather than only on the start screen because
+            // the pause menu's own button is labelled "Car and paint" and could only reach the car.
+            // Once the game is running there was no route to the colours at all: every page is reached
+            // from the start screen or the pause menu, and the paint page was on neither. The menu said
+            // the paint was changeable and it was not.
+            page.Paint = TouchUiSetup.MenuButton(page.Panel, "Paint", box, "Paint");
 
             page.Back = TouchUiSetup.MenuButton(page.Panel, "Back", box, "Back");
             return page;
@@ -1045,6 +1053,7 @@ namespace Horizon.EditorTools
                 BindInt(page.Rows[i], start.SelectCar, i);
             }
 
+            BindPage(page.Paint, panels, MenuPage.Paint);
             BindBack(page.Back, panels);
         }
 
