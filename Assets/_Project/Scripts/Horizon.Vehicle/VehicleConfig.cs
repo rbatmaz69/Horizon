@@ -73,6 +73,11 @@ namespace Horizon.Vehicle
         /// Without the bump the assets keep the old radius against a body lofted around the new one, and
         /// the car sits with its wheels through its arches.</para>
         ///
+        /// <para><b>19: the steering limit stopped being a curve.</b> <c>SteeringBySpeed</c> is gone
+        /// and <see cref="SteeringMargin"/> replaces it — a field removed and a field added, so an
+        /// asset left at 18 carries a dead curve and a margin of zero, which is a car that cannot
+        /// steer at all above walking pace.</para>
+        ///
         /// <para><b>18: sliding became something the driver asks for.</b> <c>HandbrakeGrip</c> is
         /// <see cref="DriftRearGrip"/> now — same number, same job, but reached by three entries
         /// instead of one — and <see cref="PowerOversteer"/> is new and would land in every asset as
@@ -92,10 +97,10 @@ namespace Horizon.Vehicle
         /// <see cref="RearGripBias"/> is new and would otherwise land in every asset as 0 — no rear
         /// grip at all — which is the plainest case this counter exists for.
         /// <see cref="PeakSlipAngle"/>, <see cref="Downforce"/>, <see cref="TurnInAssist"/> and
-        /// <see cref="SteeringBySpeed"/> all move with it, and they move as a set: each one alone is
+        /// <c>SteeringBySpeed</c> all move with it, and they move as a set: each one alone is
         /// either useless or dangerous.</para>
         ///
-        /// <para><b>14: <see cref="SteeringBySpeed"/> was rebuilt against the geometry.</b> Same
+        /// <para><b>14: <c>SteeringBySpeed</c> was rebuilt against the geometry.</b> Same
         /// reason as 13 — a value change whose whole point is that the assets hold the old one — but a
         /// much larger one, and it is the fix for a car that broke away on a small steering input at
         /// speed.</para>
@@ -128,7 +133,7 @@ namespace Horizon.Vehicle
         /// bump the assets keep the short travel and the soft bar together, which is the one combination
         /// that rolls.</para>
         /// </summary>
-        public const int CurrentVersion = 18;
+        public const int CurrentVersion = 19;
 
         /// <summary>
         /// Which set of meanings this asset's numbers were chosen under.
@@ -174,7 +179,7 @@ namespace Horizon.Vehicle
         ///
         /// <para><b>And it quietly disabled half of every speed-dependent curve.</b>
         /// <see cref="TopSpeed"/> is the redline in top gear, and <c>SpeedNormalized</c> divides by it to
-        /// drive <see cref="SteeringBySpeed"/> and <see cref="LateralGrip"/>. A car that could only reach
+        /// drive the speed-dependent curves of the day. A car that could only reach
         /// 61 % of its own top speed never read past 0.61 of either curve, so the fast end of both was
         /// authored, tuned and never once evaluated.</para>
         /// </summary>
@@ -484,9 +489,11 @@ namespace Horizon.Vehicle
         /// first has to launch the car, the upper gears only have to keep the engine in its band.</para>
         ///
         /// <para><b>The last ratio must stay 1.00.</b> <see cref="TopSpeed"/> is computed from it, and
-        /// TopSpeed is the divisor for <c>SpeedNormalized</c> — which is what <see cref="SteeringBySpeed"/>
-        /// and <see cref="LateralGrip"/> are looked up on. Shortening top gear would quietly retune the
-        /// steering and the tyres of every car in the game while looking like a gearing change.</para>
+        /// TopSpeed is the divisor for <c>SpeedNormalized</c>, which everything speed-shaped is read
+        /// against. That used to include the steering limit and the grip curve, and both have since
+        /// moved off it — the steering is derived from the car's own grip and the grip from wheel load
+        /// — so shortening top gear no longer quietly retunes the handling of every car in the game.
+        /// It still moves the camera, the atmosphere and the audio.</para>
         /// </summary>
         public float[] GearRatios = { 4.20f, 2.90f, 2.15f, 1.65f, 1.28f, 1f };
 
@@ -599,36 +606,22 @@ namespace Horizon.Vehicle
                + "driver asks — which is most of what 'direct' means on a phone.")]
         public float MaxSteerAngle = 40f;
 
-        [Tooltip("Fraction of full lock available over normalized speed.\n\n"
-               + "This is not a comfort setting, it is geometry. A car can only hold the yaw rate its "
-               + "tyres can pay for, so the steering angle it can actually use in a corner is "
-               + "atan(mu·g·wheelbase / v²) — which collapses with the *square* of speed. For this car "
-               + "that is 24° at 36 km/h, 6.4° at 72, 2.9° at 108 and 0.6° at 235. Anything past it is "
-               + "not steering, it is a request the front tyres answer by sliding.\n\n"
-               + "The old curve was written against a tyre model that cancelled the whole sideways "
-               + "velocity every step and simply refused whatever it could not hold — so asking for "
-               + "thirty times too much lock cost nothing and was invisible. Measured against the real "
-               + "limit it handed the driver 5× too much at 72 km/h, 10× at 108 and 33× at 235. With a "
-               + "tyre that has to build its force through a slip angle, the same input is a yaw "
-               + "transient no tyre can answer, and the car breaks away on what felt like a small "
-               + "steering input. That is exactly what it was reported as.\n\n"
-               + "The shape tracks that limit at about 1.6 to 2.4 times it. The first attempt at this "
-               + "sat at 1.3 to 1.8 and was wrong — cutting the lock is the answer to the symptom, not "
-               + "to the cause, and it produced a car that would not turn in. What actually lets a "
-               + "driver use a big angle at speed is the grip to pay for it: Downforce raises the limit "
-               + "itself, RearGripBias decides that overdriving the entry pushes wide rather than "
-               + "swapping ends, and PeakSlipAngle decides how quickly the front answers at all. With "
-               + "those three doing their work the extra lock is usable rather than dangerous.\n\n"
-               + "Full lock survives at manoeuvring speed, which is what MaxSteerAngle is for, and "
-               + "CountersteerAuthority hands lock back once the car is already sideways, so catching a "
-               + "slide is unaffected.")]
-        public AnimationCurve SteeringBySpeed = new AnimationCurve(
-            new Keyframe(0f, 1f),
-            new Keyframe(0.15f, 1f),
-            new Keyframe(0.30f, 0.35f),
-            new Keyframe(0.45f, 0.16f),
-            new Keyframe(0.70f, 0.09f),
-            new Keyframe(1f, 0.056f));
+        [Tooltip("How much of the grip full lock is allowed to ask for, 0 to 1.\n\n"
+               + "There used to be a hand-drawn SteeringBySpeed curve here, and it was the wrong shape "
+               + "by construction. A car can only sustain the yaw rate its grip pays for, so the "
+               + "steering angle it can actually use is atan(a · wheelbase / v²) — which collapses "
+               + "with the *square* of speed. The curve was handing out between 1.5 and 2.1 times that "
+               + "everywhere above 90 km/h, and on a keyboard, where every input reaches its stop in a "
+               + "sixth of a second, that is a request for nearly double what the car has arriving in "
+               + "one flick.\n\n"
+               + "The limit is derived from the grip the four tyres were actually handed, so it is "
+               + "right for every car without a curve each, and stays right after any retune. This is "
+               + "the only knob left, and it says how close to the edge full lock puts you.\n\n"
+               + "0.92 rather than 1: exactly at the limit the tyre sits on the peak of its own curve "
+               + "with the falloff on the far side, which is a knife edge to ask a driver to balance "
+               + "on. Lower is safer and duller; above about 0.97 the car starts letting go on its own "
+               + "again, which is the fault this replaced.")]
+        [Range(0.5f, 1f)] public float SteeringMargin = 0.92f;
 
         [Tooltip("Degrees per second the steering angle can change.\n\n"
                + "300 takes full lock in about 0.13 s. At 160 the rack itself was a fifth of a second "
@@ -777,7 +770,7 @@ namespace Horizon.Vehicle
                + "which worked out at 0.15 rad/s² and would have taken seven seconds to arrest a spin.")]
         public float DriftYawDamping = 2.5f;
 
-        [Tooltip("How much of the steering lock that SteeringBySpeed takes away is handed back while "
+        [Tooltip("How much of the steering lock that the speed limit takes away is handed back while "
                + "sideways, 0 to 1. Full lock at speed is nervous on a straight and exactly what is "
                + "wanted when catching a slide. Zero switches it off.")]
         [Range(0f, 1f)] public float CountersteerAuthority = 0.75f;

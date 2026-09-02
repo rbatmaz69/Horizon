@@ -46,6 +46,7 @@ namespace Horizon.Vehicle
         private IDriveInput explicitInput;
         private float steerAngle;
         private float gripBudget;
+        private float steeringCapacity;
         private float tractionCut = 1f;
         private float forwardSpeed;
         private Vector3 previousVelocity;
@@ -190,6 +191,24 @@ namespace Horizon.Vehicle
         /// what is left inside is one sine and one arctangent.</para>
         /// </summary>
         private const int SpinSubSteps = 8;
+
+        /// <summary>
+        /// How quickly the steering limit's idea of the car's grip follows the real one, per second.
+        ///
+        /// <para>Slow on purpose. The instantaneous capacity swings with every load transfer, and a
+        /// steering stop that moved with it would read as the rack going light in the middle of a
+        /// corner. This is meant to say what the car can do, not what this instant is doing.</para>
+        /// </summary>
+        private const float SteeringCapacityResponse = 1.5f;
+
+        /// <summary>
+        /// Floor on the grip the steering limit will assume, in g.
+        ///
+        /// <para>Covers the frames before any wheel has reported, and anything pathological. Not the
+        /// airborne case — that is covered by holding the last grounded value, which keeps the lock the
+        /// driver had rather than handing them a default in mid-air.</para>
+        /// </summary>
+        private const float MinSteeringCapacity = 0.6f;
 
         /// <summary>Speed below which no drift request is accepted, m/s. About 43 km/h.</summary>
         private const float DriftEntrySpeed = 12f;
@@ -792,7 +811,6 @@ namespace Horizon.Vehicle
 
             Vector3 velocity = body.linearVelocity;
             forwardSpeed = Vector3.Dot(velocity, transform.forward);
-            float speed01 = Mathf.Clamp01(Mathf.Abs(forwardSpeed) / Mathf.Max(1f, config.TopSpeed));
 
             UpdateLongitudinalAcceleration(deltaTime);
 
@@ -803,15 +821,13 @@ namespace Horizon.Vehicle
             // same step or the car will be half-loose and half-planted.
             UpdateDriftIntent(deltaTime, drive);
 
-            // Lock available at this speed, plus whatever the slide has earned back. SteeringBySpeed
-            // falls hard with speed to keep a straight calm, and that is the exact opposite of what is
-            // needed with the car sideways.
+            // Lock available at this speed, plus whatever the slide has earned back.
             //
             // Two reasons to hand the lock back, and they are different questions. The slip term
             // catches a slide that has already started, which is a recovery; the intent term hands it
             // back the moment the driver asks, which is a request. Without the second, a handbrake turn
-            // at speed begins with a third of the lock and the car cannot be pointed anywhere.
-            float lock01 = config.SteeringBySpeed.Evaluate(speed01);
+            // at speed begins with a fraction of the lock and the car cannot be pointed anywhere.
+            float lock01 = AvailableLock();
             float slide = 0f;
             if (Mathf.Abs(SlipAngle) > config.DriftSlipAngle)
             {
@@ -879,6 +895,18 @@ namespace Horizon.Vehicle
             }
 
             GripCapacityG = gripBudget / Mathf.Max(1f, config.Mass * Physics.gravity.magnitude);
+
+            // What the steering limit reads. Held while airborne so the lock survives a crest, and
+            // eased so it does not wander with the load transfer of the corner it is in.
+            if (GroundedWheelCount > 0)
+            {
+                steeringCapacity = steeringCapacity <= 0f
+                    ? GripCapacityG
+                    : Mathf.Lerp(
+                        steeringCapacity,
+                        GripCapacityG,
+                        1f - Mathf.Exp(-SteeringCapacityResponse * deltaTime));
+            }
 
             UpdateSurfaceState();
 
@@ -1796,6 +1824,48 @@ namespace Horizon.Vehicle
         }
 
         /// <summary>
+        /// The fraction of full lock the driver is allowed at this speed, 0 to 1.
+        ///
+        /// <para><b>Derived from what the tyres can hold, not drawn as a curve.</b> A car can only
+        /// sustain the yaw rate its grip pays for, so the steering angle it can actually use is
+        /// <c>atan(a · wheelbase / v²)</c> — which collapses with the <i>square</i> of speed. A
+        /// hand-drawn curve cannot track that: the one this replaces was handing out between 1.5 and
+        /// 2.1 times the usable angle everywhere above 90 km/h, and on a keyboard, where every input
+        /// reaches its stop in a sixth of a second, that is a request for nearly double what the car
+        /// has arriving in one flick. The car broke away on what felt like a small correction.</para>
+        ///
+        /// <para>Doing it this way means the limit is right for all ten cars without ten curves, and
+        /// stays right after any future retune — the same argument the rev counter makes for building
+        /// its face out of the car rather than printing it on.</para>
+        ///
+        /// <para><see cref="VehicleConfig.SteeringMargin"/> keeps full lock just under the limit rather
+        /// than exactly on it. At exactly the limit the tyre sits on the peak of its own curve with the
+        /// falloff on the far side, which is a knife edge to ask a driver to balance on.</para>
+        ///
+        /// <para><b>The capacity it reads is held and smoothed, and both matter.</b> Airborne, every
+        /// wheel load is zero and so is the capacity — read raw, the steering would die over every
+        /// crest, which is precisely the sort of fault no log would ever mention. And the capacity
+        /// moves with load transfer through a corner, so read raw the lock would wander mid-bend and
+        /// feel like the steering going light. The floor covers the first frames, before any wheel has
+        /// reported.</para>
+        /// </summary>
+        private float AvailableLock()
+        {
+            float speed = Mathf.Abs(forwardSpeed);
+            if (speed < 1f)
+            {
+                return 1f;
+            }
+
+            float capacity = Mathf.Max(MinSteeringCapacity, steeringCapacity);
+            float usable = Mathf.Atan(
+                config.SteeringMargin * capacity * Physics.gravity.magnitude * wheelbase
+                / (speed * speed)) * Mathf.Rad2Deg;
+
+            return Mathf.Clamp01(usable / Mathf.Max(1f, config.MaxSteerAngle));
+        }
+
+        /// <summary>
         /// Works out how much the driver is asking to be sideways, and eases
         /// <see cref="DriftIntent"/> toward it.
         ///
@@ -1885,7 +1955,7 @@ namespace Horizon.Vehicle
         /// only bites when it starts to run away. That is the difference between a drift you hold and
         /// one you catch or lose.</para>
         ///
-        /// <para><b>Countersteer authority</b> gives back the lock that <c>SteeringBySpeed</c> takes
+        /// <para><b>Countersteer authority</b> gives back the lock that the speed limit takes
         /// away. That curve cuts to a third at speed, which is right for stability on a straight and
         /// exactly wrong when you are sideways and need the wheel — so it is restored in proportion to
         /// how far sideways the car already is, which is when it can do no harm.</para>
