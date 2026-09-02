@@ -70,7 +70,7 @@ namespace Horizon.World
         /// How far from the centreline a lane runs, as a fraction of the carriageway's half-width.
         ///
         /// Half, which puts a car in the middle of its own side. Not further out: town streets here are
-        /// 6.2 m wide kerb to kerb at their narrowest, and a lane at 0.75 would put a 2.3 m car's flank
+        /// 7.8 m wide kerb to kerb at their narrowest, and a lane at 0.75 would put a 2.9 m car's flank
         /// within a handspan of the kerb on every alley in the place. It is also the offset the player's
         /// own car is spawned at, so the two agree about where a lane is.
         /// </summary>
@@ -686,8 +686,17 @@ namespace Horizon.World
         /// </summary>
         private static readonly float[] HighwayLaneSpeeds = { 20f, 25f, 30f, 35f };
 
-        /// <summary>Width of one motorway lane, metres. Four of these make RoadShape.Autobahn.</summary>
-        private const float HighwayLaneWidth = 3.75f;
+        /// <summary>
+        /// Width of one motorway lane, metres. Four of these make <see cref="RoadShape.Autobahn"/>, and
+        /// it is derived from that shape rather than written down beside it.
+        ///
+        /// <para><b>It was the literal 3.75, and what that would have cost is silence.</b> Widening the
+        /// carriageway without this leaves all four lanes inside the asphalt, simply bunched down the
+        /// middle of it with a lane and a half of empty tarmac on each flank —
+        /// <c>CheckLanesFollowTheTrunkRoad</c> asks whether a lane is on its carriageway and would have
+        /// reported every one of them as correct.</para>
+        /// </summary>
+        private static readonly float HighwayLaneWidth = RoadShape.Autobahn.HalfWidth * 0.5f;
 
         /// <summary>
         /// Both carriageways of the motorway, four lanes each, run end to end.

@@ -763,7 +763,7 @@ three-hundred-degree Dubins family, the guard against a **self**-closure degener
 nothing at all (the target is the walk's own start, so the two turning circles can be concentric), and
 the trim of the final control point the solve lands on.
 
-**Kerbs are the cheapest thing in this project that changes what a road *is*.** Thirteen metres of
+**Kerbs are the cheapest thing in this project that changes what a road *is*.** Sixteen metres of
 asphalt with no centre line is a wide road; the same ribbon with kerbs is a race track and nobody has
 to be told. Two vertex-tinted submeshes on the existing `RoadTint` material — one draw call, no new
 material. Which side is the inside is asked per sample, not per corner, because the rungs snake and a
@@ -1141,6 +1141,91 @@ from a road and nothing for the falloff to thin. A stacked climb is all near fie
 why its tiles are the heaviest in the world, and why `LandRegion.TreeDensity` is the knob rather than
 `FarDensity`.
 
+## How wide a road is
+
+Every carriageway in the world is a quarter wider than it was authored at, and the reason is not that
+the roads were wrong. **The cars grew a quarter in plan** — the widest collider went from 2.26 m to
+2.92 m, and the offroader is 3.00 m across its tyres — so the roads followed, because what a driver
+reads is not the width of the road but **how much of it the car fills**. Hold the roads still and the
+world quietly becomes a tighter game than it was. `RoadShape.Default`, `Autobahn` and `Circuit` all took
+the same factor, shoulders and hard shoulder included; `TownStreetShape` took it on the carriageways and
+not on the footways, because a pavement is sized for people.
+
+**The numbers were written out, not scaled at a gate, and that is the opposite of what the cars got.**
+`CarMeshBuilder.PlanScale` exists because the ten station tables are *measurements* of real cars and
+multiplying them in place would destroy the only thing that makes them checkable. A road width is not a
+measurement of anything — "two 5.25 m lanes, wider than a real pass, deliberately" is a decision — so a
+permanent scale factor here would leave every comment in the file claiming a width the builder does not
+produce, which is the stale-doc failure this file has already paid for four times.
+
+**`RoadShape`'s own comment says widening is "close to free because everything that needs the number
+takes it from here". That is true of about forty call sites and false of a dozen, and two of the dozen
+break in silence.**
+
+- **`TerrainShape.RoadShelfDrop`.** The camber lowers the inner edge of a carriageway by
+  `HalfWidth × sin(bank)` and the terrain shelf has to sit below *that*. At the old 0.45 the widened
+  motorway wanted 0.49 and the widened pass 0.46 — so the hillside comes up through the asphalt on the
+  inside of every corner in the world, on a build that says nothing. It is 0.57 now. **Widen a road
+  again and this moves with it.** `ValidateRoadClearance` is the only thing that reports it.
+- **`AutobahnCourse.CarriagewayOffset`.** It was the literal `10.5`, which is a 7.5 m half-width plus a
+  3 m median written down as a number with no reference to the shape it came from. At a 9.4 m
+  half-width the two carriageways' asphalt *overlaps*, and nothing in the build asks whether a
+  motorway's two halves are on top of each other because every check there walks one road at a time. It
+  is derived, and `MergeOffset` — four widths in a trench coat — with it.
+
+The rest are loud, or merely wrong-looking: `TrafficNetworkBuilder.HighwayLaneWidth` (four lanes bunched
+down the middle of a carriageway, reported as correct by every check that exists),
+`VegetationShape.TuftClearance` (grass in the shoulder — its own comment already stated the rule, which
+is why it is read rather than restated now), `TunnelBuilder.MoundHalfWidthFor` (forty metres of massif
+is sized against how far apart a switchback's legs are, and says nothing about the motorway's
+fifty-metre bore), `TrunkForkBuilder.ThroatLength` (`RibbonTrim` is three widths over a sine),
+`CircuitMeshes.GridBoxLength` (a painted box shorter than the car standing in it), and the two spawn
+places that were typed as `4f` where `4` was half of a boulevard half-width.
+
+**And one check had become narrower than its own subject.** `ValidateDriveableCorridor` sweeps a box
+along every road asking whether anything solid stands in it, and that box *is the car* — 1.3 m of
+half-width, chosen when the widest car was 2.26 m across. A check that cannot reach its subject finds
+nothing wrong and is indistinguishable from a clean pass, which is the argument `ValidateSurfaces`
+already makes about its own rays missing. It is `DriverBoxHalfWidth` now, and it is 1.5.
+
+**What it cost, measured against a build of the same world at the old widths.** Everything else in
+the log is unchanged, and these four are the whole of the difference:
+
+- **Talheim's street graph stopped being planar**, and that is the failure this widening was always
+  going to have somewhere. The clearance the check wants is the two streets' paved half-widths added
+  together, so it grows with them: the avenue leaving the housing row and the market square's north
+  edge went from 14.9 m of paving between their centrelines to 17.2, against 15.7 m of ground. The
+  housing row already bulges around the square for exactly this reason, one widening ago; it bulges
+  8 m further now. **The warning named the pair and no distance, which would have sent anybody reading
+  the whole layout table** — it prints the measured separation and the clearance it needed now, and
+  that turned it into one line of the table.
+- **The interchange's seam was measured against a tyre nobody drives.** `ValidateMergeSeam`'s
+  tolerance is "a tenth of the tyre's radius", and it was the literal `0.04` — a tenth of the 0.40 the
+  hatchback's wheel was before `5bd7396` grew every wheel by 15 %. A rule about the car, spelt as a
+  number, in a file the car does not pass through. The step itself went from 38 mm to 43 mm because
+  the ramp stands further out; the frame there is banked 0.05°, so the bank explains none of it. It is
+  read off the smallest wheel in the garage now.
+- **Two twenty-metre stretches of the pass have no ground under the outside of their verge** — 1750
+  and 2470 m along, both hairpin exteriors in the switchback stack, worst 3.71 m. That ground was
+  always like that; the shoulder now reaches 1.75 m closer to it, and `MountainField` averages
+  stacked legs, so a shelf just outside a 20 m hairpin is being pulled towards the leg forty metres
+  below. A guard rail already stands at both, because the drop is past `GuardRailBuilder`'s 3 m. It is
+  recorded rather than tuned away: the alternative is a check that agrees with whatever it is shown.
+  `ValidateRoadSupport` reports stretches rather than a bare count now, because one number cannot tell
+  a hole beside one hairpin from half a kilometre of road in the air.
+- **Ten streets have their junction trims scaled back rather than five**, worst 0.79. Four of them are
+  the market quarter's high street, where both ends sit at `StreetJunctionBuilder.MaximumTrimFactor`'s
+  cap — 2.5 × a half-outer that grew 15 % against segments that did not. The scaling is the designed
+  degradation and every network still validates as planar, convex and flush, so it is accepted; the
+  fix, if it ever matters, is to lengthen the market quarter rather than to narrow the street.
+
+**What did not scale, and why.** Guard-rail and parapet *heights*, kerb rise, tunnel headroom: those are
+answerable to the car behind them rather than to the width of the road, and the cars grew 15 % in height
+against 25 % in plan. Dash and gap lengths: a dash is read against the speed it goes past at, and no
+speed changed — only the line *widths* moved, because a line is read against the road under it. Corner
+radii, grades and course lengths: nothing about a centreline moved, so the world footprint, the terrain
+tile list and the per-tile triangle counts are exactly what they were.
+
 ## Where roads meet
 
 Fourteen courses, four towns, two circuits and one motorway, and until now **nothing in this project
@@ -1156,8 +1241,10 @@ last one *across* the carriageway: 5.25 m of asphalt and 1.5 m of gravel shoulde
 centre line, ending in a square cap with a 0.5 m drop off its edge. On the Weissjochring the throat then
 reached **5.2 m past the centreline of a 6.5 m half-width** — nearly the whole of the far side of the
 racing surface — on the fastest part of the lap. `RoadMeshBuilder.BuildRoad` now takes a trim and
-`TrunkForkBuilder.RibbonTrim` says where: 20.5 m on the Stadtfeld, 22.6 m on the Weissjochring and
-40.5 m on the Bahçe Ring, the difference being the fork angle.
+`TrunkForkBuilder.RibbonTrim` says where — twenty-odd metres on the Stadtfeld and the Weissjochring
+and roughly twice that on the Bahçe Ring, the difference being the fork angle. It is computed from the
+two shapes rather than tabulated, and it is what `ThroatLength` has to stay ahead of: the trims grew
+with the carriageways when the roads were widened for the cars, and the throat had to grow with them.
 
 **The throat is clipped to the trunk's paved edge, and that line is not a taste.** `AppendRing` puts the
 camber at exactly zero at the asphalt-to-shoulder edge, so a surface cut off there is flush with the
@@ -1189,8 +1276,8 @@ metres long rather than points.
 
 **The motorway ended in a wall, at both ends.** `AutobahnCourse` hands over to Hochstadt's boulevard in
 the east and the coast road in the west, and both of them begin on the **median line** — that is the axis
-the whole road is measured against. The carriageways are `OffsetRoadPath`s at ±10.5 m, so each one
-finished ten and a half metres to the side of the road it was handing to, with six metres of unpaved
+the whole road is measured against. The carriageways are `OffsetRoadPath`s at ±`CarriagewayOffset`, so
+each one finished a dozen metres to the side of the road it was handing to, with six metres of unpaved
 median between them and `GuardRailBuilder.BuildMedian`, whose `present[step]` was the literal `true` with
 a comment saying that not even a bore breaks the run, standing down the middle of it. **The last post
 stood on the city gate.** There was no way out of Hochstadt and no way onto the coast road.
@@ -1298,7 +1385,7 @@ two cannot fight — a car climbing out of a lake onto grass does not get full g
 `WaterHazard.Dry` set the number it owns to 1.
 
 **Neither is a cliff.** A verge at half grip would be a wall the car bounces off, which is worse than
-having no surfaces at all: the shoulder is a metre and a half wide and a driver clips it on nearly
+having no surfaces at all: the shoulder is under two metres wide and a driver clips it on nearly
 every hairpin exit. 0.78 and 0.62 are tuned so that going wide is a moment the driver feels and
 corrects, not a moment the car is taken away from them.
 
@@ -1395,7 +1482,7 @@ fault is a check nobody reads.
 **The crown is an error and the verge is a measurement, and that asymmetry is what the check found.**
 The first version failed both the same way and reported all eleven roads as broken — 2 crown samples
 out of 2268 and several hundred verge samples. The crown figure is a fault. The verge figure is the
-world: **`ShoulderDrop` is 0.5 m against a `TerrainShape.RoadShelfDrop` of 0.45**, so the gravel
+world: **`ShoulderDrop` is 0.63 m against a `TerrainShape.RoadShelfDrop` of 0.57**, so the gravel
 already hangs below the shelf on level ground, and the camber on the inside of a corner takes it a
 further `sin(bank)` down — the hillside stands over the outer half of the verge there, and a wheel
 running wide genuinely touches terrain rather than gravel. Reporting the terrain it touches is

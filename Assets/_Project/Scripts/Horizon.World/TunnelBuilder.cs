@@ -61,6 +61,10 @@ namespace Horizon.World
         /// 40, down from 52. On a switchback, neighbouring legs are only 40–80 m apart in plan, and at 52 m
         /// the body swallowed the leg below it whole. 40 keeps it a spur the road passes rather than a dome
         /// the road disappears under.
+        ///
+        /// <para>A floor rather than the answer — see <see cref="MoundHalfWidthFor"/>. The motorway's bore
+        /// spans both carriageways and is two and a half times as wide as a country road's, so 40 m of
+        /// mountain does not contain it.</para>
         /// </summary>
         private const float MoundHalfWidth = 40f;
 
@@ -72,6 +76,27 @@ namespace Horizon.World
 
         /// <summary>How far the feet are pushed below the ground so no edge shows.</summary>
         private const float FootBurial = 2f;
+
+        /// <summary>
+        /// Half-width of the massif over a bore of a given half-width, metres.
+        ///
+        /// <para><b>Because one of these is a road and the other is a mountain, and only one of them
+        /// scales with the car.</b> <see cref="MoundHalfWidth"/> is sized against a switchback's legs —
+        /// how far apart neighbouring hairpins are in plan — and has nothing to do with how wide the
+        /// carriageway underneath is. That holds right up until the bore is the motorway's, which spans
+        /// both carriageways and their median: <c>archHalfWidth</c> there is over 25 m, and the massif
+        /// tapers to <see cref="EndTaper"/> of its width at the ends. Forty metres of mountain with a
+        /// fifty-metre hole through it builds without a word, because nothing in this project compares
+        /// the two.</para>
+        ///
+        /// <para>Twice the arch, so the rock either side of a bore is as thick as the bore is wide. On
+        /// every authored tunnel but the motorway's that is well under the floor and this changes
+        /// nothing.</para>
+        /// </summary>
+        private static float MoundHalfWidthFor(float archHalfWidth)
+        {
+            return Mathf.Max(MoundHalfWidth, archHalfWidth * 2f);
+        }
 
         /// <summary>Builds one covered stretch, or null when the span is too short to be worth building.</summary>
         public static Mesh Build(
@@ -122,10 +147,14 @@ namespace Horizon.World
 
             bool gallery = feature.Kind == RoadFeatureKind.Gallery;
 
-            // A real two-lane road tunnel: about 10 m across, 7 m to the crown.
+            // A real two-lane road tunnel: about 13 m across, 8 m to the crown.
+            //
+            // The width follows the road and the height follows the car — 1.25 and 1.15, the two factors
+            // 5bd7396 grew the cars by. Held at the old 2.3 and 6.9 the arch simply flattened as the
+            // carriageway widened, which is the shape of a culvert rather than of a bore.
             float archHalfWidth = roadShape.HalfWidth + 0.7f;
-            float springLine = 2.3f;
-            float crown = 6.9f;
+            float springLine = 2.65f;
+            float crown = 7.95f;
 
             float startDistance = feature.StartDistance - EndOverhang;
             float endDistance = feature.EndDistance + EndOverhang;
@@ -155,7 +184,7 @@ namespace Horizon.World
                 // Variation along the length, or a body this size reads as an extruded dome.
                 float wobble = 1f + 0.10f * Mathf.Sin(distance * 0.07f) + 0.05f * Mathf.Sin(distance * 0.19f);
 
-                float moundHalf = MoundHalfWidth * taper * wobble;
+                float moundHalf = MoundHalfWidthFor(archHalfWidth) * taper * wobble;
                 float moundTop = MoundHeight * taper * wobble;
 
                 int ringStart = ring * stride;

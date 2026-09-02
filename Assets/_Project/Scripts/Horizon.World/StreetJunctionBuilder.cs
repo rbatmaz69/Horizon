@@ -54,11 +54,12 @@ namespace Horizon.World
         /// Those are the two halves of the same corner and they have to agree, or the return arc is not
         /// tangent to anything at one of its ends.</para>
         ///
-        /// <para>Seven metres is a country-road turning: a car can take it at walking pace without
-        /// clipping the kerb, and it is small enough that the mouth still reads as a turning off a road
-        /// rather than as a fork in one.</para>
+        /// <para>A country-road turning: a car can take it at walking pace without clipping the kerb,
+        /// and it is small enough that the mouth still reads as a turning off a road rather than as a
+        /// fork in one. Seven metres against a 2.26 m car, and 8.75 against the 2.92 m one the cars
+        /// became — a turning radius is answerable to the vehicle turning through it.</para>
         /// </summary>
-        public const float TrunkKerbReturn = 7f;
+        public const float TrunkKerbReturn = 8.75f;
 
         /// <summary>Points along the trunk road's own edge across the mouth. Enough to follow a bend.</summary>
         private const int TrunkEdgeSteps = 6;

@@ -93,9 +93,19 @@ namespace Horizon.World
         /// </param>
         public static TownStreetShape For(TownStreetKind kind, float shelfDrop = 0f)
         {
+            // Every carriageway here is a quarter wider than it was authored at, for the reason
+            // RoadShape.Default gives: the cars grew a quarter in plan in 5bd7396 and what a driver
+            // reads is how much of the street the car fills. Scaled from the *authored* widths, not
+            // from the ones in the file at the time — Lane and Alley already carried an absolute
+            // emergency bump from that commit, and scaling those again would have counted it twice.
+            // The alley's proportional width happens to land on the 3.9 it was given.
+            //
+            // The kerb and the footway did not take it. A pavement is sized for people, and every
+            // metre added to a SquareEdge is two metres off the market place — see that case below.
+            // The buildings follow anyway, because TownPlanner sets its frontages back from HalfOuter.
             var shape = new TownStreetShape
             {
-                HalfWidth = 4.0f,
+                HalfWidth = 5.0f,
                 KerbHeight = 0.14f,
                 KerbFace = 0.25f,
                 FootwayWidth = 1.8f,
@@ -108,27 +118,29 @@ namespace Horizon.World
             switch (kind)
             {
                 case TownStreetKind.HighStreet:
-                    shape.HalfWidth = 5.4f;
+                    shape.HalfWidth = 6.75f;
                     shape.FootwayWidth = 3.2f;
                     shape.KerbHeight = 0.16f;
                     break;
 
                 case TownStreetKind.Avenue:
-                    shape.HalfWidth = 4.8f;
+                    shape.HalfWidth = 6.0f;
                     shape.FootwayWidth = 2.4f;
                     break;
 
+                // The same width as the fallback above, and stated rather than left to fall through:
+                // a lane is the ordinary residential street this town is mostly made of, and it should
+                // say so where the other seven kinds do.
                 case TownStreetKind.Lane:
-                    // 4.6 rather than 4.0, and the alley below 3.9 rather than 3.1. The cars grew a
-                    // quarter wider: the collider is 2.83 m across now, which left 14 cm a side in an
-                    // alley and 27 cm between two of them passing. Those two are the only street kinds
-                    // narrow enough for it to matter, and the widening is absolute rather than
-                    // proportional because what a driver needs is a margin in metres, not a fraction.
-                    // Everything else follows on its own — the kerb, the footway, and the buildings,
-                    // which TownPlanner sets back from HalfOuter.
-                    shape.HalfWidth = 4.6f;
+                    shape.HalfWidth = 5.0f;
                     break;
 
+                // 3.9 rather than the 3.1 this was authored at, and it arrived twice by two different
+                // arguments landing on one number. It was raised to 3.9 in 5bd7396 as an absolute
+                // margin — a 2.92 m car in a 3.1 m half width leaves 14 cm a side and 27 cm between two
+                // of them passing — and 3.1 × 1.25 is 3.875, which is the same street. The narrowest
+                // kind is the one where the proportional answer and the "a driver needs a margin in
+                // metres" answer agree, which is worth knowing before either is retuned alone.
                 case TownStreetKind.Alley:
                     shape.HalfWidth = 3.9f;
                     shape.FootwayWidth = 0.7f;
@@ -142,29 +154,30 @@ namespace Horizon.World
                 // forty degrees off its own axis, and at a node where two branches are under fifty
                 // degrees apart the corners cross and the pad polygon folds through itself.
                 //
-                // It is also the one kind that did *not* take the full widening the rest of the town
-                // took: the streets round a square eat their own half-widths out of it at both ends, so
-                // every metre added here is two metres off the market place, and these are the junctions
-                // that were the last in the town to stop folding.
+                // <b>This is the kind to pull back on first if a junction pad folds again.</b> The
+                // streets round a square eat their own half-widths out of it at both ends, so every
+                // metre added here is two metres off the market place, and these are the junctions that
+                // were the last in the town to stop folding. It took the carriageway widening because
+                // the cars have to fit round a square too; it did not take it in the footway.
                 case TownStreetKind.SquareEdge:
-                    shape.HalfWidth = 4.4f;
+                    shape.HalfWidth = 5.5f;
                     shape.FootwayWidth = 2.8f;
                     break;
 
                 // Two lanes each way and a footway you could put café tables on. Note what this costs
-                // at a junction: HalfOuter is 12.5 m against the high street's 8.6, and ResolveTrims
+                // at a junction: HalfOuter is 14.75 m against the high street's 10.2, and ResolveTrims
                 // scales the third of its three terms with it, so a boulevard meeting anything at a
                 // shallow angle pulls its trim back a long way. The city's grid is squared up for that
                 // reason — a 90° crossing is the cheapest junction there is.
                 case TownStreetKind.Boulevard:
-                    shape.HalfWidth = 8.0f;
+                    shape.HalfWidth = 10.0f;
                     shape.FootwayWidth = 4.5f;
                     shape.KerbHeight = 0.17f;
                     shape.Crown = 0.09f;
                     break;
 
                 case TownStreetKind.CityStreet:
-                    shape.HalfWidth = 6.0f;
+                    shape.HalfWidth = 7.5f;
                     shape.FootwayWidth = 3.0f;
                     shape.KerbHeight = 0.16f;
                     break;

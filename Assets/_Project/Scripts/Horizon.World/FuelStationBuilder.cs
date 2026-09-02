@@ -27,9 +27,10 @@ namespace Horizon.World
         ///
         /// <para>Not zero. The road's own shoulder falls away at <c>RoadShape.ShoulderDrop</c> and the
         /// terrain shelf below that, so a slab butted straight against the tarmac would either float over
-        /// the verge or cut into it. The entry ramp spans this.</para>
+        /// the verge or cut into it. The entry ramp spans this, and it widened with the
+        /// shoulder it crosses when the roads were widened for the cars.</para>
         /// </summary>
-        private const float VergeGap = 2f;
+        private const float VergeGap = 2.5f;
 
         /// <summary>How far before a station its advance sign stands, metres.</summary>
         private const float AdvanceDistance = 250f;
@@ -211,8 +212,8 @@ namespace Horizon.World
         /// gives the blend somewhere to happen. Same idea as <c>TownShape</c>'s skirt.</para>
         ///
         /// <para><b>No sample is ever placed inside a carriageway's corridor, and that is not a nicety.</b>
-        /// The skirt ring reaches back to within 4.75 m of the station's own centreline — inside the
-        /// 6.75 m the road actually occupies — and it is lifted 35 cm. So every station was pushing a
+        /// The skirt ring reaches back to well inside the paved half-width the road actually occupies —
+        /// two metres inside it, when this was found — and it is lifted 35 cm. So every station was pushing a
         /// 28 cm lip of terrain up through the edge of its own asphalt, which the clearance check
         /// reported and which is exactly the kind of number that gets read as noise. A road's own shelf
         /// has to win wherever there is a road; everywhere else the pad may say what it likes.</para>

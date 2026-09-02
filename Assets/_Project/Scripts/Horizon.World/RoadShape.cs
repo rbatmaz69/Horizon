@@ -30,13 +30,17 @@ namespace Horizon.World
         /// <summary>Length of one dash-and-gap cycle. The texture covers exactly this along the road.</summary>
         public float CycleLength => DashLength + GapLength;
 
+        // The line widths went up a quarter with the carriageways under them; the dash and the gap did
+        // not. A painted line is read against the width of the road it is on, so a 0.15 m line on a
+        // 13.2 m carriageway reads thinner than the same line on a 10.5 m one. A dash length is read
+        // against the speed it goes past at, and no speed changed.
         public static RoadMarkings Default => new RoadMarkings
         {
             DashLength = 4f,
             GapLength = 8f,
-            CentreLineWidth = 0.15f,
-            EdgeLineWidth = 0.15f,
-            EdgeLineInset = 0.15f,
+            CentreLineWidth = 0.19f,
+            EdgeLineWidth = 0.19f,
+            EdgeLineInset = 0.19f,
         };
     }
 
@@ -84,21 +88,31 @@ namespace Horizon.World
 
         public static RoadShape Default => new RoadShape
         {
-            // 10.5 m of asphalt as two 5.25 m lanes. Wider than a real pass, deliberately: the car is
-            // 1.86 m across and tilt steering is not precise to the centimetre. Widening this is close
-            // to free because everything that needs the number takes it from here — the ribbon and its
-            // marking atlas, the tunnel arch, the guard rails, the trunk mouths, the spawn lane and the
-            // clearance sweeps — but see ShoulderDrop for the one thing it eats into.
-            HalfWidth = 5.25f,
-            ShoulderWidth = 1.5f,
+            // 13.2 m of asphalt as two 6.6 m lanes. Wider than a real pass, deliberately: the widest car
+            // is 2.92 m across its collider and 3.00 m across its tyres, and tilt steering is not precise
+            // to the centimetre.
+            //
+            // <b>A quarter wider than it was, because the cars grew a quarter in plan.</b> What the
+            // driver reads is not the width of the road, it is how much of it the car fills — so when
+            // 5bd7396 scaled every car by 1.25 the whole cross-section had to follow or the world would
+            // have quietly become a tighter game. Every shape here took the same factor.
+            //
+            // Widening this is close to free because almost everything that needs the number takes it
+            // from here — the ribbon and its marking atlas, the tunnel arch, the guard rails, the trunk
+            // mouths, the spawn lane and the clearance sweeps. The exceptions are the numbers that are
+            // secretly a width and are written out as literals somewhere else, and two of those break
+            // in silence: AutobahnCourse.CarriagewayOffset, which is a half-width plus a median, and
+            // TerrainShape.RoadShelfDrop below. See ShoulderDrop for the one thing this eats into.
+            HalfWidth = 6.6f,
+            ShoulderWidth = 1.9f,
 
-            // 0.5 m, and it has to be read together with TerrainShape.RoadShelfDrop and MaxBankDegrees.
+            // 0.63 m, and it has to be read together with TerrainShape.RoadShelfDrop and MaxBankDegrees.
             // The camber lowers the inner edge of the carriageway by HalfWidth × sin(bank); if the terrain
             // shelf is not below *that*, the hillside comes up through the asphalt on the inside of every
-            // corner. At 4° that is 0.37 m, so the shelf at 0.45 m leaves 0.08 m of clearance — the
+            // corner. At 4° that is 0.46 m, so the shelf at 0.57 m leaves 0.11 m of clearance — the
             // margin a wider carriageway is paid for out of, and the number to watch if this widens
             // again. ValidateRoadClearance measures it.
-            ShoulderDrop = 0.5f,
+            ShoulderDrop = 0.63f,
 
             // 2.5 m, not 4 m: on a 20 m hairpin radius, 4 m steps are 11° apart and the corner
             // visibly facets. Hairpins are the whole point of the pass, so they set this number.
@@ -106,7 +120,7 @@ namespace Horizon.World
             SurfaceLift = 0.08f,
 
             // About 2% of the half width.
-            Crown = 0.09f,
+            Crown = 0.11f,
 
             Markings = RoadMarkings.Default,
 
@@ -136,17 +150,19 @@ namespace Horizon.World
         /// </summary>
         public static RoadShape Autobahn => new RoadShape
         {
-            // Four 3.75 m lanes.
-            HalfWidth = 7.5f,
+            // Four 4.7 m lanes.
+            HalfWidth = 9.4f,
 
             // A hard shoulder, not a verge — wide enough to read as somewhere you could stop.
-            ShoulderWidth = 2.5f,
+            ShoulderWidth = 3.1f,
 
-            // Deeper than Default's 0.5, and required rather than chosen. Read the note on that field:
+            // Deeper than Default's 0.63, and required rather than chosen. Read the note on that field:
             // the camber drops the inner edge by HalfWidth × sin(bank), and HalfWidth here is half again
-            // as large. At 3° that is 0.39 m against Default's 0.37 — so the shelf has to fall further
-            // to keep the same clearance over a carriageway this wide.
-            ShoulderDrop = 0.7f,
+            // as large. At 3° that is 0.49 m against Default's 0.46 — so the shelf has to fall further
+            // to keep the same clearance over a carriageway this wide. This is the deepest of the three
+            // and therefore the shape that sets TerrainShape.RoadShelfDrop: 0.08 m of margin, against
+            // the pass's 0.11 and the circuit's 0.15.
+            ShoulderDrop = 0.88f,
 
             // 8 m rather than 2.5. StepLength is set by the tightest radius a shape is used on, and
             // Default's 2.5 is set by 20 m hairpins. Nothing here is under 700 m, where 8 m steps are
@@ -156,7 +172,7 @@ namespace Horizon.World
             SurfaceLift = 0.08f,
 
             // Same ~2% cross-fall as Default, over a wider carriageway.
-            Crown = 0.12f,
+            Crown = 0.15f,
 
             Markings = RoadMarkings.Default,
 
@@ -179,10 +195,13 @@ namespace Horizon.World
         /// The Weissjochring: one wide ribbon with no lanes marked on it, and a gravel run-off either
         /// side rather than a verge.
         ///
-        /// <para><b>Thirteen metres of asphalt, which is the widest the Nordschleife ever gets.</b> The
-        /// road shapes here are already generous — the car is 1.86 m across and tilt steering is not
-        /// precise to the centimetre — but a racing line needs room to be got wrong, and the whole point
-        /// of a circuit is that a corner can be taken more than one way.</para>
+        /// <para><b>Sixteen metres of asphalt, a quarter more than the widest the Nordschleife ever
+        /// gets.</b> Thirteen was that figure exactly; the quarter on top is the quarter the cars grew by
+        /// in 5bd7396, and it is added here for the same reason it is added to every other shape — what
+        /// is being held constant is how much of the road the car fills. The road shapes here are already
+        /// generous — the widest car is 2.92 m across and tilt steering is not precise to the
+        /// centimetre — but a racing line needs room to be got wrong, and the whole point of a circuit is
+        /// that a corner can be taken more than one way.</para>
         ///
         /// <para><b>No centre line, and it costs nothing to say so.</b>
         /// <c>RoadTextureBuilder.BuildSurface</c> paints <c>laneCount − 1</c> interior lines, so the
@@ -195,20 +214,20 @@ namespace Horizon.World
         /// camber lowers the inner edge of the carriageway by <c>HalfWidth × sin(bank)</c>, and the
         /// terrain shelf has to sit below <i>that</i> or the hillside comes up through the asphalt on the
         /// inside of every corner. This carriageway is a quarter wider than the pass's, so every degree
-        /// costs a quarter more: 6.5 × sin 3° is 0.34 m against a 0.45 m shelf, which leaves 0.11 m —
+        /// costs a quarter more: 8.1 × sin 3° is 0.42 m against a 0.57 m shelf, which leaves 0.15 m —
         /// more margin than the pass has, and the number to watch if this ever widens again.
         /// <c>ValidateRoadClearance</c> measures it.</para>
         /// </summary>
         public static RoadShape Circuit => new RoadShape
         {
-            HalfWidth = 6.5f,
+            HalfWidth = 8.1f,
 
             // Run-off, not a verge. Wide enough that going off is a moment rather than an event, and
             // it is the strip the kerbs are laid along.
-            ShoulderWidth = 3f,
+            ShoulderWidth = 3.75f,
 
-            // Between the pass's 0.5 and the motorway's 0.7, in proportion to the carriageway over it.
-            ShoulderDrop = 0.55f,
+            // Between the pass's 0.63 and the motorway's 0.88, in proportion to the carriageway over it.
+            ShoulderDrop = 0.69f,
 
             // 4 m rather than the pass's 2.5. StepLength is set by the tightest radius a shape is used
             // on, and nothing here is under 170 m, where 4 m steps are 1.3° apart.
@@ -216,7 +235,7 @@ namespace Horizon.World
             SurfaceLift = 0.08f,
 
             // The same ~2 % cross-fall over a wider carriageway.
-            Crown = 0.11f,
+            Crown = 0.14f,
 
             Markings = RoadMarkings.Default,
 
@@ -292,9 +311,15 @@ namespace Horizon.World
             VergeWidth = 24f,
 
             // Must clear the lowest point of the cambered carriageway, which is the inner edge in a
-            // corner: HalfWidth 5.25 × sin(4°) = 0.37 m below the centreline. 0.45 leaves 0.08 m, and it
-            // also lands close to where the outer edge of the verge falls to.
-            RoadShelfDrop = 0.45f,
+            // corner. The deepest of the three shapes is the motorway: HalfWidth 9.4 × sin(3°) = 0.49 m
+            // below the centreline, against the pass's 0.46 and the circuit's 0.42. 0.57 leaves 0.08 m
+            // there, and it also lands close to where the outer edge of the verge falls to.
+            //
+            // <b>It moves with the road widths, and it is the one that breaks in silence.</b> Widen a
+            // carriageway without widening this and the hillside comes up through the asphalt on the
+            // inside of every corner in the world — which builds without a word and is only ever
+            // reported by ValidateRoadClearance.
+            RoadShelfDrop = 0.57f,
             // 70 m, not 30: this is now the width of the cutting the road sits in, and a short blend
             // makes the carriageway look like it is running along the top of a dyke.
             BlendDistance = 70f,

@@ -489,13 +489,20 @@ namespace Horizon.World
             // --- The second row: housing.
             int row0 = spec.AddNode(515f, 134f);
             int row1 = spec.AddNode(605f, 140f);
-            // row2 swings 34 m out around the market square. The block between the high street and the
+            // row2 swings 42 m out around the market square. The block between the high street and the
             // housing row is 82 m deep, and a square wide enough to be a square uses all of it — there was
             // no land left for the buildings that face it, and the validators said so twice over: two
             // streets running within a carriageway of each other, and six junction pads folded through
             // themselves at the pinch. A housing row bulging round the market place is also what a town
             // that grew round one actually looks like.
-            int row2 = spec.AddNode(700f, 180f);
+            //
+            // <b>34 m was enough until the streets were widened for the cars, and then it was not.</b>
+            // The clearance the planarity check wants is the two streets' paved half-widths added
+            // together, so it grew with them: the avenue leaving row2 and the square's north edge went
+            // from 14.9 m of paving between their centrelines to 17.2, against 15.7 m of ground. Both
+            // numbers are in the warning now, which is what made this a one-line fix rather than a
+            // reading of the whole table.
+            int row2 = spec.AddNode(700f, 188f);
             int row3 = spec.AddNode(790f, 138f);
             int row4 = spec.AddNode(880f, 128f);
             int row5 = spec.AddNode(958f, 120f);

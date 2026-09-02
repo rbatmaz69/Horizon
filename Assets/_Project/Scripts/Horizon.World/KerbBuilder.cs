@@ -46,8 +46,15 @@ namespace Horizon.World
         /// <summary>Length of one colour block, metres.</summary>
         private const float BlockLength = 3f;
 
-        /// <summary>Width of the kerb across the shoulder, metres.</summary>
-        private const float KerbWidth = 1.2f;
+        /// <summary>
+        /// Width of the kerb across the shoulder, metres.
+        ///
+        /// <para>A quarter more than the 1.2 it was drawn at, with the carriageway it edges. A kerb is
+        /// read against the width of the road beside it — held at 1.2 on a 16.2 m circuit it reads as a
+        /// painted line rather than as something to put two wheels over. It still sits well inside
+        /// <c>RoadShape.Circuit.ShoulderWidth</c>, which is the run-off it is laid along.</para>
+        /// </summary>
+        private const float KerbWidth = 1.5f;
 
         /// <summary>
         /// How far the kerb's outer lip stands above the asphalt edge, metres.

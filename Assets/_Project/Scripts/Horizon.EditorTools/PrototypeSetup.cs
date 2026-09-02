@@ -2261,11 +2261,16 @@ namespace Horizon.EditorTools
             // barrier down the middle is single, and it runs on the median line the carriageways were
             // offset from.
             // One bore over the whole road rather than one per carriageway, and the driveable-corridor
-            // check is what settled it. TunnelBuilder sweeps a massif 80 m across around whatever path
-            // it is given, and the two carriageways are 21 m apart — so a bore built on each buried the
-            // other one in rock, at 92 sampled points of the westbound carriageway. Real motorway
-            // tunnels are twin bores because they are driven through rock from either end; this one is
-            // a single span wide enough to cover both, which is the shape the tool can actually build.
+            // check is what settled it. TunnelBuilder sweeps a massif at least 80 m across around
+            // whatever path it is given, and the two carriageways are a median apart — so a bore built
+            // on each buried the other one in rock, at 92 sampled points of the westbound carriageway.
+            // Real motorway tunnels are twin bores because they are driven through rock from either
+            // end; this one is a single span wide enough to cover both, which is the shape the tool can
+            // actually build.
+            //
+            // This is also the widest bore in the world by a long way, which is why
+            // TunnelBuilder.MoundHalfWidthFor exists: forty metres of massif is sized against how far
+            // apart a switchback's legs are and has nothing to say about a fifty-metre hole.
             RoadShape boreShape = motorwayShape;
             boreShape.HalfWidth = AutobahnCourse.CarriagewayOffset + motorwayShape.OuterHalfWidth;
 
@@ -2541,21 +2546,23 @@ namespace Horizon.EditorTools
                     "the Bahçe Ring access road", 0f, false));
 
             // After every builder and before the car exists — otherwise the car is the obstruction.
-            ValidateDriveableCorridor(path, "the pass", 1.3f, 4f);
-            ValidateDriveableCorridor(ebentalPath, "the Ebental road", 1.3f, 4f);
-            ValidateDriveableCorridor(stadtfeldPath, "the Stadtfeld road", 1.3f, 4f);
-            ValidateDriveableCorridor(westbound, "the westbound carriageway", 1.3f, 4f);
-            ValidateDriveableCorridor(eastbound, "the eastbound carriageway", 1.3f, 4f);
-            ValidateDriveableCorridor(linkPath, "the motorway link", 1.3f, 4f);
-            ValidateDriveableCorridor(coastPath, "the coast road", 1.3f, 4f);
-            ValidateDriveableCorridor(kalkgratPath, "the Kalkgrat road", 1.3f, 4f);
-            ValidateDriveableCorridor(meerengePath, "the Meerenge road", 1.3f, 4f);
-            ValidateDriveableCorridor(yalikoyPath, "the Yalıköy road", 1.3f, 4f);
-            ValidateDriveableCorridor(weissjochPath, "the Weissjoch road", 1.3f, 4f);
-            ValidateDriveableCorridor(ringPath, "the Weissjochring", 1.3f, 4f);
-            ValidateDriveableCorridor(ringAccessPath, "the Weissjochring access road", 1.3f, 4f);
-            ValidateDriveableCorridor(bahcePath, "the Bahçe Ring", 1.3f, 4f);
-            ValidateDriveableCorridor(bahceAccessPath, "the Bahçe Ring access road", 1.3f, 4f);
+            //
+            // The box is the car, so it grew with the car — see DriverBoxHalfWidth.
+            ValidateDriveableCorridor(path, "the pass", DriverBoxHalfWidth, 4f);
+            ValidateDriveableCorridor(ebentalPath, "the Ebental road", DriverBoxHalfWidth, 4f);
+            ValidateDriveableCorridor(stadtfeldPath, "the Stadtfeld road", DriverBoxHalfWidth, 4f);
+            ValidateDriveableCorridor(westbound, "the westbound carriageway", DriverBoxHalfWidth, 4f);
+            ValidateDriveableCorridor(eastbound, "the eastbound carriageway", DriverBoxHalfWidth, 4f);
+            ValidateDriveableCorridor(linkPath, "the motorway link", DriverBoxHalfWidth, 4f);
+            ValidateDriveableCorridor(coastPath, "the coast road", DriverBoxHalfWidth, 4f);
+            ValidateDriveableCorridor(kalkgratPath, "the Kalkgrat road", DriverBoxHalfWidth, 4f);
+            ValidateDriveableCorridor(meerengePath, "the Meerenge road", DriverBoxHalfWidth, 4f);
+            ValidateDriveableCorridor(yalikoyPath, "the Yalıköy road", DriverBoxHalfWidth, 4f);
+            ValidateDriveableCorridor(weissjochPath, "the Weissjoch road", DriverBoxHalfWidth, 4f);
+            ValidateDriveableCorridor(ringPath, "the Weissjochring", DriverBoxHalfWidth, 4f);
+            ValidateDriveableCorridor(ringAccessPath, "the Weissjochring access road", DriverBoxHalfWidth, 4f);
+            ValidateDriveableCorridor(bahcePath, "the Bahçe Ring", DriverBoxHalfWidth, 4f);
+            ValidateDriveableCorridor(bahceAccessPath, "the Bahçe Ring access road", DriverBoxHalfWidth, 4f);
             ReportCourse(seeburgCourse, seeburgAxis, "Seeburg axis");
             Phase(clock, "validation");
             int worstJunction = ValidateStreetNetwork(talheim.Network, path, roadShape);
@@ -3762,7 +3769,13 @@ namespace Horizon.EditorTools
             }
 
             // In the right-hand lane in each case, not astride the centre line.
+            //
+            // Both of these are read from the shape rather than typed. The city's was the literal 4,
+            // which is the boulevard's half-width halved and was correct for exactly as long as that
+            // half-width was 8 — widen the boulevard for the cars and the player is spawned astride a
+            // lane line with nothing anywhere saying so.
             float passLane = passShape.HalfWidth * 0.5f;
+            float boulevardLane = TownStreetShape.For(TownStreetKind.Boulevard).HalfWidth * 0.5f;
 
             Add("Talheim", pass, MountainPassCourse.TownStartDistance + 45f, passLane, rideHeight);
 
@@ -3776,12 +3789,12 @@ namespace Horizon.EditorTools
 
             // On the boulevard, a little inside the city gate so the skyline is ahead rather than
             // overhead.
-            Add("Hochstadt", arterial, 120f, 4f, rideHeight);
+            Add("Hochstadt", arterial, 120f, boulevardLane, rideHeight);
 
             // On Seeburg's waterfront, a little past the harbour so the quay and the moles are in the
             // mirror rather than behind the camera. The right-hand lane here is the inland one, so the
             // water is out of the driver's window from the moment the scene loads.
-            Add("Seeburg", seeburgAxis, SeeburgCourse.BasinAlong + 60f, 4f, rideHeight);
+            Add("Seeburg", seeburgAxis, SeeburgCourse.BasinAlong + 60f, boulevardLane, rideHeight);
 
             // On the Ebental crest, facing the way the road falls away from it. Chosen over the lake or
             // the valley floor because it is the one place on that road where both halves of it are
@@ -4720,6 +4733,14 @@ namespace Horizon.EditorTools
 
             float worst = 0f;
             float worstAcross = 0f;
+            float worstReach = 0f;
+            float worstLink = 0f;
+            float worstWedge = 0f;
+
+            // How far the carriageway's banked frame is tilted here. The wedge is built in that frame
+            // and the ramp is not, so every centimetre of this is multiplied by how far out the ramp
+            // stands — which is what a wider motorway and a ramp pushed out to clear it both increase.
+            float bankDegrees = Mathf.Asin(Mathf.Clamp(wayRight.y, -1f, 1f)) * Mathf.Rad2Deg;
 
             const int samples = 17;
             for (int i = 0; i < samples; i++)
@@ -4750,25 +4771,57 @@ namespace Horizon.EditorTools
                 {
                     worst = step;
                     worstAcross = across;
+                    worstReach = motorwayShape.HalfWidth + width;
+                    worstLink = onLink.y;
+                    worstWedge = onWedge.y;
                 }
             }
 
             // A tenth of the tyre's radius. Below that a raycast wheel rides over it as a bump; above it
             // the suspension takes the whole step in one physics tick.
-            const float tolerable = 0.04f;
+            //
+            // <b>Of the *smallest* tyre in the garage, and read rather than written down.</b> It was the
+            // literal 0.04, which is a tenth of the 0.40 the hatchback's wheel used to be — a rule about
+            // the car, spelt as a number, in a file the car does not pass through. 5bd7396 grew every
+            // wheel by 15 % and the constant stayed where it was, so the check went on holding the
+            // interchange to a tyre nobody drives any more. The smallest wheel is the one that has to
+            // ride the step, which is why this is a minimum rather than the default car's.
+            float tolerable = SmallestWheelRadius() * 0.1f;
 
             if (worst > tolerable)
             {
                 Debug.LogWarning(
-                    $"[Horizon] The ramp meets the merge with a {worst * 100f:0} cm step, worst "
-                    + $"{worstAcross:0.0} m across its width. A wheel crosses that at ramp speed. The two "
-                    + "roads are graded by different courses — see AutobahnCourse.MotorwayGradeAtJunction, "
-                    + "which is what keeps them level with each other.");
+                    $"[Horizon] The ramp meets the merge with a {worst * 100f:0.0} cm step, worst "
+                    + $"{worstAcross:0.0} m across its width — the ramp at {worstLink:0.00} m against the "
+                    + $"wedge at {worstWedge:0.00} m, {worstReach:0.0} m out from the carriageway's "
+                    + $"centreline in a frame banked {bankDegrees:0.00}°. A wheel crosses that at ramp "
+                    + "speed. The two roads are graded by different courses — see "
+                    + "AutobahnCourse.MotorwayGradeAtJunction, which is what keeps them level with each "
+                    + "other; the bank and the reach are what multiply any disagreement.");
                 return;
             }
 
             Debug.Log($"[Horizon] Merge seam: the ramp meets the acceleration lane within "
-                      + $"{worst * 1000f:0} mm across its whole width.");
+                      + $"{worst * 1000f:0} mm across its whole width, {worstReach:0.0} m out from the "
+                      + $"carriageway's centreline in a frame banked {bankDegrees:0.00}°.");
+        }
+
+        /// <summary>
+        /// Radius of the smallest wheel any car in the garage rolls on, metres.
+        ///
+        /// <para>Whatever a step or a lip in the world has to be ridden over, it is this wheel that has
+        /// to ride it. Read off the profiles the meshes are lofted from, which is where
+        /// <c>VehicleConfigPresets</c> already reads its own copy of the same number.</para>
+        /// </summary>
+        private static float SmallestWheelRadius()
+        {
+            float smallest = float.MaxValue;
+            for (int i = 0; i < CarMeshBuilder.PlayerProfiles.Length; i++)
+            {
+                smallest = Mathf.Min(smallest, CarMeshBuilder.PlayerProfiles[i].WheelRadius);
+            }
+
+            return smallest == float.MaxValue ? 0.46f : smallest;
         }
 
         /// <summary>
@@ -7647,10 +7700,18 @@ namespace Horizon.EditorTools
                     }
 
                     float clearance = a.HalfOuter + b.HalfOuter;
-                    if (NearestApproach(a.Path, b.Path) < clearance)
+                    float apart = NearestApproach(a.Path, b.Path);
+                    if (apart < clearance)
                     {
                         crossings++;
-                        worstCrossing ??= $"{i} and {j}";
+
+                        // The numbers, not only the pair. "Streets 9 and 27" sends you counting
+                        // AddStreet calls down the layout table; "17.0 m apart against 17.2 m of
+                        // paving" says what to change and by how much — which is the same argument
+                        // ValidateRoadClearance makes for printing a world position beside a distance.
+                        worstCrossing ??= $"{i} ({a.Kind}) and {j} ({b.Kind}), {apart:0.0} m apart "
+                                          + $"against {clearance:0.0} m of paving between their "
+                                          + "centrelines";
                     }
                 }
             }
@@ -7795,13 +7856,13 @@ namespace Horizon.EditorTools
             }
 
             // The corridor sweep, once per street. Half-widths are per-street rather than the trunk
-            // road's 1.3 m: that box is over a fifth of a 6.2 m alley, and a check that fires on
-            // every kerb is a check nobody reads.
+            // road's DriverBoxHalfWidth: that box is over a fifth of a 7.8 m alley, and a check that
+            // fires on every kerb is a check nobody reads.
             int blockedStreets = 0;
             for (int i = 0; i < network.Edges.Count; i++)
             {
                 StreetEdge edge = network.Edges[i];
-                float halfWidth = Mathf.Min(1.3f, edge.HalfWidth - 0.6f);
+                float halfWidth = Mathf.Min(DriverBoxHalfWidth, edge.HalfWidth - 0.6f);
 
                 if (!CorridorIsClear(edge.Path, halfWidth, 3f,
                         edge.TrimStart, edge.Length - edge.TrimEnd, out float at, out string by))
@@ -8662,9 +8723,21 @@ namespace Horizon.EditorTools
         ///
         /// <para><paramref name="halfWidth"/> and <paramref name="clearance"/> are arguments rather than
         /// constants because the same check now runs over forty town streets as well as the pass. The
-        /// 1.3 m box that is right for a 10.5 m trunk carriageway is over a fifth of a 6.2 m alley, and a
-        /// check that fires on every kerb is a check that gets ignored.</para>
+        /// <see cref="DriverBoxHalfWidth"/> box that is right for a 13.2 m trunk carriageway is over a
+        /// fifth of a 7.8 m alley, and a check that fires on every kerb is a check that gets
+        /// ignored.</para>
         /// </summary>
+        /// <summary>
+        /// Half-width of the box the corridor sweeps with, metres.
+        ///
+        /// <para><b>It is the car, not the road.</b> 1.3 was right while the widest collider was 2.26 m
+        /// across; the cars grew a quarter in plan in 5bd7396 and the widest is 2.92 m now, so a 1.3 m
+        /// box sweeps a corridor narrower than the thing meant to drive down it — and a check that
+        /// cannot reach its subject finds nothing wrong and is indistinguishable from a clean pass.
+        /// 1.5 covers the widest body and the 3.00 m across the offroader's tyres.</para>
+        /// </summary>
+        private const float DriverBoxHalfWidth = 1.5f;
+
         private static void ValidateDriveableCorridor(
             IRoadPath path, string what, float halfWidth, float clearance)
         {
@@ -8978,6 +9051,13 @@ namespace Horizon.EditorTools
             float worstAt = 0f;
             float worstAcross = 0f;
 
+            // Where along the road the breaches are, collapsed into stretches. One number of sampled
+            // points cannot tell a single hole beside one hairpin from a road that is in the air for
+            // half a kilometre, and those two are not the same fault. A stretch is a run of breaches
+            // with no more than fifty metres of sound road inside it.
+            var stretches = new List<Vector2>(8);
+            float lastBreachAt = float.NegativeInfinity;
+
             for (float distance = 0f; distance <= length; distance += step)
             {
                 // Under a bore the ground is meant to be overhead; over a span it is meant to be a long
@@ -9015,6 +9095,19 @@ namespace Horizon.EditorTools
                     }
 
                     breaches++;
+
+                    if (distance - lastBreachAt > 50f)
+                    {
+                        stretches.Add(new Vector2(distance, distance));
+                    }
+                    else
+                    {
+                        Vector2 open = stretches[stretches.Count - 1];
+                        stretches[stretches.Count - 1] = new Vector2(open.x, distance);
+                    }
+
+                    lastBreachAt = distance;
+
                     if (gap > worst)
                     {
                         worst = gap;
@@ -9032,9 +9125,24 @@ namespace Horizon.EditorTools
 
             Vector3 worstPoint = path.GetPositionAtDistance(worstAt);
 
+            var where = new System.Text.StringBuilder();
+            for (int i = 0; i < stretches.Count && i < 6; i++)
+            {
+                where.Append(i == 0 ? "" : ", ");
+                where.Append(Mathf.Approximately(stretches[i].x, stretches[i].y)
+                    ? $"{stretches[i].x:0}"
+                    : $"{stretches[i].x:0}–{stretches[i].y:0}");
+            }
+
+            if (stretches.Count > 6)
+            {
+                where.Append($" and {stretches.Count - 6} more");
+            }
+
             Debug.LogWarning(
                 $"[Horizon] {what} support: the ground stands more than {tolerable:0.0} m below the "
-                + $"shoulder at {breaches} sampled points. Worst is {worst:0.00} m at {worstAt:0} m along "
+                + $"shoulder at {breaches} sampled points in {stretches.Count} stretch(es) — at "
+                + $"{where} m along. Worst is {worst:0.00} m at {worstAt:0} m along "
                 + $"the course, {worstAcross:0.0} m across — at ({worstPoint.x:0}, {worstPoint.y:0}, "
                 + $"{worstPoint.z:0}). That is a road standing on a plinth, or in the air. The cause is "
                 + "very often a second road near it and higher, which MountainField has averaged against.");

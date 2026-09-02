@@ -456,11 +456,12 @@ namespace Horizon.World
         /// <summary>
         /// How far out from the centreline the trunks stand, metres.
         ///
-        /// <para>9.5, against a paved half-width of 6.75 and a delineator line just outside it. Closer
-        /// and the canopies lean over the carriageway; much further and the two rows stop reading as one
-        /// avenue and become a wood with a gap in it.</para>
+        /// <para>Two and three quarter metres outside the paved half-width, with the delineator line in
+        /// between. Closer and the canopies lean over the carriageway; much further and the two rows stop
+        /// reading as one avenue and become a wood with a gap in it. Written as 9.5 against a half-width
+        /// of 6.75 until the roads were widened for the cars, which is why it reads the width now.</para>
         /// </summary>
-        private const float AvenueOffset = 9.5f;
+        private static readonly float AvenueOffset = RoadShape.Default.OuterHalfWidth + 2.75f;
 
         /// <summary>
         /// Below this radius the inside of a bend gets no trees, metres.

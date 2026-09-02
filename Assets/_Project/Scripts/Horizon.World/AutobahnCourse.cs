@@ -19,23 +19,41 @@ namespace Horizon.World
     /// </summary>
     public static class AutobahnCourse
     {
+        /// <summary>Half the gap left between the two carriageways' asphalt, metres.</summary>
+        private const float MedianHalfWidth = 3f;
+
         /// <summary>
         /// Distance from the median line to the centre of each carriageway, metres.
         ///
-        /// <para>7.5 m of carriageway half-width plus a 3 m median, so the two inner hard shoulders are
-        /// 6 m apart with the barrier down the middle of that gap. Widening this widens the median and
-        /// nothing else — the carriageways themselves come from
-        /// <see cref="RoadShape.Autobahn"/>.</para>
+        /// <para>A carriageway half-width plus <see cref="MedianHalfWidth"/>, so the two inner hard
+        /// shoulders are 6 m apart with the barrier down the middle of that gap. Widening
+        /// <see cref="MedianHalfWidth"/> widens the median and nothing else — the carriageways
+        /// themselves come from <see cref="RoadShape.Autobahn"/>.</para>
+        ///
+        /// <para><b>It was the literal 10.5, and that is the failure this file is here to record.</b>
+        /// Ten and a half is seven and a half plus three: a half-width with a median added to it,
+        /// written out as a number with no reference to the shape it came from. When the carriageways
+        /// went to 9.4 to match the cars, the two ribbons' asphalt <i>overlapped</i> — and nothing in
+        /// the build asks whether a motorway's two halves are on top of each other, because every check
+        /// there is walks one road at a time. Derived now, and <c>static readonly</c> rather than
+        /// <c>const</c> for that reason alone.</para>
         /// </summary>
-        public const float CarriagewayOffset = 10.5f;
+        public static readonly float CarriagewayOffset =
+            RoadShape.Autobahn.HalfWidth + MedianHalfWidth;
 
         /// <summary>
         /// How far out from the median the link road runs where it meets the motorway.
         ///
-        /// <para>25.75 m overlaps the carriageway's shoulder by 1.5 m. It was 27, which overlapped by
-        /// the town's <c>RibbonOverlap</c> of 0.25 — enough to stop a raycast wheel dropping through the
-        /// seam, which was all it was chosen for, and not enough to <i>read</i> as a join. A slip road
-        /// that merely touches the road it feeds looks like a slip road that stops next to it.</para>
+        /// <para>It overlaps the carriageway's hard shoulder by <see cref="LinkShoulderOverlap"/>. It
+        /// was 27, which overlapped by the town's <c>RibbonOverlap</c> of 0.25 — enough to stop a
+        /// raycast wheel dropping through the seam, which was all it was chosen for, and not enough to
+        /// <i>read</i> as a join. A slip road that merely touches the road it feeds looks like a slip
+        /// road that stops next to it.</para>
+        ///
+        /// <para><b>Every term in it is a width, which is why it is no longer a literal.</b> It was
+        /// −25.75 = 10.5 + 10 + 6.75 − 1.5: a carriageway offset, a motorway's paved half-width, the
+        /// link's own, and the overlap. Four numbers that all moved when the roads were widened for the
+        /// cars, in a constant that mentions none of them.</para>
         ///
         /// <para>It was 15 m, which laid the link's ribbon straight over the outer half of the
         /// carriageway. That reads as a merge in a screenshot and is two mesh colliders a few
@@ -55,7 +73,13 @@ namespace Horizon.World
         /// nearside carriageway. <c>StreetJunctionBuilder.AppendTrunkMouth</c> is the nearest existing
         /// model for building it properly.</para>
         /// </summary>
-        private const float MergeOffset = -25.75f;
+        /// <summary>How far the link's paving reaches inside the motorway's hard shoulder, metres.</summary>
+        private const float LinkShoulderOverlap = 1.9f;
+
+        private static readonly float MergeOffset = -(CarriagewayOffset
+                                                      + RoadShape.Autobahn.OuterHalfWidth
+                                                      + RoadShape.Default.OuterHalfWidth
+                                                      - LinkShoulderOverlap);
 
         /// <summary>Straight track before a tunnel portal, so the portal never sits in a curve.</summary>
         private const float PortalApproach = 90f;

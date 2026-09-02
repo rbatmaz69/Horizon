@@ -21,9 +21,9 @@ namespace Horizon.World
     /// a distance along the <i>centreline</i>, and the point returned is beside it. That is deliberate,
     /// because it is what keeps the two carriageways in step: the same distance means the same place
     /// across the road, so a junction, a tunnel portal or a bridge span lands square on both sides. The
-    /// cost is that anything spaced by distance stretches slightly on the outside of a bend — at 10.5 m
-    /// of offset and the 700 m radii a motorway is built to, 1.5 %, which is a lane dash 6 cm longer
-    /// than its neighbour. Do not use this for a tight radius, where that ratio stops being small and
+    /// cost is that anything spaced by distance stretches slightly on the outside of a bend — at
+    /// <c>AutobahnCourse.CarriagewayOffset</c> and the 700 m radii a motorway is built to, under 2 %,
+    /// which is a lane dash a few centimetres longer than its neighbour. Do not use this for a tight radius, where that ratio stops being small and
     /// an inner offset can fold through the centre of the arc entirely.</para>
     /// </summary>
     public sealed class OffsetRoadPath : IRoadPath

@@ -46,10 +46,13 @@ namespace Horizon.World
         internal const float GirderDepth = 2.2f;
 
         /// <summary>How far the girder is drawn in from the edge of the shoulder, each side.</summary>
-        private const float GirderInset = 1.2f;
+        private const float GirderInset = 1.5f;
 
-        private const float PierHalfWidth = 1.6f;
-        private const float PierHalfDepth = 1.0f;
+        // Scaled with the deck they carry when the roads were widened for the cars. None of these
+        // three fails if it is left behind — a pier is still a pier — but a viaduct twenty per cent
+        // wider on legs of the old thickness reads as a deck that has outgrown its supports.
+        private const float PierHalfWidth = 2f;
+        private const float PierHalfDepth = 1.25f;
 
         /// <summary>How far a pier is sunk below the ground it lands on, so it never floats on a slope.</summary>
         private const float FootBurial = 1.5f;
@@ -68,7 +71,11 @@ namespace Horizon.World
         /// the cable clears it.</para>
         /// </summary>
         public const float ParapetHeight = 1.1f;
-        internal const float ParapetThickness = 0.35f;
+
+        // The thickness went up with the deck; the height did not. A parapet's height is measured
+        // against the car behind it, and the cars grew 15 % in height against 25 % in plan — near
+        // enough that 1.1 m is still a parapet.
+        internal const float ParapetThickness = 0.44f;
 
         /// <summary>
         /// Builds every bridge on a course as one mesh, or returns null if the course has none.

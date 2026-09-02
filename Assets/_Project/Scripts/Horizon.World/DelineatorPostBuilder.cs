@@ -41,8 +41,8 @@ namespace Horizon.World
         /// <summary>Corner radius at or above which the road counts as straight, metres.</summary>
         private const float OpenRadius = 90f;
 
-        /// <summary>Clearance between the edge of the verge and the post.</summary>
-        private const float Standoff = 0.45f;
+        /// <summary>Clearance between the edge of the verge and the post. Scaled with the verge.</summary>
+        private const float Standoff = 0.56f;
 
         private const float PostHeight = 1f;
         private const float PostWidthBottom = 0.12f;

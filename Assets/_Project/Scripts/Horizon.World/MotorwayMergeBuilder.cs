@@ -7,7 +7,8 @@ namespace Horizon.World
     ///
     /// <para><b>What was there before: nothing.</b> The link's first 150 m are authored as a taper and
     /// are in fact exactly parallel to the motorway — a <c>Straight</c> on the same heading, at a
-    /// constant 15.25 m centre to centre. The two paved surfaces never came within 2.5 m of each other,
+    /// constant centre-to-centre distance (<c>AutobahnCourse.MergeOffset</c> less the carriageway's own
+    /// offset; 15.25 m when this was written). The two paved surfaces never came within 2.5 m of each other,
     /// that gap was shoulder for its whole length, and the link's ribbon then stopped in a square end
     /// cap beside the carriageway. Coming down off the pass you arrived next to a motorway on a road
     /// that simply ended, with a strip of gravel between you and it. Nothing funnelled you anywhere.
@@ -60,7 +61,7 @@ namespace Horizon.World
         public const float Lift = 0.02f;
 
         /// <summary>Width of the merging lane itself, metres. A motorway lane, near enough.</summary>
-        private const float LaneWidth = 4f;
+        private const float LaneWidth = 5f;
 
         /// <summary>Over which the link's full mouth narrows to that one lane.</summary>
         private const float MouthLength = 55f;

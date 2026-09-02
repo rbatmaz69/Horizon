@@ -60,11 +60,17 @@ namespace Horizon.World
         ///
         /// <para>Long enough that the widening is a bell rather than a chamfer, and short enough that
         /// it is over before the branch's first corner does anything. It also has to comfortably clear
-        /// the crossing itself: a branch leaving at 32° crosses a 13.5 m trunk over some 25 m of its own
+        /// the crossing itself: a branch leaving at 32° crosses a 17 m trunk over some 32 m of its own
         /// length, and a throat that stopped inside that would leave the far corner of the overlap
         /// uncovered — which is the one place the z-fighting this exists to hide would show.</para>
+        ///
+        /// <para><b>88 rather than 70, because <see cref="RibbonTrim"/> is measured against it and every
+        /// term of that trim is a width.</b> The Bahçe Ring's pit road leaves a 16.2 m circuit at 18°,
+        /// where the trim is already most of this length; the roads growing a quarter for the cars takes
+        /// it past 70. Past that the trim is longer than the throat covering it, which is a branch
+        /// stopping short of the road it joins.</para>
         /// </summary>
-        private const float ThroatLength = 70f;
+        private const float ThroatLength = 88f;
 
         /// <summary>
         /// Over how much of that the surface leaves the trunk's plane for the branch's own, metres.

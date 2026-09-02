@@ -101,31 +101,40 @@ namespace Horizon.World
         /// through it. Small enough that from the deck the cables still read as belonging to the road
         /// rather than as two fences beside it.</para>
         /// </summary>
-        private const float CableOffset = 0.9f;
+        private const float CableOffset = 1.13f;
 
-        private const float TowerHalfAcross = 2.4f;
-        private const float TowerHalfAlong = 3.2f;
+        // Scaled with the deck when the roads were widened for the cars. A tower is read against the
+        // carriageway running between its legs, and a 3 m leg either side of a 21 m deck is the same
+        // structure the 2.4 m one was beside a 17 m deck.
+        private const float TowerHalfAcross = 3f;
+        private const float TowerHalfAlong = 4f;
 
         /// <summary>
         /// How much wider than the carriageway the deck is, each side, metres.
         ///
         /// <para><b>This is what gives the towers and the anchor blocks somewhere to stand that is not
         /// the road.</b> Every structural offset here used to be
-        /// <c>roadShape.OuterHalfWidth + CableOffset</c> — one number, bemessen for a cable half a metre
+        /// <c>roadShape.OuterHalfWidth + CableOffset</c> — one number, sized for a cable half a metre
         /// thick and then handed to bodies several metres across. The tower foundation's inner face
         /// landed exactly on the edge of the asphalt and the anchor block's landed two metres inside the
         /// lane, as a seven-metre concrete wall on both sides of the entrance: six metres of clear
-        /// width on a road that is thirteen and a half wide, at the two points on the crossing where a
+        /// width on a road that was thirteen and a half wide, at the two points on the crossing where a
         /// driver is already busy.</para>
         ///
         /// <para>Widening the deck is the honest fix rather than shuffling the blocks outboard of a
         /// deck they would then overhang. A suspension deck <i>is</i> wider than the road on it —
         /// footways, refuges, the stiffening girder's own width — and every real crossing puts its
-        /// towers in that margin. 2.6 m each side clears the 2.4 m tower half-section with room, and
-        /// puts the cable planes 20.5 m apart, which still reads as a bridge from the deck rather than
+        /// towers in that margin. 3.25 m each side clears the 3 m tower half-section with room, and
+        /// puts the cable planes 25.6 m apart, which still reads as a bridge from the deck rather than
         /// as two fences beside the road.</para>
+        ///
+        /// <para>It was 2.6 against a 6.75 m road and is 3.25 against the 8.5 m one the carriageways
+        /// became. Everything structural here is derived from <see cref="DeckShapeFor"/>, so the towers,
+        /// the cables, the hangers and the anchor axis all moved with it and
+        /// <c>ValidateSuspensionBridges</c>' fifth question — does any of this stand in the road it is
+        /// carrying — is what confirms they did.</para>
         /// </summary>
-        private const float DeckOverhang = 2.6f;
+        private const float DeckOverhang = 3.25f;
 
         /// <summary>Gap between the parapet's outer face and an anchor block's inner face, metres.</summary>
         private const float AnchorClearance = 0.6f;
@@ -140,8 +149,8 @@ namespace Horizon.World
 
         private const float BeamHalfDepth = 1.4f;
 
-        private const float AnchorHalfWidth = 4.5f;
-        private const float AnchorHalfDepth = 6f;
+        private const float AnchorHalfWidth = 5.6f;
+        private const float AnchorHalfDepth = 7.5f;
         private const float AnchorHeight = 7f;
 
         /// <summary>How far below an anchor block's top face the back-stay enters it, metres.</summary>

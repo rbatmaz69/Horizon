@@ -65,7 +65,16 @@ namespace Horizon.World
         /// <summary>Width of the painted start/finish line, metres.</summary>
         private const float LineWidth = 0.9f;
 
-        private const float GridBoxLength = 5.5f;
+        /// <summary>
+        /// Length of a painted grid box, metres.
+        ///
+        /// <para>It has to be longer than the car standing in it, and for a while it was not: 5.5 was
+        /// generous against a 4.74 m fastback and is short of the 5.93 m one it became in 5bd7396. A
+        /// box a car overhangs at both ends is not a box, and nothing measures this — the build counts
+        /// the triangles and they were right.</para>
+        /// </summary>
+        private const float GridBoxLength = 6.9f;
+
         private const float GridBoxWidth = 0.16f;
 
         /// <summary>

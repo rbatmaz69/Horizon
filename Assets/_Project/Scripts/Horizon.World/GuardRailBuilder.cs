@@ -29,8 +29,13 @@ namespace Horizon.World
         private const float BeamTop = 0.78f;
         private const float BeamThickness = 0.07f;
 
-        /// <summary>Clearance between the edge of the verge and the rail.</summary>
-        private const float Standoff = 0.3f;
+        /// <summary>
+        /// Clearance between the edge of the verge and the rail.
+        ///
+        /// <para>Scaled with the verge. The post and beam heights above it deliberately were not: a
+        /// guard rail's height is answerable to the car behind it, not to the width of the road.</para>
+        /// </summary>
+        private const float Standoff = 0.38f;
 
         /// <summary>How far either side of a portal to leave clear of rails, metres.</summary>
         private const float PortalClearance = 30f;

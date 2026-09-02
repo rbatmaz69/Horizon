@@ -188,24 +188,26 @@ namespace Horizon.World
             TuftCellSize = 4f,
             BoulderCellSize = 20f,
 
-            // RoadShape.OuterHalfWidth is 6.75 m and the rails stand a little outside that.
+            // RoadShape.OuterHalfWidth is 8.5 m and the rails stand a little outside that.
             //
-            // <b>11 m, down from 14, and the reason is the picture rather than the number.</b> Fourteen
-            // left four metres of shoulder and then another seven of nothing before the first trunk, and
-            // at driver's eye that bald ring reads as a mown verge on both sides of every road in the
-            // world — the wood looked like something standing back from the road rather than something
-            // the road was cut through. Eleven still clears the rails by a comfortable margin and puts
-            // the near trunks where they pass the window, which is most of what makes a forest road feel
-            // like one.
-            TreeClearance = 11f,
-            ShrubClearance = 9f,
+            // <b>13.5 m, and the reason is the picture rather than the number.</b> It was 14 against a
+            // 6.75 m road, which left four metres of shoulder and then another seven of nothing before
+            // the first trunk: at driver's eye that bald ring reads as a mown verge on both sides of
+            // every road in the world — the wood looked like something standing back from the road
+            // rather than something the road was cut through. Eleven fixed that, and 13.5 is eleven
+            // carried onto a carriageway a quarter wider, which keeps the gap between the guard rail and
+            // the first trunk at what that argument settled on. It still clears the rails comfortably
+            // and puts the near trunks where they pass the window.
+            TreeClearance = 13.5f,
+            ShrubClearance = 11f,
 
-            // 8.5 m, up from 7.5. Grass is the one of these that grows right up to the road, so it is
-            // the one that a wider carriageway pushes out first: at OuterHalfWidth 6.75 the shoulder now
-            // ends at 6.75 m and tufts at 7.5 were standing in the strip the clearance report calls the
-            // road's own. This has to keep clearing that number, which is OuterHalfWidth + 1.
-            TuftClearance = 8.5f,
-            BoulderClearance = 11f,
+            // Grass is the one of these that grows right up to the road, so it is the one a wider
+            // carriageway pushes out first: tufts inside the shoulder stand in the strip the clearance
+            // report calls the road's own. The rule was already written down here — OuterHalfWidth + 1 —
+            // and it is now read rather than restated, because it was restated as 8.5 and the roads then
+            // moved. PrototypeSetup warns against exactly this number.
+            TuftClearance = RoadShape.Default.OuterHalfWidth + 1f,
+            BoulderClearance = 13.5f,
             TuftMaxDistance = 30f,
 
             TreeMaxSlopeDegrees = 30f,
@@ -241,7 +243,13 @@ namespace Horizon.World
             FarDensityStart = 100f,
             FarDensityEnd = 200f,
 
-            // TunnelBuilder.MoundHalfWidth is 52 m and EndOverhang is 24 m; both get a margin.
+            // The widest massif in the world is the motorway bore's, at twice its arch — about 51 m — and
+            // TunnelBuilder.EndOverhang is 24 m; both get a margin. Unchanged when the roads were widened
+            // for the cars, because the pass's bores keep TunnelBuilder.MoundHalfWidth's 40 m floor and
+            // only the motorway's grew, from 40 to 51, which this already covered.
+            //
+            // It said "MoundHalfWidth is 52 m" for a long time while that number was 40, which is the
+            // reason to check it against the builder rather than against this comment.
             TunnelExclusion = 58f,
             TunnelEndMargin = 30f,
             ViewpointClearing = 38f,
