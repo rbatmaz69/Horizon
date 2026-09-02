@@ -153,6 +153,15 @@ namespace Horizon.Vehicle
         /// <summary>Current steering angle in degrees.</summary>
         public float SteerAngle => steerAngle;
 
+        /// <summary>
+        /// Distance between the front and rear axles, metres, as measured off the wheel anchors.
+        ///
+        /// <para>Published for the same reason as <see cref="SteerAngle"/>: it and the steer angle are
+        /// the two halves of the Ackermann radius, and a reader that carried its own copy of either
+        /// would be a second opinion about the shape of the car.</para>
+        /// </summary>
+        public float Wheelbase => wheelbase;
+
         /// <summary>Engine speed in rpm. Comes from the wheels through the gearbox, not from a guess.</summary>
         public float EngineRpm => engineRpm;
 
