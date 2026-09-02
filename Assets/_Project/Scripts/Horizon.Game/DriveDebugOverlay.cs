@@ -103,12 +103,21 @@ namespace Horizon.Game
                 float accel = vehicle.LongitudinalAcceleration;
                 GUILayout.Label($"accel {accel:0.0} m/s²   {accel / 9.81f:0.00} g");
 
-                // The friction circle is tuned by watching these while driving — there is no other way
-                // to see whether the rear is at its limit, and a number that only exists in the physics
+                // The tyre model is tuned by watching these while driving — there is no other way to
+                // see whether the rear is at its limit, and a number that only exists in the physics
                 // step is a number nobody can tune against.
                 string drifting = vehicle.IsDrifting ? "  DRIFT" : string.Empty;
                 GUILayout.Label($"slip {vehicle.SlipAngle:0}°   rear {vehicle.RearSlip:0.0} m/s"
                               + $"   grip {vehicle.RearGrip:0.00}{drifting}");
+
+                // What all four tyres together could hold, and what each one is doing about it. The
+                // capacity moves with load transfer, downforce, the surface and the rain, so a single
+                // grip number from the config would be an answer for a car standing still and level.
+                // The slip ratios are the only place wheelspin and lock-up are visible as numbers:
+                // positive is a wheel outrunning the road, negative is one being dragged.
+                GUILayout.Label($"capacity {vehicle.GripCapacityG:0.00} g   slip ratio "
+                              + $"{vehicle.SlipRatioAt(0):0.00} {vehicle.SlipRatioAt(1):0.00} "
+                              + $"{vehicle.SlipRatioAt(2):0.00} {vehicle.SlipRatioAt(3):0.00}");
 
                 // What the wheels are standing on, which is otherwise unobservable: a surface changes
                 // no pixel and makes only a noise. Driving one wheel onto the verge should move this

@@ -28,11 +28,12 @@ namespace Horizon.EditorTools
     /// comment. Spring rate and ride frequency need no such correction: static sag is force over rate and
     /// does not know how long the spring is.</para>
     ///
-    /// <para><b>Changing a radius means changing FinalDrive with it.</b> The radius enters the tractive
-    /// force, the wheel-speed-to-rpm conversion and <c>TopSpeed</c> — and <c>TopSpeed</c> is the divisor
-    /// for <c>SpeedNormalized</c>, which is in turn the lookup key for <c>SteeringBySpeed</c> and
-    /// <c>LateralGrip</c>. So a bigger tyre does not just gear the car longer, it quietly moves every
-    /// grip and steering number the car was tuned with. <b>Multiply FinalDrive by the same factor the
+    /// <para><b>Changing a radius means changing FinalDrive with it.</b> The radius enters the wheel
+    /// torque, the wheel-speed-to-rpm conversion and <c>TopSpeed</c> — and <c>TopSpeed</c> is the
+    /// divisor for <c>SpeedNormalized</c>, which is in turn the lookup key for <c>SteeringBySpeed</c>.
+    /// So a bigger tyre does not just gear the car longer, it quietly moves every steering number the
+    /// car was tuned with. (<c>LateralGrip</c> used to hang off that key too and no longer does — it is
+    /// keyed on wheel load now — so this trap is half the size it was, and still a trap.) <b>Multiply FinalDrive by the same factor the
     /// radius moved by</b> and all of it stays exactly where it was: only the picture changes. Every
     /// FinalDrive below that is not 0.44 m's carries the pre-scale number in its comment, so the two can
     /// be checked against each other.</para>
@@ -139,9 +140,9 @@ namespace Horizon.EditorTools
                     config.RedlineRpm = 5400f;
                     config.UpshiftRpm = 5000f;
                     config.FinalDrive = 4.30f;
-                    config.LateralGrip = Grip(1.62f, 1.45f, 1.28f);
+                    config.LateralGrip = Grip(1.86f, 1.62f, 1.34f);
                     config.MaxSteerAngle = 38f;
-                    config.Downforce = 2.2f;
+                    config.Downforce = 0.8f;
                     config.BrakeForce = 17000f;
 
                     // The fastback's engine in a heavier car with more bodywork around it: the same
@@ -183,12 +184,12 @@ namespace Horizon.EditorTools
                     // 4.90 at the old 0.44 m wheel, scaled by 0.46 / 0.44. Same top speed, same shift
                     // points, taller tyre.
                     config.FinalDrive = 5.12f;
-                    config.LateralGrip = Grip(1.45f, 1.30f, 1.15f);
+                    config.LateralGrip = Grip(1.67f, 1.45f, 1.20f);
                     config.MaxSteerAngle = 34f;
                     config.SteerRate = 240f;
                     config.BrakeForce = 19000f;
                     config.AeroDrag = 0.78f;
-                    config.Downforce = 1.5f;
+                    config.Downforce = 0.5f;
 
                     // Below the 3 the others run, but only just: the assist is what makes a car feel
                     // direct under a thumb, and taking it away entirely reads as broken steering rather
@@ -238,13 +239,13 @@ namespace Horizon.EditorTools
 
                     // 4.60 × 0.48 / 0.44.
                     config.FinalDrive = 5.02f;
-                    config.LateralGrip = Grip(1.40f, 1.26f, 1.12f);
+                    config.LateralGrip = Grip(1.61f, 1.40f, 1.16f);
                     config.HandbrakeGrip = 0.35f;
                     config.MaxSteerAngle = 36f;
                     config.SteerRate = 260f;
                     config.BrakeForce = 17500f;
                     config.AeroDrag = 0.62f;
-                    config.Downforce = 1.8f;
+                    config.Downforce = 0.6f;
                     config.DriftYawDamping = 2.2f;
 
                     // A large lazy V8 in a working vehicle. Nearly the fastback's rumble, duller still,
@@ -297,20 +298,20 @@ namespace Horizon.EditorTools
                     //
                     // It is not cosmetic. At 4.20 the redline in top worked out at 283 km/h, higher than
                     // the muscle car's, which the hatchback could never have reached on 260 Nm — but
-                    // VehicleConfig.TopSpeed is what SpeedNormalized divides by, and SteeringBySpeed and
-                    // LateralGrip are both looked up on it. The car would have spent its whole life
-                    // below 0.3 of its own scale, permanently at the grippiest, most steerable end of
-                    // both curves, feeling nothing like the thing it is meant to be.
+                    // VehicleConfig.TopSpeed is what SpeedNormalized divides by, and SteeringBySpeed is
+                    // looked up on it. The car would have spent its whole life below 0.3 of its own
+                    // scale, permanently at the most steerable end of that curve, feeling nothing like
+                    // the thing it is meant to be.
                     // 6.40 × 0.40 / 0.44 — the one car that gets a shorter final drive out of this,
                     // because it is the one on a smaller wheel.
                     config.FinalDrive = 5.82f;
-                    config.LateralGrip = Grip(1.66f, 1.54f, 1.40f);
+                    config.LateralGrip = Grip(1.91f, 1.66f, 1.38f);
                     config.MaxSteerAngle = 42f;
                     config.SteerRate = 320f;
                     config.BrakeForce = 13500f;
                     config.RollingResistanceN = 38f;
                     config.AeroDrag = 0.36f;
-                    config.Downforce = 2.0f;
+                    config.Downforce = 0.7f;
 
                     // A small four, and the widest pitch sweep in the game — 0.52 to 1.94. That is not
                     // decoration: this engine makes its power at the top and the car has to be revved to
@@ -359,12 +360,12 @@ namespace Horizon.EditorTools
                     // one that arrives at the end of the straight first. Two cars with the same power
                     // and the same top speed are one car.
                     config.FinalDrive = 5.05f;
-                    config.LateralGrip = Grip(1.75f, 1.60f, 1.45f);
+                    config.LateralGrip = Grip(2.01f, 1.75f, 1.45f);
                     config.MaxSteerAngle = 38f;
                     config.SteerRate = 310f;
                     config.BrakeForce = 19000f;
                     config.AeroDrag = 0.42f;
-                    config.Downforce = 3.0f;
+                    config.Downforce = 1.0f;
                     config.DriftYawDamping = 3.0f;
 
                     // A twin-turbo straight six that goes to 8000. No half-order whatsoever — an evenly
@@ -413,12 +414,12 @@ namespace Horizon.EditorTools
                     config.PartThrottleUpshiftRpm = 3200f;
                     config.PartThrottleDownshiftRpm = 1600f;
                     config.FinalDrive = 4.20f;
-                    config.LateralGrip = Grip(1.68f, 1.52f, 1.34f);
+                    config.LateralGrip = Grip(1.93f, 1.68f, 1.39f);
                     config.MaxSteerAngle = 37f;
                     config.SteerRate = 300f;
                     config.BrakeForce = 18500f;
                     config.AeroDrag = 0.38f;
-                    config.Downforce = 2.8f;
+                    config.Downforce = 0.9f;
 
                     // Wide slip angle, low yaw damping and a lot of countersteer authority: it lets go
                     // early, holds the angle, and gives it back if the player asks properly.
@@ -474,12 +475,12 @@ namespace Horizon.EditorTools
                     config.PartThrottleDownshiftRpm = 1450f;
                     // 4.64 × 0.42 / 0.44.
                     config.FinalDrive = 4.43f;
-                    config.LateralGrip = Grip(1.58f, 1.44f, 1.28f);
+                    config.LateralGrip = Grip(1.82f, 1.58f, 1.31f);
                     config.MaxSteerAngle = 39f;
                     config.BrakeForce = 14500f;
                     config.RollingResistanceN = 42f;
                     config.AeroDrag = 0.48f;
-                    config.Downforce = 2.1f;
+                    config.Downforce = 0.7f;
 
                     // A big naturally aspirated four. A little half-order, because a four is not
                     // perfectly balanced the way a six is, and a middling rolloff: this is the plainest
@@ -517,7 +518,7 @@ namespace Horizon.EditorTools
                     config.PartThrottleDownshiftRpm = 1550f;
                     // 5.47 × 0.42 / 0.44.
                     config.FinalDrive = 5.22f;
-                    config.LateralGrip = Grip(1.52f, 1.40f, 1.24f);
+                    config.LateralGrip = Grip(1.75f, 1.52f, 1.26f);
 
                     // Low, like the pickup's: the handbrake swings this car rather than stopping it,
                     // which on something this light is the point of having one.
@@ -527,7 +528,7 @@ namespace Horizon.EditorTools
                     config.BrakeForce = 14000f;
                     config.RollingResistanceN = 40f;
                     config.AeroDrag = 0.46f;
-                    config.Downforce = 2.0f;
+                    config.Downforce = 0.7f;
                     config.DriftYawDamping = 2.0f;
                     config.CountersteerAuthority = 0.80f;
 
@@ -582,7 +583,7 @@ namespace Horizon.EditorTools
                     // 4.89 × 0.48 / 0.44. The biggest correction in the file, and the one that matters
                     // most: 2400 kg geared 9% too long is a car that will not pull away from a junction.
                     config.FinalDrive = 5.33f;
-                    config.LateralGrip = Grip(1.32f, 1.18f, 1.02f);
+                    config.LateralGrip = Grip(1.52f, 1.32f, 1.10f);
                     config.MaxSteerAngle = 32f;
                     config.SteerRate = 220f;
                     config.BrakeForce = 22000f;
@@ -590,7 +591,7 @@ namespace Horizon.EditorTools
 
                     // A brick, and the drag is most of why it will not reach its own gearing.
                     config.AeroDrag = 1.05f;
-                    config.Downforce = 1.0f;
+                    config.Downforce = 0.4f;
                     config.TurnInAssist = 2.2f;
                     config.DriftYawDamping = 3.6f;
                     config.CountersteerAuthority = 0.45f;
@@ -691,15 +692,23 @@ namespace Horizon.EditorTools
         }
 
         /// <summary>
-        /// A grip curve in the shape the config documents: a coefficient falling with speed, standing in
-        /// for aerodynamics and tyre heat at once. Three keys, like the default.
+        /// A grip curve in the shape the config documents: a coefficient falling with <i>wheel load</i>,
+        /// keyed at no load, at the static quarter-weight, and at twice that.
+        ///
+        /// <para>The axis used to be road speed, and every car's three numbers were a coefficient at
+        /// rest, at half speed and at the top. They have been carried over by keeping each car's
+        /// at-rest figure as its static-load figure — that is the one the car's character was chosen
+        /// against — and spreading the other two around it at a common load sensitivity. The fall with
+        /// speed the old shape carried has not been re-created here on purpose: what made a car calm at
+        /// speed is <c>SteeringBySpeed</c>, which is untouched, and what a tyre actually does with
+        /// speed is get pressed harder by <c>Downforce</c> and charged for it by this curve.</para>
         /// </summary>
-        private static AnimationCurve Grip(float atRest, float atHalf, float atTop)
+        private static AnimationCurve Grip(float atNoLoad, float atStaticLoad, float atDoubleLoad)
         {
             return new AnimationCurve(
-                new Keyframe(0f, atRest),
-                new Keyframe(0.5f, atHalf),
-                new Keyframe(1f, atTop));
+                new Keyframe(0f, atNoLoad),
+                new Keyframe(1f, atStaticLoad),
+                new Keyframe(2f, atDoubleLoad));
         }
     }
 }

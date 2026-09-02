@@ -45,6 +45,7 @@ namespace Horizon.Vehicle
         private Rigidbody body;
         private IDriveInput explicitInput;
         private float steerAngle;
+        private float gripBudget;
         private float forwardSpeed;
         private Vector3 previousVelocity;
         private float wheelbase = 2.7f;
@@ -76,11 +77,15 @@ namespace Horizon.Vehicle
             public float NormalLoad;
 
             /// <summary>
-            /// How much of the cornering force this tyre asked for it actually got, 0 to 1.
+            /// Where this tyre is on its own curve, 1 down to 0.
             ///
-            /// 1 is a tyre holding on. Anything under it is the friction circle refusing, which is the
-            /// same thing as sliding — so this is what the squeal, the drift state and the overlay all
-            /// read rather than each deriving a slip angle of its own.
+            /// <para>1 is a tyre inside its peak, holding everything it is asked for. It falls as the
+            /// slip passes the peak and keeps falling past it, which is what makes it a genuine
+            /// saturation figure — the old one was capacity over sideways speed and therefore said the
+            /// least exactly when the tyre was sliding most.</para>
+            ///
+            /// <para>The squeal, the drift state and the overlay all read this rather than each
+            /// deriving a slip figure of their own.</para>
             /// </summary>
             public float GripUsed = 1f;
 
@@ -88,16 +93,40 @@ namespace Horizon.Vehicle
             public float LateralSlip;
 
             /// <summary>
-            /// How fast the tyre is spinning up or locking against the road, m/s at the contact patch.
+            /// How fast this wheel is turning, rad/s. Positive is forwards.
             ///
-            /// <para>The model carries no wheel angular velocity — <see cref="SpinAngle"/> is derived
-            /// from road speed for the visual and nothing else — so there is no true longitudinal slip
-            /// to read. This stands in for it, and it is not a fudge: when the friction circle refuses
-            /// part of the drive or brake force, the refused part is exactly what would have been
-            /// spinning the wheel up instead of pushing the car. Dividing it by the wheel's share of
-            /// the mass gives the acceleration the patch slips at, and that settles to a slip speed.</para>
+            /// <para>The state the whole longitudinal half of the model hangs off. Without it there is
+            /// no slip ratio, so there is no wheelspin, no lock-up, no differential and no engine
+            /// braking — every one of those is a statement about the wheel turning at a different rate
+            /// from the road, and until this existed the two were the same number by construction.</para>
             /// </summary>
-            public float SpinSlip;
+            public float AngularVelocity;
+
+            /// <summary>
+            /// Longitudinal slip: how much faster the tread is moving than the road, as a fraction of
+            /// road speed. Positive is spinning up, negative is locking.
+            /// </summary>
+            public float SlipRatio;
+
+            /// <summary>Slip speed along the wheel's own plane, m/s at the contact patch.</summary>
+            public float LongitudinalSlip;
+
+            /// <summary>
+            /// Where this tyre is on its curve: the length of its slip vector, with 1 the peak.
+            /// </summary>
+            public float Slip;
+
+            /// <summary>
+            /// The forces this tyre is actually making, newtons, in its own contact frame.
+            ///
+            /// <para>Held across steps because a tyre does not make its force instantly: the carcass
+            /// has to wind up, over <see cref="VehicleConfig.RelaxationLength"/> of rolling. These are
+            /// what gets applied; the curve computes what they are heading for.</para>
+            /// </summary>
+            public float Fx;
+
+            /// <summary>The lateral half of <see cref="Fx"/>.</summary>
+            public float Fy;
 
             /// <summary>What this wheel is standing on. <see cref="SurfaceKind.Asphalt"/> in the air.</summary>
             public SurfaceKind Surface = SurfaceKind.Asphalt;
@@ -122,16 +151,34 @@ namespace Horizon.Vehicle
         private const float MaxLongitudinalAcceleration = 15f;
 
         /// <summary>
-        /// Seconds of overload that a steady spin slip settles to. Larger spins the tyres up more
-        /// readily for the same excess force.
+        /// Speed below which slip stops being measurable, m/s.
+        ///
+        /// <para>Slip ratio and slip angle are both a velocity divided by road speed, so both go to
+        /// infinity at a standstill and a car parked on a hill would be asked for infinite grip. This
+        /// is the floor on that divisor, and it is deliberately low — one metre a second — because it
+        /// is what decides how firmly the car stands still. At five it crept down the pass.</para>
+        ///
+        /// <para>A low floor makes the force law very stiff at low speed, which is exactly where an
+        /// explicit step falls over. Two separate things stop it: the relaxation length, whose rate is
+        /// <i>also</i> speed over a length and therefore slows in the same proportion the stiffness
+        /// rises, and the implicit form of the wheel spin update. Neither is a fudge factor and
+        /// neither had to be tuned against the other.</para>
         /// </summary>
-        private const float SpinSlipGain = 0.35f;
+        private const float SlipReferenceSpeed = 1f;
 
-        /// <summary>How quickly spin slip rises and falls toward what the overload calls for, per second.</summary>
-        private const float SpinSlipResponse = 8f;
-
-        /// <summary>Ceiling on spin slip, m/s. Well past the point where the tyre is fully alight.</summary>
-        private const float MaxSpinSlip = 25f;
+        /// <summary>
+        /// How many times the tyre and its wheel are advanced within one physics step.
+        ///
+        /// <para>Not accuracy for its own sake. The implicit term that keeps the wheel stable behaves as
+        /// extra rotational inertia proportional to the sub-step, and at one step per frame that is
+        /// about a hundred kilograms at the contact patch against a quarter car's three hundred — it
+        /// cost 57 % of the braking force, and more as the car slowed. Eight brings it to 12 %.</para>
+        ///
+        /// <para>Cheap, because everything that varies with the body rather than the wheel — the tyre's
+        /// stiffness, the damping factor, the relaxation blend — is computed once outside the loop, and
+        /// what is left inside is one sine and one arctangent.</para>
+        /// </summary>
+        private const int SpinSubSteps = 8;
 
         /// <summary>Filter rate for <see cref="LongitudinalAcceleration"/>, per second.</summary>
         private const float AccelerationSmoothing = 12f;
@@ -356,6 +403,25 @@ namespace Horizon.Vehicle
         /// <summary>Closing speed that reports a severity of 1, m/s. About 65 km/h into a wall.</summary>
         private const float FullImpactSpeed = 18f;
 
+        /// <summary>
+        /// The most lateral acceleration all four tyres together could hold right now, in g.
+        ///
+        /// <para>Measured rather than looked up: it is the sum of the four friction budgets the tyres
+        /// themselves were given this step, over the car's weight. That matters because the grip
+        /// coefficient is a function of wheel load now, so the honest ceiling moves with weight
+        /// transfer, with downforce, with the surface under each wheel and with the rain — and a reader
+        /// that evaluated the grip curve for itself would get an answer for a car standing still and
+        /// level.</para>
+        /// </summary>
+        public float GripCapacityG { get; private set; }
+
+        /// <summary>
+        /// One wheel's slip ratio: how much faster its tread is moving than the road, as a fraction.
+        /// Positive is spinning up, negative is locking, zero is rolling. Order is FL, FR, RL, RR.
+        /// </summary>
+        public float SlipRatioAt(int index) =>
+            index >= 0 && index < WheelCount ? wheels[index].SlipRatio : 0f;
+
         /// <summary>How many wheels are touching the ground.</summary>
         public int GroundedWheelCount
         {
@@ -385,19 +451,17 @@ namespace Horizon.Vehicle
         /// a caller that got a stale contact point would leave smoke hanging in the air over a crest.</para>
         ///
         /// <para><paramref name="slipSpeed"/> is metres per second of tyre sliding across tarmac,
-        /// combining the sideways slide with the spin-up from <see cref="WheelState.SpinSlip"/>. The two
-        /// are perpendicular, so they combine as a hypotenuse rather than a sum.</para>
+        /// combining the sideways slide with <see cref="WheelState.LongitudinalSlip"/> — the difference
+        /// between how fast the tread is moving and how fast the road is going under it. The two are
+        /// perpendicular, so they combine as a hypotenuse rather than a sum.</para>
         ///
         /// <para>The sideways half is gated on how sideways the <i>car</i> is, not on the wheel's own
         /// sideways speed, and the difference is the whole of whether this effect is believable.</para>
         ///
-        /// <para><b>Two things make the wheel's own figure useless on its own.</b> A steered front wheel
-        /// is dragged across its own plane by the mere act of turning: at 100 km/h and 30° of lock that
-        /// is 14 m/s at the patch before the car has begun to yaw, which is more sideways speed than a
-        /// genuine drift produces. And <see cref="WheelState.GripUsed"/> cannot rescue it — it looks like
-        /// a saturation figure but is roughly capacity divided by sideways speed, so it *falls* as the
-        /// tyre slides more, and weighting by what it refused amplified exactly what it was meant to
-        /// suppress. Between them, turning the wheel was enough to lay smoke.</para>
+        /// <para><b>What makes the wheel's own figure useless on its own.</b> A steered front wheel is
+        /// dragged across its own plane by the mere act of turning: at 100 km/h and 30° of lock that is
+        /// 14 m/s at the patch before the car has begun to yaw, which is more sideways speed than a
+        /// genuine drift produces. Turning the wheel was enough to lay smoke.</para>
         ///
         /// <para><see cref="SlipAngle"/> is the honest gate: it measures the car's direction of travel
         /// against where it is pointing, so steering does not move it and only actually sliding does.</para>
@@ -421,7 +485,7 @@ namespace Horizon.Vehicle
             contactPoint = wheel.ContactPoint;
 
             float sliding = wheel.LateralSlip * BodySlideFraction();
-            slipSpeed = Mathf.Sqrt(sliding * sliding + wheel.SpinSlip * wheel.SpinSlip);
+            slipSpeed = Mathf.Sqrt(sliding * sliding + wheel.LongitudinalSlip * wheel.LongitudinalSlip);
             return true;
         }
 
@@ -581,6 +645,17 @@ namespace Horizon.Vehicle
             {
                 wheels[i].SpringLength = restLength;
                 wheels[i].Compression01 = 0f;
+
+                // The wheels have to be stopped too, and it is not tidiness. A car placed at a
+                // standstill with its wheels still turning at the speed it was doing before is a car
+                // whose tyres are asked for their whole budget on the first step, in whatever
+                // direction it now happens to be pointing.
+                wheels[i].AngularVelocity = 0f;
+                wheels[i].SlipRatio = 0f;
+                wheels[i].LongitudinalSlip = 0f;
+                wheels[i].LateralSlip = 0f;
+                wheels[i].Fx = 0f;
+                wheels[i].Fy = 0f;
             }
 
             // A car put down on a road is put down *inside* whatever it lands touching, and PhysX
@@ -666,7 +741,7 @@ namespace Horizon.Vehicle
             // treats reversing as braking gets it wrong — brake lights being the obvious one.
             BrakeInput = brake;
 
-            float driveForcePerWheel = UpdateDrivetrain(deltaTime, throttle, reverse, brake);
+            float driveTorquePerWheel = UpdateDrivetrain(deltaTime, throttle, reverse, brake);
 
             // Three passes, and the order is the anti-roll bar's whole reason for being here.
             //
@@ -684,17 +759,20 @@ namespace Horizon.Vehicle
             TransferAntiRoll(FrontLeft, FrontRight);
             TransferAntiRoll(RearLeft, RearRight);
 
+            gripBudget = 0f;
             for (int i = 0; i < WheelCount; i++)
             {
-                DriveWheel(i, deltaTime, speed01, driveForcePerWheel, brake, drive.Handbrake);
+                DriveWheel(i, deltaTime, driveTorquePerWheel, brake, drive.Handbrake);
             }
+
+            GripCapacityG = gripBudget / Mathf.Max(1f, config.Mass * Physics.gravity.magnitude);
 
             UpdateSurfaceState();
 
             ApplyAxisDamping();
 
             UpdateSlipState(velocity);
-            ApplyTurnInAssist(speed01, drive.Handbrake);
+            ApplyTurnInAssist(drive.Handbrake);
             ApplyDriftAssists();
 
             // Aerodynamic drag, on the body once — not per wheel. Applying drag four times over is how
@@ -804,9 +882,12 @@ namespace Horizon.Vehicle
         ///
         /// <para><b>Why it cannot cheat.</b> The target comes from Ackermann geometry — the yaw rate that
         /// steering angle and wheelbase geometrically imply — and is then capped at
-        /// <c>mu * g / speed</c>, the fastest the friction circle could turn the car at all. So the
-        /// assist never asks for rotation the tyres could not have produced, and a corner taken too fast
-        /// still runs wide. What it removes is the lag, not the limit.</para>
+        /// <see cref="GripCapacityG"/> times g over speed, the fastest the tyres could turn the car at
+        /// all. That ceiling is measured from the four budgets the tyres were actually handed this
+        /// step, not looked up: the grip coefficient is a function of wheel load, so a ceiling read off
+        /// the curve would be a figure for a car standing still and level. So the assist never asks for
+        /// rotation the tyres could not have produced, and a corner taken too fast still runs wide.
+        /// What it removes is the lag, not the limit.</para>
         ///
         /// <para><b>Why it stops at the drift line.</b> Past <see cref="VehicleConfig.DriftSlipAngle"/>
         /// the car belongs to <c>DriftYawDamping</c> and <c>CountersteerAuthority</c>. Leaving this one
@@ -816,7 +897,7 @@ namespace Horizon.Vehicle
         /// at the handover. The handbrake is a deliberate request to break traction, so it switches the
         /// assist off outright.</para>
         /// </summary>
-        private void ApplyTurnInAssist(float speed01, bool handbrake)
+        private void ApplyTurnInAssist(bool handbrake)
         {
             if (config.TurnInAssist <= 0f || handbrake || GroundedWheelCount == 0)
             {
@@ -847,8 +928,12 @@ namespace Horizon.Vehicle
             float target = forwardSpeed * Mathf.Tan(steerAngle * Mathf.Deg2Rad) / wheelbase;
 
             // What the tyres could actually hold: a_lat = mu * g, and yaw rate = a_lat / v.
-            float mu = config.LateralGrip.Evaluate(speed01);
-            float ceiling = mu * Physics.gravity.magnitude / speed;
+            //
+            // From the budgets the tyres were actually given this step rather than from the grip curve.
+            // The curve is keyed on wheel load now, so evaluating it here would mean picking a load to
+            // evaluate it at — and the only honest answer is the one the four wheels have already
+            // worked out between them, including the load the corner itself has moved across them.
+            float ceiling = GripCapacityG * Physics.gravity.magnitude / speed;
             target = Mathf.Clamp(target, -ceiling, ceiling);
 
             float error = target - Vector3.Dot(body.angularVelocity, transform.up);
@@ -883,9 +968,15 @@ namespace Horizon.Vehicle
             float ratio = reversing ? config.RatioForGear(-1) : config.RatioForGear(gearIndex);
             float driveRatio = Mathf.Abs(ratio) * config.FinalDrive;
 
-            // Engine speed from road speed, through the gearbox.
-            float wheelRevsPerSecond = Mathf.Abs(forwardSpeed) / (2f * Mathf.PI * config.WheelRadius);
-            float wheelRpm = wheelRevsPerSecond * 60f;
+            // Engine speed from the driven wheels, through the gearbox.
+            //
+            // From the wheels rather than from road speed, which is the same number right up until the
+            // moment it matters: a wheel that is spinning is turning faster than the car is moving, and
+            // taking the engine off the car meant a standing start in first was silent about the one
+            // thing it was doing. The flare is not modelled here, it is simply not hidden — the wheel
+            // really is turning that fast, and the tacho, the note and the shift logic all read it
+            // because they all read this.
+            float wheelRpm = DrivenWheelRpm();
             float geared = wheelRpm * driveRatio;
 
             // Rolling away from a standstill the clutch or converter slips, so the engine can rev while
@@ -1006,7 +1097,13 @@ namespace Horizon.Vehicle
 
             EngineTorqueNm = engineTorque;
 
-            float wheelForce = engineTorque * driveRatio * config.DrivetrainEfficiency / config.WheelRadius;
+            // Torque at the wheel, not force at the road. It used to be a force, which was the same
+            // thing divided by the radius and handed straight to the tyre — and that quietly assumed
+            // the wheel was always turning at exactly road speed, because there was nowhere else for
+            // the torque to go. Now there is: it spins the wheel, the wheel slips against the road, and
+            // the road decides how much of it becomes acceleration. That is the whole difference
+            // between a car that cannot spin its wheels and one that can.
+            float wheelTorque = engineTorque * driveRatio * config.DrivetrainEfficiency;
 
             if (reversing)
             {
@@ -1015,10 +1112,10 @@ namespace Horizon.Vehicle
                     return 0f;
                 }
 
-                wheelForce = -wheelForce;
+                wheelTorque = -wheelTorque;
             }
 
-            return wheelForce / Mathf.Max(1, config.DrivenWheelCount);
+            return wheelTorque / Mathf.Max(1, config.DrivenWheelCount);
         }
 
         /// <summary>
@@ -1102,6 +1199,41 @@ namespace Horizon.Vehicle
         }
 
         /// <summary>
+        /// Mean speed of the driven wheels in rpm, ignoring direction.
+        ///
+        /// <para>Over the driven wheels only, because they are the ones the gearbox is connected to.
+        /// A front-driven car with its front wheels alight is at the redline whatever the rears are
+        /// doing, and averaging all four would quietly halve the flare.</para>
+        ///
+        /// <para>Airborne wheels are counted rather than skipped. A driven wheel with nothing under it
+        /// is exactly the case where the engine should be screaming, and dropping it from the average
+        /// would silence the one moment it has something to say.</para>
+        /// </summary>
+        private float DrivenWheelRpm()
+        {
+            float total = 0f;
+            int counted = 0;
+
+            for (int i = 0; i < WheelCount; i++)
+            {
+                if (!config.IsDriven(i))
+                {
+                    continue;
+                }
+
+                total += Mathf.Abs(wheels[i].AngularVelocity);
+                counted++;
+            }
+
+            if (counted == 0)
+            {
+                return 0f;
+            }
+
+            return total / counted * (60f / (2f * Mathf.PI));
+        }
+
+        /// <summary>
         /// Wheel force a gear would make at this road speed, in units that only mean anything against
         /// each other.
         /// </summary>
@@ -1146,7 +1278,6 @@ namespace Horizon.Vehicle
                 wheel.Compression01 = 0f;
                 wheel.SpringLength = config.SuspensionRestLength;
                 wheel.LateralSlip = 0f;
-                wheel.SpinSlip = 0f;
                 wheel.NormalLoad = 0f;
                 return;
             }
@@ -1192,8 +1323,7 @@ namespace Horizon.Vehicle
         private void DriveWheel(
             int index,
             float deltaTime,
-            float speed01,
-            float driveForcePerWheel,
+            float driveTorquePerWheel,
             float brake,
             bool handbrake)
         {
@@ -1209,7 +1339,26 @@ namespace Horizon.Vehicle
 
             if (!wheel.Grounded)
             {
-                UpdateWheelVisual(index, config.SuspensionRestLength, wheelSteer, forwardSpeed, deltaTime);
+                // A wheel in the air still answers the throttle and the brake, and it is the one place
+                // a driven wheel can run away with itself entirely. That is worth seeing rather than
+                // hiding: a car that lands with its rear wheels spinning is telling the truth about
+                // what the driver did over the crest.
+                wheel.Fx = 0f;
+                wheel.Fy = 0f;
+                wheel.Slip = 0f;
+                wheel.SlipRatio = 0f;
+                wheel.LongitudinalSlip = 0f;
+
+                // Zero budget, so the tyre makes nothing and only the drive and the brake reach the
+                // wheel — which is the whole point of running this at all in the air.
+                SolveTyre(index, wheel, deltaTime, driveTorquePerWheel, brake, handbrake, 0f, 0f, 0f);
+
+                UpdateWheelVisual(
+                    index,
+                    config.SuspensionRestLength,
+                    wheelSteer,
+                    wheel.AngularVelocity * config.WheelRadius,
+                    deltaTime);
                 return;
             }
 
@@ -1229,60 +1378,22 @@ namespace Horizon.Vehicle
             Vector3 pointVelocity = body.GetPointVelocity(wheel.ContactPoint);
             float lateralVelocity = Vector3.Dot(pointVelocity, right);
             float longitudinalVelocity = Vector3.Dot(pointVelocity, forward);
-            float wheelShareOfMass = config.Mass * 0.25f;
-
-            // --- Longitudinal first, because the friction circle below has to know what this tyre is
-            // already asking of the road before it can say how much is left for cornering.
-            float longitudinalForce = config.IsDriven(index) ? driveForcePerWheel : 0f;
-
-            // Rolling resistance is a constant force opposing the direction of travel, not something
-            // proportional to speed. The old speed-proportional version, applied to all four wheels,
-            // reached 800 N per m/s and capped the car at walking pace.
-            float rollingSign = longitudinalVelocity > 0f ? 1f : -1f;
-            float resistive = rollingSign * config.RollingResistanceN;
-
-            if (brake > 0f)
-            {
-                resistive += rollingSign * (brake * config.BrakeForce * 0.25f);
-            }
-
-            // The handbrake is a brake, not a switch on the grip.
+            // --- How much this tyre has to spend.
             //
-            // It used to multiply rear grip by a constant, which slid the car sideways without ever
-            // rotating it — the back stepped out and the nose carried straight on. Locking the rear
-            // wheels instead spends their whole grip budget on stopping, and the circle below then has
-            // nothing left to give cornering, so the car comes round because it is being braked at one
-            // end. That is what a handbrake turn actually is.
-            if (handbrake && !isFront)
-            {
-                resistive += rollingSign * config.HandbrakeForceN;
-            }
-
-            // Clamp so braking and rolling resistance can bring the wheel to a stop but never drag
-            // it backwards through zero — that would make the car creep while fully braked.
-            float maxResistive = Mathf.Abs(longitudinalVelocity) * wheelShareOfMass / deltaTime;
-            resistive = Mathf.Clamp(resistive, -maxResistive, maxResistive);
-            longitudinalForce -= resistive;
-
-            // --- The friction circle.
-            //
-            // <b>One tyre, one budget, shared between going and turning.</b> The model before this
-            // cancelled a fraction of the sideways velocity and charged nothing for it, so a tyre could
-            // put down full power and hold full cornering force at the same time — which is why the car
-            // could not be made to oversteer by any amount of throttle, and why the handbrake had to be
-            // a special case.
-            //
-            // The budget is the normal load times a grip coefficient, and the load is what the spring,
-            // the damper and the anti-roll bar between them decided this corner is carrying, rather
-            // than a quarter of the car's mass. A wheel gone light over a crest or on the inside of a
-            // hairpin loses grip on its own, and the bar's load transfer is felt here rather than only
-            // seen in how far the body leans.
             // Two multipliers and they mean different things. GripScale is what the world has done to
-            // the car and applies to all four wheels at once — water, and later rain. The surface is
-            // what this one wheel is standing on, so a car with two wheels on the verge is pulled
-            // towards it rather than made uniformly slippery. Folding the two into one number was the
-            // first version and it lost exactly that.
-            float mu = config.LateralGrip.Evaluate(speed01)
+            // the car and applies to all four wheels at once — water, and rain. The surface is what
+            // this one wheel is standing on, so a car with two wheels on the verge is pulled towards
+            // it rather than made uniformly slippery. Folding the two into one number was the first
+            // version and it lost exactly that.
+            //
+            // The coefficient is looked up on this wheel's own load rather than on road speed, which
+            // is what makes weight transfer cost something: an axle that takes load across itself ends
+            // up with less total grip than one that did not, because the outer tyre gives back less
+            // per newton than the inner one loses.
+            float staticLoad = config.Mass * 0.25f * Physics.gravity.magnitude;
+            float loadRatio = suspensionForce / Mathf.Max(1f, staticLoad);
+
+            float mu = config.LateralGrip.Evaluate(loadRatio)
                 * GripScale
                 * WeatherGrip
                 * GroundSurface.GripOf(wheel.Surface);
@@ -1292,45 +1403,145 @@ namespace Horizon.Vehicle
             }
 
             float budget = suspensionForce * mu;
+            gripBudget += budget;
 
-            // The tyre cannot put down more than it has, in *either* direction. Clamping only the
-            // cornering half would be the old bug wearing a circle: the car would accelerate as though
-            // traction were free while its grip quietly went to nothing, so first gear would launch like
-            // an electric motor and corner like it was on ice. Clamped here, asking for more drive than
-            // the road can take costs acceleration — which is wheelspin, and is why a standing start in
-            // first now has to be fed in rather than stamped on.
-            float demandedLongitudinal = longitudinalForce;
-            longitudinalForce = Mathf.Clamp(longitudinalForce, -budget, budget);
+            // --- The tyre and the wheel, solved together.
+            SolveTyre(
+                index, wheel, deltaTime, driveTorquePerWheel, brake, handbrake,
+                budget, longitudinalVelocity, lateralVelocity);
 
-            // What the circle refused is what spins the tyre. Positive under power (wheelspin) and
-            // under the handbrake or hard braking alike (a locked tyre slides just as far), because
-            // the tyre does not care which end of the clamp it hit.
-            float refused = Mathf.Abs(demandedLongitudinal) - budget;
-            float spinTarget = refused > 0f
-                ? Mathf.Min(MaxSpinSlip, refused / wheelShareOfMass * SpinSlipGain)
-                : 0f;
+            body.AddForceAtPosition(forward * wheel.Fx + right * wheel.Fy, wheel.ContactPoint);
 
-            wheel.SpinSlip = Mathf.Lerp(
-                wheel.SpinSlip, spinTarget, 1f - Mathf.Exp(-SpinSlipResponse * deltaTime));
+            // How much of its budget this tyre still has in hand, 1 down to 0. A genuine saturation
+            // figure now: it is where the tyre is on its own curve, so it falls as the slip grows and
+            // keeps falling past the peak.
+            wheel.GripUsed = 1f - Mathf.InverseLerp(1f, 2.5f, wheel.Slip);
 
-            float spent = Mathf.Abs(longitudinalForce);
-            float capacity = Mathf.Sqrt(Mathf.Max(0f, budget * budget - spent * spent));
+            UpdateWheelVisual(
+                index, wheel.SpringLength, wheelSteer, wheel.AngularVelocity * config.WheelRadius, deltaTime);
+        }
 
-            // What it would take to cancel the slide outright, which is what the old model always got.
-            // Now it is a request, and the circle answers with what it can afford.
-            float wanted = -lateralVelocity * wheelShareOfMass / deltaTime;
-            float lateralForce = Mathf.Clamp(wanted, -capacity, capacity);
+        /// <summary>
+        /// Advances one tyre's forces and its wheel's rotation together, in sub-steps.
+        ///
+        /// <para><b>One slip vector, one curve evaluation.</b> The longitudinal and lateral slips are
+        /// each normalised by the slip their own axis peaks at, so a length of 1 is a tyre at its limit
+        /// whichever direction it got there. Evaluating the curve once on that length and splitting the
+        /// answer along it is what produces the friction ellipse: the tyre spends one budget, and drive
+        /// leaves less for cornering because the vector is already partly used — not because anything
+        /// subtracted one from the other. The old model did subtract, longitudinal first and lateral out
+        /// of the remainder, which is why braking used to cut the steering off a cliff rather than
+        /// blunting it.</para>
+        ///
+        /// <para><b>The wheel is integrated semi-implicitly, and it has to be.</b> Near pure rolling the
+        /// tyre is enormously stiff against the wheel's own surface speed — around 150 kN per metre per
+        /// second at a road tyre's static load — and a plain forward step of that against a 1.2 kg·m²
+        /// wheel over 20 ms overshoots by a factor of forty and diverges within a handful of steps.
+        /// Dividing the increment by <c>1 + h·k·r²/J</c> is unconditionally stable, and what it does
+        /// physically is what is wanted: it damps hardest where the tyre is gripping, which is a wheel
+        /// locking onto rolling rather than hunting around it.</para>
+        ///
+        /// <para><b>And that damping is why there are sub-steps.</b> It behaves as extra rotational
+        /// inertia of <c>h·k·r²</c>, which at one step per frame is about a hundred kilograms at the
+        /// contact patch against a quarter car's three hundred — measured, it cost 57 % of the braking
+        /// force and grew worse as the car slowed. Eight sub-steps cut it to 12 %, and the remainder is
+        /// absorbed by tuning against the bench. It is cheap: <c>k</c>, the relaxation blend and the
+        /// damping factor all depend on the body's speed rather than the wheel's, so they are computed
+        /// once and only the curve is evaluated per sub-step.</para>
+        ///
+        /// <para>The brake and rolling resistance are clamped so they can bring a wheel to a stop and
+        /// never drag it backwards through zero, which is what a brake does and a reversed torque does
+        /// not. The clamp is measured against the damped increment rather than the raw one, or it binds
+        /// permanently at road speed and the brakes fade away as the car slows.</para>
+        /// </summary>
+        private void SolveTyre(
+            int index,
+            WheelState wheel,
+            float deltaTime,
+            float driveTorquePerWheel,
+            float brake,
+            bool handbrake,
+            float budget,
+            float longitudinalVelocity,
+            float lateralVelocity)
+        {
+            float radius = config.WheelRadius;
+            float inertia = Mathf.Max(0.05f, config.WheelInertia);
+            float peakRatio = Mathf.Max(0.01f, config.PeakSlipRatio);
+            float peakTan = Mathf.Tan(Mathf.Max(0.5f, config.PeakSlipAngle) * Mathf.Deg2Rad);
 
-            body.AddForceAtPosition(right * lateralForce, wheel.ContactPoint);
-            body.AddForceAtPosition(forward * longitudinalForce, wheel.ContactPoint);
+            float reference = Mathf.Max(Mathf.Abs(longitudinalVelocity), SlipReferenceSpeed);
+            float shapeB = config.TyreShapeB;
+            float shapeC = config.TyreShapeC;
 
-            // How much of what the tyre wanted it actually got, for the slip readouts and the overlay.
-            // Measured rather than inferred from the wheel's angle, because at very low speed a slip
-            // angle is all noise while this stays meaningful.
-            wheel.GripUsed = Mathf.Abs(wanted) > 1f ? Mathf.Clamp01(Mathf.Abs(lateralForce / wanted)) : 1f;
+            // Everything that depends on the body rather than on the wheel, hoisted out of the loop.
+            float step = deltaTime / SpinSubSteps;
+            float stiffness = budget * shapeB * shapeC / (peakRatio * reference);
+            float damping = 1f + step * stiffness * radius * radius / inertia;
+            float blend = 1f - Mathf.Exp(-reference / Mathf.Max(0.05f, config.RelaxationLength) * step);
+
+            float slipLat = -lateralVelocity / reference / peakTan;
+
+            float driveTorque = config.IsDriven(index) ? driveTorquePerWheel : 0f;
+
+            float resistive = config.RollingResistanceN * radius;
+            if (brake > 0f)
+            {
+                resistive += brake * config.BrakeForce * 0.25f * radius;
+            }
+
+            // The handbrake is a brake, not a switch on the grip.
+            //
+            // It used to multiply rear grip by a constant, which slid the car sideways without ever
+            // rotating it — the back stepped out and the nose carried straight on. Locking the rear
+            // wheels instead spends their whole slip budget on stopping, and the ellipse then has
+            // nothing left to give cornering, so the car comes round because it is being braked at one
+            // end. That is what a handbrake turn actually is.
+            if (handbrake && index >= 2)
+            {
+                resistive += config.HandbrakeForceN * radius;
+            }
+
+            float slip = 0f;
+
+            for (int i = 0; i < SpinSubSteps; i++)
+            {
+                float rollSpeed = wheel.AngularVelocity * radius;
+                float slipLong = (rollSpeed - longitudinalVelocity) / reference / peakRatio;
+
+                slip = Mathf.Sqrt(slipLong * slipLong + slipLat * slipLat);
+
+                // sin(C·atan(B·u)): the magic formula with its curvature term dropped. Rises to exactly
+                // 1 at a normalised slip of 1 and falls to GripPastPeak beyond it, which is the part
+                // that makes a limit something a driver can find rather than a wall they hit.
+                float force = slip > 0.0001f
+                    ? budget * Mathf.Sin(shapeC * Mathf.Atan(shapeB * slip)) / slip
+                    : 0f;
+
+                wheel.Fx = Mathf.Lerp(wheel.Fx, force * slipLong, blend);
+                wheel.Fy = Mathf.Lerp(wheel.Fy, force * slipLat, blend);
+
+                float torque = driveTorque - wheel.Fx * radius;
+
+                float speed = wheel.AngularVelocity;
+
+                // Which way the resistance acts. A turning wheel is opposed; a stopped one has no
+                // direction of its own, so it opposes the torque instead — and the clamp below then
+                // keeps it from doing more than cancelling it. Reading Sign(0) as forwards would have
+                // rolling resistance driving a stationary wheel backwards.
+                float against = Mathf.Abs(speed) > 0.0001f ? Mathf.Sign(speed) : Mathf.Sign(torque);
+
+                float stopping = Mathf.Abs(speed) * inertia * damping / step;
+                float applied = Mathf.Min(resistive, stopping + Mathf.Abs(torque));
+                torque -= against * applied;
+
+                wheel.AngularVelocity = speed + step * torque / inertia / damping;
+            }
+
+            wheel.Slip = slip;
+            wheel.SlipRatio = (wheel.AngularVelocity * radius - longitudinalVelocity) / reference;
+            wheel.LongitudinalSlip = Mathf.Abs(wheel.AngularVelocity * radius - longitudinalVelocity);
             wheel.LateralSlip = Mathf.Abs(lateralVelocity);
-
-            UpdateWheelVisual(index, wheel.SpringLength, wheelSteer, longitudinalVelocity, deltaTime);
         }
 
         /// <summary>

@@ -119,8 +119,9 @@ namespace Horizon.EditorTools
                       + $"{existing.Mass:0} kg, drive {existing.DrivenAxle}, "
                       + $"{existing.MaxTorqueNm:0} Nm to {existing.RedlineRpm:0} rpm, "
                       + $"top {existing.TopSpeed * 3.6f:0} km/h, "
-                      + $"grip {existing.LateralGrip.Evaluate(0f):0.00} falling to "
-                      + $"{existing.LateralGrip.Evaluate(1f):0.00}, lock {existing.MaxSteerAngle:0}° at "
+                      + $"grip {existing.LateralGrip.Evaluate(1f):0.00} at its static load falling to "
+                      + $"{existing.LateralGrip.Evaluate(2f):0.00} at twice it, peak slip "
+                      + $"{existing.PeakSlipAngle:0.0}°, lock {existing.MaxSteerAngle:0}° at "
                       + $"{existing.SteerRate:0}°/s, CoM y {existing.CenterOfMass.y:0.00}, anti-roll "
                       + $"{existing.AntiRollStiffness:0}, turn-in assist {existing.TurnInAssist:0.0}.");
         }

@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 2e6c54b425c874741ae73be512ddf6a2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Horizon.Vehicle::Horizon.Vehicle.VehicleConfig
-  Version: 10
+  Version: 11
   Mass: 2400
   CenterOfMass: {x: 0, y: -0.08, z: 0.04}
   LinearDamping: 0
@@ -148,16 +148,7 @@ MonoBehaviour:
     m_Curve:
     - serializedVersion: 3
       time: 0
-      value: 1.32
-      inSlope: 0
-      outSlope: 0
-      tangentMode: 0
-      weightedMode: 0
-      inWeight: 0
-      outWeight: 0
-    - serializedVersion: 3
-      time: 0.5
-      value: 1.18
+      value: 1.52
       inSlope: 0
       outSlope: 0
       tangentMode: 0
@@ -166,7 +157,16 @@ MonoBehaviour:
       outWeight: 0
     - serializedVersion: 3
       time: 1
-      value: 1.02
+      value: 1.32
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    - serializedVersion: 3
+      time: 2
+      value: 1.1
       inSlope: 0
       outSlope: 0
       tangentMode: 0
@@ -176,10 +176,15 @@ MonoBehaviour:
     m_PreInfinity: 2
     m_PostInfinity: 2
     m_RotationOrder: 4
+  PeakSlipAngle: 8
+  PeakSlipRatio: 0.12
+  GripPastPeak: 0.89
+  RelaxationLength: 0.5
+  WheelInertia: 1.2
   HandbrakeGrip: 0.55
   HandbrakeForceN: 9000
   DriftSlipAngle: 12
   DriftYawDamping: 3.6
   CountersteerAuthority: 0.45
   TurnInAssist: 2.2
-  Downforce: 1
+  Downforce: 0.4

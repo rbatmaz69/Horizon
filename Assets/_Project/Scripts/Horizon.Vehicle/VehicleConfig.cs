@@ -73,6 +73,16 @@ namespace Horizon.Vehicle
         /// Without the bump the assets keep the old radius against a body lofted around the new one, and
         /// the car sits with its wheels through its arches.</para>
         ///
+        /// <para><b>11: the tyre became a tyre, and <see cref="LateralGrip"/> changed its axis.</b>
+        /// That curve was looked up on road speed and is now looked up on wheel load, which is a
+        /// different quantity with a different range — an asset carrying the old keys reads its whole
+        /// curve off the first tenth of the new axis and comes out on ice above walking pace. It is
+        /// the third time this exact field has moved underneath its own values, and the second time
+        /// the meaning rather than the number changed; the first cost two rounds of handling
+        /// complaints on tyres nobody had chosen. Every other field arriving here is new and would
+        /// otherwise land in an existing asset carrying the fastback's initialiser, which is the
+        /// failure this counter exists for.</para>
+        ///
         /// <para><b>8: the cars stopped sitting on their bump stops.</b> Every road body gained three to
         /// four centimetres of <see cref="SuspensionRestLength"/> so there is daylight over the tyre and
         /// ground clearance under the sill, and <see cref="AntiRollStiffness"/> moved with it on all nine
@@ -80,7 +90,7 @@ namespace Horizon.Vehicle
         /// bump the assets keep the short travel and the soft bar together, which is the one combination
         /// that rolls.</para>
         /// </summary>
-        public const int CurrentVersion = 10;
+        public const int CurrentVersion = 11;
 
         /// <summary>
         /// Which set of meanings this asset's numbers were chosen under.
@@ -560,18 +570,80 @@ namespace Horizon.Vehicle
         public float SteerRate = 300f;
 
         [Header("Grip")]
-        [Tooltip("Grip coefficient over normalized speed — how much force a tyre can put down, as a "
-               + "multiple of the load on it.\n\n"
-               + "This used to mean 'fraction of the sideways slide removed', which charged nothing for "
-               + "it: a tyre could put down full power and hold full cornering force at once. It is now "
-               + "the radius of a friction circle that driving and braking spend from as well, so 1.6 "
-               + "is a grippy road tyre and 1.0 is a car that will step out if you ask it to. The shape "
-               + "still falls with speed, which is aerodynamic and tyre heat standing in for each "
-               + "other.")]
+        [Tooltip("Grip coefficient over wheel load — how much force a tyre can put down, as a multiple "
+               + "of the load on it. The lookup key is this wheel's load divided by a quarter of the "
+               + "car's weight, so 1 is the static figure, 2 is a wheel carrying twice its share and 0 "
+               + "is one that has gone light.\n\n"
+               + "The key used to be road speed, which made mu constant in load and therefore made "
+               + "weight transfer free: an axle's total capacity did not move when load shifted across "
+               + "it, so anti-roll bars, centre-of-mass height and downforce could not change the "
+               + "balance of the car at all. A real tyre gives back less grip per newton the harder it "
+               + "is pressed, and that one fact is what makes all three of those into tuning levers.\n\n"
+               + "The fall with speed the old curve carried is not lost, it has moved to where it "
+               + "belongs: Downforce presses the tyres harder as the car goes faster, and this curve "
+               + "then charges for it.\n\n"
+               + "1.7 at the static load is a grippy road tyre and 1.0 is a car that will step out if "
+               + "you ask it to.")]
         public AnimationCurve LateralGrip = new AnimationCurve(
-            new Keyframe(0f, 1.70f),
-            new Keyframe(0.5f, 1.52f),
-            new Keyframe(1f, 1.32f));
+            new Keyframe(0f, 1.96f),
+            new Keyframe(1f, 1.70f),
+            new Keyframe(2f, 1.41f));
+
+        [Tooltip("Slip angle at which the tyre makes its most cornering force, degrees.\n\n"
+               + "Everything below this is the tyre building force as it is asked to, and it is the "
+               + "part the model did not have: the old one demanded the whole sideways velocity be "
+               + "cancelled every step, which saturated at about half a degree. Between gripping and "
+               + "sliding there was nothing.\n\n"
+               + "8° is a road tyre. Lower is sharper and less forgiving; higher is a tyre that lets go "
+               + "slowly and tells you it is doing it.")]
+        public float PeakSlipAngle = 8f;
+
+        [Tooltip("Slip ratio at which the tyre makes its most drive or brake force.\n\n"
+               + "The longitudinal half of the same curve. 0.12 means a wheel turning 12 % faster than "
+               + "the road is at the limit of what it can push with.")]
+        public float PeakSlipRatio = 0.12f;
+
+        [Tooltip("What is left of the grip once the tyre is well past its peak, as a fraction.\n\n"
+               + "This is the whole of what makes a limit findable. A curve that rose to a plateau and "
+               + "stayed there gives a car that is either holding on or is not, with nothing in "
+               + "between and no penalty for overdriving it. 0.89 is a road tyre: enough of a drop that "
+               + "asking for too much costs you, gentle enough that it does not snap.")]
+        [Range(0.5f, 1f)] public float GripPastPeak = 0.89f;
+
+        [Tooltip("How far the tyre has to roll before a change in slip has become a change in force, "
+               + "metres.\n\n"
+               + "A real tyre is a carcass that has to wind up before the tread can push, and half a "
+               + "metre is about right for a road tyre. It is also, not by accident, what keeps this "
+               + "model stable at a 50 Hz step: the force law gets stiffer as the car slows, and the "
+               + "rate this implies — speed over length — gets slower in exactly the same proportion. "
+               + "One number, doing the physical job and the numerical one, because they are the same "
+               + "job.")]
+        public float RelaxationLength = 0.5f;
+
+        [Tooltip("Rotational inertia of one wheel and tyre, kg·m².\n\n"
+               + "1.2 is about a 20 kg wheel at this radius. Larger blunts wheelspin and lock-up and "
+               + "makes the car feel heavier to get going; smaller makes both snappier.")]
+        public float WheelInertia = 1.2f;
+
+        /// <summary>
+        /// Stiffness factor of the tyre curve, derived so that the peak lands exactly at a normalised
+        /// slip of 1 — which is what lets <see cref="PeakSlipAngle"/> and <see cref="PeakSlipRatio"/>
+        /// mean what their names say.
+        ///
+        /// <para>The curve is <c>sin(C · atan(B · u))</c>, the magic formula with its curvature term
+        /// dropped. Two shape numbers rather than five, and both are read off values a person can
+        /// picture: where the peak is, and how much is left past it.</para>
+        /// </summary>
+        public float TyreShapeB => Mathf.Tan(Mathf.PI / (2f * TyreShapeC));
+
+        /// <summary>
+        /// Falloff factor of the tyre curve, derived from <see cref="GripPastPeak"/>.
+        ///
+        /// <para>The upper branch of the arcsine on purpose: <c>sin(C·π/2) = GripPastPeak</c> has two
+        /// solutions and the small one is a curve that never reaches its peak at all.</para>
+        /// </summary>
+        public float TyreShapeC =>
+            2f - 2f / Mathf.PI * Mathf.Asin(Mathf.Clamp(GripPastPeak, 0.5f, 1f));
 
         [Tooltip("What the handbrake does to rear grip on top of locking the wheels. The lock is "
                + "HandbrakeForceN and does most of the work; this is the rest.")]
@@ -619,10 +691,14 @@ namespace Horizon.Vehicle
                + "reads as a car.")]
         public float TurnInAssist = 3f;
 
-        [Tooltip("Downforce in N per (m/s)². Presses the car onto the road as speed rises. Kept low "
-               + "now that the car actually reaches 220 km/h — at 6 it would generate nearly twice the "
-               + "car's weight up there and feel glued.")]
-        public float Downforce = 2.5f;
+        [Tooltip("Downforce in N per (m/s)². Presses the car onto the road as speed rises.\n\n"
+               + "A third of what it was, and the reason is that nothing cancels it any more. The grip "
+               + "coefficient used to fall with speed, so downforce and that fall worked against each "
+               + "other and the net was mild. LateralGrip is keyed on wheel load now: downforce raises "
+               + "the load and the curve charges for it, which is the honest arrangement — but the "
+               + "sign of the second term has flipped, so the old numbers would have made every car "
+               + "corner better at 200 km/h than at 60.")]
+        public float Downforce = 0.8f;
 
         /// <summary>True if the wheel at <paramref name="index"/> is driven. 0/1 front, 2/3 rear.</summary>
         public bool IsDriven(int index)
