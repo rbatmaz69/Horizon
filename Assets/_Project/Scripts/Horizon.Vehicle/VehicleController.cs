@@ -58,9 +58,22 @@ namespace Horizon.Vehicle
         {
             public bool Grounded;
             public Vector3 ContactPoint;
+            public Vector3 ContactNormal;
             public float SpringLength;
             public float Compression01;
             public float SpinAngle;
+
+            /// <summary>
+            /// What this tyre is being pressed onto the road with, newtons — the spring and damper,
+            /// plus whatever the anti-roll bar has moved across the axle.
+            ///
+            /// <para>Separated from the spring force it starts as, because the bar runs <i>between</i>
+            /// the two wheels of an axle and therefore cannot be known while either is being measured
+            /// on its own. That ordering is the whole point of it existing: the friction budget below
+            /// is this number times a grip coefficient, so a bar that never reached here could lean
+            /// the body and change nothing about how much grip either end had.</para>
+            /// </summary>
+            public float NormalLoad;
 
             /// <summary>
             /// How much of the cornering force this tyre asked for it actually got, 0 to 1.
@@ -655,15 +668,28 @@ namespace Horizon.Vehicle
 
             float driveForcePerWheel = UpdateDrivetrain(deltaTime, throttle, reverse, brake);
 
+            // Three passes, and the order is the anti-roll bar's whole reason for being here.
+            //
+            // The bar acts *between* the two wheels of an axle, so what either tyre is standing on
+            // cannot be known until both springs have been measured. Measure all four, let the bars
+            // move load across, and only then ask the tyres what they can hold: that is what makes a
+            // bar a balance adjustment rather than a body-lean adjustment. It used to be a torque
+            // couple applied after the tyres had already been paid, which leaned the car exactly as
+            // it does now and left every friction budget in the car untouched.
             for (int i = 0; i < WheelCount; i++)
             {
-                UpdateWheel(i, deltaTime, speed01, driveForcePerWheel, brake, drive.Handbrake);
+                SuspendWheel(i, deltaTime);
+            }
+
+            TransferAntiRoll(FrontLeft, FrontRight);
+            TransferAntiRoll(RearLeft, RearRight);
+
+            for (int i = 0; i < WheelCount; i++)
+            {
+                DriveWheel(i, deltaTime, speed01, driveForcePerWheel, brake, drive.Handbrake);
             }
 
             UpdateSurfaceState();
-
-            ApplyAntiRoll(FrontLeft, FrontRight);
-            ApplyAntiRoll(RearLeft, RearRight);
 
             ApplyAxisDamping();
 
@@ -1088,13 +1114,14 @@ namespace Horizon.Vehicle
             return Mathf.Max(0f, config.TorqueByRpm.Evaluate(fraction)) * ratio;
         }
 
-        private void UpdateWheel(
-            int index,
-            float deltaTime,
-            float speed01,
-            float driveForcePerWheel,
-            float brake,
-            bool handbrake)
+        /// <summary>
+        /// Casts this wheel's ray and works out what it is standing on, without applying anything.
+        ///
+        /// <para>The first of the step's three wheel passes. Nothing here touches the rigidbody,
+        /// because the anti-roll bars have still to move load across the axles and the tyre's whole
+        /// friction budget is the number this leaves in <see cref="WheelState.NormalLoad"/>.</para>
+        /// </summary>
+        private void SuspendWheel(int index, float deltaTime)
         {
             Transform anchor = wheelAnchors[index];
             if (anchor == null)
@@ -1103,8 +1130,6 @@ namespace Horizon.Vehicle
             }
 
             WheelState wheel = wheels[index];
-            bool isFront = index < 2;
-            float wheelSteer = isFront ? steerAngle : 0f;
 
             float maxDistance = config.SuspensionRestLength + config.WheelRadius;
             bool hitGround = Physics.Raycast(
@@ -1122,12 +1147,13 @@ namespace Horizon.Vehicle
                 wheel.SpringLength = config.SuspensionRestLength;
                 wheel.LateralSlip = 0f;
                 wheel.SpinSlip = 0f;
-                UpdateWheelVisual(index, config.SuspensionRestLength, wheelSteer, forwardSpeed, deltaTime);
+                wheel.NormalLoad = 0f;
                 return;
             }
 
             wheel.Grounded = true;
             wheel.ContactPoint = hit.point;
+            wheel.ContactNormal = hit.normal;
             wheel.Surface = ResolveSurface(wheel, hit);
 
             // --- Suspension: spring pushes out of compression, damper resists the rate of change.
@@ -1150,17 +1176,57 @@ namespace Horizon.Vehicle
             wheel.SpringLength = springLength;
             wheel.Compression01 = compression / config.SuspensionRestLength;
 
-            float suspensionForce = Mathf.Max(
+            wheel.NormalLoad = Mathf.Max(
                 0f,
                 compression * config.SuspensionStiffness + compressionVelocity * config.SuspensionDamping);
-            body.AddForceAtPosition(transform.up * suspensionForce, hit.point);
+        }
+
+        /// <summary>
+        /// Applies what this wheel is standing on, and what its tyre makes of that.
+        ///
+        /// <para>Runs after every spring has been measured and both anti-roll bars have moved load
+        /// across their axles, so <see cref="WheelState.NormalLoad"/> is the finished figure — which is
+        /// why the vertical force and the friction budget below are the same number rather than two
+        /// numbers that agree by construction.</para>
+        /// </summary>
+        private void DriveWheel(
+            int index,
+            float deltaTime,
+            float speed01,
+            float driveForcePerWheel,
+            float brake,
+            bool handbrake)
+        {
+            Transform anchor = wheelAnchors[index];
+            if (anchor == null)
+            {
+                return;
+            }
+
+            WheelState wheel = wheels[index];
+            bool isFront = index < 2;
+            float wheelSteer = isFront ? steerAngle : 0f;
+
+            if (!wheel.Grounded)
+            {
+                UpdateWheelVisual(index, config.SuspensionRestLength, wheelSteer, forwardSpeed, deltaTime);
+                return;
+            }
+
+            // The bar's roll moment is not applied separately any more, and must not be: it is the
+            // difference between the two wheels of an axle pushing at their own contact points, which
+            // is what a real bar does and what this line now produces on its own. Adding the couple as
+            // well would be the bar counted twice.
+            float suspensionForce = wheel.NormalLoad;
+            body.AddForceAtPosition(transform.up * suspensionForce, wheel.ContactPoint);
 
             // --- Tyre frame, projected onto the surface so slopes behave.
+            Vector3 normal = wheel.ContactNormal;
             Vector3 steered = Quaternion.AngleAxis(wheelSteer, transform.up) * transform.forward;
-            Vector3 forward = Vector3.ProjectOnPlane(steered, hit.normal).normalized;
-            Vector3 right = Vector3.Cross(hit.normal, forward);
+            Vector3 forward = Vector3.ProjectOnPlane(steered, normal).normalized;
+            Vector3 right = Vector3.Cross(normal, forward);
 
-            Vector3 pointVelocity = body.GetPointVelocity(hit.point);
+            Vector3 pointVelocity = body.GetPointVelocity(wheel.ContactPoint);
             float lateralVelocity = Vector3.Dot(pointVelocity, right);
             float longitudinalVelocity = Vector3.Dot(pointVelocity, forward);
             float wheelShareOfMass = config.Mass * 0.25f;
@@ -1206,11 +1272,11 @@ namespace Horizon.Vehicle
             // could not be made to oversteer by any amount of throttle, and why the handbrake had to be
             // a special case.
             //
-            // The budget is the normal load times a grip coefficient, and the load is the suspension
-            // force computed a few lines above rather than a quarter of the car's mass. That is what
-            // brings load sensitivity for free: a wheel gone light over a crest or on the inside of a
-            // hairpin loses grip on its own, and the anti-roll bar's load transfer starts to mean
-            // something.
+            // The budget is the normal load times a grip coefficient, and the load is what the spring,
+            // the damper and the anti-roll bar between them decided this corner is carrying, rather
+            // than a quarter of the car's mass. A wheel gone light over a crest or on the inside of a
+            // hairpin loses grip on its own, and the bar's load transfer is felt here rather than only
+            // seen in how far the body leans.
             // Two multipliers and they mean different things. GripScale is what the world has done to
             // the car and applies to all four wheels at once — water, and later rain. The surface is
             // what this one wheel is standing on, so a car with two wheels on the verge is pulled
@@ -1255,8 +1321,8 @@ namespace Horizon.Vehicle
             float wanted = -lateralVelocity * wheelShareOfMass / deltaTime;
             float lateralForce = Mathf.Clamp(wanted, -capacity, capacity);
 
-            body.AddForceAtPosition(right * lateralForce, hit.point);
-            body.AddForceAtPosition(forward * longitudinalForce, hit.point);
+            body.AddForceAtPosition(right * lateralForce, wheel.ContactPoint);
+            body.AddForceAtPosition(forward * longitudinalForce, wheel.ContactPoint);
 
             // How much of what the tyre wanted it actually got, for the slip readouts and the overlay.
             // Measured rather than inferred from the wheel's angle, because at very low speed a slip
@@ -1264,7 +1330,7 @@ namespace Horizon.Vehicle
             wheel.GripUsed = Mathf.Abs(wanted) > 1f ? Mathf.Clamp01(Mathf.Abs(lateralForce / wanted)) : 1f;
             wheel.LateralSlip = Mathf.Abs(lateralVelocity);
 
-            UpdateWheelVisual(index, springLength, wheelSteer, longitudinalVelocity, deltaTime);
+            UpdateWheelVisual(index, wheel.SpringLength, wheelSteer, longitudinalVelocity, deltaTime);
         }
 
         /// <summary>
@@ -1341,10 +1407,27 @@ namespace Horizon.Vehicle
         }
 
         /// <summary>
-        /// Anti-roll bar. Transfers load across an axle so the body resists leaning, which is what
-        /// keeps the car on its wheels through a hairpin.
+        /// Anti-roll bar. Moves load across an axle so the body resists leaning.
+        ///
+        /// <para><b>It moves load, and until now it did not.</b> This doc comment has said "transfers
+        /// load across an axle" since the day it was written, and the code underneath applied a torque
+        /// couple at the contact points <i>after</i> all four tyres had already been asked what they
+        /// could hold. So the bar leaned the body and left every friction budget in the car exactly
+        /// where it found it — which is to say the one classical balance adjustment a car has did not
+        /// adjust the balance. A doc comment is not a test, and this file has already paid for that
+        /// lesson once, on the guard rails.</para>
+        ///
+        /// <para>The couple has not gone anywhere: two wheels of one axle pushing up by
+        /// <c>+transfer</c> and <c>-transfer</c> at their own contact points <i>is</i> the couple, and
+        /// <see cref="DriveWheel"/> applies it as part of the load. Applying it here as well would be
+        /// the bar counted twice.</para>
+        ///
+        /// <para><b>Clamped at zero, and that clamp is a feature.</b> A bar stiff enough to take more
+        /// load off the inside wheel than it had lifts it, and a lifted wheel has no grip — which is
+        /// exactly what the offroader's preset warns about in words and could not previously produce
+        /// in fact.</para>
         /// </summary>
-        private void ApplyAntiRoll(int leftIndex, int rightIndex)
+        private void TransferAntiRoll(int leftIndex, int rightIndex)
         {
             WheelState left = wheels[leftIndex];
             WheelState right = wheels[rightIndex];
@@ -1353,19 +1436,19 @@ namespace Horizon.Vehicle
                 return;
             }
 
-            // Positive when the left wheel is compressed more, i.e. the body leans left. Push the
-            // compressed side up and the extended side down.
+            // Positive when the left wheel is compressed more, i.e. the body leans left. The compressed
+            // side takes load and the extended side gives it up.
             float difference = left.Compression01 - right.Compression01;
-            float force = difference * config.AntiRollStiffness;
+            float transfer = difference * config.AntiRollStiffness;
 
             if (left.Grounded)
             {
-                body.AddForceAtPosition(transform.up * force, left.ContactPoint);
+                left.NormalLoad = Mathf.Max(0f, left.NormalLoad + transfer);
             }
 
             if (right.Grounded)
             {
-                body.AddForceAtPosition(-transform.up * force, right.ContactPoint);
+                right.NormalLoad = Mathf.Max(0f, right.NormalLoad - transfer);
             }
         }
 
