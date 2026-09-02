@@ -1472,6 +1472,16 @@ namespace Horizon.Vehicle
                 * GripScale
                 * WeatherGrip
                 * GroundSurface.GripOf(wheel.Surface);
+
+            // Wider tyres on the back. One number, and it is what decides which end of the car gives up
+            // first — which is in turn what makes a big steering angle safe to hand a driver. With both
+            // axles saturating together, every input past the limit was a coin toss between pushing
+            // wide and swapping ends.
+            if (!isFront)
+            {
+                mu *= config.RearGripBias;
+            }
+
             if (handbrake && !isFront)
             {
                 mu *= config.HandbrakeGrip;

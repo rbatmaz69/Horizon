@@ -93,11 +93,13 @@ namespace Horizon.Input
         /// answer, which is what it looked like from the driving seat: a car that broke away on a small
         /// input.</para>
         ///
-        /// <para>Shorter than the touch arrows' third of a second, because a keyboard player has both
+        /// <para>Well short of the touch arrows' third of a second, because a keyboard player has both
         /// hands on the thing and a phone player has a thumb, and because the router adds its own
-        /// smoothing on top of this.</para>
+        /// smoothing on top of this. It exists to take the step out of the input, not to slow the car
+        /// down: at 0.22 it was starting to read as the wheel being heavy rather than as the car being
+        /// steerable.</para>
         /// </summary>
-        private const float RampSeconds = 0.22f;
+        private const float RampSeconds = 0.16f;
 
         /// <summary>
         /// How much quicker the wheel returns than it turns. The same ratio the touch arrows use, for

@@ -73,6 +73,13 @@ namespace Horizon.Vehicle
         /// Without the bump the assets keep the old radius against a body lofted around the new one, and
         /// the car sits with its wheels through its arches.</para>
         ///
+        /// <para><b>15: the cars were given a sporting character rather than a safe one.</b>
+        /// <see cref="RearGripBias"/> is new and would otherwise land in every asset as 0 — no rear
+        /// grip at all — which is the plainest case this counter exists for.
+        /// <see cref="PeakSlipAngle"/>, <see cref="Downforce"/>, <see cref="TurnInAssist"/> and
+        /// <see cref="SteeringBySpeed"/> all move with it, and they move as a set: each one alone is
+        /// either useless or dangerous.</para>
+        ///
         /// <para><b>14: <see cref="SteeringBySpeed"/> was rebuilt against the geometry.</b> Same
         /// reason as 13 — a value change whose whole point is that the assets hold the old one — but a
         /// much larger one, and it is the fix for a car that broke away on a small steering input at
@@ -106,7 +113,7 @@ namespace Horizon.Vehicle
         /// bump the assets keep the short travel and the soft bar together, which is the one combination
         /// that rolls.</para>
         /// </summary>
-        public const int CurrentVersion = 14;
+        public const int CurrentVersion = 15;
 
         /// <summary>
         /// Which set of meanings this asset's numbers were chosen under.
@@ -580,18 +587,23 @@ namespace Horizon.Vehicle
                + "tyre that has to build its force through a slip angle, the same input is a yaw "
                + "transient no tyre can answer, and the car breaks away on what felt like a small "
                + "steering input. That is exactly what it was reported as.\n\n"
-               + "The shape now tracks that limit at about 1.3 to 1.8 times it, so full deflection can "
-               + "still reach the tyres' limit and go past it deliberately, and an ordinary input sits "
-               + "inside it. Full lock survives at manoeuvring speed, which is what MaxSteerAngle is "
-               + "for. CountersteerAuthority hands lock back once the car is already sideways, so "
-               + "catching a slide is unaffected.")]
+               + "The shape tracks that limit at about 1.6 to 2.4 times it. The first attempt at this "
+               + "sat at 1.3 to 1.8 and was wrong — cutting the lock is the answer to the symptom, not "
+               + "to the cause, and it produced a car that would not turn in. What actually lets a "
+               + "driver use a big angle at speed is the grip to pay for it: Downforce raises the limit "
+               + "itself, RearGripBias decides that overdriving the entry pushes wide rather than "
+               + "swapping ends, and PeakSlipAngle decides how quickly the front answers at all. With "
+               + "those three doing their work the extra lock is usable rather than dangerous.\n\n"
+               + "Full lock survives at manoeuvring speed, which is what MaxSteerAngle is for, and "
+               + "CountersteerAuthority hands lock back once the car is already sideways, so catching a "
+               + "slide is unaffected.")]
         public AnimationCurve SteeringBySpeed = new AnimationCurve(
             new Keyframe(0f, 1f),
-            new Keyframe(0.08f, 0.80f),
-            new Keyframe(0.15f, 0.62f),
-            new Keyframe(0.30f, 0.22f),
-            new Keyframe(0.60f, 0.075f),
-            new Keyframe(1f, 0.028f));
+            new Keyframe(0.15f, 0.85f),
+            new Keyframe(0.30f, 0.31f),
+            new Keyframe(0.45f, 0.16f),
+            new Keyframe(0.70f, 0.09f),
+            new Keyframe(1f, 0.056f));
 
         [Tooltip("Degrees per second the steering angle can change.\n\n"
                + "300 takes full lock in about 0.13 s. At 160 the rack itself was a fifth of a second "
@@ -619,14 +631,31 @@ namespace Horizon.Vehicle
             new Keyframe(1f, 1.70f),
             new Keyframe(2f, 1.41f));
 
+        [Tooltip("What the rear tyres hold as a multiple of the fronts.\n\n"
+               + "A sports car has wider rear tyres, and this is that, as one number. It is the "
+               + "difference between a car you can throw at a corner and one that answers by swapping "
+               + "ends: above 1 the front runs out of grip first, so overdriving the entry pushes wide "
+               + "— which a driver can feel coming and correct — instead of rotating past the point of "
+               + "return.\n\n"
+               + "It is the only thing that makes a large steering angle safe to hand out. Without it "
+               + "the two axles saturate together and every input past the limit is a coin toss.\n\n"
+               + "Below 1 is a car with its tail hung out on purpose. The pickup is the one that wants "
+               + "that.")]
+        [Range(0.85f, 1.25f)] public float RearGripBias = 1.06f;
+
         [Tooltip("Slip angle at which the tyre makes its most cornering force, degrees.\n\n"
                + "Everything below this is the tyre building force as it is asked to, and it is the "
                + "part the model did not have: the old one demanded the whole sideways velocity be "
                + "cancelled every step, which saturated at about half a degree. Between gripping and "
                + "sliding there was nothing.\n\n"
-               + "8° is a road tyre. Lower is sharper and less forgiving; higher is a tyre that lets go "
-               + "slowly and tells you it is doing it.")]
-        public float PeakSlipAngle = 8f;
+               + "It is also the directness knob, and the most honest one there is. Cornering stiffness "
+               + "— force per degree of slip — goes as 1/tan of this, so 5° is a tyre 1.6× stiffer than "
+               + "8° and a car that answers the wheel that much sooner. A soft road tyre peaks around "
+               + "8°, a fast road tyre around 6°, a track tyre nearer 5. That spread is most of what "
+               + "separates the coupé from the van, and it costs nothing to have.\n\n"
+               + "Lower is sharper and less forgiving; higher is a tyre that lets go slowly and tells "
+               + "you it is doing it.")]
+        public float PeakSlipAngle = 6f;
 
         [Tooltip("Slip ratio at which the tyre makes its most drive or brake force.\n\n"
                + "The longitudinal half of the same curve. 0.12 means a wheel turning 12 % faster than "
@@ -736,17 +765,28 @@ namespace Horizon.Vehicle
                + "coefficient that fell with speed, so at 200 km/h the same gain was being allowed to "
                + "command about a third more yaw than before. A car that rotates on this rather than on "
                + "its tyres is the failure to watch for; it should be doing nothing at all once the car "
-               + "is actually turning.")]
-        public float TurnInAssist = 1.5f;
+               + "is actually turning.\n\n"
+               + "Back up from 1.5 once PeakSlipAngle came down. That figure was chosen against a tyre "
+               + "that needed eight degrees to reach its peak, where the assist was carrying most of "
+               + "the turn-in on its own and it was right to take it away. A six-degree tyre builds "
+               + "half again as much force per degree and builds it sooner, so the assist is back to "
+               + "removing lag rather than supplying rotation — which is the only job it should ever "
+               + "have.")]
+        public float TurnInAssist = 2f;
 
         [Tooltip("Downforce in N per (m/s)². Presses the car onto the road as speed rises.\n\n"
-               + "A third of what it was, and the reason is that nothing cancels it any more. The grip "
-               + "coefficient used to fall with speed, so downforce and that fall worked against each "
-               + "other and the net was mild. LateralGrip is keyed on wheel load now: downforce raises "
-               + "the load and the curve charges for it, which is the honest arrangement — but the "
-               + "sign of the second term has flipped, so the old numbers would have made every car "
-               + "corner better at 200 km/h than at 60.")]
-        public float Downforce = 0.8f;
+               + "This is what buys a fast car its steering angle back. The usable steering angle goes "
+               + "as the lateral grip over the square of speed, so without aero it collapses to nothing "
+               + "and the car cannot be pointed at anything above 150 km/h. Downforce grows with the "
+               + "square of speed as well, which is why an aero car still turns up there — the two "
+               + "terms cancel.\n\n"
+               + "2.2 is about 9 kN at this car's top speed, roughly three quarters of its weight. "
+               + "LateralGrip is keyed on wheel load, so the curve does charge for it: the coefficient "
+               + "falls as the tyre is pressed harder, and the net gain is real but well short of the "
+               + "load itself. It was briefly cut to a third of this on the reasoning that nothing "
+               + "cancelled it any more, which was true and was the wrong conclusion — what it "
+               + "produced was a car that could not turn at speed at all.")]
+        public float Downforce = 2.2f;
 
         /// <summary>True if the wheel at <paramref name="index"/> is driven. 0/1 front, 2/3 rear.</summary>
         public bool IsDriven(int index)
