@@ -132,20 +132,20 @@ namespace Horizon.EditorTools
                     config.Mass = 1420f;
                     // A wagon carries its tank under a longer floor, so it gets more of one.
                     config.FuelCapacityLitres = 62f;
-                    config.CenterOfMass = new Vector3(0f, -0.36f, 0.02f);
+                    config.CenterOfMass = new Vector3(0f, -0.38f, 0.02f);
                     config.RollDamping = 2.7f;
                     config.PitchDamping = 1.1f;
-                    config.AntiRollStiffness = 19000f;   // 16750 × 0.34 / 0.30
+                    config.AntiRollStiffness = 19250f;
                     config.MaxTorqueNm = 470f;
                     config.RedlineRpm = 5400f;
                     config.UpshiftRpm = 5000f;
                     config.FinalDrive = 4.30f;
-                    config.LateralGrip = Grip(2.96f, 2.57f, 2.13f);
+                    config.LateralGrip = Grip(3.27f, 2.84f, 2.36f);
                     // The fastback's tyre a size narrower and a load in the back.
                     config.PeakSlipAngle = 7.0f;
-                    config.RearGripBias = 1.06f;
+                    config.RearGripBias = 1.08f;
                     // Same tail as the fastback, carrying a roof and a family.
-                    config.PowerOversteer = 0.55f;
+                    config.PowerOversteer = 0.00f;
                     config.MaxSteerAngle = 38f;
                     config.Downforce = 0.7f;
                     config.BrakeForce = 17000f;
@@ -165,10 +165,10 @@ namespace Horizon.EditorTools
                     config.Mass = 1950f;
                     // A van's range is the point of a van.
                     config.FuelCapacityLitres = 75f;
-                    config.CenterOfMass = new Vector3(0f, -0.12f, 0.10f);
+                    config.CenterOfMass = new Vector3(0f, -0.31f, 0.10f);
                     config.RollDamping = 3.4f;
                     config.PitchDamping = 1.5f;
-                    config.AntiRollStiffness = 23050f;   // 21650 × 0.33 / 0.31
+                    config.AntiRollStiffness = 22300f;
                     config.DrivenAxle = DrivenAxle.Front;
                     config.MaxTorqueNm = 420f;
                     config.IdleRpm = 700f;
@@ -189,10 +189,10 @@ namespace Horizon.EditorTools
                     // 4.90 at the old 0.44 m wheel, scaled by 0.46 / 0.44. Same top speed, same shift
                     // points, taller tyre.
                     config.FinalDrive = 5.12f;
-                    config.LateralGrip = Grip(1.88f, 1.63f, 1.35f);
+                    config.LateralGrip = Grip(2.88f, 2.50f, 2.07f);
                     // Nothing about this is sporting and the tyre says so first.
                     config.PeakSlipAngle = 9.0f;
-                    config.RearGripBias = 1.0f;
+                    config.RearGripBias = 1.04f;
                     // Front-driven: the throttle entry does not exist for it, and this says so out loud.
                     config.PowerOversteer = 0.00f;
                     config.MaxSteerAngle = 34f;
@@ -204,7 +204,7 @@ namespace Horizon.EditorTools
                     // Below the 3 the others run, but only just: the assist is what makes a car feel
                     // direct under a thumb, and taking it away entirely reads as broken steering rather
                     // than as a heavy vehicle.
-                    config.TurnInAssist = 2.2f;
+                    config.TurnInAssist = 2.6f;
                     config.DriftYawDamping = 3.2f;
                     config.CountersteerAuthority = 0.5f;
 
@@ -229,10 +229,10 @@ namespace Horizon.EditorTools
                     config.Mass = 1750f;
                     // Under the bed, and sized for the distances a pickup is bought for.
                     config.FuelCapacityLitres = 78f;
-                    config.CenterOfMass = new Vector3(0f, -0.28f, -0.05f);
+                    config.CenterOfMass = new Vector3(0f, -0.39f, -0.05f);
                     config.RollDamping = 3.0f;
                     config.PitchDamping = 1.3f;
-                    config.AntiRollStiffness = 19500f;   // 17875 × 0.36 / 0.33
+                    config.AntiRollStiffness = 19100f;
                     config.MaxTorqueNm = 520f;
                     config.RedlineRpm = 4600f;
                     config.UpshiftRpm = 4300f;
@@ -249,12 +249,12 @@ namespace Horizon.EditorTools
 
                     // 4.60 × 0.48 / 0.44.
                     config.FinalDrive = 5.02f;
-                    config.LateralGrip = Grip(2.28f, 1.98f, 1.64f);
+                    config.LateralGrip = Grip(3.12f, 2.71f, 2.25f);
                     // Under 1 on purpose: the loose tail is the whole character, and it is the only car here that gets it.
                     config.PeakSlipAngle = 8.5f;
-                    config.RearGripBias = 0.96f;
+                    config.RearGripBias = 1.02f;
                     // Almost anything provokes it. The loose tail is the point.
-                    config.PowerOversteer = 0.95f;
+                    config.PowerOversteer = 0.00f;
                     config.DriftRearGrip = 0.35f;
                     config.MaxSteerAngle = 36f;
                     config.SteerRate = 260f;
@@ -277,10 +277,10 @@ namespace Horizon.EditorTools
                     config.Mass = 980f;
                     // Small car, small tank — and the least thirsty engine here to drink from it.
                     config.FuelCapacityLitres = 45f;
-                    config.CenterOfMass = new Vector3(0f, -0.36f, 0.04f);
+                    config.CenterOfMass = new Vector3(0f, -0.37f, 0.04f);
                     config.RollDamping = 2.2f;
                     config.PitchDamping = 0.9f;
-                    config.AntiRollStiffness = 18650f;   // 16390 × 0.33 / 0.29
+                    config.AntiRollStiffness = 18600f;
                     config.DrivenAxle = DrivenAxle.Front;
                     config.MaxTorqueNm = 260f;
                     config.IdleRpm = 850f;
@@ -320,10 +320,10 @@ namespace Horizon.EditorTools
                     // 6.40 × 0.40 / 0.44 — the one car that gets a shorter final drive out of this,
                     // because it is the one on a smaller wheel.
                     config.FinalDrive = 5.82f;
-                    config.LateralGrip = Grip(3.22f, 2.79f, 2.31f);
+                    config.LateralGrip = Grip(3.46f, 3.00f, 2.49f);
                     // Sharp for its class, but front-driven — a big rear bias on a car whose fronts do everything would only add understeer it does not need.
                     config.PeakSlipAngle = 6.5f;
-                    config.RearGripBias = 1.02f;
+                    config.RearGripBias = 1.04f;
                     // Front-driven, same as the van.
                     config.PowerOversteer = 0.00f;
                     config.MaxSteerAngle = 42f;
@@ -353,10 +353,10 @@ namespace Horizon.EditorTools
                     config.Mass = 1560f;
                     // Enough for the coupe's appetite, which at 8000 rpm is considerable.
                     config.FuelCapacityLitres = 60f;
-                    config.CenterOfMass = new Vector3(0f, -0.36f, 0.02f);
+                    config.CenterOfMass = new Vector3(0f, -0.37f, 0.02f);
                     config.RollDamping = 2.4f;
                     config.PitchDamping = 1.0f;
-                    config.AntiRollStiffness = 23900f;   // 21500 × 0.30 / 0.27
+                    config.AntiRollStiffness = 23450f;
                     config.DrivenAxle = DrivenAxle.All;
                     config.MaxTorqueNm = 520f;
                     config.IdleRpm = 800f;
@@ -380,12 +380,12 @@ namespace Horizon.EditorTools
                     // one that arrives at the end of the straight first. Two cars with the same power
                     // and the same top speed are one car.
                     config.FinalDrive = 5.05f;
-                    config.LateralGrip = Grip(3.62f, 3.14f, 2.60f);
+                    config.LateralGrip = Grip(3.76f, 3.26f, 2.70f);
                     // The track tyre and the widest rear axle in the fleet. This is the car the whole change is aimed at.
                     config.PeakSlipAngle = 5.0f;
-                    config.RearGripBias = 1.08f;
+                    config.RearGripBias = 1.10f;
                     // All-wheel drive, so it takes real commitment to unstick.
-                    config.PowerOversteer = 0.60f;
+                    config.PowerOversteer = 0.00f;
                     config.MaxSteerAngle = 38f;
                     config.SteerRate = 310f;
                     config.BrakeForce = 19000f;
@@ -417,10 +417,10 @@ namespace Horizon.EditorTools
                     // and DrivenAxle is nearly the whole of the difference.
                     config.Mass = 1570f;
                     config.FuelCapacityLitres = 58f;
-                    config.CenterOfMass = new Vector3(0f, -0.37f, 0f);
+                    config.CenterOfMass = new Vector3(0f, -0.38f, 0f);
                     config.RollDamping = 2.3f;
                     config.PitchDamping = 1.0f;
-                    config.AntiRollStiffness = 23800f;   // 21500 × 0.31 / 0.28
+                    config.AntiRollStiffness = 24050f;
                     config.MaxTorqueNm = 560f;
                     config.IdleRpm = 780f;
                     config.RedlineRpm = 6800f;
@@ -439,12 +439,12 @@ namespace Horizon.EditorTools
                     config.PartThrottleUpshiftRpm = 3200f;
                     config.PartThrottleDownshiftRpm = 1600f;
                     config.FinalDrive = 4.20f;
-                    config.LateralGrip = Grip(3.46f, 3.00f, 2.49f);
+                    config.LateralGrip = Grip(3.64f, 3.16f, 2.62f);
                     // The most rear bias of any of them, because it has the coupé's power through two wheels and is the one car that cannot put down what it has.
                     config.PeakSlipAngle = 5.5f;
-                    config.RearGripBias = 1.09f;
+                    config.RearGripBias = 1.12f;
                     // The most provokable car here — the coupé's power through two wheels.
-                    config.PowerOversteer = 1.00f;
+                    config.PowerOversteer = 0.00f;
                     config.MaxSteerAngle = 37f;
                     config.SteerRate = 300f;
                     config.BrakeForce = 18500f;
@@ -483,10 +483,10 @@ namespace Horizon.EditorTools
                     // there is no baseline for the other nine to be interesting against.
                     config.Mass = 1120f;
                     config.FuelCapacityLitres = 52f;
-                    config.CenterOfMass = new Vector3(0f, -0.36f, 0.03f);
+                    config.CenterOfMass = new Vector3(0f, -0.37f, 0.03f);
                     config.RollDamping = 2.6f;
                     config.PitchDamping = 1.1f;
-                    config.AntiRollStiffness = 18100f;   // 16400 × 0.32 / 0.29
+                    config.AntiRollStiffness = 18850f;
                     config.MaxTorqueNm = 300f;
                     config.IdleRpm = 820f;
                     config.RedlineRpm = 6000f;
@@ -505,12 +505,12 @@ namespace Horizon.EditorTools
                     config.PartThrottleDownshiftRpm = 1450f;
                     // 4.64 × 0.42 / 0.44.
                     config.FinalDrive = 4.43f;
-                    config.LateralGrip = Grip(3.14f, 2.72f, 2.26f);
+                    config.LateralGrip = Grip(3.49f, 3.03f, 2.51f);
                     // The honest baseline, one step softer than the fastback.
                     config.PeakSlipAngle = 6.5f;
-                    config.RearGripBias = 1.05f;
+                    config.RearGripBias = 1.07f;
                     // Honest and willing.
-                    config.PowerOversteer = 0.70f;
+                    config.PowerOversteer = 0.00f;
                     config.MaxSteerAngle = 39f;
                     config.BrakeForce = 14500f;
                     config.RollingResistanceN = 42f;
@@ -531,10 +531,10 @@ namespace Horizon.EditorTools
                     // does. Where the saloon understeers politely, this one rotates.
                     config.Mass = 1080f;
                     config.FuelCapacityLitres = 50f;
-                    config.CenterOfMass = new Vector3(0f, -0.36f, -0.02f);
+                    config.CenterOfMass = new Vector3(0f, -0.38f, -0.02f);
                     config.RollDamping = 2.3f;
                     config.PitchDamping = 1.0f;
-                    config.AntiRollStiffness = 17850f;   // 16180 × 0.32 / 0.29
+                    config.AntiRollStiffness = 18800f;
                     config.MaxTorqueNm = 330f;
                     config.IdleRpm = 800f;
                     config.RedlineRpm = 6500f;
@@ -553,12 +553,12 @@ namespace Horizon.EditorTools
                     config.PartThrottleDownshiftRpm = 1550f;
                     // 5.47 × 0.42 / 0.44.
                     config.FinalDrive = 5.22f;
-                    config.LateralGrip = Grip(3.00f, 2.60f, 2.16f);
+                    config.LateralGrip = Grip(3.48f, 3.02f, 2.50f);
                     // Sharp and deliberately less planted than the saloon — where that one understeers politely, this one rotates.
                     config.PeakSlipAngle = 6.0f;
-                    config.RearGripBias = 1.03f;
+                    config.RearGripBias = 1.06f;
                     // Light and short-geared; it rotates where the saloon pushes.
-                    config.PowerOversteer = 0.85f;
+                    config.PowerOversteer = 0.00f;
 
                     // Low, like the pickup's: the handbrake swings this car rather than stopping it,
                     // which on something this light is the point of having one.
@@ -595,10 +595,10 @@ namespace Horizon.EditorTools
                     config.Mass = 2400f;
                     // The biggest tank in the fleet, under the biggest vehicle, feeding the heaviest right foot.
                     config.FuelCapacityLitres = 80f;
-                    config.CenterOfMass = new Vector3(0f, -0.10f, 0.04f);
+                    config.CenterOfMass = new Vector3(0f, -0.34f, 0.04f);
                     config.RollDamping = 3.8f;
                     config.PitchDamping = 1.7f;
-                    config.AntiRollStiffness = 25400f;
+                    config.AntiRollStiffness = 24750f;
                     config.SuspensionStiffness = 58000f;
                     config.SuspensionDamping = 5200f;
                     config.DrivenAxle = DrivenAxle.All;
@@ -623,12 +623,12 @@ namespace Horizon.EditorTools
                     // 4.89 × 0.48 / 0.44. The biggest correction in the file, and the one that matters
                     // most: 2400 kg geared 9% too long is a car that will not pull away from a junction.
                     config.FinalDrive = 5.33f;
-                    config.LateralGrip = Grip(1.69f, 1.47f, 1.22f);
+                    config.LateralGrip = Grip(2.84f, 2.46f, 2.04f);
                     // Tall, heavy and on tyres meant for mud.
                     config.PeakSlipAngle = 9.5f;
-                    config.RearGripBias = 1.0f;
+                    config.RearGripBias = 1.04f;
                     // Heavy and tall. It slides, but it takes a while to decide to.
-                    config.PowerOversteer = 0.30f;
+                    config.PowerOversteer = 0.00f;
                     config.MaxSteerAngle = 32f;
                     config.SteerRate = 220f;
                     config.BrakeForce = 22000f;
@@ -637,7 +637,7 @@ namespace Horizon.EditorTools
                     // A brick, and the drag is most of why it will not reach its own gearing.
                     config.AeroDrag = 1.05f;
                     config.Downforce = 0.25f;
-                    config.TurnInAssist = 1.9f;
+                    config.TurnInAssist = 2.4f;
                     config.DriftYawDamping = 3.6f;
                     config.CountersteerAuthority = 0.45f;
 

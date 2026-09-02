@@ -167,16 +167,19 @@ namespace Horizon.Vehicle
         /// Simulated across all ten cars at one, two and three times wheel load and from 0.3 to
         /// 65 m/s, a floor of 1 rings at low speed under load, and so does 1.5, 2 and 2.5 — the
         /// failure is a nonlinear limit cycle rather than a clean divergence, so the safe values are
-        /// not even contiguous. From 3 upwards every relaxation length from 0.5 to 1.0 m is clean.
-        /// Picked for the width of that region, not for its edge.</para>
+        /// not even contiguous. It went to 3, and when every car in the fleet was then given real grip
+        /// — the van from 1.5 g to 2.25, the coupé to 3.0 — the budgets rose again and 3 fell back over
+        /// the edge at the shortest relaxation length. Re-mapped, everything from 4 upwards is clean at
+        /// every relaxation length between 0.5 and 1.2 m. Picked for the middle of that region rather
+        /// than its edge, and without lengthening the relaxation, which would have cost lag.</para>
         ///
-        /// <para><b>And it is affordable now precisely because the grip is high.</b> Three was out of
-        /// the question at 1.7 g — at five the car crept down the pass. At 2.8 g the tyre needs a
-        /// three hundredth of its budget to hold station on a one-in-ten slope, which is about three
+        /// <para><b>And it is affordable precisely because the grip is high.</b> Four was out of the
+        /// question at 1.7 g — at five the car crept down the pass. At 3 g the tyre needs a
+        /// thirtieth of its budget to hold station on a one-in-ten slope, which works out at about four
         /// millimetres a second of creep. The number that made the low-speed end expensive is the same
         /// number that paid for it.</para>
         /// </summary>
-        private const float SlipReferenceSpeed = 3f;
+        private const float SlipReferenceSpeed = 4f;
 
         /// <summary>
         /// How many times the tyre and its wheel are advanced within one physics step.
@@ -224,13 +227,16 @@ namespace Horizon.Vehicle
         private const float PowerDriftRadius = 30f;
 
         /// <summary>
-        /// The same for braking, and deliberately more generous.
+        /// The same for braking, and the same number rather than a more generous one.
         ///
-        /// <para>Braking hard into a medium-fast bend is a legitimate way to unstick a car, where
-        /// standing on the throttle there is not. Only a straight has to be excluded, and a straight is
-        /// an infinite radius.</para>
+        /// <para>It was 70 m, on the reasoning that braking into a medium-fast bend is a legitimate way
+        /// to unstick a car. That reasoning assumes the brake carries a decision, and on a keyboard it
+        /// does not carry much of one: a key has no middle, so slowing for a corner and asking to be
+        /// sideways are the same input. Held to a hairpin, the two separate again — braking hard inside
+        /// thirty metres of radius is not something anybody does by accident, and it is exactly where
+        /// swinging the tail is useful.</para>
         /// </summary>
-        private const float BrakeDriftRadius = 70f;
+        private const float BrakeDriftRadius = 30f;
 
         /// <summary>How fast a drift request is taken up, per second. Under a fifth of a second.</summary>
         private const float DriftEntryRate = 6f;

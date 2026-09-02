@@ -12,9 +12,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 2e6c54b425c874741ae73be512ddf6a2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Horizon.Vehicle::Horizon.Vehicle.VehicleConfig
-  Version: 20
+  Version: 21
   Mass: 2400
-  CenterOfMass: {x: 0, y: -0.1, z: 0.04}
+  CenterOfMass: {x: 0, y: -0.34, z: 0.04}
   LinearDamping: 0
   AngularDamping: 0.05
   RollDamping: 3.8
@@ -23,7 +23,7 @@ MonoBehaviour:
   SuspensionRestLength: 0.34
   SuspensionStiffness: 58000
   SuspensionDamping: 5200
-  AntiRollStiffness: 25400
+  AntiRollStiffness: 24750
   DrivenAxle: 2
   MaxTorqueNm: 620
   TorqueByRpm:
@@ -116,7 +116,7 @@ MonoBehaviour:
     m_Curve:
     - serializedVersion: 3
       time: 0
-      value: 1.69
+      value: 2.84
       inSlope: 0
       outSlope: 0
       tangentMode: 0
@@ -125,7 +125,7 @@ MonoBehaviour:
       outWeight: 0
     - serializedVersion: 3
       time: 1
-      value: 1.47
+      value: 2.46
       inSlope: 0
       outSlope: 0
       tangentMode: 0
@@ -134,7 +134,7 @@ MonoBehaviour:
       outWeight: 0
     - serializedVersion: 3
       time: 2
-      value: 1.22
+      value: 2.04
       inSlope: 0
       outSlope: 0
       tangentMode: 0
@@ -144,18 +144,18 @@ MonoBehaviour:
     m_PreInfinity: 2
     m_PostInfinity: 2
     m_RotationOrder: 4
-  RearGripBias: 1
+  RearGripBias: 1.04
   PeakSlipAngle: 9.5
   PeakSlipRatio: 0.12
   GripPastPeak: 0.89
   RelaxationLength: 0.5
   WheelInertia: 1.2
   DriftRearGrip: 0.55
-  PowerOversteer: 0.3
+  PowerOversteer: 0
   HandbrakeForceN: 9000
   DriftSlipAngle: 12
   DriftYawDamping: 3.6
   CountersteerAuthority: 0.45
   TractionControl: 1
-  TurnInAssist: 1.9
+  TurnInAssist: 2.4
   Downforce: 0.25

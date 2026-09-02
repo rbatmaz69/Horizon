@@ -73,6 +73,13 @@ namespace Horizon.Vehicle
         /// Without the bump the assets keep the old radius against a body lofted around the new one, and
         /// the car sits with its wheels through its arches.</para>
         ///
+        /// <para><b>21: every car got grip, and the throttle stopped being a drift request.</b> The
+        /// spread was 1.47 to 3.14 and is 2.20 to 3.00 — a van that pulls 1.5 g next to a coupé that
+        /// pulls 3 is not two characters, it is one good car and one bad one. Centres of mass and
+        /// anti-roll bars move with it, and <see cref="PowerOversteer"/> goes to zero everywhere
+        /// because a keyboard's throttle is 1 at all times and a signal that is always present is not
+        /// a request.</para>
+        ///
         /// <para><b>20: the turn-in assist became the stability controller.</b> A value change, and
         /// the assets hold the old one.</para>
         ///
@@ -136,7 +143,7 @@ namespace Horizon.Vehicle
         /// bump the assets keep the short travel and the soft bar together, which is the one combination
         /// that rolls.</para>
         /// </summary>
-        public const int CurrentVersion = 20;
+        public const int CurrentVersion = 21;
 
         /// <summary>
         /// Which set of meanings this asset's numbers were chosen under.
@@ -163,7 +170,7 @@ namespace Horizon.Vehicle
                + "its own grip.\n\n"
                + "The van and the offroader are deliberately left high. That is their character, and "
                + "the price of it is that they are the two vehicles which do not get arcade grip.")]
-        public Vector3 CenterOfMass = new Vector3(0f, -0.40f, 0.05f);
+        public Vector3 CenterOfMass = new Vector3(0f, -0.42f, 0.05f);
 
         /// <summary>
         /// Rigidbody linear damping, and it is <b>zero on purpose</b>.
@@ -247,7 +254,7 @@ namespace Horizon.Vehicle
                + "Works on compression as a fraction of the travel, so it has to be rescaled whenever "
                + "SuspensionRestLength moves — see the note on VehicleConfigPresets. 15900 is 14000 "
                + "against the 0.30 m of travel this car used to have.")]
-        public float AntiRollStiffness = 19050f;
+        public float AntiRollStiffness = 18100f;
 
         [Header("Drivetrain")]
         [Tooltip("Which wheels get drive.\n\n"
@@ -654,9 +661,9 @@ namespace Horizon.Vehicle
                + "own tipping point. The van and the offroader keep their high centres of mass and "
                + "therefore keep road-car grip — deliberately, because that is what they are.")]
         public AnimationCurve LateralGrip = new AnimationCurve(
-            new Keyframe(0f, 3.44f),
-            new Keyframe(1f, 2.98f),
-            new Keyframe(2f, 2.47f));
+            new Keyframe(0f, 3.59f),
+            new Keyframe(1f, 3.11f),
+            new Keyframe(2f, 2.58f));
 
         [Tooltip("What the rear tyres hold as a multiple of the fronts.\n\n"
                + "A sports car has wider rear tyres, and this is that, as one number. It is the "
@@ -668,7 +675,7 @@ namespace Horizon.Vehicle
                + "the two axles saturate together and every input past the limit is a coin toss.\n\n"
                + "Below 1 is a car with its tail hung out on purpose. The pickup is the one that wants "
                + "that.")]
-        [Range(0.85f, 1.25f)] public float RearGripBias = 1.06f;
+        [Range(0.85f, 1.25f)] public float RearGripBias = 1.08f;
 
         [Tooltip("Slip angle at which the tyre makes its most cornering force, degrees.\n\n"
                + "Everything below this is the tyre building force as it is asked to, and it is the "
@@ -741,15 +748,20 @@ namespace Horizon.Vehicle
         [Range(0f, 1f)] public float DriftRearGrip = 0.55f;
 
         [Tooltip("How much a bootful of throttle in a tight corner counts as asking for a slide, 0 to 1.\n\n"
-               + "The third drift entry, and the only one that is a matter of character rather than of "
-               + "mechanism. At 0 the car cannot be provoked with the throttle at all and the handbrake "
-               + "and the brake are the way in; at 1 a rear-driven car steps out whenever it is asked "
-               + "for everything on a tight radius.\n\n"
+               + "Zero on every car, and the reason is the keyboard. A key has no middle: the throttle "
+               + "is either 0 or 1, and on a keyboard it is 1 essentially all of the time. A signal "
+               + "that is always present carries no request, so this read every tight corner taken at "
+               + "the only speed a keyboard can offer as a demand to be sideways — the liftback, at "
+               + "1.0, went into a full drift in every hairpin on the pass simply by driving through "
+               + "it.\n\n"
+               + "Above zero it needs an analogue throttle to mean anything: a gamepad trigger or the "
+               + "on-screen slider, where holding three quarters and holding all of it are different "
+               + "acts. Left as a field rather than deleted for exactly that reason.\n\n"
                + "Front-driven cars ignore it by construction rather than by a number — there is no "
                + "such thing as power oversteer when the driven wheels are the ones steering. And "
                + "traction control has to stand aside for it: the assist that exists to prevent this "
                + "wheelspin is the assist DriftIntent switches off.")]
-        [Range(0f, 1f)] public float PowerOversteer = 0.7f;
+        [Range(0f, 1f)] public float PowerOversteer;
 
         [Tooltip("Braking force the handbrake puts through each rear wheel, newtons.\n\n"
                + "Large on purpose: it has to be able to take the whole of a rear tyre's grip budget, "

@@ -12,9 +12,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 2e6c54b425c874741ae73be512ddf6a2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Horizon.Vehicle::Horizon.Vehicle.VehicleConfig
-  Version: 20
+  Version: 21
   Mass: 980
-  CenterOfMass: {x: 0, y: -0.36, z: 0.04}
+  CenterOfMass: {x: 0, y: -0.37, z: 0.04}
   LinearDamping: 0
   AngularDamping: 0.05
   RollDamping: 2.2
@@ -23,7 +23,7 @@ MonoBehaviour:
   SuspensionRestLength: 0.33
   SuspensionStiffness: 42000
   SuspensionDamping: 3800
-  AntiRollStiffness: 18650
+  AntiRollStiffness: 18600
   DrivenAxle: 0
   MaxTorqueNm: 260
   TorqueByRpm:
@@ -125,7 +125,7 @@ MonoBehaviour:
     m_Curve:
     - serializedVersion: 3
       time: 0
-      value: 3.22
+      value: 3.46
       inSlope: 0
       outSlope: 0
       tangentMode: 0
@@ -134,7 +134,7 @@ MonoBehaviour:
       outWeight: 0
     - serializedVersion: 3
       time: 1
-      value: 2.79
+      value: 3
       inSlope: 0
       outSlope: 0
       tangentMode: 0
@@ -143,7 +143,7 @@ MonoBehaviour:
       outWeight: 0
     - serializedVersion: 3
       time: 2
-      value: 2.31
+      value: 2.49
       inSlope: 0
       outSlope: 0
       tangentMode: 0
@@ -153,7 +153,7 @@ MonoBehaviour:
     m_PreInfinity: 2
     m_PostInfinity: 2
     m_RotationOrder: 4
-  RearGripBias: 1.02
+  RearGripBias: 1.04
   PeakSlipAngle: 6.5
   PeakSlipRatio: 0.12
   GripPastPeak: 0.89
