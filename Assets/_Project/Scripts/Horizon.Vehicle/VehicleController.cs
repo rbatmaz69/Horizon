@@ -194,6 +194,25 @@ namespace Horizon.Vehicle
         /// <summary>Speed below which no drift request is accepted, m/s. About 43 km/h.</summary>
         private const float DriftEntrySpeed = 12f;
 
+        /// <summary>
+        /// Corner radius at which a bootful of throttle counts fully as asking for a slide, metres.
+        ///
+        /// <para>Thirty is a hairpin or a tight serpentine; it fades to nothing by sixty. The world's
+        /// own corners set the scale — the pass turns at 20 m, the Weissjoch at 26 to 36, the Steilufer
+        /// at 38 to 70 — and a car at 180 km/h is driving a 90 m radius even at full lock, so the
+        /// motorway and the fast sweepers are excluded by geometry rather than by a speed test.</para>
+        /// </summary>
+        private const float PowerDriftRadius = 30f;
+
+        /// <summary>
+        /// The same for braking, and deliberately more generous.
+        ///
+        /// <para>Braking hard into a medium-fast bend is a legitimate way to unstick a car, where
+        /// standing on the throttle there is not. Only a straight has to be excluded, and a straight is
+        /// an infinite radius.</para>
+        /// </summary>
+        private const float BrakeDriftRadius = 70f;
+
         /// <summary>How fast a drift request is taken up, per second. Under a fifth of a second.</summary>
         private const float DriftEntryRate = 6f;
 
@@ -1812,36 +1831,40 @@ namespace Horizon.Vehicle
             }
             else if (Mathf.Abs(forwardSpeed) > DriftEntrySpeed)
             {
-                // How hard the car is actually leaning on its tyres, as a fraction of what they have.
+                // How tight a corner the car is actually driving, in metres. Not how hard it is
+                // leaning on its tyres, and the difference is the whole of the bug this replaces.
                 //
-                // <b>This replaced the steering input, and the difference is the whole of why the car
-                // used to smoke while going straight.</b> A driver correcting their line at speed moves
-                // the wheel a long way — SteeringBySpeed cuts the lock to a third up there, so a large
-                // input is a small angle — and on a keyboard every input is a large one, because a key
-                // ramps to its stop in a sixth of a second. Reading the input meant a nudge on a
-                // straight looked exactly like a committed corner. Reading the load cannot: a car going
-                // straight is pulling no lateral g whatever the driver's hands are doing.
+                // Lateral load was the second wrong quantity here. The first was the steering input,
+                // which on a keyboard is always large. The second looked right — a car going straight
+                // pulls no lateral g — but it closed a loop: the turn-in assist drives the yaw rate up
+                // to GripCapacityG·g/v whenever the driver asks for more angle than the car has, which
+                // makes LateralG/GripCapacityG exactly 1, which read as a committed corner, which took
+                // grip off the rear axle. The car broke away in fast bends because an assist had put
+                // it at its own limit and the drift trigger believed the reading.
                 //
-                // Centripetal, from the yaw rate the body actually has rather than from the geometry it
-                // was asked for, and against GripCapacityG, which is the budget the four tyres were
-                // really handed last step.
-                float cornering = Mathf.InverseLerp(
-                    0.55f, 0.9f, LateralG / Mathf.Max(0.01f, GripCapacityG));
+                // A radius cannot do that. It is v over the yaw rate, so it is infinite on a straight
+                // by construction, and in a fast sweeper it is hundreds of metres however hard the
+                // tyres are working. Only a genuinely tight corner is a small number, which is also
+                // exactly what "tight corner" means in the request this exists to serve.
+                float yawRate = Mathf.Abs(Vector3.Dot(body.angularVelocity, transform.up));
+                float radius = yawRate > 0.01f ? Mathf.Abs(forwardSpeed) / yawRate : float.MaxValue;
 
-                if (cornering > 0f)
+                // Trail-braking in. Hard on the brake, and in a corner — a generous one, because
+                // braking into a medium-fast bend is a legitimate way to unstick a car and only a
+                // straight has to be excluded.
+                float trail = Mathf.InverseLerp(0.45f, 0.9f, drive.Brake)
+                            * (1f - Mathf.InverseLerp(BrakeDriftRadius, BrakeDriftRadius * 2f, radius));
+                wanted = Mathf.Max(wanted, trail);
+
+                // Power on, and only where a bootful of throttle really would step the tail out.
+                // Front-driven cars are excluded by construction rather than by a number — there is no
+                // such thing as power oversteer when the driven wheels are the ones steering.
+                if (config.DrivenAxle != DrivenAxle.Front && config.PowerOversteer > 0f)
                 {
-                    // Trail-braking in. Hard on the brake, and genuinely in a corner.
-                    float trail = Mathf.InverseLerp(0.45f, 0.9f, drive.Brake) * cornering;
-                    wanted = Mathf.Max(wanted, trail);
-
-                    // Power on. Front-driven cars are excluded by construction rather than by a number
-                    // — there is no such thing as power oversteer when the driven wheels are the ones
-                    // steering.
-                    if (config.DrivenAxle != DrivenAxle.Front && config.PowerOversteer > 0f)
-                    {
-                        float power = Mathf.InverseLerp(0.92f, 1f, drive.Throttle) * cornering;
-                        wanted = Mathf.Max(wanted, power * config.PowerOversteer);
-                    }
+                    float power = Mathf.InverseLerp(0.92f, 1f, drive.Throttle)
+                                * (1f - Mathf.InverseLerp(
+                                    PowerDriftRadius, PowerDriftRadius * 2f, radius));
+                    wanted = Mathf.Max(wanted, power * config.PowerOversteer);
                 }
             }
 
