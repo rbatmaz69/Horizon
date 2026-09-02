@@ -312,6 +312,17 @@ namespace Horizon.Vehicle
         public float SlipAngle { get; private set; }
 
         /// <summary>
+        /// How hard the car is cornering right now, in g.
+        ///
+        /// <para>Centripetal, from the yaw rate the body actually has times its road speed — not from
+        /// the steering geometry, which says what was asked for rather than what happened. Against
+        /// <see cref="GripCapacityG"/> it is the only honest answer to "how close to the limit am I",
+        /// and that ratio is what decides whether a throttle or brake input counts as asking for a
+        /// slide.</para>
+        /// </summary>
+        public float LateralG { get; private set; }
+
+        /// <summary>
         /// How much the driver is asking to be sideways, 0 to 1.
         ///
         /// <para><b>The one number that decides whether this car is on rails or loose</b>, and the
@@ -557,12 +568,15 @@ namespace Horizon.Vehicle
             }
 
             float drift = Mathf.Max(1f, config.DriftSlipAngle);
-            float fromSlip = Mathf.InverseLerp(drift * 0.5f, drift * 1.5f, Mathf.Abs(SlipAngle));
+            // Asking to be sideways lowers the bar; it does not clear it. Maxing the fraction with the
+            // intent outright meant the smoke came on with the request rather than with the slide, so a
+            // car that was merely being asked nicely smoked while still going perfectly straight. The
+            // car still has to be sliding — it just counts sooner once the driver has committed, which
+            // is what keeps a handbrake turn smoking from its first degree.
+            float lower = Mathf.Lerp(drift * 0.5f, drift * 0.15f, DriftIntent);
+            float upper = Mathf.Lerp(drift * 1.5f, drift * 0.6f, DriftIntent);
 
-            // Or because the driver asked for it. Without this second input a car planted enough to
-            // never reach six degrees of body slip would lay no smoke at all — including through a
-            // handbrake turn, which is the one moment it must.
-            return Mathf.Clamp01(Mathf.Max(fromSlip, DriftIntent));
+            return Mathf.Clamp01(Mathf.InverseLerp(lower, upper, Mathf.Abs(SlipAngle)));
         }
 
         public VehicleConfig Config => config;
@@ -762,6 +776,9 @@ namespace Horizon.Vehicle
             float speed01 = Mathf.Clamp01(Mathf.Abs(forwardSpeed) / Mathf.Max(1f, config.TopSpeed));
 
             UpdateLongitudinalAcceleration(deltaTime);
+
+            LateralG = Mathf.Abs(Vector3.Dot(body.angularVelocity, transform.up) * forwardSpeed)
+                       / Physics.gravity.magnitude;
 
             // Before anything reads it. Six things do, and they all have to see the same value in the
             // same step or the car will be half-loose and half-planted.
@@ -1341,7 +1358,11 @@ namespace Horizon.Vehicle
             // one drift entry that this assist would otherwise make impossible — it exists to stop
             // exactly the wheelspin that entry is made of — so the request that opens the drift has to
             // be the request that stands it down.
-            wanted = Mathf.Lerp(wanted, 1f, DriftIntent);
+            //
+            // Only for a committed request, though. Scaled straight off the intent, half a request
+            // handed back half the wheelspin, and a car merely near its limit in a fast corner smoked
+            // its tyres for nothing. Nothing happens below a half.
+            wanted = Mathf.Lerp(wanted, 1f, Mathf.InverseLerp(0.5f, 1f, DriftIntent));
 
             float rate = wanted < tractionCut ? TractionCutRate : TractionRestoreRate;
             tractionCut = Mathf.MoveTowards(tractionCut, wanted, rate * deltaTime);
@@ -1791,22 +1812,36 @@ namespace Horizon.Vehicle
             }
             else if (Mathf.Abs(forwardSpeed) > DriftEntrySpeed)
             {
-                float steer = Mathf.Abs(drive.Steer);
+                // How hard the car is actually leaning on its tyres, as a fraction of what they have.
+                //
+                // <b>This replaced the steering input, and the difference is the whole of why the car
+                // used to smoke while going straight.</b> A driver correcting their line at speed moves
+                // the wheel a long way — SteeringBySpeed cuts the lock to a third up there, so a large
+                // input is a small angle — and on a keyboard every input is a large one, because a key
+                // ramps to its stop in a sixth of a second. Reading the input meant a nudge on a
+                // straight looked exactly like a committed corner. Reading the load cannot: a car going
+                // straight is pulling no lateral g whatever the driver's hands are doing.
+                //
+                // Centripetal, from the yaw rate the body actually has rather than from the geometry it
+                // was asked for, and against GripCapacityG, which is the budget the four tyres were
+                // really handed last step.
+                float cornering = Mathf.InverseLerp(
+                    0.55f, 0.9f, LateralG / Mathf.Max(0.01f, GripCapacityG));
 
-                // Trail-braking in. Both have to be a long way past half: braking gently through a bend
-                // is ordinary driving and must not read as a request.
-                float trail = Mathf.InverseLerp(0.45f, 0.9f, drive.Brake)
-                            * Mathf.InverseLerp(0.4f, 0.85f, steer);
-                wanted = Mathf.Max(wanted, trail);
-
-                // Power on. Front-driven cars are excluded by construction rather than by a number —
-                // there is no such thing as power oversteer when the driven wheels are the ones
-                // steering.
-                if (config.DrivenAxle != DrivenAxle.Front && config.PowerOversteer > 0f)
+                if (cornering > 0f)
                 {
-                    float power = Mathf.InverseLerp(0.85f, 1f, drive.Throttle)
-                                * Mathf.InverseLerp(0.5f, 0.9f, steer);
-                    wanted = Mathf.Max(wanted, power * config.PowerOversteer);
+                    // Trail-braking in. Hard on the brake, and genuinely in a corner.
+                    float trail = Mathf.InverseLerp(0.45f, 0.9f, drive.Brake) * cornering;
+                    wanted = Mathf.Max(wanted, trail);
+
+                    // Power on. Front-driven cars are excluded by construction rather than by a number
+                    // — there is no such thing as power oversteer when the driven wheels are the ones
+                    // steering.
+                    if (config.DrivenAxle != DrivenAxle.Front && config.PowerOversteer > 0f)
+                    {
+                        float power = Mathf.InverseLerp(0.92f, 1f, drive.Throttle) * cornering;
+                        wanted = Mathf.Max(wanted, power * config.PowerOversteer);
+                    }
                 }
             }
 

@@ -119,6 +119,12 @@ namespace Horizon.Game
                 // grip number from the config would be an answer for a car standing still and level.
                 // The slip ratios are the only place wheelspin and lock-up are visible as numbers:
                 // positive is a wheel outrunning the road, negative is one being dragged.
+                // Lateral g against what the tyres have. This is the number the drift entries are
+                // decided on, and the one that says whether "it feels wrong" means at the limit or
+                // nowhere near it.
+                GUILayout.Label($"lateral {vehicle.LateralG:0.00} g of {vehicle.GripCapacityG:0.00}"
+                              + $"   ({100f * vehicle.LateralG / Mathf.Max(0.01f, vehicle.GripCapacityG):0}%)");
+
                 GUILayout.Label($"capacity {vehicle.GripCapacityG:0.00} g   slip ratio "
                               + $"{vehicle.SlipRatioAt(0):0.00} {vehicle.SlipRatioAt(1):0.00} "
                               + $"{vehicle.SlipRatioAt(2):0.00} {vehicle.SlipRatioAt(3):0.00}");
