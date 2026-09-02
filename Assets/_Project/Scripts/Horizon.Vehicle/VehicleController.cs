@@ -191,6 +191,15 @@ namespace Horizon.Vehicle
         /// </summary>
         private const int SpinSubSteps = 8;
 
+        /// <summary>Speed below which no drift request is accepted, m/s. About 43 km/h.</summary>
+        private const float DriftEntrySpeed = 12f;
+
+        /// <summary>How fast a drift request is taken up, per second. Under a fifth of a second.</summary>
+        private const float DriftEntryRate = 6f;
+
+        /// <summary>How fast it decays once the driver stops asking. Deliberately slower than entry.</summary>
+        private const float DriftExitRate = 1.6f;
+
         /// <summary>How fast traction control takes torque away, per second. 50 ms to a full cut.</summary>
         private const float TractionCutRate = 20f;
 
@@ -287,13 +296,40 @@ namespace Horizon.Vehicle
             config != null ? Mathf.Clamp01(engineRpm / Mathf.Max(1f, config.RedlineRpm)) : 0f;
 
         /// <summary>
-        /// How far the car is travelling sideways to the way it is pointing, in degrees.
+        /// How far the car is travelling sideways to the way it is pointing, in degrees, <b>signed</b>.
         ///
-        /// Taken from the body's own velocity rather than from a tyre, so it is the angle you would
-        /// measure from outside the car — which is the one that matters for whether this reads as a
-        /// drift. Zero below walking pace, where the direction of travel is noise.
+        /// <para>Positive means the car is travelling to the right of where its nose points, which is
+        /// the tail having come round to the left. Taken from the body's own velocity rather than from
+        /// a tyre, so it is the angle you would measure from outside the car — which is the one that
+        /// matters for whether this reads as a drift. Zero below walking pace, where the direction of
+        /// travel is noise.</para>
+        ///
+        /// <para>Readers that only want to know <i>how</i> sideways take the absolute value at the
+        /// point of use. That is deliberate: a drift the driver is holding needs to know which way to
+        /// point the wheels, and one property that is sometimes signed and sometimes not would be two
+        /// numbers wearing one name.</para>
         /// </summary>
         public float SlipAngle { get; private set; }
+
+        /// <summary>
+        /// How much the driver is asking to be sideways, 0 to 1.
+        ///
+        /// <para><b>The one number that decides whether this car is on rails or loose</b>, and the
+        /// reason a slide is now a choice rather than an accident. At zero the turn-in assist has full
+        /// authority, the rear tyres have all their grip, traction control is sharp and the drift
+        /// damper is asleep — the car goes where it is pointed. As it rises all four of those hand
+        /// over together, so there is never a moment when two of them disagree about what the car is
+        /// doing.</para>
+        ///
+        /// <para>Three things raise it, and all three are the driver saying so: the handbrake, braking
+        /// hard while turning hard, and full throttle on a tight radius in a car with driven rear
+        /// wheels. Nothing about the road, the speed or the tyres can raise it on their own.</para>
+        ///
+        /// <para>It rises faster than it falls. Being slow into a slide is a car that ignores the
+        /// handbrake; being quick out of one is a car that snaps straight the instant you release, and
+        /// the second is much the worse of the two to drive.</para>
+        /// </summary>
+        public float DriftIntent { get; private set; }
 
         /// <summary>Sideways speed at the rear axle, m/s. What the tyre squeal is driven by.</summary>
         public float RearSlip { get; private set; }
@@ -401,7 +437,7 @@ namespace Horizon.Vehicle
         /// either.
         /// </summary>
         public bool IsDrifting =>
-            config != null && SlipAngle > config.DriftSlipAngle && RearGrip < 0.92f;
+            config != null && Mathf.Abs(SlipAngle) > config.DriftSlipAngle && RearGrip < 0.92f;
 
         private bool reversing;
 
@@ -521,7 +557,12 @@ namespace Horizon.Vehicle
             }
 
             float drift = Mathf.Max(1f, config.DriftSlipAngle);
-            return Mathf.Clamp01(Mathf.InverseLerp(drift * 0.5f, drift * 1.5f, SlipAngle));
+            float fromSlip = Mathf.InverseLerp(drift * 0.5f, drift * 1.5f, Mathf.Abs(SlipAngle));
+
+            // Or because the driver asked for it. Without this second input a car planted enough to
+            // never reach six degrees of body slip would lay no smoke at all — including through a
+            // handbrake turn, which is the one moment it must.
+            return Mathf.Clamp01(Mathf.Max(fromSlip, DriftIntent));
         }
 
         public VehicleConfig Config => config;
@@ -676,6 +717,7 @@ namespace Horizon.Vehicle
             }
 
             tractionCut = 1f;
+            DriftIntent = 0f;
 
             // A car put down on a road is put down *inside* whatever it lands touching, and PhysX
             // reports the push-out as a contact. Every placement — the start screen, the pause menu's
@@ -721,14 +763,30 @@ namespace Horizon.Vehicle
 
             UpdateLongitudinalAcceleration(deltaTime);
 
+            // Before anything reads it. Six things do, and they all have to see the same value in the
+            // same step or the car will be half-loose and half-planted.
+            UpdateDriftIntent(deltaTime, drive);
+
             // Lock available at this speed, plus whatever the slide has earned back. SteeringBySpeed
-            // cuts to a third at speed to keep a straight calm, and that is the exact opposite of what
-            // is needed with the car sideways — see ApplyDriftAssists.
+            // falls hard with speed to keep a straight calm, and that is the exact opposite of what is
+            // needed with the car sideways.
+            //
+            // Two reasons to hand the lock back, and they are different questions. The slip term
+            // catches a slide that has already started, which is a recovery; the intent term hands it
+            // back the moment the driver asks, which is a request. Without the second, a handbrake turn
+            // at speed begins with a third of the lock and the car cannot be pointed anywhere.
             float lock01 = config.SteeringBySpeed.Evaluate(speed01);
-            if (SlipAngle > config.DriftSlipAngle)
+            float slide = 0f;
+            if (Mathf.Abs(SlipAngle) > config.DriftSlipAngle)
             {
-                float past = Mathf.InverseLerp(config.DriftSlipAngle, config.DriftSlipAngle + 25f, SlipAngle);
-                lock01 = Mathf.Lerp(lock01, 1f, past * config.CountersteerAuthority);
+                slide = Mathf.InverseLerp(
+                    config.DriftSlipAngle, config.DriftSlipAngle + 25f, Mathf.Abs(SlipAngle));
+            }
+
+            float freed = Mathf.Max(slide, DriftIntent) * config.CountersteerAuthority;
+            if (freed > 0f)
+            {
+                lock01 = Mathf.Lerp(lock01, 1f, freed);
             }
 
             float targetSteer = drive.Steer * config.MaxSteerAngle * lock01;
@@ -791,7 +849,7 @@ namespace Horizon.Vehicle
             ApplyAxisDamping();
 
             UpdateSlipState(velocity);
-            ApplyTurnInAssist(drive.Handbrake);
+            ApplyTurnInAssist();
             ApplyDriftAssists();
 
             // Aerodynamic drag, on the body once — not per wheel. Applying drag four times over is how
@@ -908,17 +966,20 @@ namespace Horizon.Vehicle
         /// rotation the tyres could not have produced, and a corner taken too fast still runs wide.
         /// What it removes is the lag, not the limit.</para>
         ///
-        /// <para><b>Why it stops at the drift line.</b> Past <see cref="VehicleConfig.DriftSlipAngle"/>
-        /// the car belongs to <c>DriftYawDamping</c> and <c>CountersteerAuthority</c>. Leaving this one
-        /// running there would put two controllers on the yaw axis with opposite ideas — one trying to
-        /// reach a target rate, the other trying to bleed rate off — and a slide would neither hold nor
-        /// catch. It fades out over the same band the drift assists fade in over, so nothing is fighting
-        /// at the handover. The handbrake is a deliberate request to break traction, so it switches the
-        /// assist off outright.</para>
+        /// <para><b>Why it stops when the driver asks to slide.</b> While <see cref="DriftIntent"/> is
+        /// up the car belongs to <c>DriftYawDamping</c> and <c>CountersteerAuthority</c>. Leaving this
+        /// one running there would put two controllers on the yaw axis with opposite ideas — one trying
+        /// to reach a target rate, the other trying to bleed rate off — and a slide would neither hold
+        /// nor catch. The two fade against the same number and sum to one, so there is no moment when
+        /// both are half in charge and none when neither is.</para>
+        ///
+        /// <para>It used to fade on the slip angle instead, which decided the handover by the symptom
+        /// rather than by the cause: the assist switched itself off whenever the car got loose, for any
+        /// reason, including the reasons an arcade car is not supposed to get loose for.</para>
         /// </summary>
-        private void ApplyTurnInAssist(bool handbrake)
+        private void ApplyTurnInAssist()
         {
-            if (config.TurnInAssist <= 0f || handbrake || GroundedWheelCount == 0)
+            if (config.TurnInAssist <= 0f || DriftIntent >= 1f || GroundedWheelCount == 0)
             {
                 return;
             }
@@ -931,12 +992,11 @@ namespace Horizon.Vehicle
                 return;
             }
 
-            float authority = GroundedWheelCount * 0.25f;
-            if (SlipAngle > config.DriftSlipAngle)
-            {
-                authority *= 1f - Mathf.InverseLerp(
-                    config.DriftSlipAngle, config.DriftSlipAngle + 25f, SlipAngle);
-            }
+            // Hands over to the drift assists on the driver's request rather than on how sideways the
+            // car has become. Fading on slip meant the assist switched itself off whenever the car got
+            // loose for any reason — including the reasons an arcade car is not supposed to get loose
+            // for — and the handover was decided by the symptom instead of the cause.
+            float authority = GroundedWheelCount * 0.25f * (1f - DriftIntent);
 
             if (authority <= 0f)
             {
@@ -1277,6 +1337,12 @@ namespace Horizon.Vehicle
             float peak = Mathf.Max(0.01f, config.PeakSlipRatio);
             float wanted = 1f - Mathf.InverseLerp(peak, peak * 3f, worst);
 
+            // And it gets out of the way when the driver asks to be sideways. Power oversteer is the
+            // one drift entry that this assist would otherwise make impossible — it exists to stop
+            // exactly the wheelspin that entry is made of — so the request that opens the drift has to
+            // be the request that stands it down.
+            wanted = Mathf.Lerp(wanted, 1f, DriftIntent);
+
             float rate = wanted < tractionCut ? TractionCutRate : TractionRestoreRate;
             tractionCut = Mathf.MoveTowards(tractionCut, wanted, rate * deltaTime);
 
@@ -1492,9 +1558,12 @@ namespace Horizon.Vehicle
                 mu *= config.RearGripBias;
             }
 
-            if (handbrake && !isFront)
+            // What the rear tyres give up while the driver is asking to be sideways. This used to be a
+            // handbrake-only multiplier, which meant the handbrake was the only way in; it is the same
+            // number doing the same job, asked for by the same request that moves everything else.
+            if (!isFront && DriftIntent > 0f)
             {
-                mu *= config.HandbrakeGrip;
+                mu *= Mathf.Lerp(1f, config.DriftRearGrip, DriftIntent);
             }
 
             float budget = suspensionForce * mu;
@@ -1661,19 +1730,88 @@ namespace Horizon.Vehicle
                 Vector3 heading = transform.forward;
                 heading.y = 0f;
 
-                // Unsigned: which way round a slide is going matters to the assists, which read the yaw
-                // rate directly, but not to anything that only wants to know how sideways it is.
-                SlipAngle = Vector3.Angle(heading, flat.normalized);
+                // Signed, about the car's own up: positive means the car is travelling to the right of
+                // where its nose is pointing, which is the tail having come round to the left.
+                //
+                // It was unsigned, on the reasoning that the assists read the yaw rate directly and
+                // nothing else cared which way round a slide was. A drift the driver asks for cares:
+                // holding one means knowing which way to point the wheels, and that is a question about
+                // direction, not about magnitude. Everything that only wants "how sideways" takes the
+                // absolute value at the point of use, which is one call and visible.
+                SlipAngle = Vector3.SignedAngle(heading, flat.normalized, Vector3.up);
 
-                // Reversing is not a 180° drift.
+                // Reversing is not a 180° drift. Folded about ±90 with the sign kept.
                 if (SlipAngle > 90f)
                 {
                     SlipAngle = 180f - SlipAngle;
+                }
+                else if (SlipAngle < -90f)
+                {
+                    SlipAngle = -180f - SlipAngle;
                 }
             }
 
             RearSlip = Mathf.Max(wheels[RearLeft].LateralSlip, wheels[RearRight].LateralSlip);
             RearGrip = Mathf.Min(wheels[RearLeft].GripUsed, wheels[RearRight].GripUsed);
+        }
+
+        /// <summary>
+        /// Works out how much the driver is asking to be sideways, and eases
+        /// <see cref="DriftIntent"/> toward it.
+        ///
+        /// <para><b>Three ways in, and every one of them is an input rather than an outcome.</b> That
+        /// is the whole design: the car is planted until somebody asks it not to be, so nothing about
+        /// the corner, the camber or the speed can start a slide on its own.</para>
+        ///
+        /// <list type="bullet">
+        /// <item><b>The handbrake</b> asks outright, and asks for all of it.</item>
+        /// <item><b>Braking hard while turning hard</b> is the entry a driver already knows. Both
+        /// pedals have to be well past half, so it cannot happen while merely braking in a bend.</item>
+        /// <item><b>Full throttle on a tight radius</b>, and only in a car with driven rear wheels.
+        /// This is the one that needs traction control to stand aside, which is exactly what
+        /// <see cref="UpdateTractionControl"/> does with this number — the assist that normally
+        /// prevents power oversteer is the assist that has to yield for it.</item>
+        /// </list>
+        ///
+        /// <para>All three are held below <see cref="DriftEntrySpeed"/>, because a car being parked is
+        /// not asking for anything, and at walking pace the slip angle is noise anyway.</para>
+        ///
+        /// <para><b>Faster in than out</b>, and the asymmetry is the same one the turbo uses. Late into
+        /// a slide is a car that ignores the handbrake; quick out of one is a car that snaps straight
+        /// the instant the button is released, which is far the worse of the two — a drift wants to
+        /// decay, not to end.</para>
+        /// </summary>
+        private void UpdateDriftIntent(float deltaTime, IDriveInput drive)
+        {
+            float wanted = 0f;
+
+            if (drive.Handbrake)
+            {
+                wanted = 1f;
+            }
+            else if (Mathf.Abs(forwardSpeed) > DriftEntrySpeed)
+            {
+                float steer = Mathf.Abs(drive.Steer);
+
+                // Trail-braking in. Both have to be a long way past half: braking gently through a bend
+                // is ordinary driving and must not read as a request.
+                float trail = Mathf.InverseLerp(0.45f, 0.9f, drive.Brake)
+                            * Mathf.InverseLerp(0.4f, 0.85f, steer);
+                wanted = Mathf.Max(wanted, trail);
+
+                // Power on. Front-driven cars are excluded by construction rather than by a number —
+                // there is no such thing as power oversteer when the driven wheels are the ones
+                // steering.
+                if (config.DrivenAxle != DrivenAxle.Front && config.PowerOversteer > 0f)
+                {
+                    float power = Mathf.InverseLerp(0.85f, 1f, drive.Throttle)
+                                * Mathf.InverseLerp(0.5f, 0.9f, steer);
+                    wanted = Mathf.Max(wanted, power * config.PowerOversteer);
+                }
+            }
+
+            float rate = wanted > DriftIntent ? DriftEntryRate : DriftExitRate;
+            DriftIntent = Mathf.MoveTowards(DriftIntent, wanted, rate * deltaTime);
         }
 
         /// <summary>
@@ -1696,12 +1834,17 @@ namespace Horizon.Vehicle
         /// </summary>
         private void ApplyDriftAssists()
         {
-            if (GroundedWheelCount == 0 || SlipAngle <= config.DriftSlipAngle)
+            if (GroundedWheelCount == 0 || DriftIntent <= 0f)
             {
                 return;
             }
 
-            float past = Mathf.InverseLerp(config.DriftSlipAngle, config.DriftSlipAngle + 25f, SlipAngle);
+            // On the request, not on the slip angle. This term damps yaw rate without caring which way
+            // the car is rotating, so gated on slip it fought the turn-in of every corner taken past
+            // twelve degrees just as hard as it caught a spin. Inside a drift that is exactly what is
+            // wanted — the angle holds and only a runaway is arrested — and outside one it should not
+            // be running at all.
+            float past = DriftIntent;
             float yawRate = Vector3.Dot(body.angularVelocity, transform.up);
 
             // Force, not Impulse: a continuous torque for as long as the car is sideways. The first

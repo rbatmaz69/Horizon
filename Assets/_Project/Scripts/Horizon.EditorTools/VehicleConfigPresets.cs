@@ -144,6 +144,8 @@ namespace Horizon.EditorTools
                     // The fastback's tyre a size narrower and a load in the back.
                     config.PeakSlipAngle = 7.0f;
                     config.RearGripBias = 1.06f;
+                    // Same tail as the fastback, carrying a roof and a family.
+                    config.PowerOversteer = 0.55f;
                     config.MaxSteerAngle = 38f;
                     config.Downforce = 0.7f;
                     config.BrakeForce = 17000f;
@@ -191,6 +193,8 @@ namespace Horizon.EditorTools
                     // Nothing about this is sporting and the tyre says so first.
                     config.PeakSlipAngle = 9.0f;
                     config.RearGripBias = 1.0f;
+                    // Front-driven: the throttle entry does not exist for it, and this says so out loud.
+                    config.PowerOversteer = 0.00f;
                     config.MaxSteerAngle = 34f;
                     config.SteerRate = 240f;
                     config.BrakeForce = 19000f;
@@ -249,7 +253,9 @@ namespace Horizon.EditorTools
                     // Under 1 on purpose: the loose tail is the whole character, and it is the only car here that gets it.
                     config.PeakSlipAngle = 8.5f;
                     config.RearGripBias = 0.96f;
-                    config.HandbrakeGrip = 0.35f;
+                    // Almost anything provokes it. The loose tail is the point.
+                    config.PowerOversteer = 0.95f;
+                    config.DriftRearGrip = 0.35f;
                     config.MaxSteerAngle = 36f;
                     config.SteerRate = 260f;
                     config.BrakeForce = 17500f;
@@ -318,6 +324,8 @@ namespace Horizon.EditorTools
                     // Sharp for its class, but front-driven — a big rear bias on a car whose fronts do everything would only add understeer it does not need.
                     config.PeakSlipAngle = 6.5f;
                     config.RearGripBias = 1.02f;
+                    // Front-driven, same as the van.
+                    config.PowerOversteer = 0.00f;
                     config.MaxSteerAngle = 42f;
                     config.SteerRate = 320f;
                     config.BrakeForce = 13500f;
@@ -376,6 +384,8 @@ namespace Horizon.EditorTools
                     // The track tyre and the widest rear axle in the fleet. This is the car the whole change is aimed at.
                     config.PeakSlipAngle = 5.0f;
                     config.RearGripBias = 1.08f;
+                    // All-wheel drive, so it takes real commitment to unstick.
+                    config.PowerOversteer = 0.60f;
                     config.MaxSteerAngle = 38f;
                     config.SteerRate = 310f;
                     config.BrakeForce = 19000f;
@@ -433,6 +443,8 @@ namespace Horizon.EditorTools
                     // The most rear bias of any of them, because it has the coupé's power through two wheels and is the one car that cannot put down what it has.
                     config.PeakSlipAngle = 5.5f;
                     config.RearGripBias = 1.09f;
+                    // The most provokable car here — the coupé's power through two wheels.
+                    config.PowerOversteer = 1.00f;
                     config.MaxSteerAngle = 37f;
                     config.SteerRate = 300f;
                     config.BrakeForce = 18500f;
@@ -497,6 +509,8 @@ namespace Horizon.EditorTools
                     // The honest baseline, one step softer than the fastback.
                     config.PeakSlipAngle = 6.5f;
                     config.RearGripBias = 1.05f;
+                    // Honest and willing.
+                    config.PowerOversteer = 0.70f;
                     config.MaxSteerAngle = 39f;
                     config.BrakeForce = 14500f;
                     config.RollingResistanceN = 42f;
@@ -543,10 +557,12 @@ namespace Horizon.EditorTools
                     // Sharp and deliberately less planted than the saloon — where that one understeers politely, this one rotates.
                     config.PeakSlipAngle = 6.0f;
                     config.RearGripBias = 1.03f;
+                    // Light and short-geared; it rotates where the saloon pushes.
+                    config.PowerOversteer = 0.85f;
 
                     // Low, like the pickup's: the handbrake swings this car rather than stopping it,
                     // which on something this light is the point of having one.
-                    config.HandbrakeGrip = 0.40f;
+                    config.DriftRearGrip = 0.40f;
                     config.MaxSteerAngle = 41f;
                     config.SteerRate = 320f;
                     config.BrakeForce = 14000f;
@@ -611,6 +627,8 @@ namespace Horizon.EditorTools
                     // Tall, heavy and on tyres meant for mud.
                     config.PeakSlipAngle = 9.5f;
                     config.RearGripBias = 1.0f;
+                    // Heavy and tall. It slides, but it takes a while to decide to.
+                    config.PowerOversteer = 0.30f;
                     config.MaxSteerAngle = 32f;
                     config.SteerRate = 220f;
                     config.BrakeForce = 22000f;

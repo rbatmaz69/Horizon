@@ -171,8 +171,17 @@ namespace Horizon.Vehicle
         [SerializeField] private float blowOffCooldown = 0.30f;
 
         [Header("Tyres")]
-        [Tooltip("Sideways speed at the rear axle, m/s, at which the squeal is at full volume.")]
-        [SerializeField] private float squealFullSlip = 6f;
+        [Tooltip("Sideways speed at the rear axle, m/s, at which the squeal is at full volume.\n\n"
+               + "Down from 6 when the car became an arcade car. A tyre at its limit is sliding by "
+               + "about tan(peak slip angle) times road speed, which for a six-degree tyre is a tenth "
+               + "of it — so at 55 km/h a car right on the edge of its grip was reaching a quarter of "
+               + "this figure, and the volume goes as the square, which is silence. The car got harder "
+               + "to unstick and the sound of being at the limit went with it, which is the wrong way "
+               + "round: the more planted the car, the more the driver needs telling where the edge "
+               + "is.\n\n"
+               + "A deliberate slide is far past this and saturates, which is correct — a handbrake "
+               + "turn should be the loudest thing the tyres do.")]
+        [SerializeField] private float squealFullSlip = 3.5f;
 
         [SerializeField] private float squealVolume = 0.42f;
 

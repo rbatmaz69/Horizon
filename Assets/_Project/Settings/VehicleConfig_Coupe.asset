@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 2e6c54b425c874741ae73be512ddf6a2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Horizon.Vehicle::Horizon.Vehicle.VehicleConfig
-  Version: 17
+  Version: 18
   Mass: 1560
   CenterOfMass: {x: 0, y: -0.36, z: 0.02}
   LinearDamping: 0
@@ -218,7 +218,8 @@ MonoBehaviour:
   GripPastPeak: 0.89
   RelaxationLength: 0.5
   WheelInertia: 1.2
-  HandbrakeGrip: 0.55
+  DriftRearGrip: 0.55
+  PowerOversteer: 0.6
   HandbrakeForceN: 9000
   DriftSlipAngle: 12
   DriftYawDamping: 3

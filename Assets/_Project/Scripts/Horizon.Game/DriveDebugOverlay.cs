@@ -106,9 +106,13 @@ namespace Horizon.Game
                 // The tyre model is tuned by watching these while driving — there is no other way to
                 // see whether the rear is at its limit, and a number that only exists in the physics
                 // step is a number nobody can tune against.
+                // Slip is signed now: positive is the tail out to the left. The intent figure beside
+                // it is the one that says whether the car is loose because the driver asked or because
+                // something went wrong, which is the whole distinction this handling model is built on.
                 string drifting = vehicle.IsDrifting ? "  DRIFT" : string.Empty;
-                GUILayout.Label($"slip {vehicle.SlipAngle:0}°   rear {vehicle.RearSlip:0.0} m/s"
-                              + $"   grip {vehicle.RearGrip:0.00}{drifting}");
+                GUILayout.Label($"slip {vehicle.SlipAngle:+0;-0}°   rear {vehicle.RearSlip:0.0} m/s"
+                              + $"   grip {vehicle.RearGrip:0.00}"
+                              + $"   intent {vehicle.DriftIntent:0.00}{drifting}");
 
                 // What all four tyres together could hold, and what each one is doing about it. The
                 // capacity moves with load transfer, downforce, the surface and the rain, so a single

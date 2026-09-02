@@ -73,6 +73,11 @@ namespace Horizon.Vehicle
         /// Without the bump the assets keep the old radius against a body lofted around the new one, and
         /// the car sits with its wheels through its arches.</para>
         ///
+        /// <para><b>18: sliding became something the driver asks for.</b> <c>HandbrakeGrip</c> is
+        /// <see cref="DriftRearGrip"/> now — same number, same job, but reached by three entries
+        /// instead of one — and <see cref="PowerOversteer"/> is new and would land in every asset as
+        /// zero, which is the entry silently missing on all ten cars.</para>
+        ///
         /// <para><b>17: the grip went to arcade levels.</b> <see cref="LateralGrip"/> is nearly
         /// trebled, <see cref="Downforce"/> halved again, and the steering curve opened back up
         /// because the usable angle rose with the grip. Values, not meanings — and the assets hold
@@ -123,7 +128,7 @@ namespace Horizon.Vehicle
         /// bump the assets keep the short travel and the soft bar together, which is the one combination
         /// that rolls.</para>
         /// </summary>
-        public const int CurrentVersion = 17;
+        public const int CurrentVersion = 18;
 
         /// <summary>
         /// Which set of meanings this asset's numbers were chosen under.
@@ -730,9 +735,25 @@ namespace Horizon.Vehicle
         public float TyreShapeC =>
             2f - 2f / Mathf.PI * Mathf.Asin(Mathf.Clamp(GripPastPeak, 0.5f, 1f));
 
-        [Tooltip("What the handbrake does to rear grip on top of locking the wheels. The lock is "
-               + "HandbrakeForceN and does most of the work; this is the rest.")]
-        [Range(0f, 1f)] public float HandbrakeGrip = 0.55f;
+        [Tooltip("What the rear tyres hold while the driver is asking to be sideways, as a fraction.\n\n"
+               + "It was a handbrake-only multiplier, which made the handbrake the only way into a "
+               + "slide. It is the same number doing the same job, asked for by DriftIntent — so "
+               + "braking into a corner and standing on the throttle in a tight one reach it too, and "
+               + "all three entries feel like one mechanism because they are one.\n\n"
+               + "The handbrake still locks the wheels on top of this, and that lock is "
+               + "HandbrakeForceN. It does most of the work; this is the rest.")]
+        [Range(0f, 1f)] public float DriftRearGrip = 0.55f;
+
+        [Tooltip("How much a bootful of throttle in a tight corner counts as asking for a slide, 0 to 1.\n\n"
+               + "The third drift entry, and the only one that is a matter of character rather than of "
+               + "mechanism. At 0 the car cannot be provoked with the throttle at all and the handbrake "
+               + "and the brake are the way in; at 1 a rear-driven car steps out whenever it is asked "
+               + "for everything on a tight radius.\n\n"
+               + "Front-driven cars ignore it by construction rather than by a number — there is no "
+               + "such thing as power oversteer when the driven wheels are the ones steering. And "
+               + "traction control has to stand aside for it: the assist that exists to prevent this "
+               + "wheelspin is the assist DriftIntent switches off.")]
+        [Range(0f, 1f)] public float PowerOversteer = 0.7f;
 
         [Tooltip("Braking force the handbrake puts through each rear wheel, newtons.\n\n"
                + "Large on purpose: it has to be able to take the whole of a rear tyre's grip budget, "
