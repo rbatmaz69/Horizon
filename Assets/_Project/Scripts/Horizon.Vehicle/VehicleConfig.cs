@@ -73,6 +73,11 @@ namespace Horizon.Vehicle
         /// Without the bump the assets keep the old radius against a body lofted around the new one, and
         /// the car sits with its wheels through its arches.</para>
         ///
+        /// <para><b>14: <see cref="SteeringBySpeed"/> was rebuilt against the geometry.</b> Same
+        /// reason as 13 — a value change whose whole point is that the assets hold the old one — but a
+        /// much larger one, and it is the fix for a car that broke away on a small steering input at
+        /// speed.</para>
+        ///
         /// <para><b>13: <see cref="TurnInAssist"/> was halved.</b> A value change rather than a
         /// meaning change, which normally would not move this counter — but the number in every asset
         /// is the old one and the whole point of the change is that it should not be.</para>
@@ -101,7 +106,7 @@ namespace Horizon.Vehicle
         /// bump the assets keep the short travel and the soft bar together, which is the one combination
         /// that rolls.</para>
         /// </summary>
-        public const int CurrentVersion = 13;
+        public const int CurrentVersion = 14;
 
         /// <summary>
         /// Which set of meanings this asset's numbers were chosen under.
@@ -562,17 +567,31 @@ namespace Horizon.Vehicle
                + "driver asks — which is most of what 'direct' means on a phone.")]
         public float MaxSteerAngle = 40f;
 
-        [Tooltip("Fraction of full lock available over normalized speed. Falling off with speed is "
-               + "what makes fast driving calm instead of nervous.\n\n"
-               + "Opened up from 0.62/0.32 after the game was driven on a phone: at town speeds there "
-               + "were only 25° of lock and by 80 km/h barely 20, which is fine with a keyboard that can "
-               + "hold half a turn and not fine with a thumb, where the corner is over before the lock "
-               + "arrives. This is the half of that problem belonging to the car; the other half was the "
-               + "arrow buttons having no proportion at all, and lives in TouchSteer.")]
+        [Tooltip("Fraction of full lock available over normalized speed.\n\n"
+               + "This is not a comfort setting, it is geometry. A car can only hold the yaw rate its "
+               + "tyres can pay for, so the steering angle it can actually use in a corner is "
+               + "atan(mu·g·wheelbase / v²) — which collapses with the *square* of speed. For this car "
+               + "that is 24° at 36 km/h, 6.4° at 72, 2.9° at 108 and 0.6° at 235. Anything past it is "
+               + "not steering, it is a request the front tyres answer by sliding.\n\n"
+               + "The old curve was written against a tyre model that cancelled the whole sideways "
+               + "velocity every step and simply refused whatever it could not hold — so asking for "
+               + "thirty times too much lock cost nothing and was invisible. Measured against the real "
+               + "limit it handed the driver 5× too much at 72 km/h, 10× at 108 and 33× at 235. With a "
+               + "tyre that has to build its force through a slip angle, the same input is a yaw "
+               + "transient no tyre can answer, and the car breaks away on what felt like a small "
+               + "steering input. That is exactly what it was reported as.\n\n"
+               + "The shape now tracks that limit at about 1.3 to 1.8 times it, so full deflection can "
+               + "still reach the tyres' limit and go past it deliberately, and an ordinary input sits "
+               + "inside it. Full lock survives at manoeuvring speed, which is what MaxSteerAngle is "
+               + "for. CountersteerAuthority hands lock back once the car is already sideways, so "
+               + "catching a slide is unaffected.")]
         public AnimationCurve SteeringBySpeed = new AnimationCurve(
             new Keyframe(0f, 1f),
-            new Keyframe(0.35f, 0.80f),
-            new Keyframe(1f, 0.50f));
+            new Keyframe(0.08f, 0.80f),
+            new Keyframe(0.15f, 0.62f),
+            new Keyframe(0.30f, 0.22f),
+            new Keyframe(0.60f, 0.075f),
+            new Keyframe(1f, 0.028f));
 
         [Tooltip("Degrees per second the steering angle can change.\n\n"
                + "300 takes full lock in about 0.13 s. At 160 the rack itself was a fifth of a second "

@@ -82,6 +82,29 @@ namespace Horizon.Input
     /// <summary>Steering from the keyboard's A/D or a gamepad's left stick.</summary>
     public sealed class KeyboardSteer : ISteerInput
     {
+        /// <summary>
+        /// Seconds of holding a key to reach full lock.
+        ///
+        /// <para><b>A key is a button, and the argument on <see cref="TouchSteer"/> applies to it word
+        /// for word.</b> That class ramps its arrows because a button without one is a switch: every
+        /// press is instant full lock and there is no way to ask for the third of a turn a corner
+        /// actually wants. The keyboard is the same button and never got the same treatment, so it went
+        /// on delivering a step — and a step of steering at 200 km/h is a yaw transient no tyre can
+        /// answer, which is what it looked like from the driving seat: a car that broke away on a small
+        /// input.</para>
+        ///
+        /// <para>Shorter than the touch arrows' third of a second, because a keyboard player has both
+        /// hands on the thing and a phone player has a thumb, and because the router adds its own
+        /// smoothing on top of this.</para>
+        /// </summary>
+        private const float RampSeconds = 0.22f;
+
+        /// <summary>
+        /// How much quicker the wheel returns than it turns. The same ratio the touch arrows use, for
+        /// the same reason: a car should straighten more readily than it turns.
+        /// </summary>
+        private const float ReturnRatio = 0.56f;
+
         public float Steer { get; private set; }
 
         public string DisplayName => "Keyboard / gamepad";
@@ -92,33 +115,40 @@ namespace Horizon.Input
 
         public void Sample(float deltaTime)
         {
-            float steer = 0f;
+            float keys = 0f;
 
             Keyboard keyboard = Keyboard.current;
             if (keyboard != null)
             {
                 if (keyboard.aKey.isPressed || keyboard.leftArrowKey.isPressed)
                 {
-                    steer -= 1f;
+                    keys -= 1f;
                 }
 
                 if (keyboard.dKey.isPressed || keyboard.rightArrowKey.isPressed)
                 {
-                    steer += 1f;
+                    keys += 1f;
                 }
             }
 
+            bool returning = Mathf.Abs(keys) < Mathf.Abs(Steer) || keys * Steer < 0f;
+            float seconds = returning ? RampSeconds * ReturnRatio : RampSeconds;
+            float ramped = Mathf.MoveTowards(Steer, keys, deltaTime / Mathf.Max(0.01f, seconds));
+
+            // The stick is not ramped, and must not be. It is already giving a continuous angle, and
+            // ramping it would fight the player's own thumb — the same distinction TouchSteer draws
+            // between its wheel and its arrows. It wins only when it is asking for more than the keys.
             Gamepad gamepad = Gamepad.current;
             if (gamepad != null)
             {
                 float stick = gamepad.leftStick.x.ReadValue();
-                if (Mathf.Abs(stick) > Mathf.Abs(steer))
+                if (Mathf.Abs(stick) > Mathf.Abs(ramped))
                 {
-                    steer = stick;
+                    ramped = stick;
                 }
             }
 
-            Steer = Mathf.Clamp(steer, -1f, 1f);
+            Steer = Mathf.Clamp(ramped, -1f, 1f);
         }
     }
 
