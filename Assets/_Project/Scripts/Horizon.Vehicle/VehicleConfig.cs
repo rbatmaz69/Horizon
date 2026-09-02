@@ -73,6 +73,10 @@ namespace Horizon.Vehicle
         /// Without the bump the assets keep the old radius against a body lofted around the new one, and
         /// the car sits with its wheels through its arches.</para>
         ///
+        /// <para><b>13: <see cref="TurnInAssist"/> was halved.</b> A value change rather than a
+        /// meaning change, which normally would not move this counter — but the number in every asset
+        /// is the old one and the whole point of the change is that it should not be.</para>
+        ///
         /// <para><b>12: traction control arrived, and a bool is the worst kind of new field.</b> An
         /// asset written at 11 carries no key for <see cref="TractionControl"/>, so it deserialises as
         /// <c>false</c> — not as the <c>true</c> in the source. Every car would have come out with the
@@ -97,7 +101,7 @@ namespace Horizon.Vehicle
         /// bump the assets keep the short travel and the soft bar together, which is the one combination
         /// that rolls.</para>
         /// </summary>
-        public const int CurrentVersion = 12;
+        public const int CurrentVersion = 13;
 
         /// <summary>
         /// Which set of meanings this asset's numbers were chosen under.
@@ -706,9 +710,15 @@ namespace Horizon.Vehicle
                + "yaw rate the current friction circle would hold, so at the limit the car still runs "
                + "wide. It also fades out past DriftSlipAngle, because that region belongs to "
                + "DriftYawDamping and CountersteerAuthority and two controllers on one axis fight. "
-               + "Above about 4 the car starts to rotate like it is on rails — 3 is the most that still "
-               + "reads as a car.")]
-        public float TurnInAssist = 3f;
+               + "Halved when the tyre got a curve, for two reasons. The lag it was written against was "
+               + "mostly the old model's, which built its whole cornering force inside half a degree "
+               + "of slip and therefore had no lag at the tyre at all — what it had was yaw inertia, "
+               + "and that is smaller. And its ceiling is a measured grip capacity now rather than a "
+               + "coefficient that fell with speed, so at 200 km/h the same gain was being allowed to "
+               + "command about a third more yaw than before. A car that rotates on this rather than on "
+               + "its tyres is the failure to watch for; it should be doing nothing at all once the car "
+               + "is actually turning.")]
+        public float TurnInAssist = 1.5f;
 
         [Tooltip("Downforce in N per (m/s)². Presses the car onto the road as speed rises.\n\n"
                + "A third of what it was, and the reason is that nothing cancels it any more. The grip "
