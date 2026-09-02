@@ -156,16 +156,26 @@ namespace Horizon.Vehicle
         ///
         /// <para>Slip ratio and slip angle are both a velocity divided by road speed, so both go to
         /// infinity at a standstill and a car parked on a hill would be asked for infinite grip. This
-        /// is the floor on that divisor, and it is deliberately low — one metre a second — because it
-        /// is what decides how firmly the car stands still. At five it crept down the pass.</para>
+        /// is the floor on that divisor, and it decides two things against each other: how firmly the
+        /// car stands still, and how stiff the force law gets at walking pace.</para>
         ///
-        /// <para>A low floor makes the force law very stiff at low speed, which is exactly where an
-        /// explicit step falls over. Two separate things stop it: the relaxation length, whose rate is
-        /// <i>also</i> speed over a length and therefore slows in the same proportion the stiffness
-        /// rises, and the implicit form of the wheel spin update. Neither is a fudge factor and
-        /// neither had to be tuned against the other.</para>
+        /// <para><b>It was one, and one stopped working when the grip went to arcade levels.</b> The
+        /// tyre's stiffness against sideways velocity is the budget over this number, so nearly
+        /// trebling the budget trebled the stiffness — and the body's lateral velocity is integrated
+        /// once per physics step, outside the sub-stepped tyre solve, so there is nothing to catch it.
+        /// Simulated across all ten cars at one, two and three times wheel load and from 0.3 to
+        /// 65 m/s, a floor of 1 rings at low speed under load, and so does 1.5, 2 and 2.5 — the
+        /// failure is a nonlinear limit cycle rather than a clean divergence, so the safe values are
+        /// not even contiguous. From 3 upwards every relaxation length from 0.5 to 1.0 m is clean.
+        /// Picked for the width of that region, not for its edge.</para>
+        ///
+        /// <para><b>And it is affordable now precisely because the grip is high.</b> Three was out of
+        /// the question at 1.7 g — at five the car crept down the pass. At 2.8 g the tyre needs a
+        /// three hundredth of its budget to hold station on a one-in-ten slope, which is about three
+        /// millimetres a second of creep. The number that made the low-speed end expensive is the same
+        /// number that paid for it.</para>
         /// </summary>
-        private const float SlipReferenceSpeed = 1f;
+        private const float SlipReferenceSpeed = 3f;
 
         /// <summary>
         /// How many times the tyre and its wheel are advanced within one physics step.

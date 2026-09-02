@@ -73,6 +73,11 @@ namespace Horizon.Vehicle
         /// Without the bump the assets keep the old radius against a body lofted around the new one, and
         /// the car sits with its wheels through its arches.</para>
         ///
+        /// <para><b>17: the grip went to arcade levels.</b> <see cref="LateralGrip"/> is nearly
+        /// trebled, <see cref="Downforce"/> halved again, and the steering curve opened back up
+        /// because the usable angle rose with the grip. Values, not meanings — and the assets hold
+        /// the old ones.</para>
+        ///
         /// <para><b>16: the cars were given somewhere to put 2.8 g.</b> Every centre of mass moved
         /// down and every anti-roll bar moved with it. A value change, and the assets hold the old
         /// numbers — which in this case is not a matter of taste but of whether the car stays on its
@@ -118,7 +123,7 @@ namespace Horizon.Vehicle
         /// bump the assets keep the short travel and the soft bar together, which is the one combination
         /// that rolls.</para>
         /// </summary>
-        public const int CurrentVersion = 16;
+        public const int CurrentVersion = 17;
 
         /// <summary>
         /// Which set of meanings this asset's numbers were chosen under.
@@ -614,8 +619,8 @@ namespace Horizon.Vehicle
                + "slide is unaffected.")]
         public AnimationCurve SteeringBySpeed = new AnimationCurve(
             new Keyframe(0f, 1f),
-            new Keyframe(0.15f, 0.85f),
-            new Keyframe(0.30f, 0.31f),
+            new Keyframe(0.15f, 1f),
+            new Keyframe(0.30f, 0.35f),
             new Keyframe(0.45f, 0.16f),
             new Keyframe(0.70f, 0.09f),
             new Keyframe(1f, 0.056f));
@@ -639,12 +644,18 @@ namespace Horizon.Vehicle
                + "The fall with speed the old curve carried is not lost, it has moved to where it "
                + "belongs: Downforce presses the tyres harder as the car goes faster, and this curve "
                + "then charges for it.\n\n"
-               + "1.7 at the static load is a grippy road tyre and 1.0 is a car that will step out if "
-               + "you ask it to.")]
+               + "1.7 at the static load is a grippy road tyre. These are not road tyres: this is an "
+               + "arcade game, and the corners of this world say what the number has to be. A 20 m "
+               + "hairpin at 85 km/h and a 70 m corner at 159 km/h both work out at about 2.8 g, so "
+               + "that is what the fast cars are given and the rest are spread below it.\n\n"
+               + "It cannot simply be raised, and the reason is in CenterOfMass: a car tips over at "
+               + "track / (2 × centre-of-mass height), and each car here is held to about 80 % of its "
+               + "own tipping point. The van and the offroader keep their high centres of mass and "
+               + "therefore keep road-car grip — deliberately, because that is what they are.")]
         public AnimationCurve LateralGrip = new AnimationCurve(
-            new Keyframe(0f, 1.96f),
-            new Keyframe(1f, 1.70f),
-            new Keyframe(2f, 1.41f));
+            new Keyframe(0f, 3.44f),
+            new Keyframe(1f, 2.98f),
+            new Keyframe(2f, 2.47f));
 
         [Tooltip("What the rear tyres hold as a multiple of the fronts.\n\n"
                + "A sports car has wider rear tyres, and this is that, as one number. It is the "
@@ -801,7 +812,7 @@ namespace Horizon.Vehicle
                + "load itself. It was briefly cut to a third of this on the reasoning that nothing "
                + "cancelled it any more, which was true and was the wrong conclusion — what it "
                + "produced was a car that could not turn at speed at all.")]
-        public float Downforce = 2.2f;
+        public float Downforce = 1.1f;
 
         /// <summary>True if the wheel at <paramref name="index"/> is driven. 0/1 front, 2/3 rear.</summary>
         public bool IsDriven(int index)

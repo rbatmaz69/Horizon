@@ -140,12 +140,12 @@ namespace Horizon.EditorTools
                     config.RedlineRpm = 5400f;
                     config.UpshiftRpm = 5000f;
                     config.FinalDrive = 4.30f;
-                    config.LateralGrip = Grip(1.86f, 1.62f, 1.34f);
+                    config.LateralGrip = Grip(2.96f, 2.57f, 2.13f);
                     // The fastback's tyre a size narrower and a load in the back.
                     config.PeakSlipAngle = 7.0f;
                     config.RearGripBias = 1.06f;
                     config.MaxSteerAngle = 38f;
-                    config.Downforce = 1.3f;
+                    config.Downforce = 0.7f;
                     config.BrakeForce = 17000f;
 
                     // The fastback's engine in a heavier car with more bodywork around it: the same
@@ -187,7 +187,7 @@ namespace Horizon.EditorTools
                     // 4.90 at the old 0.44 m wheel, scaled by 0.46 / 0.44. Same top speed, same shift
                     // points, taller tyre.
                     config.FinalDrive = 5.12f;
-                    config.LateralGrip = Grip(1.67f, 1.45f, 1.20f);
+                    config.LateralGrip = Grip(1.88f, 1.63f, 1.35f);
                     // Nothing about this is sporting and the tyre says so first.
                     config.PeakSlipAngle = 9.0f;
                     config.RearGripBias = 1.0f;
@@ -195,7 +195,7 @@ namespace Horizon.EditorTools
                     config.SteerRate = 240f;
                     config.BrakeForce = 19000f;
                     config.AeroDrag = 0.78f;
-                    config.Downforce = 0.7f;
+                    config.Downforce = 0.35f;
 
                     // Below the 3 the others run, but only just: the assist is what makes a car feel
                     // direct under a thumb, and taking it away entirely reads as broken steering rather
@@ -245,7 +245,7 @@ namespace Horizon.EditorTools
 
                     // 4.60 × 0.48 / 0.44.
                     config.FinalDrive = 5.02f;
-                    config.LateralGrip = Grip(1.61f, 1.40f, 1.16f);
+                    config.LateralGrip = Grip(2.28f, 1.98f, 1.64f);
                     // Under 1 on purpose: the loose tail is the whole character, and it is the only car here that gets it.
                     config.PeakSlipAngle = 8.5f;
                     config.RearGripBias = 0.96f;
@@ -254,7 +254,7 @@ namespace Horizon.EditorTools
                     config.SteerRate = 260f;
                     config.BrakeForce = 17500f;
                     config.AeroDrag = 0.62f;
-                    config.Downforce = 0.9f;
+                    config.Downforce = 0.45f;
                     config.DriftYawDamping = 2.2f;
 
                     // A large lazy V8 in a working vehicle. Nearly the fastback's rumble, duller still,
@@ -314,7 +314,7 @@ namespace Horizon.EditorTools
                     // 6.40 × 0.40 / 0.44 — the one car that gets a shorter final drive out of this,
                     // because it is the one on a smaller wheel.
                     config.FinalDrive = 5.82f;
-                    config.LateralGrip = Grip(1.91f, 1.66f, 1.38f);
+                    config.LateralGrip = Grip(3.22f, 2.79f, 2.31f);
                     // Sharp for its class, but front-driven — a big rear bias on a car whose fronts do everything would only add understeer it does not need.
                     config.PeakSlipAngle = 6.5f;
                     config.RearGripBias = 1.02f;
@@ -323,7 +323,7 @@ namespace Horizon.EditorTools
                     config.BrakeForce = 13500f;
                     config.RollingResistanceN = 38f;
                     config.AeroDrag = 0.36f;
-                    config.Downforce = 1.4f;
+                    config.Downforce = 0.7f;
 
                     // A small four, and the widest pitch sweep in the game — 0.52 to 1.94. That is not
                     // decoration: this engine makes its power at the top and the car has to be revved to
@@ -372,7 +372,7 @@ namespace Horizon.EditorTools
                     // one that arrives at the end of the straight first. Two cars with the same power
                     // and the same top speed are one car.
                     config.FinalDrive = 5.05f;
-                    config.LateralGrip = Grip(2.01f, 1.75f, 1.45f);
+                    config.LateralGrip = Grip(3.62f, 3.14f, 2.60f);
                     // The track tyre and the widest rear axle in the fleet. This is the car the whole change is aimed at.
                     config.PeakSlipAngle = 5.0f;
                     config.RearGripBias = 1.08f;
@@ -380,7 +380,7 @@ namespace Horizon.EditorTools
                     config.SteerRate = 310f;
                     config.BrakeForce = 19000f;
                     config.AeroDrag = 0.42f;
-                    config.Downforce = 2.6f;
+                    config.Downforce = 1.3f;
                     config.DriftYawDamping = 3.0f;
 
                     // A twin-turbo straight six that goes to 8000. No half-order whatsoever — an evenly
@@ -429,7 +429,7 @@ namespace Horizon.EditorTools
                     config.PartThrottleUpshiftRpm = 3200f;
                     config.PartThrottleDownshiftRpm = 1600f;
                     config.FinalDrive = 4.20f;
-                    config.LateralGrip = Grip(1.93f, 1.68f, 1.39f);
+                    config.LateralGrip = Grip(3.46f, 3.00f, 2.49f);
                     // The most rear bias of any of them, because it has the coupé's power through two wheels and is the one car that cannot put down what it has.
                     config.PeakSlipAngle = 5.5f;
                     config.RearGripBias = 1.09f;
@@ -437,7 +437,7 @@ namespace Horizon.EditorTools
                     config.SteerRate = 300f;
                     config.BrakeForce = 18500f;
                     config.AeroDrag = 0.38f;
-                    config.Downforce = 2.4f;
+                    config.Downforce = 1.2f;
 
                     // Wide slip angle, low yaw damping and a lot of countersteer authority: it lets go
                     // early, holds the angle, and gives it back if the player asks properly.
@@ -493,7 +493,7 @@ namespace Horizon.EditorTools
                     config.PartThrottleDownshiftRpm = 1450f;
                     // 4.64 × 0.42 / 0.44.
                     config.FinalDrive = 4.43f;
-                    config.LateralGrip = Grip(1.82f, 1.58f, 1.31f);
+                    config.LateralGrip = Grip(3.14f, 2.72f, 2.26f);
                     // The honest baseline, one step softer than the fastback.
                     config.PeakSlipAngle = 6.5f;
                     config.RearGripBias = 1.05f;
@@ -501,7 +501,7 @@ namespace Horizon.EditorTools
                     config.BrakeForce = 14500f;
                     config.RollingResistanceN = 42f;
                     config.AeroDrag = 0.48f;
-                    config.Downforce = 1.5f;
+                    config.Downforce = 0.75f;
 
                     // A big naturally aspirated four. A little half-order, because a four is not
                     // perfectly balanced the way a six is, and a middling rolloff: this is the plainest
@@ -539,7 +539,7 @@ namespace Horizon.EditorTools
                     config.PartThrottleDownshiftRpm = 1550f;
                     // 5.47 × 0.42 / 0.44.
                     config.FinalDrive = 5.22f;
-                    config.LateralGrip = Grip(1.75f, 1.52f, 1.26f);
+                    config.LateralGrip = Grip(3.00f, 2.60f, 2.16f);
                     // Sharp and deliberately less planted than the saloon — where that one understeers politely, this one rotates.
                     config.PeakSlipAngle = 6.0f;
                     config.RearGripBias = 1.03f;
@@ -552,7 +552,7 @@ namespace Horizon.EditorTools
                     config.BrakeForce = 14000f;
                     config.RollingResistanceN = 40f;
                     config.AeroDrag = 0.46f;
-                    config.Downforce = 1.6f;
+                    config.Downforce = 0.8f;
                     config.DriftYawDamping = 2.0f;
                     config.CountersteerAuthority = 0.80f;
 
@@ -607,7 +607,7 @@ namespace Horizon.EditorTools
                     // 4.89 × 0.48 / 0.44. The biggest correction in the file, and the one that matters
                     // most: 2400 kg geared 9% too long is a car that will not pull away from a junction.
                     config.FinalDrive = 5.33f;
-                    config.LateralGrip = Grip(1.52f, 1.32f, 1.10f);
+                    config.LateralGrip = Grip(1.69f, 1.47f, 1.22f);
                     // Tall, heavy and on tyres meant for mud.
                     config.PeakSlipAngle = 9.5f;
                     config.RearGripBias = 1.0f;
@@ -618,7 +618,7 @@ namespace Horizon.EditorTools
 
                     // A brick, and the drag is most of why it will not reach its own gearing.
                     config.AeroDrag = 1.05f;
-                    config.Downforce = 0.5f;
+                    config.Downforce = 0.25f;
                     config.TurnInAssist = 1.4f;
                     config.DriftYawDamping = 3.6f;
                     config.CountersteerAuthority = 0.45f;
