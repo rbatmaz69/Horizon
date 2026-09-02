@@ -204,7 +204,7 @@ namespace Horizon.EditorTools
                     // Below the 3 the others run, but only just: the assist is what makes a car feel
                     // direct under a thumb, and taking it away entirely reads as broken steering rather
                     // than as a heavy vehicle.
-                    config.TurnInAssist = 1.6f;
+                    config.TurnInAssist = 2.2f;
                     config.DriftYawDamping = 3.2f;
                     config.CountersteerAuthority = 0.5f;
 
@@ -637,7 +637,7 @@ namespace Horizon.EditorTools
                     // A brick, and the drag is most of why it will not reach its own gearing.
                     config.AeroDrag = 1.05f;
                     config.Downforce = 0.25f;
-                    config.TurnInAssist = 1.4f;
+                    config.TurnInAssist = 1.9f;
                     config.DriftYawDamping = 3.6f;
                     config.CountersteerAuthority = 0.45f;
 

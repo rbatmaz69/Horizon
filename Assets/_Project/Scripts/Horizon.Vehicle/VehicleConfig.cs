@@ -73,6 +73,9 @@ namespace Horizon.Vehicle
         /// Without the bump the assets keep the old radius against a body lofted around the new one, and
         /// the car sits with its wheels through its arches.</para>
         ///
+        /// <para><b>20: the turn-in assist became the stability controller.</b> A value change, and
+        /// the assets hold the old one.</para>
+        ///
         /// <para><b>19: the steering limit stopped being a curve.</b> <c>SteeringBySpeed</c> is gone
         /// and <see cref="SteeringMargin"/> replaces it — a field removed and a field added, so an
         /// asset left at 18 carries a dead curve and a margin of zero, which is a car that cannot
@@ -133,7 +136,7 @@ namespace Horizon.Vehicle
         /// bump the assets keep the short travel and the soft bar together, which is the one combination
         /// that rolls.</para>
         /// </summary>
-        public const int CurrentVersion = 19;
+        public const int CurrentVersion = 20;
 
         /// <summary>
         /// Which set of meanings this asset's numbers were chosen under.
@@ -806,13 +809,24 @@ namespace Horizon.Vehicle
                + "command about a third more yaw than before. A car that rotates on this rather than on "
                + "its tyres is the failure to watch for; it should be doing nothing at all once the car "
                + "is actually turning.\n\n"
-               + "Back up from 1.5 once PeakSlipAngle came down. That figure was chosen against a tyre "
+               + "3.0 for an arcade car, and this file's own warning that above 4 it 'starts to "
+               + "rotate like it is on rails' is now the specification rather than the caution. It can "
+               + "be pushed this hard because the target is safe by construction: the steering limit "
+               + "is derived from the same grip the assist is capped at, so it is no longer the thing "
+               + "standing between the driver and a spin. What the gain buys is how quickly the car "
+               + "reaches the yaw it is allowed, which is the whole of what 'direct' means once the "
+               + "amount is settled.\n\n"
+               + "It is also the stabiliser. A signed controller on the yaw error adds rotation when "
+               + "there is too little and takes it away when there is too much, so raising it makes "
+               + "the car both sharper and calmer — which is exactly the combination a race car has "
+               + "and a loose one does not.\n\n"
+               + "Was 1.5 once PeakSlipAngle came down. That figure was chosen against a tyre "
                + "that needed eight degrees to reach its peak, where the assist was carrying most of "
                + "the turn-in on its own and it was right to take it away. A six-degree tyre builds "
                + "half again as much force per degree and builds it sooner, so the assist is back to "
                + "removing lag rather than supplying rotation — which is the only job it should ever "
                + "have.")]
-        public float TurnInAssist = 2f;
+        public float TurnInAssist = 3f;
 
         [Tooltip("Downforce in N per (m/s)². Presses the car onto the road as speed rises.\n\n"
                + "This is what buys a fast car its steering angle back. The usable steering angle goes "

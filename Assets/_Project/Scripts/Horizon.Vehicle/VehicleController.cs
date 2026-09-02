@@ -1072,11 +1072,19 @@ namespace Horizon.Vehicle
 
             // What the tyres could actually hold: a_lat = mu * g, and yaw rate = a_lat / v.
             //
-            // From the budgets the tyres were actually given this step rather than from the grip curve.
-            // The curve is keyed on wheel load now, so evaluating it here would mean picking a load to
-            // evaluate it at — and the only honest answer is the one the four wheels have already
-            // worked out between them, including the load the corner itself has moved across them.
-            float ceiling = GripCapacityG * Physics.gravity.magnitude / speed;
+            // <b>This is a safety net now rather than the mechanism.</b> It used to be what stopped the
+            // assist over-rotating the car, and it did that by saturating: the steering curve handed
+            // out nearly twice the angle the tyres could use, so the target sat on this ceiling and the
+            // assist drove the car to exactly 100 % of its grip with no reserve at all. The steering
+            // limit is derived from the same capacity now, so the target arrives already inside it and
+            // this only binds when the capacity has genuinely collapsed — two wheels on wet grass, a
+            // landing, a river.
+            //
+            // Against the same eased capacity the steering limit reads, not the instantaneous one. Two
+            // different readings of one number would let a bump clip the target the lock had already
+            // been granted, which is a judder in the middle of a corner.
+            float ceiling = Mathf.Max(MinSteeringCapacity, steeringCapacity)
+                            * Physics.gravity.magnitude / speed;
             target = Mathf.Clamp(target, -ceiling, ceiling);
 
             float error = target - Vector3.Dot(body.angularVelocity, transform.up);
@@ -1962,17 +1970,35 @@ namespace Horizon.Vehicle
         /// </summary>
         private void ApplyDriftAssists()
         {
-            if (GroundedWheelCount == 0 || DriftIntent <= 0f)
+            if (GroundedWheelCount == 0)
             {
                 return;
             }
 
-            // On the request, not on the slip angle. This term damps yaw rate without caring which way
-            // the car is rotating, so gated on slip it fought the turn-in of every corner taken past
-            // twelve degrees just as hard as it caught a spin. Inside a drift that is exactly what is
-            // wanted — the angle holds and only a runaway is arrested — and outside one it should not
-            // be running at all.
-            float past = DriftIntent;
+            // Two reasons for this torque, and they are the same arithmetic for opposite purposes.
+            //
+            // Inside a drift the driver asked for, damping the yaw *rate* is what makes the angle
+            // holdable: the car sits wherever it is put and only a runaway is arrested.
+            //
+            // Outside one, it is the net under a slide nobody wanted — a kerb, a landing, two wheels on
+            // grass. That net used to be the whole of this method's gate and I removed it when the
+            // intent arrived, which left a car with no yaw damping of any kind in ordinary driving:
+            // ApplyAxisDamping takes roll and pitch only, on purpose, and the rigidbody's own angular
+            // damping is 0.05. Nothing caught anything.
+            //
+            // The unasked-for half fades out as the request comes in, so catching a slide never fights
+            // holding one. And it cannot fight an ordinary corner either, because it does not start
+            // until the body is past DriftSlipAngle — which a car with this much grip only reaches
+            // when something has actually gone wrong.
+            float unasked = Mathf.InverseLerp(
+                config.DriftSlipAngle, config.DriftSlipAngle + 25f, Mathf.Abs(SlipAngle));
+
+            float past = Mathf.Max(DriftIntent, unasked * (1f - DriftIntent));
+            if (past <= 0f)
+            {
+                return;
+            }
+
             float yawRate = Vector3.Dot(body.angularVelocity, transform.up);
 
             // Force, not Impulse: a continuous torque for as long as the car is sideways. The first
