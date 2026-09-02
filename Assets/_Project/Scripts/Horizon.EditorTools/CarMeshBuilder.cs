@@ -47,10 +47,79 @@ namespace Horizon.EditorTools
         public const int WheelSubmeshCount = 2;
 
         /// <summary>
+        /// How much bigger every car is than the shape it was authored as, in plan — length, width,
+        /// track, wheelbase.
+        ///
+        /// <para><b>The tables below are not edited to grow the cars.</b> Every one of them is a real
+        /// car measured against a real reference, argued about in its own comment — 4.74 m against a
+        /// Mustang's 4.66, a 58° windscreen, 0.70 m of flat roof. Multiplying those numbers in place
+        /// would destroy the only thing that makes them checkable. They are scaled once, at the single
+        /// gate every profile passes through, so what is written stays what was measured.</para>
+        /// </summary>
+        public const float PlanScale = 1.25f;
+
+        /// <summary>
+        /// The same for everything vertical, and it is deliberately <b>not</b> <see cref="PlanScale"/>.
+        ///
+        /// <para>Growing in plan by a quarter and in height by 15 % is what makes the cars read as lower
+        /// and wider rather than merely as bigger: the fastback's length-to-height goes from 3.31 to
+        /// 3.61, where the '67 Mustang it is drawn from sits at 3.58.</para>
+        ///
+        /// <para><b>Everything vertical has to share this one number, and the reason is a centimetre.</b>
+        /// The arch is cut at <c>WheelRadius − SuspensionRestLength + ArchGap</c> and the glass starts at
+        /// the station table's <c>BeltY</c>. On the fastback those are 0.190 and 0.200 — ten millimetres
+        /// apart. The coupé has twenty, the hatchback fifty. Scale the wheels without the body and the
+        /// arch is cut through the side window on three of the ten cars; scale them together and the
+        /// margin is preserved exactly, whatever the factor. That is why the wheels do not simply grow
+        /// with the rest of the car.</para>
+        /// </summary>
+        public const float HeightScale = 1.15f;
+
+        /// <summary>Scales a station table out of authored metres into built ones.</summary>
+        private static Station[] Scaled(Station[] stations)
+        {
+            var scaled = new Station[stations.Length];
+            for (int i = 0; i < stations.Length; i++)
+            {
+                Station station = stations[i];
+                scaled[i] = new Station(
+                    station.Z * PlanScale,
+                    station.HalfWidth * PlanScale,
+                    station.BeltY * HeightScale,
+                    station.TopY * HeightScale,
+                    station.TopHalfWidth * PlanScale,
+                    station.SillY * HeightScale);
+            }
+
+            return scaled;
+        }
+
+        /// <summary>Scales a list of Z positions — crease lines, cabin bands — into built metres.</summary>
+        private static float[] ScaledPlan(float[] values)
+        {
+            if (values == null)
+            {
+                return null;
+            }
+
+            var scaled = new float[values.Length];
+            for (int i = 0; i < values.Length; i++)
+            {
+                scaled[i] = values[i] * PlanScale;
+            }
+
+            return scaled;
+        }
+
+        /// <summary>
         /// Half the distance between the wheel centres. Must match the prefab's anchors. Set so the
         /// tyre stands a few centimetres proud of the fender — flush wheels read as recessed.
+        ///
+        /// <para>Scaled with the bodies rather than independently: the body is what covers the wheel, so
+        /// widening one without the other either leaves the tyres standing outside the arches or sinks
+        /// them into the flare until the car has no wheels at all.</para>
         /// </summary>
-        public const float TrackHalfWidth = 0.99f;
+        public const float TrackHalfWidth = 0.99f * PlanScale;
 
         /// <summary>
         /// How far above the road the collider's underside sits, metres — <b>not</b> how far the
@@ -72,13 +141,13 @@ namespace Horizon.EditorTools
         /// <para>This is the collider only. The visible sill does not move, so a low car still looks
         /// low.</para>
         /// </summary>
-        private const float ColliderGroundClearance = 0.34f;
+        private const float ColliderGroundClearance = 0.34f * HeightScale;
 
         /// <summary>How far either side of a wheel centre the flare fades back to nothing, metres.</summary>
-        private const float FlareReach = 0.75f;
+        private const float FlareReach = 0.75f * PlanScale;
 
         /// <summary>Distance of the wheel centres from the car's middle, along Z.</summary>
-        public const float WheelBaseHalf = 1.35f;
+        public const float WheelBaseHalf = 1.35f * PlanScale;
 
         /// <summary>
         /// The one height the whole traffic pool is lifted by, metres.
@@ -93,7 +162,7 @@ namespace Horizon.EditorTools
         /// alternative is a ride height per agent, which is a second number to keep in step for a
         /// difference of a few centimetres on a car seen at thirty metres through fog.</para>
         /// </summary>
-        public const float TrafficRideHeight = 0.74f;
+        public const float TrafficRideHeight = 0.74f * HeightScale;
 
         /// <summary>
         /// How far apart the headlight beams sit either side of the centre line.
@@ -103,7 +172,7 @@ namespace Horizon.EditorTools
         /// and what the player sees of a beam is the pool of light on the road rather than its
         /// source.</para>
         /// </summary>
-        private const float HeadlightHalfSpacing = 0.47f;
+        private const float HeadlightHalfSpacing = 0.47f * PlanScale;
 
         /// <summary>
         /// Half-length of an arch opening along Z. Roughly the wheel radius plus a margin.
@@ -112,7 +181,7 @@ namespace Horizon.EditorTools
         /// arch contributes nothing anyway — so the front opening cannot ripple the base of the
         /// windscreen.
         /// </summary>
-        private const float ArchHalfLength = 0.50f;
+        private const float ArchHalfLength = 0.50f * PlanScale;
 
         /// <summary>
         /// One car's silhouette and its furniture, as a value.
@@ -456,48 +525,61 @@ namespace Horizon.EditorTools
                 RimStyle rim = RimStyle.FiveSpoke,
                 float rimFraction = 0.58f)
             {
+                // Every dimension arrives here in the metres it was authored in — measured against a
+                // real car, argued about in a comment — and leaves scaled. This is the one gate all ten
+                // profiles pass through, which is why the scale is applied here rather than in ten
+                // tables: the numbers below stay readable as the measurements they are.
                 Name = name;
-                Stations = stations;
-                CreaseZ = creaseZ;
-                WindscreenFrom = windscreenFrom;
-                WindscreenTo = windscreenTo;
-                RearWindowFrom = rearWindowFrom;
-                RearWindowTo = rearWindowTo;
-                Cabin = cabin;
-                NoseZ = noseZ;
-                TailZ = tailZ;
+                Stations = Scaled(stations);
+                CreaseZ = ScaledPlan(creaseZ);
+                WindscreenFrom = windscreenFrom * PlanScale;
+                WindscreenTo = windscreenTo * PlanScale;
+                RearWindowFrom = rearWindowFrom * PlanScale;
+                RearWindowTo = rearWindowTo * PlanScale;
+                Cabin = ScaledPlan(cabin);
+                NoseZ = noseZ * PlanScale;
+                TailZ = tailZ * PlanScale;
                 TailLamps = tailLamps;
                 TailLampCount = tailLampCount;
+
+                // Fractions of the face they sit on, so they follow the body without being touched.
                 TailLampInner = tailLampInner;
                 TailLampOuter = tailLampOuter;
-                TailLampHalfHeight = tailLampHalfHeight;
-                TailLampDrop = tailLampDrop;
-                HeadLamps = headLamps;
                 GrilleSpan = grilleSpan;
-                ExhaustCount = exhaustCount;
-                ExhaustRadius = exhaustRadius;
-                ExhaustSpread = exhaustSpread;
-                ExhaustLength = exhaustLength;
-                ExhaustSideExit = exhaustSideExit;
                 TailGlassHalfWidth = tailGlassHalfWidth;
-                TailGlassBottom = tailGlassBottom;
-                TailGlassTop = tailGlassTop;
-                WingHalfSpan = wingHalfSpan;
-                WingZ = wingZ;
-                WingHeight = wingHeight;
-                SpareWheelRadius = spareWheelRadius;
-                IndicatorTurrets = indicatorTurrets;
-                BedFrom = bedFrom;
-                BedTo = bedTo;
-                BedFloorY = bedFloorY;
-                BedWallThickness = bedWallThickness;
-                WheelRadius = wheelRadius;
-                SuspensionRestLength = suspensionRestLength;
-                TyreWidth = tyreWidth;
-                FlareWidth = flareWidth;
-                ArchGap = archGap;
-                Rim = rim;
                 RimFraction = rimFraction;
+
+                TailLampHalfHeight = tailLampHalfHeight * HeightScale;
+                TailLampDrop = tailLampDrop * HeightScale;
+                HeadLamps = headLamps;
+                ExhaustCount = exhaustCount;
+                ExhaustRadius = exhaustRadius * PlanScale;
+                ExhaustSpread = exhaustSpread * PlanScale;
+                ExhaustLength = exhaustLength * PlanScale;
+                ExhaustSideExit = exhaustSideExit * PlanScale;
+                TailGlassBottom = tailGlassBottom * HeightScale;
+                TailGlassTop = tailGlassTop * HeightScale;
+                WingHalfSpan = wingHalfSpan * PlanScale;
+                WingZ = wingZ * PlanScale;
+                WingHeight = wingHeight * HeightScale;
+                SpareWheelRadius = spareWheelRadius * HeightScale;
+                IndicatorTurrets = indicatorTurrets;
+                BedFrom = bedFrom * PlanScale;
+                BedTo = bedTo * PlanScale;
+                BedFloorY = bedFloorY * HeightScale;
+                BedWallThickness = bedWallThickness * PlanScale;
+
+                // The three that decide where the arch is cut against where the tyre stands. They share
+                // HeightScale with the station table's Y for the reason given on that constant: the
+                // margin between the arch top and the beltline is one centimetre on the fastback, and it
+                // survives only if all of them move together.
+                WheelRadius = wheelRadius * HeightScale;
+                SuspensionRestLength = suspensionRestLength * HeightScale;
+                ArchGap = archGap * HeightScale;
+
+                TyreWidth = tyreWidth * PlanScale;
+                FlareWidth = flareWidth * PlanScale;
+                Rim = rim;
             }
         }
 
@@ -1481,9 +1563,11 @@ namespace Horizon.EditorTools
         ///
         /// <para>The four numbers come from the same expressions <see cref="BuildRing"/> builds the ring
         /// out of, so the box tracks the shell by construction rather than by somebody re-deriving it
-        /// after a reshape. For the fastback it produces centre (0, 0.05, −0.11) and size
-        /// (2.26, 1.28, 4.74), which are exactly the literals it replaces —
-        /// <c>PrototypeSetup.ReportBodies</c> checks that every rebuild.</para>
+        /// after a reshape. For the fastback it produced centre (0, 0.05, −0.11) and size
+        /// (2.26, 1.28, 4.74) — exactly the literals it replaced — until the cars were scaled up;
+        /// the same expressions now return those figures times
+        /// <see cref="PlanScale"/> and <see cref="HeightScale"/>, because the station table they read
+        /// is already scaled. <c>PrototypeSetup.ReportBodies</c> prints them every rebuild.</para>
         /// </summary>
         public static Bounds HullBounds(in CarProfile profile)
         {

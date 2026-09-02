@@ -73,6 +73,12 @@ namespace Horizon.Vehicle
         /// Without the bump the assets keep the old radius against a body lofted around the new one, and
         /// the car sits with its wheels through its arches.</para>
         ///
+        /// <para><b>22: the cars grew by a quarter.</b> Wheel radius and suspension travel come out of
+        /// the mesh profile, so they arrive on their own — but the two couplings this file documents do
+        /// not: <c>FinalDrive</c> scales with the radius or every car is geared differently, and
+        /// <c>AntiRollStiffness</c> scales with the travel or every bar goes soft. Both moved, and every
+        /// centre of mass with them.</para>
+        ///
         /// <para><b>21: every car got grip, and the throttle stopped being a drift request.</b> The
         /// spread was 1.47 to 3.14 and is 2.20 to 3.00 — a van that pulls 1.5 g next to a coupé that
         /// pulls 3 is not two characters, it is one good car and one bad one. Centres of mass and
@@ -143,7 +149,7 @@ namespace Horizon.Vehicle
         /// bump the assets keep the short travel and the soft bar together, which is the one combination
         /// that rolls.</para>
         /// </summary>
-        public const int CurrentVersion = 21;
+        public const int CurrentVersion = 22;
 
         /// <summary>
         /// Which set of meanings this asset's numbers were chosen under.
@@ -170,7 +176,7 @@ namespace Horizon.Vehicle
                + "its own grip.\n\n"
                + "The van and the offroader are deliberately left high. That is their character, and "
                + "the price of it is that they are the two vehicles which do not get arcade grip.")]
-        public Vector3 CenterOfMass = new Vector3(0f, -0.42f, 0.05f);
+        public Vector3 CenterOfMass = new Vector3(0f, -0.46f, 0.05f);
 
         /// <summary>
         /// Rigidbody linear damping, and it is <b>zero on purpose</b>.
@@ -235,13 +241,13 @@ namespace Horizon.Vehicle
         /// against. Edit them on the profile and re-run the presets; editing them on the asset gives a
         /// car whose wheels no longer fit its own bodywork.</para>
         /// </summary>
-        public float WheelRadius = 0.44f;
+        public float WheelRadius = 0.506f;
 
         [Tooltip("Suspension travel in metres, and with the wheel radius the car's ride height.\n\n"
                + "0.30 is the fastback's: static compression is only 7 cm, so 30 cm of travel is ample. "
                + "Like the radius this is the body's number rather than a tuning value — see the note on "
                + "WheelRadius.")]
-        public float SuspensionRestLength = 0.34f;
+        public float SuspensionRestLength = 0.391f;
 
         [Tooltip("Spring rate in N per metre of compression.")]
         public float SuspensionStiffness = 42000f;
@@ -254,7 +260,7 @@ namespace Horizon.Vehicle
                + "Works on compression as a fraction of the travel, so it has to be rescaled whenever "
                + "SuspensionRestLength moves — see the note on VehicleConfigPresets. 15900 is 14000 "
                + "against the 0.30 m of travel this car used to have.")]
-        public float AntiRollStiffness = 18100f;
+        public float AntiRollStiffness = 20800f;
 
         [Header("Drivetrain")]
         [Tooltip("Which wheels get drive.\n\n"
@@ -521,7 +527,7 @@ namespace Horizon.Vehicle
         ///
         /// Change the radius on its own and you silently retune the whole car.
         /// </summary>
-        public float FinalDrive = 4.09f;
+        public float FinalDrive = 4.70f;
 
         [Range(0.5f, 1f)] public float DrivetrainEfficiency = 0.9f;
 

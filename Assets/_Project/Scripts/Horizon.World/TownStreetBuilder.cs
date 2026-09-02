@@ -119,10 +119,18 @@ namespace Horizon.World
                     break;
 
                 case TownStreetKind.Lane:
+                    // 4.6 rather than 4.0, and the alley below 3.9 rather than 3.1. The cars grew a
+                    // quarter wider: the collider is 2.83 m across now, which left 14 cm a side in an
+                    // alley and 27 cm between two of them passing. Those two are the only street kinds
+                    // narrow enough for it to matter, and the widening is absolute rather than
+                    // proportional because what a driver needs is a margin in metres, not a fraction.
+                    // Everything else follows on its own — the kerb, the footway, and the buildings,
+                    // which TownPlanner sets back from HalfOuter.
+                    shape.HalfWidth = 4.6f;
                     break;
 
                 case TownStreetKind.Alley:
-                    shape.HalfWidth = 3.1f;
+                    shape.HalfWidth = 3.9f;
                     shape.FootwayWidth = 0.7f;
                     shape.KerbHeight = 0.10f;
                     break;

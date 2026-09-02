@@ -85,13 +85,18 @@ namespace Horizon.Game
         [Tooltip("How far ahead an agent watches for something to brake for, metres.")]
         [SerializeField] private float lookAhead = 22f;
 
-        [Tooltip("Stops this far short of whatever is in front of it.")]
-        [SerializeField] private float stopGap = 6.5f;
+        [Tooltip("Stops this far short of whatever is in front of it.\n\n"
+               + "Scaled with the cars when they grew a quarter longer. It is a gap between positions, "
+               + "so on a 4.74 m car 6.5 m was already close; on a 5.93 m one it would have been "
+               + "bumper to bumper.")]
+        [SerializeField] private float stopGap = 8.1f;
 
         [Tooltip("How far off an agent's own path something can be and still count as being in the way. "
                + "Half a carriageway: wide enough to catch a car merging out of a junction, narrow "
-               + "enough not to brake for oncoming traffic on the other side of the road.")]
-        [SerializeField] private float lateralReach = 2.6f;
+               + "enough not to brake for oncoming traffic on the other side of the road.\n\n"
+               + "Scaled with the cars. At 2.6 it had become narrower than a car is wide, which is a "
+               + "traffic agent that cannot see the one beside it.")]
+        [SerializeField] private float lateralReach = 3.25f;
 
         [Header("Streaming")]
         [Tooltip("Renderers switch off past this. Matches WorldStreamer's own load radius — a car drawn "
