@@ -73,6 +73,13 @@ namespace Horizon.Vehicle
         /// Without the bump the assets keep the old radius against a body lofted around the new one, and
         /// the car sits with its wheels through its arches.</para>
         ///
+        /// <para><b>12: traction control arrived, and a bool is the worst kind of new field.</b> An
+        /// asset written at 11 carries no key for <see cref="TractionControl"/>, so it deserialises as
+        /// <c>false</c> — not as the <c>true</c> in the source. Every car would have come out with the
+        /// assist switched off, silently, and the only symptom would have been the powerful rear-drive
+        /// cars sitting in their own smoke. A new field whose initialiser is universal is normally the
+        /// safe case; a bool is the exception, because its "missing" value is also a legal one.</para>
+        ///
         /// <para><b>11: the tyre became a tyre, and <see cref="LateralGrip"/> changed its axis.</b>
         /// That curve was looked up on road speed and is now looked up on wheel load, which is a
         /// different quantity with a different range — an asset carrying the old keys reads its whole
@@ -90,7 +97,7 @@ namespace Horizon.Vehicle
         /// bump the assets keep the short travel and the soft bar together, which is the one combination
         /// that rolls.</para>
         /// </summary>
-        public const int CurrentVersion = 11;
+        public const int CurrentVersion = 12;
 
         /// <summary>
         /// Which set of meanings this asset's numbers were chosen under.
@@ -677,6 +684,18 @@ namespace Horizon.Vehicle
         [Range(0f, 1f)] public float CountersteerAuthority = 0.75f;
 
         [Header("Assists")]
+        [Tooltip("Whether the engine backs off when a driven wheel breaks traction.\n\n"
+               + "It has to exist, and the reason is arithmetic rather than taste. First gear on this "
+               + "car is 4.20 × 4.09, so 570 Nm at the crank is about 22 kN of tractive force against a "
+               + "car that weighs 12 kN — twice what any tyre can hold. That was true before the wheels "
+               + "had a speed of their own too; the difference is that the excess used to be thrown "
+               + "silently away, and now it spins the wheel. A player holding full throttle with a "
+               + "thumb — which is exactly what the Auto pedals do — would never leave the smoke.\n\n"
+               + "It allows slip right up to the peak before it does anything, so wheelspin is still "
+               + "there to see, hear and feel; what it removes is the runaway past it. Off is a car "
+               + "that needs the throttle fed in.")]
+        public bool TractionControl = true;
+
         [Tooltip("How hard the car is pulled toward the yaw rate its steering angle is asking for, in "
                + "1/s — roughly the reciprocal of the time it takes to get there. Zero switches it off.\n\n"
                + "This is what makes the car feel *direct* without touching the tyres. The tyre model "

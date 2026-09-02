@@ -46,6 +46,7 @@ namespace Horizon.Vehicle
         private IDriveInput explicitInput;
         private float steerAngle;
         private float gripBudget;
+        private float tractionCut = 1f;
         private float forwardSpeed;
         private Vector3 previousVelocity;
         private float wheelbase = 2.7f;
@@ -179,6 +180,12 @@ namespace Horizon.Vehicle
         /// what is left inside is one sine and one arctangent.</para>
         /// </summary>
         private const int SpinSubSteps = 8;
+
+        /// <summary>How fast traction control takes torque away, per second. 50 ms to a full cut.</summary>
+        private const float TractionCutRate = 20f;
+
+        /// <summary>How fast it gives it back, per second. Four times slower than it takes it.</summary>
+        private const float TractionRestoreRate = 5f;
 
         /// <summary>Filter rate for <see cref="LongitudinalAcceleration"/>, per second.</summary>
         private const float AccelerationSmoothing = 12f;
@@ -658,6 +665,8 @@ namespace Horizon.Vehicle
                 wheels[i].Fy = 0f;
             }
 
+            tractionCut = 1f;
+
             // A car put down on a road is put down *inside* whatever it lands touching, and PhysX
             // reports the push-out as a contact. Every placement — the start screen, the pause menu's
             // Move to, a respawn out of the water — would otherwise open with a bang and a shaken
@@ -968,16 +977,21 @@ namespace Horizon.Vehicle
             float ratio = reversing ? config.RatioForGear(-1) : config.RatioForGear(gearIndex);
             float driveRatio = Mathf.Abs(ratio) * config.FinalDrive;
 
-            // Engine speed from the driven wheels, through the gearbox.
+            // Two wheel speeds, because the engine and the gearbox are asking different questions.
             //
-            // From the wheels rather than from road speed, which is the same number right up until the
-            // moment it matters: a wheel that is spinning is turning faster than the car is moving, and
-            // taking the engine off the car meant a standing start in first was silent about the one
-            // thing it was doing. The flare is not modelled here, it is simply not hidden — the wheel
-            // really is turning that fast, and the tacho, the note and the shift logic all read it
-            // because they all read this.
-            float wheelRpm = DrivenWheelRpm();
-            float geared = wheelRpm * driveRatio;
+            // The *engine* is turned by the driven wheels, and a wheel that is spinning is turning
+            // faster than the car is moving. That is the flare, and it is not modelled — it is simply
+            // not hidden any more, because the wheel really is going that fast.
+            //
+            // The *gearbox* must not read that number. It is choosing a ratio for the speed the car is
+            // travelling at, and a spinning wheel says the car is doing 90 km/h when it is doing 15.
+            // Fed the wheels, the box upshifted on the flare, found the road speed did not justify the
+            // gear, kicked back down, span up again and hunted — the powerful rear-drive cars never got
+            // out of second, because second is where a wheel that has broken traction always says it
+            // wants to be. A gear is a statement about road speed, and this is where it comes from.
+            float roadWheelRpm = Mathf.Abs(forwardSpeed) / (2f * Mathf.PI * config.WheelRadius) * 60f;
+            float geared = roadWheelRpm * driveRatio;
+            float spinning = DrivenWheelRpm() * driveRatio;
 
             // Rolling away from a standstill the clutch or converter slips, so the engine can rev while
             // the wheels barely turn. Without this the car has no voice at all until it is moving.
@@ -986,7 +1000,7 @@ namespace Horizon.Vehicle
             float blend = Mathf.Clamp01(Mathf.Abs(forwardSpeed) / 3.5f);
 
             engineRpm = Mathf.Clamp(
-                Mathf.Max(geared, Mathf.Lerp(slipping, config.IdleRpm, blend)),
+                Mathf.Max(spinning, Mathf.Lerp(slipping, config.IdleRpm, blend)),
                 config.IdleRpm,
                 config.RedlineRpm);
 
@@ -999,7 +1013,7 @@ namespace Horizon.Vehicle
             // driver cannot move, which reads as a broken throttle rather than an empty tank.
             if (IsOutOfFuel)
             {
-                engineRpm = Mathf.Min(engineRpm, geared);
+                engineRpm = Mathf.Min(engineRpm, spinning);
             }
 
             // A stalled engine is held out of the shift logic, and it is not a detail. The thresholds
@@ -1029,7 +1043,10 @@ namespace Horizon.Vehicle
                 float downshiftRpm = Mathf.Lerp(
                     config.PartThrottleDownshiftRpm, config.DownshiftRpm, shiftDemand);
 
-                if (engineRpm >= upshiftRpm && gearIndex < config.ForwardGearCount - 1)
+                // Against `geared` rather than `engineRpm`: the second carries the flare, and a box
+                // that upshifted on wheelspin would be choosing a gear for a road speed the car has
+                // not reached.
+                if (geared >= upshiftRpm && gearIndex < config.ForwardGearCount - 1)
                 {
                     // Upshifts stay one at a time. Accelerating walks through the gears anyway, and
                     // skipping one would step over the engine speed that justified it.
@@ -1037,12 +1054,12 @@ namespace Horizon.Vehicle
                     shiftTimer = config.ShiftTime;
                 }
                 else if (command >= KickdownDemand && gearIndex > 0
-                         && TryKickdown(wheelRpm, upshiftRpm, out int kicked))
+                         && TryKickdown(roadWheelRpm, upshiftRpm, out int kicked))
                 {
                     gearIndex = kicked;
                     shiftTimer = config.ShiftTime;
                 }
-                else if (engineRpm <= downshiftRpm && gearIndex > 0)
+                else if (geared <= downshiftRpm && gearIndex > 0)
                 {
                     // Downshifts go straight to the right gear instead of walking down to it.
                     //
@@ -1054,7 +1071,8 @@ namespace Horizon.Vehicle
                     // can never drop further than a sequence of single steps would have.
                     int target = gearIndex;
                     while (target > 0
-                           && wheelRpm * config.RatioForGear(target) * config.FinalDrive <= downshiftRpm)
+                           && roadWheelRpm * config.RatioForGear(target) * config.FinalDrive
+                              <= downshiftRpm)
                     {
                         target--;
                     }
@@ -1082,13 +1100,21 @@ namespace Horizon.Vehicle
             // that top gear still has thrust in reserve, and the car would quietly accelerate past the
             // speed its gearing allows. Cutting here is what makes top speed a real limit — and the
             // stutter it produces at 225 km/h is what a limiter sounds like.
+            //
+            // Against road speed, not against the driven wheels. An engine spun past its redline by a
+            // wheel that has broken traction is real, but cutting the torque for it puts a 50 Hz square
+            // wave through the drivetrain for as long as the wheelspin lasts — and every downstream
+            // reader, the gearbox included, then sees a number swinging between over the redline and
+            // under the downshift point. Wheelspin is traction control's job; this one is about the top
+            // of the gearing.
             if (geared > config.RedlineRpm)
             {
                 return 0f;
             }
 
             float torqueFraction = config.TorqueByRpm.Evaluate(RpmNormalized);
-            float engineTorque = config.MaxTorqueNm * Mathf.Max(0f, torqueFraction) * command;
+            float engineTorque = config.MaxTorqueNm * Mathf.Max(0f, torqueFraction) * command
+                               * UpdateTractionControl(deltaTime);
 
             if (engineTorque <= 0f)
             {
@@ -1196,6 +1222,55 @@ namespace Horizon.Vehicle
             }
 
             return gear != gearIndex;
+        }
+
+        /// <summary>
+        /// How much of the engine's torque the driven wheels can currently use, 0 to 1.
+        ///
+        /// <para><b>It exists because first gear asks for twice what the road can give.</b> 570 Nm
+        /// through 4.20 × 4.09 on a 0.44 m wheel is about 22 kN of tractive force against a car that
+        /// weighs 12 kN. That was equally true before the wheels had a speed of their own — the
+        /// difference is only that the excess used to be clamped away in silence and now it spins the
+        /// tyre. With the Auto pedals pinning the throttle to 1, a car left to it never stops
+        /// spinning.</para>
+        ///
+        /// <para><b>It does nothing at all until the tyre is past its peak.</b> Wheelspin is one of the
+        /// best things the new model has to show, so the cut only begins at
+        /// <see cref="VehicleConfig.PeakSlipRatio"/> and is complete at three times it: the flare, the
+        /// smoke and the noise all survive, and what goes is the runaway beyond them.</para>
+        ///
+        /// <para><b>Fast to cut and slow to restore</b>, because the two are different mistakes. Being
+        /// late to cut is a car that is already sideways; being early to restore is a car that spins
+        /// again immediately, and a cut that chattered at the step rate would be the stutter this was
+        /// written to remove.</para>
+        ///
+        /// <para>Reads the slip the wheels reported last step, which is the same lag every consumer of
+        /// the drivetrain already has and is a fifth of the time it takes to act.</para>
+        /// </summary>
+        private float UpdateTractionControl(float deltaTime)
+        {
+            if (!config.TractionControl)
+            {
+                tractionCut = 1f;
+                return 1f;
+            }
+
+            float worst = 0f;
+            for (int i = 0; i < WheelCount; i++)
+            {
+                if (config.IsDriven(i))
+                {
+                    worst = Mathf.Max(worst, wheels[i].SlipRatio);
+                }
+            }
+
+            float peak = Mathf.Max(0.01f, config.PeakSlipRatio);
+            float wanted = 1f - Mathf.InverseLerp(peak, peak * 3f, worst);
+
+            float rate = wanted < tractionCut ? TractionCutRate : TractionRestoreRate;
+            tractionCut = Mathf.MoveTowards(tractionCut, wanted, rate * deltaTime);
+
+            return tractionCut;
         }
 
         /// <summary>

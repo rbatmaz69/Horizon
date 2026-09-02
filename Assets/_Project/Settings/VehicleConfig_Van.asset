@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 2e6c54b425c874741ae73be512ddf6a2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Horizon.Vehicle::Horizon.Vehicle.VehicleConfig
-  Version: 11
+  Version: 12
   Mass: 1950
   CenterOfMass: {x: 0, y: -0.1, z: 0.1}
   LinearDamping: 0
@@ -186,5 +186,6 @@ MonoBehaviour:
   DriftSlipAngle: 12
   DriftYawDamping: 3.2
   CountersteerAuthority: 0.5
+  TractionControl: 1
   TurnInAssist: 2.4
   Downforce: 0.5
