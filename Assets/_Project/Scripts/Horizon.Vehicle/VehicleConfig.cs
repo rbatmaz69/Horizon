@@ -73,6 +73,11 @@ namespace Horizon.Vehicle
         /// Without the bump the assets keep the old radius against a body lofted around the new one, and
         /// the car sits with its wheels through its arches.</para>
         ///
+        /// <para><b>16: the cars were given somewhere to put 2.8 g.</b> Every centre of mass moved
+        /// down and every anti-roll bar moved with it. A value change, and the assets hold the old
+        /// numbers — which in this case is not a matter of taste but of whether the car stays on its
+        /// wheels.</para>
+        ///
         /// <para><b>15: the cars were given a sporting character rather than a safe one.</b>
         /// <see cref="RearGripBias"/> is new and would otherwise land in every asset as 0 — no rear
         /// grip at all — which is the plainest case this counter exists for.
@@ -113,7 +118,7 @@ namespace Horizon.Vehicle
         /// bump the assets keep the short travel and the soft bar together, which is the one combination
         /// that rolls.</para>
         /// </summary>
-        public const int CurrentVersion = 15;
+        public const int CurrentVersion = 16;
 
         /// <summary>
         /// Which set of meanings this asset's numbers were chosen under.
@@ -129,8 +134,18 @@ namespace Horizon.Vehicle
         [Header("Body")]
         public float Mass = 1250f;
 
-        [Tooltip("Local centre of mass. Keep it low — this is the main defence against rolling over.")]
-        public Vector3 CenterOfMass = new Vector3(0f, -0.30f, 0.05f);
+        [Tooltip("Local centre of mass. Keep it low — this is the main defence against rolling over, "
+               + "and with an arcade car it is a hard constraint rather than a preference.\n\n"
+               + "A car tips when its lateral acceleration passes track / (2 × centre-of-mass height). "
+               + "The track is 1.98 m and the wheel anchors sit at this transform's own height, so that "
+               + "height is SuspensionRestLength + WheelRadius − static sag + this number. At −0.30 "
+               + "that put the fastback's tipping point at 2.4 g — below the 2.7 g of grip it is now "
+               + "asked to have, which is a car that lifts its inside wheels in the first fast corner "
+               + "and falls over. Every road car here is set so the tipping point sits about 20 % above "
+               + "its own grip.\n\n"
+               + "The van and the offroader are deliberately left high. That is their character, and "
+               + "the price of it is that they are the two vehicles which do not get arcade grip.")]
+        public Vector3 CenterOfMass = new Vector3(0f, -0.40f, 0.05f);
 
         /// <summary>
         /// Rigidbody linear damping, and it is <b>zero on purpose</b>.
@@ -214,7 +229,7 @@ namespace Horizon.Vehicle
                + "Works on compression as a fraction of the travel, so it has to be rescaled whenever "
                + "SuspensionRestLength moves — see the note on VehicleConfigPresets. 15900 is 14000 "
                + "against the 0.30 m of travel this car used to have.")]
-        public float AntiRollStiffness = 15900f;
+        public float AntiRollStiffness = 19050f;
 
         [Header("Drivetrain")]
         [Tooltip("Which wheels get drive.\n\n"

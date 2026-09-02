@@ -123,7 +123,34 @@ namespace Horizon.EditorTools
                       + $"{existing.LateralGrip.Evaluate(2f):0.00} at twice it, peak slip "
                       + $"{existing.PeakSlipAngle:0.0}°, lock {existing.MaxSteerAngle:0}° at "
                       + $"{existing.SteerRate:0}°/s, CoM y {existing.CenterOfMass.y:0.00}, anti-roll "
-                      + $"{existing.AntiRollStiffness:0}, turn-in assist {existing.TurnInAssist:0.0}.");
+                      + $"{existing.AntiRollStiffness:0}, turn-in assist {existing.TurnInAssist:0.0}, "
+                      + $"tips at {TippingPoint(existing):0.00} g.");
+        }
+
+        /// <summary>
+        /// Lateral acceleration at which this car would lift its inside wheels, in g.
+        ///
+        /// <para><c>track / (2 × centre-of-mass height)</c>, the static two-wheel-lift condition. The
+        /// wheel anchors sit at the vehicle transform's own height (<c>PrototypeSetup</c> places them
+        /// at local y = 0), so the centre of mass stands
+        /// <c>WheelRadius + SuspensionRestLength − static sag + CenterOfMass.y</c> off the ground.</para>
+        ///
+        /// <para><b>Printed because it is the one number that can silently condemn a grip figure.</b> A
+        /// car tuned for more lateral g than this does not understeer or slide — it goes over, and it
+        /// does so in the first fast corner, with nothing in the build having said a word. It is
+        /// pessimistic by construction: it ignores the load the downforce adds and the grip a lifting
+        /// inside wheel gives up, both of which help. Under about 1.2 times the car's own grip is worth
+        /// looking at.</para>
+        /// </summary>
+        private static float TippingPoint(VehicleConfig config)
+        {
+            float sag = config.Mass * 0.25f * Mathf.Abs(Physics.gravity.y)
+                        / Mathf.Max(1f, config.SuspensionStiffness);
+
+            float height = config.WheelRadius + config.SuspensionRestLength - sag + config.CenterOfMass.y;
+            float track = 2f * CarMeshBuilder.TrackHalfWidth;
+
+            return height > 0.01f ? track / (2f * height) : 0f;
         }
 
         /// <summary>

@@ -132,10 +132,10 @@ namespace Horizon.EditorTools
                     config.Mass = 1420f;
                     // A wagon carries its tank under a longer floor, so it gets more of one.
                     config.FuelCapacityLitres = 62f;
-                    config.CenterOfMass = new Vector3(0f, -0.26f, 0.02f);
+                    config.CenterOfMass = new Vector3(0f, -0.36f, 0.02f);
                     config.RollDamping = 2.7f;
                     config.PitchDamping = 1.1f;
-                    config.AntiRollStiffness = 17000f;   // 15000 × 0.34 / 0.30
+                    config.AntiRollStiffness = 19000f;   // 16750 × 0.34 / 0.30
                     config.MaxTorqueNm = 470f;
                     config.RedlineRpm = 5400f;
                     config.UpshiftRpm = 5000f;
@@ -163,10 +163,10 @@ namespace Horizon.EditorTools
                     config.Mass = 1950f;
                     // A van's range is the point of a van.
                     config.FuelCapacityLitres = 75f;
-                    config.CenterOfMass = new Vector3(0f, -0.10f, 0.10f);
+                    config.CenterOfMass = new Vector3(0f, -0.12f, 0.10f);
                     config.RollDamping = 3.4f;
                     config.PitchDamping = 1.5f;
-                    config.AntiRollStiffness = 23400f;   // 22000 × 0.33 / 0.31
+                    config.AntiRollStiffness = 23050f;   // 21650 × 0.33 / 0.31
                     config.DrivenAxle = DrivenAxle.Front;
                     config.MaxTorqueNm = 420f;
                     config.IdleRpm = 700f;
@@ -225,10 +225,10 @@ namespace Horizon.EditorTools
                     config.Mass = 1750f;
                     // Under the bed, and sized for the distances a pickup is bought for.
                     config.FuelCapacityLitres = 78f;
-                    config.CenterOfMass = new Vector3(0f, -0.18f, -0.05f);
+                    config.CenterOfMass = new Vector3(0f, -0.28f, -0.05f);
                     config.RollDamping = 3.0f;
                     config.PitchDamping = 1.3f;
-                    config.AntiRollStiffness = 18500f;   // 17000 × 0.36 / 0.33
+                    config.AntiRollStiffness = 19500f;   // 17875 × 0.36 / 0.33
                     config.MaxTorqueNm = 520f;
                     config.RedlineRpm = 4600f;
                     config.UpshiftRpm = 4300f;
@@ -271,10 +271,10 @@ namespace Horizon.EditorTools
                     config.Mass = 980f;
                     // Small car, small tank — and the least thirsty engine here to drink from it.
                     config.FuelCapacityLitres = 45f;
-                    config.CenterOfMass = new Vector3(0f, -0.32f, 0.04f);
+                    config.CenterOfMass = new Vector3(0f, -0.36f, 0.04f);
                     config.RollDamping = 2.2f;
                     config.PitchDamping = 0.9f;
-                    config.AntiRollStiffness = 13700f;   // 12000 × 0.33 / 0.29
+                    config.AntiRollStiffness = 18650f;   // 16390 × 0.33 / 0.29
                     config.DrivenAxle = DrivenAxle.Front;
                     config.MaxTorqueNm = 260f;
                     config.IdleRpm = 850f;
@@ -345,10 +345,10 @@ namespace Horizon.EditorTools
                     config.Mass = 1560f;
                     // Enough for the coupe's appetite, which at 8000 rpm is considerable.
                     config.FuelCapacityLitres = 60f;
-                    config.CenterOfMass = new Vector3(0f, -0.32f, 0.02f);
+                    config.CenterOfMass = new Vector3(0f, -0.36f, 0.02f);
                     config.RollDamping = 2.4f;
                     config.PitchDamping = 1.0f;
-                    config.AntiRollStiffness = 16700f;   // 15000 × 0.30 / 0.27
+                    config.AntiRollStiffness = 23900f;   // 21500 × 0.30 / 0.27
                     config.DrivenAxle = DrivenAxle.All;
                     config.MaxTorqueNm = 520f;
                     config.IdleRpm = 800f;
@@ -407,10 +407,10 @@ namespace Horizon.EditorTools
                     // and DrivenAxle is nearly the whole of the difference.
                     config.Mass = 1570f;
                     config.FuelCapacityLitres = 58f;
-                    config.CenterOfMass = new Vector3(0f, -0.34f, 0f);
+                    config.CenterOfMass = new Vector3(0f, -0.37f, 0f);
                     config.RollDamping = 2.3f;
                     config.PitchDamping = 1.0f;
-                    config.AntiRollStiffness = 16050f;   // 14500 × 0.31 / 0.28
+                    config.AntiRollStiffness = 23800f;   // 21500 × 0.31 / 0.28
                     config.MaxTorqueNm = 560f;
                     config.IdleRpm = 780f;
                     config.RedlineRpm = 6800f;
@@ -471,10 +471,10 @@ namespace Horizon.EditorTools
                     // there is no baseline for the other nine to be interesting against.
                     config.Mass = 1120f;
                     config.FuelCapacityLitres = 52f;
-                    config.CenterOfMass = new Vector3(0f, -0.28f, 0.03f);
+                    config.CenterOfMass = new Vector3(0f, -0.36f, 0.03f);
                     config.RollDamping = 2.6f;
                     config.PitchDamping = 1.1f;
-                    config.AntiRollStiffness = 14350f;   // 13000 × 0.32 / 0.29
+                    config.AntiRollStiffness = 18100f;   // 16400 × 0.32 / 0.29
                     config.MaxTorqueNm = 300f;
                     config.IdleRpm = 820f;
                     config.RedlineRpm = 6000f;
@@ -517,10 +517,10 @@ namespace Horizon.EditorTools
                     // does. Where the saloon understeers politely, this one rotates.
                     config.Mass = 1080f;
                     config.FuelCapacityLitres = 50f;
-                    config.CenterOfMass = new Vector3(0f, -0.29f, -0.02f);
+                    config.CenterOfMass = new Vector3(0f, -0.36f, -0.02f);
                     config.RollDamping = 2.3f;
                     config.PitchDamping = 1.0f;
-                    config.AntiRollStiffness = 13800f;   // 12500 × 0.32 / 0.29
+                    config.AntiRollStiffness = 17850f;   // 16180 × 0.32 / 0.29
                     config.MaxTorqueNm = 330f;
                     config.IdleRpm = 800f;
                     config.RedlineRpm = 6500f;
@@ -579,10 +579,10 @@ namespace Horizon.EditorTools
                     config.Mass = 2400f;
                     // The biggest tank in the fleet, under the biggest vehicle, feeding the heaviest right foot.
                     config.FuelCapacityLitres = 80f;
-                    config.CenterOfMass = new Vector3(0f, -0.08f, 0.04f);
+                    config.CenterOfMass = new Vector3(0f, -0.10f, 0.04f);
                     config.RollDamping = 3.8f;
                     config.PitchDamping = 1.7f;
-                    config.AntiRollStiffness = 26000f;
+                    config.AntiRollStiffness = 25400f;
                     config.SuspensionStiffness = 58000f;
                     config.SuspensionDamping = 5200f;
                     config.DrivenAxle = DrivenAxle.All;
