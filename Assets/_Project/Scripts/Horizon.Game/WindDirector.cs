@@ -39,7 +39,37 @@ namespace Horizon.Game
                + "foliage that hurries reads as a storm — which is a weather this game does not have.")]
         [SerializeField] private float speed = 1.15f;
 
+        [Tooltip("How fast the cloud field slides, in texture UV per second.\n\n"
+               + "Slow: about two minutes for one tile of it to cross overhead. The reference is the "
+               + "same unhurried afternoon the gusts are tuned for, and clouds that hurry read as a "
+               + "storm.")]
+        [SerializeField] private float skyDriftSpeed = 0.012f;
+
         private static readonly int WindId = Shader.PropertyToID("_HorizonWind");
+
+        /// <summary>
+        /// The cloud drift, and it belongs here rather than to the clock.
+        ///
+        /// <para><b>There is one wind.</b> This class's own note says why: trees leaning north-east
+        /// while a lake ripples south is two weathers in one frame, and a sky drifting a third way is a
+        /// third. <c>Horizon.Atmosphere</c> also references only <c>Horizon.Core</c>, so
+        /// <c>TimeOfDayController</c> cannot see this class and should not — the hour owns the colour of
+        /// the sky and the wind owns which way it moves.</para>
+        ///
+        /// <para><b>Wrapped at 1 and in texture UV.</b> The field is Repeat, so a whole-tile wrap is
+        /// invisible; an accumulator left to grow loses texel resolution over a long session and the
+        /// clouds start to jitter — a fault no build, no check and no short test would ever see. Texture
+        /// UV rather than world units so no copy of the shader's <c>_CloudScale</c> has to live out
+        /// here.</para>
+        ///
+        /// <para><b>Play mode only.</b> Nothing should move while a preview frame is being taken, or
+        /// two shots of the same place are not comparable — and comparing frames is how everything in
+        /// this project gets found. It is also why the shader does not read <c>_Time.y</c> the way
+        /// <c>HorizonSway</c> does.</para>
+        /// </summary>
+        private static readonly int SkyDriftId = Shader.PropertyToID("_HorizonSkyDrift");
+
+        private Vector4 drift;
 
         private void OnEnable()
         {
@@ -57,6 +87,9 @@ namespace Horizon.Game
         {
             // Hand the world back still. A disabled director that left the last gust standing would keep
             // every tree bent, which reads as a broken shader rather than as no wind.
+            //
+            // The drift is deliberately kept. A still sky is correct with no wind in it; snapping the
+            // clouds back to the origin is a visible jump, and it would happen on every scene load.
             Shader.SetGlobalVector(WindId, Vector4.zero);
         }
 
@@ -64,9 +97,24 @@ namespace Horizon.Game
         {
             Vector3 flat = new Vector3(direction.x, 0f, direction.z);
             flat = flat.sqrMagnitude > 0.0001f ? flat.normalized : Vector3.forward;
-            flat *= strength;
 
-            Shader.SetGlobalVector(WindId, new Vector4(flat.x, flat.y, flat.z, speed));
+            Shader.SetGlobalVector(WindId,
+                new Vector4(flat.x * strength, flat.y * strength, flat.z * strength, speed));
+
+            if (Application.isPlaying)
+            {
+                float step = skyDriftSpeed * Time.deltaTime;
+
+                drift.x = Mathf.Repeat(drift.x + flat.x * step, 1f);
+                drift.y = Mathf.Repeat(drift.y + flat.z * step, 1f);
+
+                // The fine tap moves faster, so the two layers shear against each other instead of
+                // sliding as one sheet. Not a whole multiple, or they would come back into register.
+                drift.z = Mathf.Repeat(drift.z + flat.x * step * 1.9f, 1f);
+                drift.w = Mathf.Repeat(drift.w + flat.z * step * 1.9f, 1f);
+            }
+
+            Shader.SetGlobalVector(SkyDriftId, drift);
         }
     }
 }

@@ -1858,15 +1858,18 @@ would show a HUD that does not exist. The thumbnail clears to alpha zero for the
 does not preserve that alpha.
 
 **The world shots keep the plain `GetTemporary` target they have always used.** Moving them onto the
-descriptor blew `M_SkyOvercast` from (139,152,132) to pure white in every overcast and rain frame,
-day and night, while leaving the procedural clear sky and the road pixel-identical. Three quarters of
-the frames unchanged is the shape of a regression that ships.
+descriptor blew the overcast sky from (139,152,132) to pure white in every overcast and rain frame,
+day and night, while leaving the clear sky and the road pixel-identical. Three quarters of the frames
+unchanged is the shape of a regression that ships. The dome it was measured against is gone — see
+*The sky* — but the hazard is live and the frames that found it are still taken.
 
-**One thing the pictures said and is not fixed: the overcast sky does not dim.** `T_SkyOvercast.png`
-is a fixed grey gradient with `_Exposure: 1` and a white tint, so the rain sky reads the same at
-midnight as at noon — measured, day and night frames identical. That is a `TimeOfDayController`
-change and it is the one place a per-asset fix is honest here, because the sky is one material rather
-than fifty tints. Recorded rather than hidden.
+**The one thing the pictures said and was not fixed here — the overcast sky not dimming — is closed,
+and not by the fix this paragraph proposed.** It read the same at midnight as at noon because it was a
+painted grey gradient at `_Exposure: 1`, and the answer written down was to drive that exposure from
+the clock. What it actually took was replacing both skies with one shader whose every colour comes from
+the hour: a per-asset fix would have made the rain sky dim while leaving Hazy — which sat below the
+material swap's threshold and had never touched the sky at all — exactly as wrong as before. See
+*The sky*.
 
 ## What the road feels like
 
@@ -2028,10 +2031,11 @@ of work later, so it ran before a single water vertex existed. Then the fix for 
 apply because the anchor it matched spanned two lines. The instrument was wrong twice and the thing it
 measures never was, which is why the counter is worth more than the swell.
 
-**Clouds and the windmills are not done.** The clear sky is Unity's procedural skybox with no cloud
-layer, so clouds mean authoring a sky rather than rotating one; `MillMeshes.AddWindmill` lofts its
-sails into the shared tile mesh as static geometry, so turning them needs a transform of their own.
-Both are their own change.
+**The clouds are done and the windmills are not.** Clouds did mean authoring a sky rather than
+rotating one, which is what *The sky* is; they drift on `_HorizonSkyDrift`, written by this same
+director, because a sky moving one way while the trees lean another is two weathers in one frame.
+`MillMeshes.AddWindmill` still lofts its sails into the shared tile mesh as static geometry, so
+turning them needs a transform of their own. That one is its own change.
 
 ## Traffic that says what it is doing
 
@@ -2062,6 +2066,65 @@ the traffic used to light up a full minute of game time before the player's car 
 that looks like it knows something you do not.
 
 Indicators are still nowhere, and the player's car still has no reversing light.
+
+## The light in the shade
+
+`TimeOfDayController` set `AmbientMode.Flat`, which is one colour for every face of every mesh in the
+world. Under a single directional light on flat-shaded geometry, ambient is most of what a surface
+facing away from the sun has — so a rock cliff was one slab, a plan view of the terrain was one colour,
+and a low-poly canopy in shadow had no form in it whatever. It is Trilight now: sky above, fog at the
+horizon, a warm bounce from below.
+
+**It costs nothing, and that is verified rather than assumed.** Unity fills the same seven `unity_SH*`
+vectors whichever mode is set — Flat writes the constant term and leaves the linear one zero, Trilight
+writes both — and `SAMPLE_GI` runs the same instructions either way. No pass, no variant, no keyword, no
+memory. Nothing in this project bakes GI (no lighting settings asset, no lightmaps, no probe groups), so
+that branch is the one every renderer in the world already takes. Only `AmbientMode.Skybox` would have
+needed a convolution.
+
+**The three colours are derived, not authored.** The equator is `RenderSettings.fogColor`, already
+computed and already weather-desaturated; the sky is the same ambient the flat mode used, pushed towards
+that fog; the ground is the one new field, `TimeOfDayProfile.GroundBounce`. A colour and not a gradient,
+because the world's albedo does not change with the hour — the light on it does, and `AmbientColor` is
+already that.
+
+**The mean must not move, and it took four attempts to make it not move.** Every colour in this
+project was chosen against the flat ambient; if the average changed, all of them would want looking at
+again, and a world uniformly a tenth brighter simply looks like a world. Each of the four failed
+differently and not one of them would have shown in a frame.
+
+- **Sum the three gains to three.** 1.30 / 1.15 / 0.55 averages to exactly one on paper and measured
+  **4.0 % bright**. Unity convolves the three rather than averaging them, and the equator band covers far
+  more of the sphere than either cap — so the gain above one happened to be sitting on the band that
+  counts.
+- **`RenderSettings.ambientLight` is not a fourth field. It is `ambientSkyColor` under another name.**
+  Writing it after the three, to leave a tidy record of what the flat value would have been, overwrote
+  the sky band with the equator's colour: sky and equator printed as the same three numbers, a facet
+  facing up gained **nought** per cent, and the world came out **12.8 % dark**.
+- **Which then broke the check itself.** With nothing writing the flat value, there is no flat value left
+  in the scene to read — so the validator captured the sky band and compared Trilight against its own
+  sky, reporting the world **44 % dark** on a build where the gains were nearly right. The controller
+  publishes `FlatAmbient` for it now: once the three bands are written, only the code that computed the
+  flat colour still knows it.
+- **And the gains were in the wrong space the whole time.** `RenderSettings`' ambient colours are gamma
+  and the probe is built from their linear values, so scaling a gamma colour by *g* scales the light by
+  *g*². A pair of gains chosen to cancel does not cancel. Applied in linear instead, the same shape reads
+  within one per cent of neutral, and the parametrisation falls out of it: **leave the equator alone and
+  let the two caps deviate about it.** 1.45 and 0.50, measured rather than chosen — about +25 % on a
+  facet facing the sky against −25 % on one facing the ground.
+
+All four were found by `ValidateAmbient`, each on the build that introduced it. It sets Flat, reads
+`RenderSettings.ambientProbe` back and evaluates it up, sideways and down; sets Trilight and does it
+again; prints all six and the mean drift, and warns past five per cent. It asks the engine rather than
+this file's arithmetic about what Unity does with three colours — the rule `ValidateSurfaces` states for
+itself — and it warns when both readings come back identical, because a probe that did not refresh is a
+measurement of nothing and reads exactly like a pass.
+
+**A throwaway bench found three of the four in about a minute each.** The full rebuild is twenty minutes
+and this question needs none of the world: a `[MenuItem]` that sets the two modes, evaluates the probe
+and prints the ratio is thirty lines. It is not kept — the check that ships is `ValidateAmbient`, which
+measures the real controller against the real profile — but the sweep it ran is what turned "the gains
+look wrong" into "the gains are in gamma".
 
 ## The ground
 
@@ -2158,6 +2221,128 @@ field, so half of everything past that line was removed and the middle distance 
 verge and the horizon. The Ebental and the Bahçe keep three quarters of theirs. It is a region knob and
 not a global one because the two mountains own the world's heaviest tiles and this is the one setting
 that would grow exactly those.
+
+## The sky
+
+There were two, and neither was driven. The fair sky was Unity's stock `Skybox/Procedural`, which reads
+the sun's direction and nothing else this project decides; the bad one was a fixed grey ramp on a 64×32
+texture, swapped in above `Overcast` 0.60 with hysteresis. So **Hazy, at 0.45, had never changed the sky
+by a single pixel**, and the grey one read exactly the same at midnight as at noon — the bug this file
+recorded under *The frame* and proposed to fix by driving that texture's exposure. That fix would have
+made the rain sky dim and left Hazy as wrong as before.
+
+`Horizon/Sky` is one material for every hour and every weather. A horizon-to-zenith dome, a cloud layer,
+a sun disc, and `Overcast` thickening the cloud and flattening the dome. There is nothing left to swap,
+so the hysteresis is gone with it.
+
+**`Bootstrap.unity` is the scene that renders, and nothing here had ever written its sky.** `GameBootstrap`
+loads the world additively and never calls `SetActiveScene`; `RenderSettings` is per-scene; both scene
+files carried `m_SkyboxMaterial: {fileID: 10304}`, Unity's built-in default. The game looked right only
+because `TimeOfDayController` rewrote the skybox into whatever was active every frame — and
+`PrototypeSetup` had only ever *read* `RenderSettings.skybox`, to capture the default and hand it back to
+a `clearSky` field that `AssertReferenceAssigned` was happy with. **It is also the only fault in this
+feature that a picture actively hides**: `Rebuild` leaves the editor with Bootstrap active, so every
+preview frame this project takes already uses those settings. Bake the sky into the world scene alone and
+the pictures come back perfect while the build ships a stock blue dome. Both scenes are written now, and
+the build names both.
+
+**Everything the clock drives is a global uniform, declared outside `UnityPerMaterial`.** A skybox has no
+renderer, so `MaterialPropertyBlock` is not available; writing the material would leave `M_Sky` modified
+in a player's working tree the moment they tried the rain, which is the hazard `TownLights`,
+`WetSurfaces` and `QualityDirector` all document. The project already had the pattern in `_HorizonWind`.
+If one of those names ever appears in `Properties` as well, the serialized value shadows the global and
+the sky renders a plausible static dome — which reads as a wiring fault and sends the reader to the wrong
+file, so `ValidateSky` asserts that none of them do.
+
+**The horizon is the fog colour and that is forced, not chosen.** Fog is exponential-squared against a
+600 m far plane, so every distant ridge resolves to exactly `RenderSettings.fogColor` — and a skybox is
+not fogged. Any other colour at the skyline is a seam under every horizon in the game, and the overview
+frames that turn fog off are where it would show first. The zenith cannot be had the same way: at dusk
+the fog is a warm gold and the sky overhead is a deep violet, and no darken-and-shift produces violet
+from gold. That one is a gradient of its own, and it is the only new field the profile gained.
+
+**The cloud is a plane projection, not a lat-long lookup and not noise in the fragment shader.** Two taps
+of one 256² texture at `dir.xz / max(dir.y, floor)`, and the reason that matters most is not the ALU
+count: perspective foreshortening falls out of the projection for free, so cloud cells converge towards
+the skyline exactly as they do overhead, which is what reads as sky at a 60° field of view. Composited to
+three flat tones through narrow `smoothstep`s — never `step`, which crawls on a mipped minified field
+once the sky is moving. The drift is `WindDirector`'s, not the clock's: trees leaning north-east under a
+sky sliding south-west is two weathers in one frame, and `Horizon.Atmosphere` cannot see that class
+anyway. Wrapped in texture UV, and play mode only, so preview frames stay comparable.
+
+**The field is flattened to a uniform distribution before it is written, and the log is what said it had
+to be.** An octave stack sums to something roughly Gaussian about a half, so almost all of its values sit
+in a narrow band: measured on the first bake, a clear sky covered 12 % of the dome and Hazy — one notch
+along — covered **73 %**. Equalising is a monotonic remap, so it moves no cloud and changes no shape, only
+the spacing; what it buys is that a coverage threshold now means very nearly the share of sky above it,
+which is what makes the two constants choosable rather than guessed at. The report thresholds the
+**mixed** field rather than the broad channel, because two fields lerped together are narrower than
+either and the shader mixes them.
+
+The noise is hand-rolled, and that reverses `SurfaceRelief`'s rule for a different reason than that one
+gives. This bakes once, so Unity's Perlin ought to be right — except that it cannot be made to tile: its
+permutation repeats with period 256, so the only sample range that wraps exactly spans 256 lattice cells,
+which at 256 pixels is one cell per texel. That is white noise. A tiling failure shows in the frame as a
+hard vertical line in the sky at one bearing, which reads as a rendering bug rather than a texture one,
+so the generator measures its own seam.
+
+**The sun disc is the only additive term, and that is what keeps the sky out of the bloom.** Bloom's
+linear threshold is about 1.26 with the knee opening at 0.63; everything else the shader produces is a
+chain of lerps between pushed colours, and a lerp cannot exceed its inputs — the brightest of which is
+the noon fog at about 0.75. So the sky cannot bloom by construction rather than by discipline. The halo
+is a lerp for the same reason: written as an add, a halo on a bright afternoon lifts the whole sunset
+quadrant over the knee. The disc is the light's intensity times 3.2, which puts it above the headlamp
+lens at 2.4, and it carries `sunDim` and a `(1 - alpha)` term, so a cloud drifting across it puts it out
+and full overcast removes it without a second knob. It uses the **chord** and not `1 - dot`: for a disc
+under a degree across the dot form is about 1e-4, which is under `half`'s useful resolution — correct in
+the editor and blocky or missing on a phone.
+
+**The environment reflection has to be told, and nothing in this project had ever told it.** There are no
+reflection probes here by budget, so the skybox *is* `unity_SpecCube0` — which is why greying the sky was
+the fix for a wet road reflecting blue in a rainstorm. Assigning a skybox material is a change Unity
+notices; changing what a global makes that material *draw* is not. Left out, the dome would dim perfectly
+while every wet carriageway went on reflecting whichever hour the cubemap was last built at: the recorded
+bug, moved from the sky into the road. `DynamicGI.UpdateEnvironment` is throttled in play mode and
+immediate at edit time, and the reflection dropped to 64 px because it is now rebuilt as the clock moves
+rather than once at load.
+
+**`WetSurfaces`' smoothness is deliberately not touched.** 0.46 against 0.34 was tuned against the
+painted grey dome, and by day the new rain sky lands within noise of it. At night the reflection
+collapses, which is correct — a wet road at night *is* dark except where a lamp hits it. Raising
+smoothness to put the sheen back would be tuning a material to compensate for the sky, which is the
+"fifty changes each of which looks right alone and none of which can be attributed" failure the tone map's
+own notes record.
+
+**The profile heals itself on a version bump.** `LoadOrCreate` returns an existing asset untouched — that
+is what lets a hand-tuned gradient survive a rebuild — so a field added later arrives empty on every
+existing checkout, and an empty `Gradient` is black. The sky would still dim, through its horizon, and
+still be wrong overhead: half-working, which is worse than not working because nothing reports it. Same
+mechanism `VehicleConfigReset` exists for, and for the same reason: a button nobody presses is not a
+guard.
+
+**And the first cloud field came back as speckle rather than as cloud.** Three octaves at 4/8/16 with a
+weight of 0.15 on the finest, which looks reasonable written down and is not, because equalising
+afterwards stretches exactly the middle of the histogram those fine octaves live in. Coarser periods,
+more weight on the first, and a `_CloudScale` less than half what it was. The build could not have said
+this: the seam was 0.000 and the coverage percentages were correct in every frame it was wrong in.
+
+`Tools > Horizon > Render Sky Preview` photographs four hours against four weathers from one place with a
+low horizon, plus two frames aimed by `LookRotation(-sun.transform.forward)` — the only frames anywhere
+that would show the disc sitting somewhere the shadows do not come from, and aiming them from
+`SunAzimuth` instead would be the second copy of the formula the arrangement exists to avoid.
+
+**Those two are taken at half past two and not at the default hour, because at the default hour the
+frame could not answer its own question.** `SunElevation` puts 17.6 h six degrees above the horizon, and
+a camera aimed straight at a sun six degrees up from a road in a valley is a camera aimed at the
+hillside in front of it: it came back as a warm glow spilling off one edge with the disc nowhere in it,
+which is indistinguishable from a disc drawn in the wrong place. A frame that cannot resolve its subject
+is worse than no frame, because it looks like an answer — the same lesson the junction previews learned
+at ninety metres.
+**`Sky_23h0h_Rain` and `Sky_17h6h_Hazy` are the two that carry it**: the first must be dark, which is the
+recorded bug, and the second must have cloud in it, which is the setting that had never had any. The
+clear frame at 17.6 h is deliberately *not* an acceptance shot — that is the one hour where the old
+procedural dome already looked much like this, and a reviewer who opens only that one concludes nothing
+shipped.
 
 ## Updating
 

@@ -112,6 +112,36 @@ MonoBehaviour:
     m_PostInfinity: 2
     m_RotationOrder: 4
   SunAzimuth: 150
+  SkyZenith:
+    serializedVersion: 2
+    key0: {r: 0.04, g: 0.05, b: 0.11, a: 1}
+    key1: {r: 0.34, g: 0.42, b: 0.62, a: 1}
+    key2: {r: 0.26, g: 0.45, b: 0.72, a: 0}
+    key3: {r: 0.3, g: 0.3, b: 0.5, a: 0}
+    key4: {r: 0.04, g: 0.05, b: 0.11, a: 0}
+    key5: {r: 0, g: 0, b: 0, a: 0}
+    key6: {r: 0, g: 0, b: 0, a: 0}
+    key7: {r: 0, g: 0, b: 0, a: 0}
+    ctime0: 0
+    ctime1: 17694
+    ctime2: 32768
+    ctime3: 49151
+    ctime4: 65535
+    ctime5: 0
+    ctime6: 0
+    ctime7: 0
+    atime0: 0
+    atime1: 65535
+    atime2: 0
+    atime3: 0
+    atime4: 0
+    atime5: 0
+    atime6: 0
+    atime7: 0
+    m_Mode: 0
+    m_ColorSpace: -1
+    m_NumColorKeys: 5
+    m_NumAlphaKeys: 2
   AmbientColor:
     serializedVersion: 2
     key0: {r: 0.07, g: 0.09, b: 0.16, a: 1}
@@ -223,4 +253,6 @@ MonoBehaviour:
     m_PreInfinity: 2
     m_PostInfinity: 2
     m_RotationOrder: 4
+  GroundBounce: {r: 0.3, g: 0.27, b: 0.21, a: 1}
   NightAmbientFloor: {r: 0.06, g: 0.08, b: 0.13, a: 1}
+  Version: 1

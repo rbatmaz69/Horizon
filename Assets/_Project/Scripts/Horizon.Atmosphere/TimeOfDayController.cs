@@ -16,14 +16,15 @@ namespace Horizon.Atmosphere
         [SerializeField] private Light sun;
 
         [Header("Sky")]
-        [Tooltip("The fair-weather sky. Whatever the scene was built with.")]
-        [SerializeField] private Material clearSky;
-
-        [Tooltip("The bad-weather sky: grey, thick, and dim.\n\n"
-               + "Two finished materials swapped between, never one material edited — Unity does not "
-               + "roll an asset change back when Play mode ends, so a player who tried the rain once "
-               + "would leave a skybox modified in the working tree. Same rule TownLights follows.")]
-        [SerializeField] private Material overcastSky;
+        [Tooltip("The sky. One material for every hour and every weather.\n\n"
+               + "There used to be two, swapped between at Overcast 0.60 with hysteresis, and that "
+               + "arrangement had two faults it could not be talked out of: Hazy at 0.45 sat below the "
+               + "threshold and therefore never changed the sky at all, and the grey one was a painted "
+               + "texture and so read exactly the same at midnight as at noon.\n\n"
+               + "Nothing is written to this material. Everything the clock decides goes through global "
+               + "shader uniforms — see PushSky — because Unity does not roll an asset change back when "
+               + "Play mode ends, and a skybox has no renderer to hang a MaterialPropertyBlock on.")]
+        [SerializeField] private Material sky;
 
         [Header("Clock")]
         [Tooltip("Current time in hours, 0–24. Starts at golden hour.")]
@@ -78,19 +79,64 @@ namespace Horizon.Atmosphere
         private float lastAppliedOvercast = float.NaN;
         private float lastAppliedSpeedHaze = float.NaN;
 
-        /// <summary>Which sky is currently up, so it is only assigned when it actually changes.</summary>
-        private bool skyIsOvercast;
+        // The eight uniforms PushSky writes. Cached ids, because this runs every frame.
+        private static readonly int SkyHorizonId = Shader.PropertyToID("_HorizonSkyHorizon");
+        private static readonly int SkyZenithId = Shader.PropertyToID("_HorizonSkyZenith");
+        private static readonly int CloudLitId = Shader.PropertyToID("_HorizonSkyCloudLit");
+        private static readonly int CloudShadeId = Shader.PropertyToID("_HorizonSkyCloudShade");
+        private static readonly int SunId = Shader.PropertyToID("_HorizonSun");
+        private static readonly int SunTintId = Shader.PropertyToID("_HorizonSunTint");
+        private static readonly int OvercastId = Shader.PropertyToID("_HorizonOvercast");
 
         /// <summary>
-        /// Overcast at which the grey sky comes in, and the one it goes out at.
+        /// How bright the sun's disc is, as a multiple of the light's own intensity.
         ///
-        /// <para>Hysteresis for the reason <c>TownLights</c> gives about dusk: a single threshold sits
-        /// exactly where a slider is dragged and the sky flickers between the two under the player's
-        /// thumb. Hazy is 0.45 and deliberately below the band — haze is a thin day, not a grey one.</para>
+        /// <para><b>Sized against the bloom threshold rather than by eye.</b> Bloom's linear threshold
+        /// is <c>GammaToLinear(1.1)</c>, about 1.26, with the soft knee opening at 0.63. Everything else
+        /// this shader produces is a chain of lerps between colours pushed from here, and a lerp cannot
+        /// exceed its inputs — the brightest of which is the noon fog at about 0.75 linear. So the sky
+        /// cannot bloom at all, by construction, and the disc is the one thing that is meant to: at a
+        /// noon intensity of 1.15 this puts it at 3.7, which is above the headlamp lens at 2.4 and the
+        /// brake light at 3.2, and at dusk it falls with the sun and blooms orange because the sun's own
+        /// colour is orange by then.</para>
         /// </summary>
-        private const float OvercastSkyOn = 0.60f;
+        private const float SunDiscBrightness = 3.2f;
 
-        private const float OvercastSkyOff = 0.52f;
+        /// <summary>How much of the sun reaches a cloud top, against how much of the ambient sky.</summary>
+        private const float CloudSunShare = 0.7f;
+
+        /// <summary>
+        /// How bright a cloud is against the light falling on it. A cloud is not a mirror.
+        /// </summary>
+        private const float CloudAlbedo = 0.72f;
+
+        /// <summary>
+        /// Shortest gap between two rebuilds of the environment reflection, seconds.
+        ///
+        /// <para><b>Nothing in this project had ever called <c>DynamicGI.UpdateEnvironment</c>, and it
+        /// has to now.</b> There are no reflection probes here by budget, so the skybox <i>is</i> URP's
+        /// environment reflection — which is what made greying the sky the fix for a wet road reflecting
+        /// blue in a rainstorm. Assigning a skybox material is a change Unity notices; changing what a
+        /// global uniform makes that material <i>draw</i> is not. Left out, the dome would dim perfectly
+        /// while every wet carriageway in the world went on reflecting whichever hour the cubemap was
+        /// last built at — the recorded bug, moved from the sky into the road.</para>
+        ///
+        /// <para>Public so <c>QualityDirector</c> can lengthen it, which is that class's own rule about
+        /// runtime values on a component. At <c>DayLengthMinutes</c> 24 the clock runs an hour a minute,
+        /// so the hour test below fires about once a second.</para>
+        /// </summary>
+        public float EnvironmentInterval = DefaultEnvironmentInterval;
+
+        /// <summary>
+        /// The value <see cref="EnvironmentInterval"/> starts at. A constant as well as a field because
+        /// <c>PrototypeSetup</c> never writes the field, so this is what the built scene actually
+        /// carries — and the build reports it.
+        /// </summary>
+        public const float DefaultEnvironmentInterval = 0.25f;
+
+        private float lastEnvironmentAt = float.NegativeInfinity;
+        private float lastEnvironmentOvercast = float.NaN;
+        private float lastEnvironmentHours = float.NaN;
 
         private void OnEnable()
         {
@@ -158,8 +204,9 @@ namespace Horizon.Atmosphere
             Color ambient = profile.AmbientColor.Evaluate(t) * sunDim;
             ambient = Color.Lerp(ambient, profile.NightAmbientFloor, Mathf.Max(0f, 1f - ambient.grayscale * 4f));
 
-            RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
-            RenderSettings.ambientLight = ambient;
+            // The ambient is pushed at the end of this method rather than here, because the sky band
+            // takes its colour from the fog and the fog is not final until a dozen lines below. It was
+            // written here for as long as there was only one colour to write.
 
             // Speed thickens the fog on top of the weather, the same way the weather thickens it on top
             // of the time of day. Only ever thicker: fog is also what hides the draw distance, and a
@@ -191,48 +238,254 @@ namespace Horizon.Atmosphere
                 * (1f + Overcast * 1.6f)
                 * (1f + haze * Mathf.Max(0f, SpeedFogGain));
 
-            ApplySky();
+            // The fog colour before the speed term, deliberately. Speed haze is a thing that happens
+            // to the air between the driver and the world; the ambient is not between anything, and a
+            // world that dims a little every time the throttle goes down is a brightness change tied to
+            // the accelerator.
+            ApplyAmbient(ambient, fogColor);
+            PushSky(t, fogColor, ambient);
+            RefreshEnvironment();
         }
 
         /// <summary>
-        /// Puts the grey sky up in bad weather, and the fair one back afterwards.
+        /// Light from above, from the side and from below, instead of one number for all three.
         ///
-        /// <para><b>Nothing here had ever touched the sky, and it took a photograph of rain falling out
-        /// of a clear blue afternoon to notice.</b> This class writes the sun, the ambient and the fog;
-        /// the skybox is a material on <c>RenderSettings</c> that only ever read the sun's *direction*.
-        /// So <see cref="Overcast"/> has been dimming the light and thickening the air under an
-        /// unchanged blue dome since the day it was written — for Hazy and Overcast as much as for
-        /// rain.</para>
+        /// <para><b>This world is flat shaded under a single directional light, so ambient is most of
+        /// what a surface facing away from the sun has.</b> With <c>AmbientMode.Flat</c> every face of
+        /// every mesh got the same one, which is why a rock face reads as a single slab, why a plan view
+        /// of the terrain is one colour, and why a low-poly canopy in shadow has no form in it at all.
+        /// Trilight gives an up-facing facet the sky and a down-facing one the ground, and the facets
+        /// here are hard-normalled, so the difference lands per facet — which is the whole shape of the
+        /// art.</para>
         ///
-        /// <para><b>It also decides what smooth surfaces reflect</b>, which is the half nobody would
-        /// predict. With no reflection probes in this world — a budget decision — URP's environment
-        /// reflection is the skybox itself, so a wet road under a blue dome reflects blue. Greying the
-        /// sky greys the reflection in the same stroke.</para>
+        /// <para><b>It costs nothing, and that is checkable rather than hopeful.</b> Unity fills the same
+        /// seven <c>unity_SH*</c> vectors whichever mode is set — Flat writes the constant term and
+        /// leaves the linear one zero, Trilight writes both — and <c>SAMPLE_GI</c> evaluates the same
+        /// instructions either way. No pass, no variant, no keyword, no memory. Only
+        /// <c>AmbientMode.Skybox</c> would need a convolution and a <c>DynamicGI</c> call, and it is not
+        /// this.</para>
         ///
-        /// <para>Assigned only on the frame it changes. <c>RenderSettings.skybox</c> is a scene value
-        /// and writing it every frame at edit time would leave the scene permanently dirty, which is
-        /// the same trap <see cref="Update"/> guards against for everything else here.</para>
+        /// <para><b>The three sum to three, and that is what keeps this a change of shape rather than a
+        /// re-tune of the world's light.</b> Every colour in this project was chosen against the flat
+        /// ambient; if the average moved, every one of them would need looking at again. So the gains are
+        /// written to average exactly 1, <see cref="Tinted"/> moves colour without moving level, and
+        /// <c>ValidateAmbient</c> reads <c>RenderSettings.ambientProbe</c> back and prints what the
+        /// engine actually built from them. The claim in this paragraph is the one most worth
+        /// distrusting, so it is the one the build measures.</para>
+        ///
+        /// <para>The night floor is applied to <paramref name="ambient"/> before it arrives here, so it
+        /// still floors — split three ways rather than defeated.</para>
         /// </summary>
-        private void ApplySky()
+        /// <summary>
+        /// The single colour this world's ambient would be under <c>AmbientMode.Flat</c>.
+        ///
+        /// <para><b>Published because it cannot be read back once Trilight is set.</b>
+        /// <c>RenderSettings.ambientLight</c> is not a separate field — it is <c>ambientSkyColor</c>
+        /// under another name — so the moment the three bands are written, the flat value they were
+        /// meant to average to is gone. <c>ValidateAmbient</c> compares the two modes and would
+        /// otherwise be comparing Trilight against its own sky band, which is what it did on the build
+        /// that found this: it reported the world 44 % darker on a change that moves the mean by
+        /// nothing.</para>
+        /// </summary>
+        public Color FlatAmbient { get; private set; }
+
+        private void ApplyAmbient(Color ambient, Color fog)
         {
-            if (clearSky == null || overcastSky == null)
+            FlatAmbient = ambient;
+
+            // <b>The equator is left alone and the two caps deviate about it.</b> Not "the three sum
+            // to three", which was the first parametrisation and is the wrong one: the equator band
+            // covers far more of the sphere than either cap, so a gain above one placed there moves the
+            // world's brightness while a matching gain below one on a cap barely moves it back. Written
+            // this way, the only thing that can change the average is the caps failing to cancel, and
+            // they cancel because they are equal and opposite in the space that matters.
+            //
+            // <b>And that space is linear, which is the whole of why the first three attempts were
+            // wrong.</b> RenderSettings' ambient colours are gamma and the probe is built from their
+            // linear values, so scaling a gamma colour by g scales the light by g^2.2. Gains that
+            // average one on paper therefore do not average one in the frame — measured 8 % bright at
+            // 1.35 / 1.00 / 0.65 applied the obvious way. Applied in linear, the same shape reads
+            // within one per cent of neutral.
+            //
+            // 1.45 and 0.50 are a measured pair, not a chosen one: ValidateAmbient is what says they
+            // hold, and it reports about +25 % on a facet facing the sky against -25 % on one facing
+            // the ground. Do not retune them by eye.
+            const float SkyGain = 1.45f;
+            const float GroundGain = 0.50f;
+
+            // How far each end goes towards its own colour. The ground is pushed harder than the sky
+            // because the sky's tint is already most of the way there — the fog *is* the colour of the
+            // air overhead — while nothing else in the frame says what the earth under the car is made
+            // of.
+            const float SkyTint = 0.5f;
+            const float GroundTint = 0.65f;
+
+            RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Trilight;
+            RenderSettings.ambientSkyColor = Tinted(Scaled(ambient, SkyGain), fog, SkyTint);
+            RenderSettings.ambientEquatorColor = ambient;
+            RenderSettings.ambientGroundColor =
+                Tinted(Scaled(ambient, GroundGain), profile.GroundBounce, GroundTint);
+
+            // <b>RenderSettings.ambientLight is NOT a fourth field — it is ambientSkyColor under another
+            // name.</b> Writing it here to leave a tidy record of the flat value overwrote the sky band
+            // with the equator's colour, and ValidateAmbient reported exactly that: sky and equator
+            // printed as the same three numbers, a facet facing up gained nought per cent, and the
+            // world came out 12.8 % darker overall because two of the three gains had collapsed into
+            // one. Every part of that is invisible in a frame — a world uniformly an eighth darker
+            // looks like a world.
+            //
+            // So there is deliberately nothing here. The check is what found it, and it found it on the
+            // first build.
+        }
+
+        /// <summary>
+        /// Scales a gamma colour by a gain that means what it says in the light.
+        ///
+        /// <para><c>RenderSettings</c>' ambient colours are gamma and the probe is built from their
+        /// linear values, so multiplying the colour by <paramref name="gain"/> multiplies the light by
+        /// <c>gain^2.2</c>. A pair of gains chosen to cancel therefore does not cancel — which is what
+        /// made three attempts at <see cref="ApplyAmbient"/>'s constants wrong before this existed.</para>
+        /// </summary>
+        private static Color Scaled(Color colour, float gain)
+        {
+            return (colour.linear * gain).gamma;
+        }
+
+        /// <summary>
+        /// Moves a colour towards another one without moving how bright it is.
+        ///
+        /// <para>A plain <c>Lerp</c> towards the fog at noon would drag the sky band's level up by half
+        /// the difference between two colours that have no reason to agree about brightness, and the
+        /// ambient average would go with it. Matching the target's grayscale to the source's first means
+        /// the only thing this can change is hue — which is all it is for, and which is what lets
+        /// <see cref="ApplyAmbient"/>'s gains be the whole story about level.</para>
+        /// </summary>
+        private static Color Tinted(Color from, Color toward, float share)
+        {
+            float level = toward.grayscale;
+
+            if (level < 0.0001f)
+            {
+                return from;
+            }
+
+            Color matched = toward * (from.grayscale / level);
+
+            return Color.Lerp(from, matched, share);
+        }
+
+        /// <summary>
+        /// Hands the hour, the weather and the sun to the sky shader.
+        ///
+        /// <para><b>Everything here is a global uniform and nothing writes the material.</b> Unity does
+        /// not roll an asset change back when Play mode ends, so a player who tried the rain once would
+        /// otherwise leave the skybox modified in their working tree — the hazard <c>TownLights</c>,
+        /// <c>WetSurfaces</c> and <c>QualityDirector</c> all document. A skybox has no renderer, so a
+        /// <c>MaterialPropertyBlock</c> is not available and globals are the only mechanism left. The
+        /// project already had the pattern in <c>WindDirector</c>.</para>
+        ///
+        /// <para><b>The horizon is the fog colour, and that is forced rather than chosen.</b> Fog is
+        /// exponential-squared against a 600 m far plane, so every distant ridge in this world resolves
+        /// to exactly <c>RenderSettings.fogColor</c> — and a skybox is not fogged. Any other colour at
+        /// the skyline is a seam under every horizon in the game. The zenith cannot be derived from it
+        /// the same way: at dusk the fog is a warm gold and the sky overhead is a deep violet, and no
+        /// darken-and-shift produces violet from gold, so that one is a gradient of its own.</para>
+        ///
+        /// <para><b>Nothing here can fail to go dark at night, and that is the recorded bug closed by
+        /// construction.</b> Every colour pushed is either the fog, the ambient or the sun's own — all
+        /// three already keyed on the hour, all three already carrying <c>sunDim</c>. The sky that this
+        /// replaced was a painted grey texture at a fixed exposure, which is why it read the same at
+        /// midnight as at noon and why no amount of driving it could have fixed it.</para>
+        ///
+        /// <para>Called every frame in play mode, because <c>Apply</c> is, and because a domain reload,
+        /// a scene load or a shader recompile all drop global vectors and none of them raises anything
+        /// to hook. That is <c>WindDirector.Push</c>'s own written reason, unchanged.</para>
+        /// </summary>
+        private void PushSky(float t, Color horizon, Color ambient)
+        {
+            // One guarded assignment, kept rather than dropped. RenderSettings belongs to the *active*
+            // scene, and GameBootstrap loads the world additively without ever calling SetActiveScene —
+            // so at runtime the settings that render are Bootstrap's, not the world's. Both scenes are
+            // built with this material in them now, and this line is what covers a scene that is not.
+            // Assigned only when it differs, or edit time would leave the scene permanently dirty.
+            if (sky != null && RenderSettings.skybox != sky)
+            {
+                RenderSettings.skybox = sky;
+            }
+
+            if (profile == null)
             {
                 return;
             }
 
-            bool wantOvercast = skyIsOvercast
-                ? Overcast > OvercastSkyOff
-                : Overcast > OvercastSkyOn;
+            Color zenith = profile.SkyZenith.Evaluate(t);
 
-            Material wanted = wantOvercast ? overcastSky : clearSky;
+            // Weather flattens the dome towards its own horizon. At full overcast there is no gradient
+            // left at all, which is what an overcast sky actually is — and what the grey texture this
+            // replaced was painting by hand.
+            zenith = Color.Lerp(zenith, horizon * 0.82f, Mathf.Clamp01(Overcast) * 0.85f);
 
-            if (skyIsOvercast == wantOvercast && RenderSettings.skybox == wanted)
+            Shader.SetGlobalVector(SkyHorizonId, (Vector4)horizon.linear);
+            Shader.SetGlobalVector(SkyZenithId, (Vector4)zenith.linear);
+
+            // Cloud tops are lit by the sun and their undersides by the sky. Both colours exist already,
+            // both are keyed on the hour already, and neither is a new thing to tune.
+            //
+            // .linear first and the intensity after. Color.linear applies pow(v, 2.4) to channels above
+            // one, so scaling before converting over-brightens the sun by its own intensity to the 2.4 —
+            // which at noon is most of a stop and lands the sky in the bloom knee.
+            Vector4 sunLinear = sun != null ? (Vector4)sun.color.linear * sun.intensity : Vector4.zero;
+            Vector4 ambientLinear = (Vector4)ambient.linear;
+
+            Shader.SetGlobalVector(CloudLitId,
+                Vector4.Lerp(ambientLinear, sunLinear, CloudSunShare) * CloudAlbedo);
+            Shader.SetGlobalVector(CloudShadeId, ambientLinear * 0.9f);
+
+            // Read off the transform, after the rotation above wrote it — never recomputed from
+            // SunAzimuth and SunElevation. Two copies of one formula agree until one of them changes,
+            // and the symptom here would be a painted sun sitting somewhere the shadows do not come
+            // from. TrunkForkBuilder.MouthHalfWidth records the general case.
+            Vector3 toSun = sun != null ? -sun.transform.forward : Vector3.up;
+            float intensity = sun != null ? sun.intensity : 0f;
+
+            Shader.SetGlobalVector(SunId,
+                new Vector4(toSun.x, toSun.y, toSun.z, intensity * SunDiscBrightness));
+
+            Color tint = sun != null ? sun.color.linear : Color.white;
+
+            Shader.SetGlobalVector(SunTintId,
+                new Vector4(tint.r, tint.g, tint.b, Mathf.Clamp01(intensity * 1.4f)));
+
+            Shader.SetGlobalFloat(OvercastId, Mathf.Clamp01(Overcast));
+        }
+
+        /// <summary>
+        /// Rebuilds the environment reflection when the sky has actually moved. See
+        /// <see cref="EnvironmentInterval"/> for why this exists at all.
+        /// </summary>
+        private void RefreshEnvironment()
+        {
+            if (!Application.isPlaying)
+            {
+                // One rebuild per change at edit time. The preview tools take their frames without a
+                // frame loop, so anything deferred here would be photographed stale.
+                DynamicGI.UpdateEnvironment();
+                return;
+            }
+
+            bool moved = float.IsNaN(lastEnvironmentHours)
+                || Mathf.Abs(Overcast - lastEnvironmentOvercast) > 0.01f
+                || Mathf.Abs(Mathf.DeltaAngle(TimeOfDayHours * 15f, lastEnvironmentHours * 15f)) > 0.3f;
+
+            if (!moved || Time.unscaledTime - lastEnvironmentAt < EnvironmentInterval)
             {
                 return;
             }
 
-            skyIsOvercast = wantOvercast;
-            RenderSettings.skybox = wanted;
+            DynamicGI.UpdateEnvironment();
+            lastEnvironmentAt = Time.unscaledTime;
+            lastEnvironmentOvercast = Overcast;
+            lastEnvironmentHours = TimeOfDayHours;
         }
     }
 }

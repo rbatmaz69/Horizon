@@ -43,6 +43,39 @@ namespace Horizon.EditorTools
         private const string VehicleConfigPath = SettingsFolder + "/VehicleConfig_Prototype.asset";
         private const string TimeOfDayProfilePath = SettingsFolder + "/TimeOfDayProfile_Default.asset";
 
+        /// <summary>The sky shader, named once so the material, the check and the log all agree.</summary>
+        private const string SkyShaderName = "Horizon/Sky";
+
+        /// <summary>Path of the one sky material. See <c>PrototypeMaterials.Sky</c>.</summary>
+        private const string SkyMaterialPath = MaterialsFolder + "/M_Sky.mat";
+
+        /// <summary>Path of the generated cloud field.</summary>
+        private const string CloudFieldPath = ProjectRoot + "/Art/Skybox/T_SkyClouds.png";
+
+        /// <summary>
+        /// Where the cloud coverage threshold sits at <c>Overcast</c> 0 and at 1.
+        ///
+        /// <para>Written here rather than only in the shader because the build measures what they mean
+        /// against the field's own histogram — see <c>ReportCloudField</c>. The shader's defaults are
+        /// the same two numbers; <c>ValidateSky</c> is what says so, because two copies of a number
+        /// agree until one of them is edited.</para>
+        /// </summary>
+        private const float CoverClear = 0.75f;
+
+        /// <summary>See <see cref="CoverClear"/>.</summary>
+        private const float CoverFull = 0.15f;
+
+        /// <summary>
+        /// How much of the fine field the shader mixes into the broad one.
+        ///
+        /// <para>Kept here as well as on the material because the coverage report has to threshold the
+        /// same field the shader does. Measuring the broad channel alone was the first version, and it
+        /// was wrong in a way that mattered: mixing two fields narrows the distribution, so the
+        /// percentages came out against a spread the sky never sees. <c>ValidateSky</c> compares the two
+        /// copies.</para>
+        /// </summary>
+        private const float CloudDetailWeight = 0.24f;
+
         [MenuItem("Tools/Horizon/Rebuild Prototype Scene", priority = 0)]
         public static void Rebuild()
         {
@@ -90,6 +123,10 @@ namespace Horizon.EditorTools
             ReportSurfaces();
             BuildBootstrapScene(spawns);
             RegisterScenesInBuildSettings();
+
+            // After both scenes are on disk, because the question it asks is which sky each of them
+            // saved and there is no moment before this when both answers exist.
+            ValidateSky(LoadTimeOfDayProfile(), TimeOfDayController.DefaultEnvironmentInterval);
 
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
@@ -273,8 +310,11 @@ namespace Horizon.EditorTools
             /// <summary>Falling water. Stretched billboards, so it wants its own thin bright material.</summary>
             public readonly Material Rain;
 
-            /// <summary>The grey dome that goes up in bad weather. Null if the shader is missing.</summary>
-            public readonly Material OvercastSkybox;
+            /// <summary>
+            /// The sky, for every hour and every weather. Null only if the shader is missing, which
+            /// <c>ValidateSky</c> fails the build over.
+            /// </summary>
+            public readonly Material Sky;
 
             /// <summary>
             /// The wet counterparts, in the order <see cref="WetRoadMaterials"/> lists the dry ones.
@@ -585,7 +625,7 @@ namespace Horizon.EditorTools
                         Lane, new Color(0.17f, 0.17f, 0.19f), 0.44f),
                 };
 
-                OvercastSkybox = OvercastSky();
+                Sky = SkyMaterial();
             }
 
             /// <summary>
@@ -638,9 +678,21 @@ namespace Horizon.EditorTools
             /// reflection probes here, so this is half of why wet asphalt stopped looking like a canal.
             /// </para>
             /// </summary>
-            private static Material OvercastSky()
+            /// <summary>
+            /// The one sky: <c>Horizon/Sky</c> over a generated cloud field.
+            ///
+            /// <para>Replaces both the stock <c>Skybox/Procedural</c> the fair weather used and the
+            /// painted grey <c>M_SkyOvercast</c> that stood in for bad weather. Nothing is written to
+            /// this material at run time — see <c>TimeOfDayController.PushSky</c> — so every value set
+            /// here is an authoring decision and the asset is safe to hand-tune.</para>
+            ///
+            /// <para>A missing shader is an error rather than a warning, unlike the material this
+            /// replaces. That one could fall back on the fair sky and merely look wrong in the rain;
+            /// there is no fallback now, and <c>ValidateSky</c> fails the build.</para>
+            /// </summary>
+            private static Material SkyMaterial()
             {
-                const string assetPath = MaterialsFolder + "/M_SkyOvercast.mat";
+                const string assetPath = MaterialsFolder + "/M_Sky.mat";
 
                 Material existing = AssetDatabase.LoadAssetAtPath<Material>(assetPath);
                 if (existing != null)
@@ -648,81 +700,279 @@ namespace Horizon.EditorTools
                     return existing;
                 }
 
-                Shader shader = Shader.Find("Skybox/Panoramic");
+                Shader shader = Shader.Find(SkyShaderName);
                 if (shader == null)
                 {
-                    Debug.LogWarning(
-                        "[Horizon] No Skybox/Panoramic shader, so bad weather keeps the fair sky. "
-                        + "Rain will fall out of a blue afternoon, which is the fault this material "
-                        + "exists to fix.");
+                    Debug.LogError($"[Horizon] No {SkyShaderName} shader. There is no sky at all without "
+                                   + "it — see Art/Shaders/HorizonSky.shader.");
                     return null;
                 }
 
-                Texture2D dome = HorizonAssetUtility.LoadOrCreateTexture(
-                    ProjectRoot + "/Art/T_SkyOvercast.png", BuildOvercastDome, anisoLevel: 1);
+                // Linear, not sRGB. This is a coverage mask that thresholds are compared against, not a
+                // colour: imported as sRGB it carries a 2.2 curve and every threshold in the shader
+                // lands somewhere other than where the histogram in the build log says it does. The
+                // sky still comes out with clouds in it, which is what makes it worth writing down.
+                Texture2D clouds = HorizonAssetUtility.LoadOrCreateTexture(
+                    ProjectRoot + "/Art/Skybox/T_SkyClouds.png", BuildCloudField,
+                    anisoLevel: 4, wrap: true, sRGB: false);
 
-                var sky = new Material(shader) { name = "M_SkyOvercast" };
-                sky.SetTexture("_MainTex", dome);
-                sky.SetColor("_Tint", Color.white);
-                sky.SetFloat("_Exposure", 1f);
-                sky.SetFloat("_Rotation", 0f);
-
-                // Latitude-longitude, and the whole sphere rather than a hemisphere: the ground half is
-                // never seen — terrain covers it — but a half-sphere layout would stretch the ramp over
-                // twice the arc and put the horizon line halfway up the frame.
-                sky.SetFloat("_Mapping", 1f);
-                sky.SetFloat("_ImageType", 0f);
+                var sky = new Material(shader) { name = "M_Sky" };
+                sky.SetTexture("_CloudTex", clouds);
 
                 AssetDatabase.CreateAsset(sky, assetPath);
                 return AssetDatabase.LoadAssetAtPath<Material>(assetPath);
             }
 
             /// <summary>
-            /// The overcast dome: a cool grey ramp, lighter at the horizon than overhead.
+            /// The cloud field: two octave stacks of tiling value noise, broad in red and fine in green.
             ///
-            /// <para>Equirectangular, so v runs from the nadir at 0 to the zenith at 1 and the horizon
-            /// sits exactly halfway. Both halves are painted — the lower one is never seen through
-            /// terrain, but a sky that went black below the horizon would show as a dark band under
-            /// every distant ridge the moment the fog thinned.</para>
+            /// <para><b>Hand-rolled noise, and this reverses the rule <c>SurfaceRelief</c> states for a
+            /// different reason than that one does.</b> <c>MountainField</c> and the tile builder are
+            /// right to use <c>Mathf.PerlinNoise</c> because they bake once. This bakes once too — but
+            /// Unity's Perlin cannot be made to tile at any useful frequency: its permutation repeats
+            /// with period 256, so the only sample range that wraps exactly spans 256 lattice cells,
+            /// which at 256 pixels is one cell per texel. That is white noise. A periodic integer hash
+            /// with a chosen cell period tiles by construction.</para>
+            ///
+            /// <para>Blue is left empty deliberately. A third field would be a third thing to tune and
+            /// the shader has no use for one; a channel that exists and is not read is a channel
+            /// somebody will later assume means something.</para>
             /// </summary>
-            private static Texture2D BuildOvercastDome()
+            private static Texture2D BuildCloudField()
             {
-                const int width = 64;
-                const int height = 32;
+                const int size = 256;
 
-                var horizon = new Color(0.66f, 0.68f, 0.71f);
-                var zenith = new Color(0.40f, 0.43f, 0.48f);
-
-                var texture = new Texture2D(width, height, TextureFormat.RGB24, false)
+                var texture = new Texture2D(size, size, TextureFormat.RGB24, false)
                 {
-                    name = "T_SkyOvercast",
-                    wrapModeU = TextureWrapMode.Repeat,
-                    wrapModeV = TextureWrapMode.Clamp,
-                    filterMode = FilterMode.Bilinear,
+                    name = "T_SkyClouds",
+                    wrapMode = TextureWrapMode.Repeat,
+                    filterMode = FilterMode.Trilinear,
                 };
 
-                var row = new Color[width];
+                var pixels = new Color[size * size];
 
-                for (int y = 0; y < height; y++)
+                for (int y = 0; y < size; y++)
                 {
-                    // Distance from the horizon, 0 at it and 1 at either pole. Smoothstepped so the band
-                    // just above the skyline stays pale for a while rather than darkening immediately,
-                    // which is what makes a grey sky read as high cloud instead of as a dome.
-                    float v = (y + 0.5f) / height;
-                    float up = Mathf.Abs(v - 0.5f) * 2f;
-
-                    Color colour = Color.Lerp(horizon, zenith, Mathf.SmoothStep(0f, 1f, up));
-
-                    for (int x = 0; x < width; x++)
+                    for (int x = 0; x < size; x++)
                     {
-                        row[x] = colour;
-                    }
+                        float u = (x + 0.5f) / size;
+                        float v = (y + 0.5f) / size;
 
-                    texture.SetPixels(0, y, width, 1, row);
+                        // Broad: the shape of a cloud bank. Three octaves, weighted hard towards the
+                        // coarsest — it decides where cloud is at all and the finer two only break its
+                        // edge. The first version was 4/8/16 at 0.55/0.30/0.15 and the sky came back
+                        // speckled: not clouds but mottling, because equalising the field afterwards
+                        // stretches exactly the middle of the histogram the fine octaves live in.
+                        float broad = TilingNoise(u, v, 3, 17u) * 0.62f
+                                    + TilingNoise(u, v, 6, 23u) * 0.27f
+                                    + TilingNoise(u, v, 12, 41u) * 0.11f;
+
+                        // Fine: what the shader mixes in at a second, tighter scale, so a cloud has an
+                        // edge at more than one size. One field sampled twice would repeat itself at a
+                        // fixed ratio and read as a pattern.
+                        float detail = TilingNoise(u, v, 8, 71u) * 0.65f
+                                     + TilingNoise(u, v, 16, 89u) * 0.35f;
+
+                        pixels[y * size + x] = new Color(broad, detail, 0f);
+                    }
                 }
 
+                // <b>Flattened to a uniform distribution before it is written.</b> An octave stack sums
+                // to something roughly Gaussian about a half, which puts almost all of its values in a
+                // narrow band — so a coverage threshold moved by a tenth swings the sky from scattered
+                // cloud to a lid, and the four weathers cannot be spread across it. Measured on the
+                // first bake: clear came out at 12 % and hazy, one notch along, at 73 %.
+                //
+                // Equalising is a monotonic remap, so it moves no cloud and changes no shape — only how
+                // the values are spaced. What it buys is that a threshold now means very nearly the
+                // share of sky above it, which is what makes the numbers in the log readable and the
+                // two constants above choosable rather than guessed at.
+                Equalise(pixels, size, broad: true);
+                Equalise(pixels, size, broad: false);
+
+                texture.SetPixels(pixels);
                 texture.Apply();
+
+                ReportCloudField(pixels, size);
+
                 return texture;
+            }
+
+            /// <summary>
+            /// Value noise that wraps exactly at 1, with <paramref name="period"/> cells across.
+            ///
+            /// <para>Quintic fade and integer lattice indices taken modulo the period, so the left edge
+            /// and the right edge share their corner values by construction rather than by luck. A
+            /// tiling failure shows in the frame as a hard vertical line in the sky at one bearing,
+            /// which reads as a rendering bug rather than as a texture one — so nobody looks here.</para>
+            /// </summary>
+            private static float TilingNoise(float u, float v, int period, uint seed)
+            {
+                float x = u * period;
+                float y = v * period;
+
+                int x0 = Mathf.FloorToInt(x);
+                int y0 = Mathf.FloorToInt(y);
+                float fx = x - x0;
+                float fy = y - y0;
+
+                int xa = ((x0 % period) + period) % period;
+                int ya = ((y0 % period) + period) % period;
+                int xb = (xa + 1) % period;
+                int yb = (ya + 1) % period;
+
+                float c00 = LatticeValue(xa, ya, seed);
+                float c10 = LatticeValue(xb, ya, seed);
+                float c01 = LatticeValue(xa, yb, seed);
+                float c11 = LatticeValue(xb, yb, seed);
+
+                // Quintic rather than smoothstep: C2, so an octave stack has no visible lattice ridges
+                // where two cells meet. The same reason SurfaceRelief's fade is quintic, one dimension up.
+                float sx = fx * fx * fx * (fx * (fx * 6f - 15f) + 10f);
+                float sy = fy * fy * fy * (fy * (fy * 6f - 15f) + 10f);
+
+                return Mathf.Lerp(Mathf.Lerp(c00, c10, sx), Mathf.Lerp(c01, c11, sx), sy);
+            }
+
+            /// <summary>FNV-1a with an avalanche, the shape every other hash in this project uses.</summary>
+            private static float LatticeValue(int x, int y, uint seed)
+            {
+                unchecked
+                {
+                    uint hash = 2166136261u;
+
+                    hash = (hash ^ (uint)x) * 16777619u;
+                    hash = (hash ^ (uint)y) * 16777619u;
+                    hash = (hash ^ seed) * 16777619u;
+                    hash ^= hash >> 13;
+                    hash *= 0x5bd1e995u;
+                    hash ^= hash >> 15;
+
+                    return (hash & 0xFFFFFFu) / (float)0x1000000;
+                }
+            }
+
+            /// <summary>
+            /// Replaces every value in one channel by its own rank, so the channel is uniform on 0..1.
+            ///
+            /// <para>Sorted once and looked up by binary search rather than ranked pairwise: 65 536
+            /// values, and the pairwise form is four thousand million comparisons.</para>
+            /// </summary>
+            private static void Equalise(Color[] pixels, int size, bool broad)
+            {
+                var values = new float[pixels.Length];
+
+                for (int i = 0; i < pixels.Length; i++)
+                {
+                    values[i] = broad ? pixels[i].r : pixels[i].g;
+                }
+
+                var sorted = (float[])values.Clone();
+                System.Array.Sort(sorted);
+
+                for (int i = 0; i < pixels.Length; i++)
+                {
+                    int rank = System.Array.BinarySearch(sorted, values[i]);
+
+                    if (rank < 0)
+                    {
+                        rank = ~rank;
+                    }
+
+                    float ranked = rank / (float)(sorted.Length - 1);
+
+                    if (broad)
+                    {
+                        pixels[i].r = ranked;
+                    }
+                    else
+                    {
+                        pixels[i].g = ranked;
+                    }
+                }
+            }
+
+            /// <summary>
+            /// Measures the field and says what each weather will actually see of it.
+            ///
+            /// <para><b>A coverage threshold only means "a few scattered clouds" if the histogram puts
+            /// the right share above it</b>, and an octave stack is roughly Gaussian about a half — so
+            /// the numbers in the shader have to be chosen against a measurement rather than by eye.
+            /// This is also the line that catches the two ends of the continuum, which are one number
+            /// apart and both invisible: a clear sky with no cloud in it at all, and an overcast sky
+            /// that still has holes.</para>
+            ///
+            /// <para>The seam is measured for the reason <see cref="TilingNoise"/> gives.</para>
+            /// </summary>
+            private static void ReportCloudField(Color[] pixels, int size)
+            {
+                // The mixed field, not the broad channel: that is what the shader thresholds, and two
+                // fields lerped together are narrower than either of them.
+                var broad = new float[pixels.Length];
+                for (int i = 0; i < pixels.Length; i++)
+                {
+                    broad[i] = Mathf.Lerp(pixels[i].r, pixels[i].g, CloudDetailWeight);
+                }
+
+                var sorted = (float[])broad.Clone();
+                System.Array.Sort(sorted);
+
+                float seam = 0f;
+                for (int i = 0; i < size; i++)
+                {
+                    seam = Mathf.Max(seam, Mathf.Abs(broad[i * size] - broad[i * size + size - 1]));
+                    seam = Mathf.Max(seam, Mathf.Abs(broad[i] - broad[(size - 1) * size + i]));
+                }
+
+                float Share(float threshold)
+                {
+                    int over = 0;
+                    for (int i = 0; i < broad.Length; i++)
+                    {
+                        if (broad[i] > threshold)
+                        {
+                            over++;
+                        }
+                    }
+
+                    return over * 100f / broad.Length;
+                }
+
+                // The four weathers, read off PlayerChoices rather than typed, so this cannot drift away
+                // from what the menu actually asks for.
+                float clearCover = Mathf.Lerp(CoverClear, CoverFull, PlayerChoices.OvercastFor(WeatherPreset.Clear));
+                float hazyCover = Mathf.Lerp(CoverClear, CoverFull, PlayerChoices.OvercastFor(WeatherPreset.Hazy));
+                float rainCover = Mathf.Lerp(CoverClear, CoverFull, PlayerChoices.OvercastFor(WeatherPreset.Rain));
+                float fullCover = Mathf.Lerp(CoverClear, CoverFull, PlayerChoices.OvercastFor(WeatherPreset.Overcast));
+
+                Debug.Log($"[Horizon] Sky: cloud field {size}x{size}, "
+                          + $"p50 {sorted[sorted.Length / 2]:0.00} "
+                          + $"p85 {sorted[(int)(sorted.Length * 0.85f)]:0.00} "
+                          + $"p98 {sorted[(int)(sorted.Length * 0.98f)]:0.00}, "
+                          + $"seam {seam:0.000}. Cover: clear {Share(clearCover):0} %, "
+                          + $"hazy {Share(hazyCover):0} %, rain {Share(rainCover):0} %, "
+                          + $"overcast {Share(fullCover):0} %.");
+
+                if (seam > 0.02f)
+                {
+                    Debug.LogWarning($"[Horizon] Sky: the cloud field does not tile — {seam:0.000} of "
+                                     + "difference across its own edge. That shows in the frame as a hard "
+                                     + "vertical line in the sky at one bearing, which reads as a "
+                                     + "rendering fault rather than as a texture one.");
+                }
+
+                if (Share(clearCover) < 2f)
+                {
+                    Debug.LogWarning("[Horizon] Sky: a clear sky has no cloud in it at all. _CoverClear "
+                                     + "is above the top of this field's histogram.");
+                }
+
+                if (Share(fullCover) < 85f)
+                {
+                    Debug.LogWarning($"[Horizon] Sky: an overcast sky is only {Share(fullCover):0} % "
+                                     + "covered, so it has holes in it. _CoverFull is too high for this "
+                                     + "field.");
+                }
             }
 
             /// <summary>The dry road materials, in the order <see cref="RoadWet"/> gives their wet twins.</summary>
@@ -788,7 +1038,7 @@ namespace Horizon.EditorTools
 
         private static TimeOfDayProfile CreateTimeOfDayProfile()
         {
-            return HorizonAssetUtility.LoadOrCreate(
+            TimeOfDayProfile existing = HorizonAssetUtility.LoadOrCreate(
                 TimeOfDayProfilePath,
                 () =>
                 {
@@ -818,8 +1068,54 @@ namespace Horizon.EditorTools
                         (0.75f, new Color(0.90f, 0.56f, 0.38f)),
                         (1.00f, new Color(0.10f, 0.13f, 0.22f)));
 
+                    ApplySkyDefaults(profile);
+                    profile.Version = TimeOfDayProfile.CurrentVersion;
+
                     return profile;
                 });
+
+            // <b>LoadOrCreate deliberately returns an existing asset untouched</b>, which is what lets a
+            // hand-tuned gradient survive a rebuild — and it is also why a field added later arrives
+            // empty on every checkout that already had the file. An empty Gradient evaluates to black,
+            // so the sky would go on dimming through its horizon and be wrong overhead: half working,
+            // and nothing anywhere reporting it. Same shape of trap VehicleConfigReset exists for.
+            if (existing != null && existing.Version < TimeOfDayProfile.CurrentVersion)
+            {
+                Debug.Log($"[Horizon] Time of day: healing {TimeOfDayProfilePath} from version "
+                          + $"{existing.Version} to {TimeOfDayProfile.CurrentVersion}. Fields the bump "
+                          + "introduced are being written; everything else is left as it was.");
+
+                ApplySkyDefaults(existing);
+                existing.Version = TimeOfDayProfile.CurrentVersion;
+                EditorUtility.SetDirty(existing);
+            }
+
+            return existing;
+        }
+
+        /// <summary>
+        /// The zenith gradient and the ground bounce, written on creation and on a version bump.
+        ///
+        /// <para>Its own method so the two callers cannot disagree — the create path and the heal path
+        /// are the same fields, and a heal that wrote a different violet from the one a fresh checkout
+        /// gets would be two worlds depending on how old somebody's repository is.</para>
+        ///
+        /// <para><b>Every key is under half a unit linear.</b> The tone map is Neutral with a +0.5 stop
+        /// lift and bloom's knee opens at 0.63 linear; the sun's disc is the one thing in the sky shader
+        /// meant to reach that. The deep violet at dusk against the fog's warm gold is the pair that
+        /// makes an evening read as an evening, and it is the reason this is a gradient of its own
+        /// rather than something derived from the fog.</para>
+        /// </summary>
+        private static void ApplySkyDefaults(TimeOfDayProfile profile)
+        {
+            profile.SkyZenith = HorizonAssetUtility.BuildGradient(
+                (0.00f, new Color(0.04f, 0.05f, 0.11f)),   // night, a shade above the fog's own
+                (0.27f, new Color(0.34f, 0.42f, 0.62f)),   // dawn, cold and pale
+                (0.50f, new Color(0.26f, 0.45f, 0.72f)),   // noon
+                (0.75f, new Color(0.30f, 0.30f, 0.50f)),   // dusk: violet over a gold horizon
+                (1.00f, new Color(0.04f, 0.05f, 0.11f)));
+
+            profile.GroundBounce = new Color(0.30f, 0.27f, 0.21f);
         }
 
         /// <summary>
@@ -2666,19 +2962,26 @@ namespace Horizon.EditorTools
                 serialized.FindProperty("sun").objectReferenceValue = sun;
             });
 
-            // The fair sky is whatever the scene already had — the built-in default — captured rather
-            // than recreated, so the good weather looks exactly as it always has and only the bad
-            // weather is new.
+            // <b>The sky is written into the scene as well as onto the component, and it had never been
+            // written at all.</b> This line used to read RenderSettings.skybox and hand whatever it
+            // found to a `clearSky` field — which is to say the tool captured Unity's built-in default
+            // and put it back, and AssertReferenceAssigned passed on it happily because a built-in
+            // default is not null.
             HorizonAssetUtility.Configure(timeOfDay, serialized =>
             {
-                serialized.FindProperty("clearSky").objectReferenceValue = RenderSettings.skybox;
-                serialized.FindProperty("overcastSky").objectReferenceValue = materials.OvercastSkybox;
+                serialized.FindProperty("sky").objectReferenceValue = materials.Sky;
             });
+
+            RenderSettings.skybox = materials.Sky;
+
+            // See BuildBootstrapScene for the argument. Written in both, because a scene that is loaded
+            // and never made active still has to be correct — one of them being wrong is exactly the
+            // kind of thing nobody would find.
+            RenderSettings.defaultReflectionResolution = 64;
 
             HorizonAssetUtility.AssertReferenceAssigned(timeOfDay, "profile");
             HorizonAssetUtility.AssertReferenceAssigned(timeOfDay, "sun");
-            HorizonAssetUtility.AssertReferenceAssigned(timeOfDay, "clearSky");
-            HorizonAssetUtility.AssertReferenceAssigned(timeOfDay, "overcastSky");
+            HorizonAssetUtility.AssertReferenceAssigned(timeOfDay, "sky");
 
             BuildSpeedAtmosphere(atmosphereObject.transform, timeOfDay, materials);
 
@@ -2852,6 +3155,7 @@ namespace Horizon.EditorTools
             ValidateSurfaceRelief(ringPath, "Weissjochring");
 
             ValidatePostStack(camera);
+            ValidateAmbient(timeOfDay);
 
             EditorSceneManager.SaveScene(scene, WorldScenePath);
             return spawns;
@@ -3070,6 +3374,290 @@ namespace Horizon.EditorTools
             }
 
             return name != null && topSpeed > 0f;
+        }
+
+        /// <summary>
+        /// Checks the one thing about the sky that no picture can show, and three that no picture would
+        /// be looked at for.
+        ///
+        /// <para><b>The line that matters is the one naming both scenes.</b> <c>RenderSettings</c> is
+        /// per-scene and <c>GameBootstrap</c> never calls <c>SetActiveScene</c>, so the settings that
+        /// render in the game are Bootstrap's — and <c>Rebuild</c> leaves the editor with Bootstrap
+        /// active too, which means every preview frame this project takes is already using them. A sky
+        /// baked into the world scene alone would therefore photograph perfectly and ship as Unity's
+        /// stock blue dome. That is the only fault in this feature a picture actively <i>hides</i>.</para>
+        ///
+        /// <para><b>The second is the shadowing one.</b> Everything the clock drives is a global uniform
+        /// declared outside <c>UnityPerMaterial</c>, because a skybox has no renderer to hang a
+        /// <c>MaterialPropertyBlock</c> on and writing the asset would leave it modified in a player's
+        /// working tree. If any of those names ever also appears in <c>Properties</c>, the material's
+        /// serialized value shadows the global and the sky renders a plausible static dome — which
+        /// reads as a wiring fault and sends the reader to the wrong file.</para>
+        ///
+        /// <para>The third is the profile arriving with an empty gradient after a version bump: the sky
+        /// still dims through its horizon and is merely wrong overhead. Half working, reported nowhere.
+        /// And the fourth is the pair of coverage constants this file keeps a copy of so that
+        /// <c>ReportCloudField</c> can measure them — a copy that agrees until one of them is
+        /// edited.</para>
+        /// </summary>
+        private static void ValidateSky(TimeOfDayProfile profile, float environmentInterval)
+        {
+            Material sky = AssetDatabase.LoadAssetAtPath<Material>(SkyMaterialPath);
+
+            if (sky == null || sky.shader == null || sky.shader.name != SkyShaderName)
+            {
+                Debug.LogError($"[Horizon] Sky: {SkyMaterialPath} is missing or is not on "
+                               + $"{SkyShaderName}. There is no fallback — the sky this replaced was two "
+                               + "materials and both are gone.");
+                return;
+            }
+
+            // The globals, asserted absent from the material. One HasProperty call each.
+            string[] driven =
+            {
+                "_HorizonSkyHorizon", "_HorizonSkyZenith", "_HorizonSkyCloudLit",
+                "_HorizonSkyCloudShade", "_HorizonSun", "_HorizonSunTint",
+                "_HorizonSkyDrift", "_HorizonOvercast",
+            };
+
+            for (int i = 0; i < driven.Length; i++)
+            {
+                if (sky.HasProperty(driven[i]))
+                {
+                    Debug.LogError($"[Horizon] Sky: {driven[i]} is declared in the material as well as "
+                                   + "being a global. The serialized value shadows what the controller "
+                                   + "pushes, and the sky renders whatever was baked — which looks like "
+                                   + "a dome that does not respond to the clock rather than like this.");
+                }
+            }
+
+            // The three numbers this file keeps a copy of so ReportCloudField can measure what they
+            // mean. A copy agrees until one of them is edited, which is the whole reason for the check.
+            CheckFloat(sky, "_CoverClear", CoverClear);
+            CheckFloat(sky, "_CoverFull", CoverFull);
+            CheckFloat(sky, "_CloudDetailWeight", CloudDetailWeight);
+
+            if (profile != null && (profile.SkyZenith == null || profile.SkyZenith.colorKeys.Length == 0))
+            {
+                Debug.LogError($"[Horizon] Sky: {TimeOfDayProfilePath} has no zenith gradient, so the "
+                               + "sky overhead is black at every hour. An empty Gradient evaluates to "
+                               + "black and the horizon still works, so this half-works — see "
+                               + "TimeOfDayProfile.CurrentVersion for the heal that should have run.");
+            }
+
+            // <b>Both scenes, read off the files rather than off RenderSettings.</b> Which scene is
+            // active decides what the static API answers for, and that is the entire fault this line
+            // exists to catch — so asking it would be asking the thing under test. It also has to run
+            // after both scenes are saved, which is why the call is in Rebuild and not in either
+            // builder.
+            string worldSkybox = SkyboxNameIn(WorldScenePath);
+            string bootstrapSkybox = SkyboxNameIn(BootstrapScenePath);
+
+            Debug.Log($"[Horizon] Sky: {sky.name} on {SkyShaderName}; skybox is {worldSkybox} in "
+                      + $"World_MountainPass and {bootstrapSkybox} in Bootstrap. Environment reflection "
+                      + $"{RenderSettings.defaultReflectionResolution} px, rebuilt at most every "
+                      + $"{environmentInterval:0.00} s.");
+
+            if (worldSkybox != sky.name || bootstrapSkybox != sky.name)
+            {
+                Debug.LogError("[Horizon] Sky: one of the two scenes is not on the new sky. Bootstrap is "
+                               + "the active scene at run time — GameBootstrap loads the world "
+                               + "additively and never calls SetActiveScene — so if that is the one "
+                               + "reading Default-Skybox, the game ships Unity's dome while every "
+                               + "preview frame this project takes still looks perfect.");
+            }
+
+            static void CheckFloat(Material material, string property, float expected)
+            {
+                if (!material.HasProperty(property))
+                {
+                    Debug.LogError($"[Horizon] Sky: the shader has no {property}.");
+                    return;
+                }
+
+                float actual = material.GetFloat(property);
+
+                if (!Mathf.Approximately(actual, expected))
+                {
+                    Debug.LogWarning($"[Horizon] Sky: {property} is {actual:0.000} on the material and "
+                                     + $"{expected:0.000} in PrototypeSetup, so the coverage percentages "
+                                     + "printed above are measured against a threshold the sky does not "
+                                     + "use.");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Reads a saved scene's skybox material name out of its YAML.
+        ///
+        /// <para>Out of the file, because the scene in question is not open — and because opening it to
+        /// ask would mean closing the one being built. Unity writes the RenderSettings block first, so
+        /// this is the top of the file in every scene this project produces.</para>
+        /// </summary>
+        private static string SkyboxNameIn(string scenePath)
+        {
+            if (!System.IO.File.Exists(scenePath))
+            {
+                return "no scene file";
+            }
+
+            foreach (string line in System.IO.File.ReadLines(scenePath))
+            {
+                int at = line.IndexOf("m_SkyboxMaterial:", System.StringComparison.Ordinal);
+
+                if (at < 0)
+                {
+                    continue;
+                }
+
+                // The built-in default is fileID 10304 in the zero GUID, and it is the value that has
+                // been sitting in both scenes all along. Named rather than reported as a guid, because
+                // "Default-Skybox" is the answer somebody needs and a guid is a lookup.
+                if (line.Contains("fileID: 10304"))
+                {
+                    return "Default-Skybox";
+                }
+
+                int guid = line.IndexOf("guid: ", System.StringComparison.Ordinal);
+
+                if (guid < 0)
+                {
+                    return "none";
+                }
+
+                string id = line.Substring(guid + 6, 32);
+                string path = AssetDatabase.GUIDToAssetPath(id);
+                Material material = AssetDatabase.LoadAssetAtPath<Material>(path);
+
+                return material != null ? material.name : "unknown";
+            }
+
+            return "none";
+        }
+
+        /// <summary>
+        /// Reads the ambient probe back and prints what the engine actually built from the three
+        /// Trilight colours.
+        ///
+        /// <para><b>The claim this exists to check is that Trilight is free and does not move the
+        /// world's exposure</b>, and both halves of that are exactly the kind of thing that is easy to
+        /// assert and hard to notice being wrong. The colours in this project were chosen against a flat
+        /// ambient. If the average moved, every one of them wants looking at again — and nothing would
+        /// say so, because a world uniformly ten per cent brighter looks like a world.</para>
+        ///
+        /// <para>So it sets Flat, evaluates the probe up, sideways and down, sets Trilight, does it
+        /// again, and prints both. <c>RenderSettings.ambientProbe</c> is the engine's own answer rather
+        /// than this file's arithmetic about what Unity does with three colours, which is the rule
+        /// <c>ValidateSurfaces</c> states for itself: ask the thing that will be asked at runtime, not a
+        /// second model of it.</para>
+        ///
+        /// <para>The delta that matters is L0 — the constant term, which is the average over the whole
+        /// sphere and therefore the overall brightness. The up/down spread is the feature, so it is
+        /// printed and never warned about.</para>
+        /// </summary>
+        private static void ValidateAmbient(TimeOfDayController timeOfDay)
+        {
+            if (timeOfDay == null)
+            {
+                return;
+            }
+
+            // Evaluated for a facet pointing at the sky, at the horizon and at the ground. Those are the
+            // three the mode is named for and the three a hillside is made of.
+            var directions = new[] { Vector3.up, Vector3.forward, Vector3.down };
+            var flat = new Color[3];
+            var trilight = new Color[3];
+
+            AmbientMode wasMode = RenderSettings.ambientMode;
+
+            // Off the controller, not off RenderSettings. ambientLight is ambientSkyColor under another
+            // name, so once the three bands are written there is no flat value left in the scene to read
+            // — and taking it from there compares Trilight against its own sky band, which reported the
+            // world 44 % darker on a change that moves the mean by nothing.
+            Color wasLight = timeOfDay.FlatAmbient;
+            Color wasSky = RenderSettings.ambientSkyColor;
+            Color wasEquator = RenderSettings.ambientEquatorColor;
+            Color wasGround = RenderSettings.ambientGroundColor;
+
+            try
+            {
+                RenderSettings.ambientMode = AmbientMode.Flat;
+                RenderSettings.ambientLight = wasLight;
+                Sample(directions, flat);
+
+                RenderSettings.ambientMode = AmbientMode.Trilight;
+                RenderSettings.ambientSkyColor = wasSky;
+                RenderSettings.ambientEquatorColor = wasEquator;
+                RenderSettings.ambientGroundColor = wasGround;
+                Sample(directions, trilight);
+            }
+            finally
+            {
+                // Whatever this measured, the scene keeps what the controller wrote. A validator that
+                // leaves the world in the state its last probe needed is a validator that decides the
+                // look.
+                RenderSettings.ambientMode = wasMode;
+                RenderSettings.ambientSkyColor = wasSky;
+                RenderSettings.ambientEquatorColor = wasEquator;
+                RenderSettings.ambientGroundColor = wasGround;
+            }
+
+            // A probe that did not move is a measurement of nothing, and it would read as a clean pass:
+            // drift comes out zero and the warning below never fires. Same rule ValidateSurfaces states
+            // about its own rays missing.
+            if (flat[0] == trilight[0] && flat[1] == trilight[1] && flat[2] == trilight[2])
+            {
+                Debug.LogWarning("[Horizon] Ambient: the probe read identically in both modes, so this "
+                               + "check measured nothing. Either the mode is not being applied or "
+                               + "RenderSettings.ambientProbe did not refresh — do not read the numbers "
+                               + "below as a pass.");
+            }
+
+            float flatL0 = (flat[0].grayscale + flat[1].grayscale + flat[2].grayscale) / 3f;
+            float triL0 = (trilight[0].grayscale + trilight[1].grayscale + trilight[2].grayscale) / 3f;
+            float drift = flatL0 > 0.0001f ? Mathf.Abs(triL0 - flatL0) / flatL0 : 0f;
+
+            float up = flat[0].grayscale > 0.0001f ? trilight[0].grayscale / flat[0].grayscale - 1f : 0f;
+            float down = flat[2].grayscale > 0.0001f ? trilight[2].grayscale / flat[2].grayscale - 1f : 0f;
+
+            Debug.Log($"[Horizon] Ambient: Trilight sky {Describe(RenderSettings.ambientSkyColor)} "
+                    + $"equator {Describe(RenderSettings.ambientEquatorColor)} "
+                    + $"ground {Describe(RenderSettings.ambientGroundColor)}. "
+                    + $"A facet facing up gains {up * 100f:0}%, one facing down loses "
+                    + $"{-down * 100f:0}%. Mean {flatL0:0.000} flat against {triL0:0.000} trilight, "
+                    + $"{drift * 100f:0.0}% apart.");
+
+            if (drift > 0.05f)
+            {
+                Debug.LogWarning($"[Horizon] Ambient: the trilight mean is {drift * 100f:0.0}% off the "
+                               + "flat one, so this is a change to how bright the world is and not only "
+                               + "to its shape. Every colour in the project was chosen against the flat "
+                               + "value. The gains in TimeOfDayController.ApplyAmbient are written to "
+                               + "average one — check them before tuning anything else.");
+            }
+
+            static void Sample(Vector3[] directions, Color[] into)
+            {
+                // The probe is built from the ambient settings, and nothing here says when. Asking for
+                // it straight after writing them is how a validator ends up measuring the previous
+                // mode's answer twice and reporting no difference at all.
+                DynamicGI.UpdateEnvironment();
+
+                SphericalHarmonicsL2 probe = RenderSettings.ambientProbe;
+                var results = new Color[directions.Length];
+
+                probe.Evaluate(directions, results);
+
+                for (int i = 0; i < into.Length; i++)
+                {
+                    into[i] = results[i];
+                }
+            }
+
+            static string Describe(Color colour)
+            {
+                return $"({colour.r:0.00}, {colour.g:0.00}, {colour.b:0.00})";
+            }
         }
 
         /// <summary>
@@ -4511,9 +5099,50 @@ namespace Horizon.EditorTools
             return best;
         }
 
+        /// <summary>
+        /// The sky material, loaded by path after a scene switch.
+        ///
+        /// <para>By path and not through a <c>PrototypeMaterials</c> carried across the switch, which is
+        /// the rule <c>LoadWorldMap</c> and <c>LoadTimeOfDayProfile</c> already state for themselves:
+        /// opening a new scene invalidates object references held from the old one.</para>
+        /// </summary>
+        private static Material LoadSkyMaterial()
+        {
+            var sky = AssetDatabase.LoadAssetAtPath<Material>(SkyMaterialPath);
+
+            if (sky == null)
+            {
+                Debug.LogError($"[Horizon] No sky material at {SkyMaterialPath}. Bootstrap is the "
+                               + "active scene at run time, so without this the game renders Unity's "
+                               + "built-in dome — and every preview frame still looks correct.");
+            }
+
+            return sky;
+        }
+
         private static void BuildBootstrapScene(IReadOnlyList<SpawnPoint> spawns)
         {
             Scene scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+
+            // <b>This scene's RenderSettings are the ones the game actually renders, and nothing here
+            // had ever written them.</b> GameBootstrap loads the world additively and never calls
+            // SetActiveScene, and RenderSettings is per-scene — so the world scene's copy is loaded and
+            // then ignored, and every frame the player sees comes out of Bootstrap's. Both scenes carried
+            // `m_SkyboxMaterial: {fileID: 10304}`, Unity's built-in default, and the game looked right
+            // only because TimeOfDayController rewrote the skybox into whatever was active every frame.
+            //
+            // It is also the fault a picture cannot catch. Rebuild leaves the editor with Bootstrap
+            // active, so every preview frame this project takes already uses these settings: bake the
+            // sky into the world scene alone and the pictures come back perfect while the build ships a
+            // stock blue dome.
+            RenderSettings.skybox = LoadSkyMaterial();
+
+            // Quarter of the resolution it was. There are no reflection probes here, so this cubemap is
+            // every wet road, every pane of glass and every wheel rim in the world — and it is now
+            // rebuilt as the clock moves rather than once at load, so its cost is per second instead of
+            // once. The binding surface is M_CarGlass at smoothness 0.92, which samples the top mip;
+            // the wet carriageway at 0.46 is three mips down and would be happy with half of this.
+            RenderSettings.defaultReflectionResolution = 64;
 
             // After the scene switch, never before it. See LoadWorldMap.
             WorldMap map = LoadWorldMap();

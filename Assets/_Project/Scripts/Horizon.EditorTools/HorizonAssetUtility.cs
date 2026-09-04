@@ -386,11 +386,17 @@ namespace Horizon.EditorTools
         /// above all, which is precisely the case anisotropic filtering exists for. It is also the first
         /// thing to turn down if mobile fill rate becomes a problem.
         /// </summary>
+        /// <param name="sRGB">
+        /// False for a texture that is data rather than colour. A coverage mask read as sRGB carries a
+        /// 2.2 curve into every threshold that samples it, and the failure is silent — the picture still
+        /// contains what it is supposed to, in the wrong quantities.
+        /// </param>
         public static Texture2D LoadOrCreateTexture(
             string assetPath,
             Func<Texture2D> factory,
             int anisoLevel = 4,
-            bool wrap = true)
+            bool wrap = true,
+            bool sRGB = true)
         {
             var existing = AssetDatabase.LoadAssetAtPath<Texture2D>(assetPath);
             if (existing != null)
@@ -410,6 +416,7 @@ namespace Horizon.EditorTools
                 importer.wrapMode = wrap ? TextureWrapMode.Repeat : TextureWrapMode.Clamp;
                 importer.filterMode = FilterMode.Trilinear;
                 importer.anisoLevel = anisoLevel;
+                importer.sRGBTexture = sRGB;
                 importer.SaveAndReimport();
             }
 

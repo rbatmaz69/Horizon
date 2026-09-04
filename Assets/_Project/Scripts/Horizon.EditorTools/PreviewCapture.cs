@@ -52,9 +52,15 @@ namespace Horizon.EditorTools
         /// square on the strength of a frame taken through such a target. The canvas shots therefore need
         /// an explicit descriptor. The world shots do not, and must keep the plain
         /// <c>RenderTexture.GetTemporary</c> they have always used: moving them onto the descriptor blew
-        /// <c>M_SkyOvercast</c> from (139,152,132) to pure white in every overcast and rain frame, day and
-        /// night, while leaving the procedural clear sky and the road pixel-identical. Three quarters of
-        /// the frames were unchanged, which is exactly the shape of a regression that ships.</para>
+        /// the overcast sky from (139,152,132) to pure white in every overcast and rain frame, day and
+        /// night, while leaving the clear sky and the road pixel-identical. Three quarters of the frames
+        /// were unchanged, which is exactly the shape of a regression that ships.</para>
+        ///
+        /// <para>That was measured against a painted grey dome that no longer exists — the sky is
+        /// <c>M_Sky</c> on <c>Horizon/Sky</c> now, one material for every hour and every weather. The
+        /// finding stands and the hazard is live: the frames it was found in are still taken, and
+        /// anything that moves a world shot onto the descriptor path has to be checked against them
+        /// again rather than against this paragraph.</para>
         /// </param>
         internal static void Shoot(
             Camera camera,
