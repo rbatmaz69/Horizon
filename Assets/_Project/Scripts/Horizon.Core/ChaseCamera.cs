@@ -83,6 +83,43 @@ namespace Horizon.Core
         [Tooltip("Filter rate for the camera's own acceleration estimate, per second.")]
         [SerializeField] private float accelerationSmoothing = 8f;
 
+        [Tooltip("Degrees the rig pitches at full acceleration — nose up under power, down under "
+               + "braking.\n\n"
+               + "Squat and dive are already modelled on the body, and PitchDamping is kept separate "
+               + "from RollDamping precisely so the anti-flip damping does not kill them. This is the "
+               + "frame agreeing with the car rather than a second opinion about it, which is why it is "
+               + "small: at 1.2 degrees it is under the impact kick and well over the speed tremor.")]
+        [SerializeField] private float accelerationPitch = 1.2f;
+
+        [Header("Cornering")]
+        [Tooltip("Lateral acceleration in m/s^2 the cornering cues are scaled against. About 0.8 g, "
+               + "which is a brisk corner rather than the limit — the cues should be fully in before "
+               + "the tyres are.")]
+        [SerializeField] private float referenceLateralAcceleration = 8f;
+
+        [Tooltip("Metres the rig swings towards the outside of a corner at the reference lateral "
+               + "acceleration.\n\n"
+               + "The honest half of the cornering cue: the camera has mass and a corner should throw "
+               + "it wide, exactly as it throws the driver. Costs nothing in framing because the aim "
+               + "point does not move with it.")]
+        [SerializeField] private float corneringOffset = 0.35f;
+
+        [Tooltip("Degrees the horizon rolls into a corner at the reference lateral acceleration.\n\n"
+               + "<b>The one parameter here that argues with something already written down.</b> The "
+               + "buffeting tremor deliberately has no roll, because roll at speed reads as a crash "
+               + "rather than as velocity, and the impact kick rolls for exactly that reason. The claim "
+               + "that this is different: the tremor is 11 Hz of random roll and reads as a camera being "
+               + "hit, where a corner is a smooth sub-hertz tilt the driver is causing and knows the "
+               + "sign of. That is an argument, not a measurement — so it is deliberately the smallest "
+               + "number here and it is the first thing to set to zero if a corner starts reading as an "
+               + "accident.")]
+        [SerializeField] private float corneringRoll = 0.6f;
+
+        [Tooltip("Filter rate for the lateral acceleration estimate, per second. Slower than the "
+               + "longitudinal one: a corner is a sustained state and the cue must not flicker through "
+               + "a quick direction change.")]
+        [SerializeField] private float corneringSmoothing = 5f;
+
         [Header("High-speed buffeting")]
         [Tooltip("Peak rig tremor at full speed, degrees.\n\n"
                + "Under a quarter of a degree, which is a few pixels — it is meant to be felt and not "
@@ -138,6 +175,9 @@ namespace Horizon.Core
         /// <summary>Ceiling on the camera's own acceleration estimate, m/s².</summary>
         private const float AccelerationClamp = 8f;
 
+        /// <summary>Ceiling on the lateral estimate, m/s². Above the grip of any car in the garage.</summary>
+        private const float LateralClamp = 14f;
+
         /// <summary>How fast the FOV opens up, per second.</summary>
         private const float FovOpenRate = 7f;
 
@@ -146,6 +186,21 @@ namespace Horizon.Core
 
         private float previousSpeed;
         private bool hasPreviousSpeed;
+
+        /// <summary>
+        /// Sideways acceleration in m/s^2, positive to the target's right, filtered.
+        ///
+        /// <para>Measured here rather than imported for the reason given on
+        /// <see cref="smoothedAcceleration"/>: this class takes a bare Transform and Rigidbody so it can
+        /// follow anything, and the velocity it already reads carries this too. The vehicle publishes a
+        /// better number — <c>LateralG</c> is built from real yaw rate — but taking it would mean an
+        /// interface, a push and a component to own it, for a cue that a subtraction already answers.
+        /// </para>
+        /// </summary>
+        private float smoothedLateral;
+
+        private Vector3 previousVelocity;
+        private bool hasPreviousVelocity;
 
         /// <summary>
         /// The smoothed aim, before the tremor is added.
@@ -237,6 +292,10 @@ namespace Horizon.Core
             previousSpeed = 0f;
             hasPreviousSpeed = false;
 
+            smoothedLateral = 0f;
+            previousVelocity = Vector3.zero;
+            hasPreviousVelocity = false;
+
             Vector3 desired = ComputeDesiredPosition(out Vector3 aimPoint);
             smoothedRotation = Quaternion.LookRotation(aimPoint - desired, Vector3.up);
             transform.SetPositionAndRotation(desired, smoothedRotation);
@@ -273,7 +332,7 @@ namespace Horizon.Core
                     1f - Mathf.Exp(-rotationSharpness * Time.deltaTime));
             }
 
-            transform.rotation = smoothedRotation * ShakeOffset() * ImpactOffset();
+            transform.rotation = smoothedRotation * LeanOffset() * ShakeOffset() * ImpactOffset();
 
             UpdateFieldOfView();
         }
@@ -323,6 +382,8 @@ namespace Horizon.Core
             if (targetBody == null || deltaTime <= 0f)
             {
                 smoothedAcceleration = 0f;
+                smoothedLateral = 0f;
+                hasPreviousVelocity = false;
                 return;
             }
 
@@ -333,11 +394,14 @@ namespace Horizon.Core
             {
                 previousSpeed = speed;
                 hasPreviousSpeed = true;
+                UpdateLateral(new Vector3(velocity.x, 0f, velocity.z), deltaTime);
                 return;
             }
 
             float raw = (speed - previousSpeed) / deltaTime;
             previousSpeed = speed;
+
+            UpdateLateral(new Vector3(velocity.x, 0f, velocity.z), deltaTime);
 
             // Clamped before the filter: a kerb strike is real but it is not acceleration, and letting
             // the spike through would leave its tail in the frame for a tenth of a second afterwards.
@@ -352,6 +416,67 @@ namespace Horizon.Core
         /// <summary>Acceleration as a signed 0..±1 fraction of <see cref="referenceAcceleration"/>.</summary>
         private float AccelerationFraction() =>
             Mathf.Clamp(smoothedAcceleration / Mathf.Max(0.01f, referenceAcceleration), -1f, 1f);
+
+        /// <summary>
+        /// Differentiates the flat velocity across the direction of travel, in m/s^2.
+        ///
+        /// <para>Across the <i>heading</i> rather than across the car's own right, so a car sideways in
+        /// a drift is not reported as cornering hard: what this cue is about is the path bending, and a
+        /// slide is the path going straight while the nose does not. Below walking pace there is no
+        /// meaningful heading to measure against and the estimate is let go, or a car being nudged
+        /// around a car park swings the rig.</para>
+        /// </summary>
+        private void UpdateLateral(Vector3 flatVelocity, float deltaTime)
+        {
+            if (!hasPreviousVelocity)
+            {
+                previousVelocity = flatVelocity;
+                hasPreviousVelocity = true;
+                return;
+            }
+
+            Vector3 change = (flatVelocity - previousVelocity) / deltaTime;
+            previousVelocity = flatVelocity;
+
+            float raw = 0f;
+            if (flatVelocity.sqrMagnitude > velocityAlignSpeed * velocityAlignSpeed)
+            {
+                Vector3 heading = flatVelocity.normalized;
+                raw = Vector3.Dot(change, Vector3.Cross(Vector3.up, heading));
+
+                // Clamped before the filter, for the reason the longitudinal one is: a kerb strike is a
+                // real sideways acceleration and it is not cornering.
+                raw = Mathf.Clamp(raw, -LateralClamp, LateralClamp);
+            }
+
+            smoothedLateral = Mathf.Lerp(
+                smoothedLateral, raw, 1f - Mathf.Exp(-corneringSmoothing * deltaTime));
+        }
+
+        /// <summary>Lateral acceleration as a signed 0..±1 fraction of the reference.</summary>
+        private float LateralFraction() =>
+            Mathf.Clamp(smoothedLateral / Mathf.Max(0.01f, referenceLateralAcceleration), -1f, 1f);
+
+        /// <summary>
+        /// A steady lean: the horizon rolls into a corner and the frame pitches with the throttle.
+        ///
+        /// <para>Kept apart from <see cref="ShakeOffset"/> and <see cref="ImpactOffset"/> and applied in
+        /// the same chain, so none of the three can feed the smoothed aim. This one is sub-hertz where
+        /// those are 11 and 24 Hz, which is the whole argument for it being allowed to roll at all.</para>
+        /// </summary>
+        private Quaternion LeanOffset()
+        {
+            float lateral = LateralFraction();
+            float pitch = -accelerationPitch * AccelerationFraction();
+            float roll = -corneringRoll * lateral;
+
+            if (Mathf.Abs(pitch) < 0.0005f && Mathf.Abs(roll) < 0.0005f)
+            {
+                return Quaternion.identity;
+            }
+
+            return Quaternion.Euler(pitch, 0f, roll);
+        }
 
         /// <summary>
         /// A small rotational tremor that fades in with speed — the rig being buffeted.
@@ -464,7 +589,15 @@ namespace Horizon.Core
 
             float rigHeight = height - heightDrop;
 
-            Vector3 desired = target.position + smoothedBackward * rigDistance + Vector3.up * rigHeight;
+            // The rig swings towards the outside of the corner. The aim point is deliberately left
+            // where it is, so this changes where the camera is standing and not what it is looking at —
+            // a corner throws the camera wide, it does not make it look somewhere else.
+            Vector3 across = Vector3.Cross(Vector3.up, smoothedBackward);
+            Vector3 swing = across * (corneringOffset * LateralFraction());
+
+            Vector3 desired = target.position + smoothedBackward * rigDistance
+                            + Vector3.up * rigHeight + swing;
+
             return ResolveObstacles(pivot, desired);
         }
 

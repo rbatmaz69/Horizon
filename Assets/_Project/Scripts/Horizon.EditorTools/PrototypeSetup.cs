@@ -2640,6 +2640,11 @@ namespace Horizon.EditorTools
             // wired further down, once the rig it kicks exists.
             ImpactEffects impacts = atmosphereObject.AddComponent<ImpactEffects>();
 
+            // The other half of what the rig is told about the car: ImpactEffects covers being hit,
+            // this covers coming back down. Beside it and wired the same way, and for the reason that
+            // class gives — the camera cannot ask a car whether its wheels are on the ground.
+            DriveFeel driveFeel = atmosphereObject.AddComponent<DriveFeel>();
+
             // --- Vehicle, dropped onto the road among the houses rather than at the start of the course.
             // The arrival road in front of the town is 700 m of scenery to drive *back* along, not
             // something to make the player sit through before anything happens.
@@ -2709,6 +2714,11 @@ namespace Horizon.EditorTools
                 serialized.FindProperty("chaseCamera").objectReferenceValue = chaseCamera);
 
             HorizonAssetUtility.AssertReferenceAssigned(impacts, "chaseCamera");
+
+            HorizonAssetUtility.Configure(driveFeel, serialized =>
+                serialized.FindProperty("chaseCamera").objectReferenceValue = chaseCamera);
+
+            HorizonAssetUtility.AssertReferenceAssigned(driveFeel, "chaseCamera");
 
             // The rain hangs off the camera rather than off the car, and it is the only effect in this
             // project that does. The grit is emitted into world space ahead of the *car* because the
