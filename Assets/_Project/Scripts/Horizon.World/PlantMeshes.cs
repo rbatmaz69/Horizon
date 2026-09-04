@@ -133,6 +133,8 @@ namespace Horizon.World
         /// </summary>
         private List<Color32> colours;
 
+        private int swayingVertices;
+
         public VegetationMeshBuffer(int submeshCount)
         {
             submeshes = new List<int>[submeshCount];
@@ -219,14 +221,7 @@ namespace Horizon.World
                 return;
             }
 
-            if (colours == null)
-            {
-                colours = new List<Color32>(vertices.Count);
-                for (int i = 0; i < vertices.Count; i++)
-                {
-                    colours.Add(new Color32(255, 255, 255, 255));
-                }
-            }
+            EnsureColours();
 
             for (int source = 0; source < tints.Count && source < submeshes.Length; source++)
             {
@@ -238,9 +233,13 @@ namespace Horizon.World
                 Color32 colour = tints[source].Value;
                 List<int> indices = submeshes[source];
 
+                // Red, green and blue only. Alpha carries how much this vertex sways — see ApplySway —
+                // and a tint is about colour, so writing the whole Color32 here would silently flatten
+                // every tree in the world back to rigid the moment it was given its green.
                 for (int i = 0; i < indices.Count; i++)
                 {
-                    colours[indices[i]] = colour;
+                    Color32 existing = colours[indices[i]];
+                    colours[indices[i]] = new Color32(colour.r, colour.g, colour.b, existing.a);
                 }
 
                 if (source == target)
@@ -250,6 +249,114 @@ namespace Horizon.World
 
                 submeshes[target].AddRange(indices);
                 indices.Clear();
+            }
+        }
+
+        /// <summary>Vertices written so far. Take one before a plant and hand it to <see cref="ApplySway"/>.</summary>
+        public int VertexCount => vertices.Count;
+
+        /// <summary>
+        /// Marks the vertices a plant just added with how much of the wind they should feel.
+        ///
+        /// <para><b>Written into the vertex colour's alpha, which was free.</b> Every plant in this world
+        /// goes through one material on one shader, and that shader has only ever read
+        /// <c>colour.rgb</c> — so a sway mask costs no extra vertex attribute, no second material and
+        /// no draw call, and it reaches every tree in the world at once.</para>
+        ///
+        /// <para><b>The channel is inverted on purpose: the shader reads 1 - alpha.</b> Everything in
+        /// this project writes 255 today, which under that reading means rigid — so terrain, buildings,
+        /// roads and anything anybody forgets to mark stay perfectly still. The other way round, one
+        /// missed call would set a hillside swaying. That is the rule <c>GroundSurface</c> already states
+        /// about untagged geometry: being wrong has to be invisible rather than catastrophic.</para>
+        ///
+        /// <para>The ramp is squared. A trunk is stiff at the bottom and limber at the top, and a linear
+        /// ramp moves the lower branches far more than a tree does.</para>
+        /// </summary>
+        /// <param name="fromVertex">The <see cref="VertexCount"/> taken before the plant was added.</param>
+        /// <param name="baseHeight">World Y the plant stands on. Vertices at this height never move.</param>
+        /// <param name="fullHeight">Height above the base at which the plant sways its hardest.</param>
+        /// <param name="amount">0 rigid, 1 fully flexible. Scales the whole ramp.</param>
+        public void ApplySway(int fromVertex, float baseHeight, float fullHeight, float amount)
+        {
+            if (amount <= 0f || fullHeight <= 0.0001f || fromVertex >= vertices.Count)
+            {
+                return;
+            }
+
+            EnsureColours();
+
+            for (int i = fromVertex; i < vertices.Count; i++)
+            {
+                float up = Mathf.Clamp01((vertices[i].y - baseHeight) / fullHeight);
+                float sway = Mathf.Clamp01(up * up * amount);
+
+                Color32 existing = colours[i];
+                colours[i] = new Color32(
+                    existing.r, existing.g, existing.b, (byte)Mathf.RoundToInt((1f - sway) * 255f));
+
+                if (sway > 0.02f)
+                {
+                    swayingVertices++;
+                }
+            }
+        }
+
+        /// <summary>
+        /// How many vertices came out of here able to move.
+        ///
+        /// <para>Counted so the build can say so, for the reason the snow line already gives: a world
+        /// whose wind mask never got written builds, validates and photographs exactly like one that
+        /// works, and the only symptom is a forest that is subtly, unaccountably dead. A still frame
+        /// cannot tell the two apart at all, which makes this the only evidence there is.</para>
+        /// </summary>
+        public int SwayingVertices => swayingVertices;
+
+        /// <summary>
+        /// Marks a plant with a sway ramp taken from its own extent.
+        ///
+        /// <para>The overload every caller actually wants. A conifer, a cherry and a grass tuft differ
+        /// in height by two orders of magnitude and none of them should have that number written at the
+        /// call site — the vertices just added already say where the plant starts and stops, so the ramp
+        /// reads it off them. A plant with no height at all (a single flat quad) is left rigid rather
+        /// than divided by zero.</para>
+        /// </summary>
+        public void ApplySway(int fromVertex, float amount)
+        {
+            if (amount <= 0f || fromVertex >= vertices.Count)
+            {
+                return;
+            }
+
+            float lowest = float.MaxValue;
+            float highest = float.MinValue;
+
+            for (int i = fromVertex; i < vertices.Count; i++)
+            {
+                float y = vertices[i].y;
+                lowest = Mathf.Min(lowest, y);
+                highest = Mathf.Max(highest, y);
+            }
+
+            ApplySway(fromVertex, lowest, highest - lowest, amount);
+        }
+
+        /// <summary>Backfills the colour list with rigid white, so alpha and tint can be written apart.</summary>
+        private void EnsureColours()
+        {
+            if (colours != null)
+            {
+                while (colours.Count < vertices.Count)
+                {
+                    colours.Add(new Color32(255, 255, 255, 255));
+                }
+
+                return;
+            }
+
+            colours = new List<Color32>(vertices.Count);
+            for (int i = 0; i < vertices.Count; i++)
+            {
+                colours.Add(new Color32(255, 255, 255, 255));
             }
         }
 
@@ -392,6 +499,42 @@ namespace Horizon.World
     /// </summary>
     public static class PlantMeshes
     {
+        /// <summary>
+        /// How much of the wind a tree feels at its crown, 0 rigid and 1 fully flexible.
+        ///
+        /// <para>Spent on the vertex colour's alpha by <see cref="VegetationMeshBuffer.ApplySway"/>,
+        /// squared up the plant so the base stays stiff. Full, because a tree is what the wind is for.
+        /// These live here rather than on the scatterer because how far a species bends is a property of
+        /// the species.</para>
+        /// </summary>
+        public const float TreeSway = 1f;
+
+        /// <summary>
+        /// Undergrowth moves less than a tree, and not for the reason it first looks.
+        ///
+        /// <para>A real bush in a real wind moves more than a spruce, not less. But a bush here is two
+        /// metres of four facets seen from a passing car, so the same absolute push that reads as a
+        /// canopy breathing reads on a shrub as the whole plant sliding along the ground. Set against
+        /// what the silhouette can absorb rather than against botany.</para>
+        /// </summary>
+        public const float ShrubSway = 0.55f;
+
+        /// <summary>
+        /// Grass, which genuinely should move most and gets less than a tree anyway.
+        ///
+        /// <para>The shrub's reason twice over: a tuft is a few centimetres of geometry at the edge of
+        /// what the tile budget carries, and at the distance it is seen from, motion past this is a
+        /// shimmer rather than a wind.</para>
+        /// </summary>
+        public const float GrassSway = 0.7f;
+
+        /// <summary>
+        /// A snag is a dead tree with no canopy, so it barely moves — and the little it does is worth
+        /// having, because a bare trunk standing perfectly still beside a wood that is moving is the one
+        /// thing here that would read as broken rather than as dead.
+        /// </summary>
+        public const float SnagSway = 0.15f;
+
         public const int BarkSubmesh = 0;
         public const int ConiferSubmesh = 1;
         public const int BroadleafSubmesh = 2;

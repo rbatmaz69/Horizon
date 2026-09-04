@@ -35,6 +35,9 @@ namespace Horizon.World
         public int WallRuns;
         public int Triangles;
 
+        /// <summary>Vertices carrying a wind mask. See VegetationMeshBuffer.SwayingVertices.</summary>
+        public int SwayingVertices;
+
         /// <summary>
         /// Faces the buffer had to turn round. Must be zero — see <c>TownStats.Flips</c>.
         ///
@@ -85,6 +88,7 @@ namespace Horizon.World
             HayBales += other.HayBales;
             WallRuns += other.WallRuns;
             Triangles += other.Triangles;
+            SwayingVertices += other.SwayingVertices;
             Flips += other.Flips;
             ClosestToRoad = Mathf.Min(ClosestToRoad, other.ClosestToRoad);
             ClosestToStreet = Mathf.Min(ClosestToStreet, other.ClosestToStreet);
@@ -803,6 +807,7 @@ namespace Horizon.World
             }
 
             stats.Triangles = buffer.TriangleCount;
+            stats.SwayingVertices = buffer.SwayingVertices;
             stats.Flips = buffer.FlipCount;
 
             // Bark, conifer, broadleaf and undergrowth fold into one submesh carrying their colours.
@@ -958,7 +963,9 @@ namespace Horizon.World
                         // make the transition from forest to rock read as a transition rather than an edge.
                         if (climb < treeLine + shape.SnagBand && random.Chance(shape.SnagChance))
                         {
+                            int mark = buffer.VertexCount;
                             PlantMeshes.AddSnag(buffer, Place(point, normal, ref random, 1f));
+                            buffer.ApplySway(mark, PlantMeshes.SnagSway);
                             stats.Snags++;
                             Record(stats, toRoad, context, x, z);
                         }
@@ -996,7 +1003,9 @@ namespace Horizon.World
                             // see AddPoplar — but the poplar's slot is painted the Ebental's autumn
                             // gold, so sharing it put half the far shore's trees in the colour of the
                             // country road five kilometres back. See PlantMeshes.CypressSubmesh.
+                            int mark = buffer.VertexCount;
                             PlantMeshes.AddPoplar(buffer, placement, PlantMeshes.CypressSubmesh);
+                            buffer.ApplySway(mark, PlantMeshes.TreeSway);
                             stats.Cypresses++;
                             Record(stats, toRoad, context, x, z);
                             continue;
@@ -1004,7 +1013,9 @@ namespace Horizon.World
 
                         if (region.AutumnCanopy)
                         {
+                            int mark = buffer.VertexCount;
                             PlantMeshes.AddBroadleaf(buffer, placement, PlantMeshes.AutumnCanopySubmesh);
+                            buffer.ApplySway(mark, PlantMeshes.TreeSway);
                             stats.Broadleaves++;
                             Record(stats, toRoad, context, x, z);
                             continue;
@@ -1017,7 +1028,9 @@ namespace Horizon.World
                         // guard on BlossomChance keeps regions without one from drawing at all.
                         if (region.BlossomChance > 0f && random.Next() < region.BlossomChance)
                         {
+                            int mark = buffer.VertexCount;
                             PlantMeshes.AddCherry(buffer, placement);
+                            buffer.ApplySway(mark, PlantMeshes.TreeSway);
                             stats.CherryTrees++;
                             Record(stats, toRoad, context, x, z);
                             continue;
@@ -1034,7 +1047,9 @@ namespace Horizon.World
                         // it: the count in the log was correct throughout.
                         if (region.BlossomChance > 0f)
                         {
+                            int mark = buffer.VertexCount;
                             PlantMeshes.AddBroadleaf(buffer, placement);
+                            buffer.ApplySway(mark, PlantMeshes.TreeSway);
                             stats.Broadleaves++;
                             Record(stats, toRoad, context, x, z);
                             continue;
@@ -1045,12 +1060,16 @@ namespace Horizon.World
                     // broadleaf band at the bottom would read as a different country from the top.
                     if (random.Next() < Mathf.Lerp(0.45f, 1f, coniferBias))
                     {
+                        int mark = buffer.VertexCount;
                         PlantMeshes.AddConifer(buffer, placement);
+                        buffer.ApplySway(mark, PlantMeshes.TreeSway);
                         stats.Conifers++;
                     }
                     else
                     {
+                        int mark = buffer.VertexCount;
                         PlantMeshes.AddBroadleaf(buffer, placement);
+                        buffer.ApplySway(mark, PlantMeshes.TreeSway);
                         stats.Broadleaves++;
                     }
 
@@ -1117,7 +1136,9 @@ namespace Horizon.World
                     point, Vector3.up, random.Range(0f, Mathf.PI * 2f), random.Range(0.9f, 1.08f),
                     random.NextSeed());
 
+                int mark = buffer.VertexCount;
                 PlantMeshes.AddPoplar(buffer, placement);
+                buffer.ApplySway(mark, PlantMeshes.TreeSway);
                 stats.Poplars++;
                 Record(stats, field.DistanceToRoad(at.x, at.y), context, at.x, at.y);
             }
@@ -1210,12 +1231,14 @@ namespace Horizon.World
                     // The rows take the region's own crown colour. One number decides both the wild
                     // trees and the planted ones — see LandRegion.BlossomChance for why a region with
                     // pink woods and rust orchards would be two places rather than one.
+                    int mark = buffer.VertexCount;
                     PlantMeshes.AddFruitTree(
                         buffer,
                         Place(point, normal, ref random, random.Range(0.9f, 1.1f)),
                         region.BlossomChance > 0f
                             ? PlantMeshes.BlossomSubmesh
                             : PlantMeshes.OrchardSubmesh);
+                    buffer.ApplySway(mark, PlantMeshes.TreeSway);
 
                     stats.FruitTrees++;
                     Record(stats, toRoad, context, x, z);
@@ -1531,7 +1554,9 @@ namespace Horizon.World
                     float scale = Mathf.Lerp(1f, 0.5f,
                         Mathf.InverseLerp(shape.TreeLineHeight - 0.1f, 1f, climb));
 
+                    int mark = buffer.VertexCount;
                     PlantMeshes.AddShrub(buffer, Place(point, normal, ref random, scale));
+                    buffer.ApplySway(mark, PlantMeshes.ShrubSway);
                     stats.Shrubs++;
                     Record(stats, toRoad, context, x, z);
                 }
@@ -1605,7 +1630,9 @@ namespace Horizon.World
 
                     // No altitude limit: alpine grass is exactly what covers the ground above the tree line,
                     // and at six triangles a tuft it is the cheapest thing in the whole system.
+                    int mark = buffer.VertexCount;
                     PlantMeshes.AddGrassTuft(buffer, Place(point, normal, ref random, random.Range(0.8f, 1.3f)));
+                    buffer.ApplySway(mark, PlantMeshes.GrassSway);
                     stats.Tufts++;
                     Record(stats, toRoad, context, x, z);
                 }

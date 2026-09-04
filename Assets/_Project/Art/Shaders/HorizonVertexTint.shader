@@ -80,6 +80,39 @@ Shader "Horizon/VertexTintLit"
                 UNITY_VERTEX_OUTPUT_STEREO
             };
 
+            // --- Wind.
+            //
+            // The sway mask is the vertex colour's alpha, inverted: 1 - a. Everything in this project
+            // writes 255, so the default reads as rigid and terrain, buildings and roads stay still
+            // without anyone marking them. See VegetationMeshBuffer.ApplySway.
+            //
+            // _HorizonWind is xyz = direction times strength, w = time scale. Written once a frame by
+            // Horizon.Game's WindDirector, so every plant and every pass agrees about the weather.
+            float4 _HorizonWind;
+
+            float3 HorizonSway(float3 positionWS, float alpha)
+            {
+                float sway = 1.0 - alpha;
+                if (sway <= 0.001)
+                {
+                    return positionWS;
+                }
+
+                // Phase from world position, so neighbouring plants are never in step. Two frequencies
+                // that do not divide into each other, or the whole wood breathes as one object.
+                float phase = positionWS.x * 0.35 + positionWS.z * 0.27;
+                float t = _Time.y * _HorizonWind.w;
+
+                float gust = sin(t + phase) * 0.65 + sin(t * 1.73 + phase * 2.31) * 0.35;
+
+                // Across the wind as well as along it, or every tree leans in one plane and the wood
+                // reads as a flag rather than as foliage.
+                float3 along = _HorizonWind.xyz;
+                float3 across = float3(-along.z, 0.0, along.x);
+
+                return positionWS + (along * gust + across * gust * 0.35) * sway;
+            }
+
             Varyings Vertex(Attributes input)
             {
                 Varyings output = (Varyings)0;
@@ -91,8 +124,10 @@ Shader "Horizon/VertexTintLit"
                 VertexPositionInputs position = GetVertexPositionInputs(input.positionOS.xyz);
                 VertexNormalInputs normal = GetVertexNormalInputs(input.normalOS);
 
-                output.positionCS = position.positionCS;
-                output.positionWS = position.positionWS;
+                float3 swayed = HorizonSway(position.positionWS, input.colour.a);
+
+                output.positionCS = TransformWorldToHClip(swayed);
+                output.positionWS = swayed;
                 output.normalWS = normal.normalWS;
                 output.colour = input.colour;
                 output.fogFactor = ComputeFogFactor(position.positionCS.z);
@@ -163,10 +198,48 @@ Shader "Horizon/VertexTintLit"
             float3 _LightDirection;
             float3 _LightPosition;
 
+            // --- Wind.
+            //
+            // The sway mask is the vertex colour's alpha, inverted: 1 - a. Everything in this project
+            // writes 255, so the default reads as rigid and terrain, buildings and roads stay still
+            // without anyone marking them. See VegetationMeshBuffer.ApplySway.
+            //
+            // _HorizonWind is xyz = direction times strength, w = time scale. Written once a frame by
+            // Horizon.Game's WindDirector, so every plant and every pass agrees about the weather.
+            float4 _HorizonWind;
+
+            float3 HorizonSway(float3 positionWS, float alpha)
+            {
+                float sway = 1.0 - alpha;
+                if (sway <= 0.001)
+                {
+                    return positionWS;
+                }
+
+                // Phase from world position, so neighbouring plants are never in step. Two frequencies
+                // that do not divide into each other, or the whole wood breathes as one object.
+                float phase = positionWS.x * 0.35 + positionWS.z * 0.27;
+                float t = _Time.y * _HorizonWind.w;
+
+                float gust = sin(t + phase) * 0.65 + sin(t * 1.73 + phase * 2.31) * 0.35;
+
+                // Across the wind as well as along it, or every tree leans in one plane and the wood
+                // reads as a flag rather than as foliage.
+                float3 along = _HorizonWind.xyz;
+                float3 across = float3(-along.z, 0.0, along.x);
+
+                return positionWS + (along * gust + across * gust * 0.35) * sway;
+            }
+
+
             struct ShadowAttributes
             {
                 float4 positionOS : POSITION;
                 float3 normalOS   : NORMAL;
+
+                // Read here only so the shadow can sway with the tree. Without it the wind moves the
+                // canopy and leaves its shadow standing, which is worse than no wind at all.
+                float4 colour     : COLOR;
                 UNITY_VERTEX_INPUT_INSTANCE_ID
             };
 
@@ -183,7 +256,8 @@ Shader "Horizon/VertexTintLit"
                 UNITY_SETUP_INSTANCE_ID(input);
                 UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(output);
 
-                float3 positionWS = TransformObjectToWorld(input.positionOS.xyz);
+                float3 positionWS = HorizonSway(
+                    TransformObjectToWorld(input.positionOS.xyz), input.colour.a);
                 float3 normalWS = TransformObjectToWorldNormal(input.normalOS);
 
                 #if _CASTING_PUNCTUAL_LIGHT_SHADOW
@@ -237,9 +311,45 @@ Shader "Horizon/VertexTintLit"
                 float _Metallic;
             CBUFFER_END
 
+            // --- Wind.
+            //
+            // The sway mask is the vertex colour's alpha, inverted: 1 - a. Everything in this project
+            // writes 255, so the default reads as rigid and terrain, buildings and roads stay still
+            // without anyone marking them. See VegetationMeshBuffer.ApplySway.
+            //
+            // _HorizonWind is xyz = direction times strength, w = time scale. Written once a frame by
+            // Horizon.Game's WindDirector, so every plant and every pass agrees about the weather.
+            float4 _HorizonWind;
+
+            float3 HorizonSway(float3 positionWS, float alpha)
+            {
+                float sway = 1.0 - alpha;
+                if (sway <= 0.001)
+                {
+                    return positionWS;
+                }
+
+                // Phase from world position, so neighbouring plants are never in step. Two frequencies
+                // that do not divide into each other, or the whole wood breathes as one object.
+                float phase = positionWS.x * 0.35 + positionWS.z * 0.27;
+                float t = _Time.y * _HorizonWind.w;
+
+                float gust = sin(t + phase) * 0.65 + sin(t * 1.73 + phase * 2.31) * 0.35;
+
+                // Across the wind as well as along it, or every tree leans in one plane and the wood
+                // reads as a flag rather than as foliage.
+                float3 along = _HorizonWind.xyz;
+                float3 across = float3(-along.z, 0.0, along.x);
+
+                return positionWS + (along * gust + across * gust * 0.35) * sway;
+            }
+
             struct DepthAttributes
             {
                 float4 positionOS : POSITION;
+
+                // As in the shadow pass: depth has to agree with what was drawn.
+                float4 colour     : COLOR;
                 UNITY_VERTEX_INPUT_INSTANCE_ID
             };
 
@@ -256,7 +366,10 @@ Shader "Horizon/VertexTintLit"
                 UNITY_SETUP_INSTANCE_ID(input);
                 UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(output);
 
-                output.positionCS = TransformObjectToHClip(input.positionOS.xyz);
+                float3 positionWS = HorizonSway(
+                    TransformObjectToWorld(input.positionOS.xyz), input.colour.a);
+
+                output.positionCS = TransformWorldToHClip(positionWS);
                 return output;
             }
 

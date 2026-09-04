@@ -2634,6 +2634,10 @@ namespace Horizon.EditorTools
             // the speed haze are placed by.
             BuildPostProcessing(atmosphereObject.transform);
 
+            // The one wind. On the Atmosphere object because that is what it is, and because every other
+            // thing that pushes a value at the whole world from here already lives there.
+            atmosphereObject.AddComponent<WindDirector>();
+
             // The camera's answer to a crash. On the Atmosphere object rather than the camera, because
             // it is the world reacting to the car and not the camera having an opinion of its own —
             // which is the same argument BuildSpeedAtmosphere makes for the grit. Created here and
@@ -9146,6 +9150,21 @@ namespace Horizon.EditorTools
                       + $"{stats.Shrubs} shrubs, {stats.Tufts} grass tufts, {stats.Boulders} boulders, "
                       + $"{stats.Snags} snags — {stats.Triangles} triangles, heaviest tile "
                       + $"{heaviestTileName} at {heaviestTile}. Tree line around {treeLine:0} m.");
+
+            // The wind, counted, because it is the one thing here a picture genuinely cannot check: a
+            // still frame of a swaying wood and a still frame of a dead one are the same photograph.
+            // Same rule as the snow line — a world whose mask never got written builds and validates
+            // exactly like one that works.
+            if (stats.SwayingVertices == 0)
+            {
+                Debug.LogWarning("[Horizon] Wind: not one vertex carries a sway mask, so nothing in this "
+                               + "world will move. Either ApplySway is not being called or MergeTinted is "
+                               + "flattening the alpha channel again.");
+            }
+            else
+            {
+                Debug.Log($"[Horizon] Wind: {stats.SwayingVertices} vertices carry a sway mask.");
+            }
 
             // The region's own, counted apart. An avenue that failed to plant is invisible in a total —
             // five hundred trees against a hundred thousand is a rounding error — and it is the one
