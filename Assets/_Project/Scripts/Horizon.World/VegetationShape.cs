@@ -134,10 +134,16 @@ namespace Horizon.World
         /// What the whole world costs at the settings below, measured rather than estimated, so the next
         /// person changing a density knows what they are moving away from.
         ///
-        /// <para>1503 tiles, 9.50 M triangles of vegetation, densest tile 27 052 — 234 210 shrubs,
-        /// 95 516 tufts, 69 709 conifers, 55 978 broadleaves. Measured off a full rebuild of the world as
-        /// it stands, with the pass, the Ebental, the Stadtfeld, the Kalkgrat, the Meerenge, Yalıköy and
-        /// the Weissjoch all in it.</para>
+        /// <para>1894 tiles, 14.01 M triangles of vegetation, densest tile 26 284 — 327 256 shrubs,
+        /// 130 551 tufts, 114 056 conifers, 71 002 broadleaves, and 5 683 wildflowers among the grass.
+        /// Measured off a full rebuild of the world as it stands: the pass, the Ebental, the Stadtfeld,
+        /// the Kalkgrat, the Meerenge, Yalıköy, the Weissjoch, both circuits and the two forest
+        /// belts.</para>
+        ///
+        /// <para><b>The figure this replaced said 11 498 856 and its own prose said 9.50 M</b> — the
+        /// constant had been re-measured once and the paragraph above it had not, which is the failure
+        /// this doc block exists to warn about, sitting inside the doc block. Both are the same number
+        /// now and both were taken off the same build log.</para>
         ///
         /// <para><b>It was 6.83 M, and the two steps that moved it are worth telling apart.</b> The
         /// world's own woods were thickened — <see cref="ClumpThreshold"/> 0.42 → 0.34,
@@ -169,7 +175,7 @@ namespace Horizon.World
         /// memory; growing <i>a tile</i> costs frame time. <see cref="MaxTrianglesPerTile"/> is the
         /// number that actually guards anything.</para>
         /// </summary>
-        public const int MeasuredWorldTriangles = 11498856;
+        public const int MeasuredWorldTriangles = 14007400;
 
         public static VegetationShape Default => new VegetationShape
         {
@@ -271,12 +277,18 @@ namespace Horizon.World
 
             // 12000, set when the densest tile was about 9700 — half again as heavy as the worst the
             // design produced, so as to catch a tile that had genuinely run away rather than to flag the
-            // design itself. It no longer does that: the world's heaviest tile is Terrain_8_6 at 20 062
-            // and the build has been warning about it since the Kalkgrat was added. The number is left
-            // alone deliberately. Raising it to stop the warning would be turning off the one check that
-            // guards frame time — a tile is what the frustum loads, and this is the only budget in the
-            // vegetation system that is not merely about memory. Terrain_8_6 is a real fault to fix, and
-            // this line is what remembers it.
+            // design itself. It no longer does that: the world's heaviest tile is Terrain_-16_-6 at
+            // 26 284, on the Weissjoch's switchback stack, and the build has been warning about it since
+            // the Kalkgrat was added. The number is left alone deliberately. Raising it to stop the
+            // warning would be turning off the one check that guards frame time — a tile is what the
+            // frustum loads, and this is the only budget in the vegetation system that is not merely
+            // about memory. That tile is a real fault to fix, and this line is what remembers it.
+            //
+            // <b>It also did not move when the two forest belts went in</b>, and that is the number that
+            // made them affordable: the world total grew by a tenth and the heaviest tile did not change
+            // at all, because the belts are on the pass and the Kalkgrat and the record is held by a
+            // mountain neither of them touches. Growing the world costs streaming; growing a tile costs
+            // frame time.
             MaxTrianglesPerTile = 12000,
         };
     }

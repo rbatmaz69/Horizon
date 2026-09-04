@@ -97,6 +97,7 @@ namespace Horizon.World
 
         private LandRegion(string name, RoadProximity road, GroundPalette ground, float wildTreeChance,
             float startAlong = 0f,
+            float endAlong = float.PositiveInfinity,
             float spireChance = 0f,
             bool autumnCanopy = false,
             bool farmed = false,
@@ -105,13 +106,16 @@ namespace Horizon.World
             float treeDensity = 1f,
             float clumpThreshold = float.NaN,
             float treeMaxSlopeDegrees = float.NaN,
-            float blossomChance = 0f)
+            float blossomChance = 0f,
+            float flowerChance = 0f,
+            float farDensity = float.NaN)
         {
             Name = name;
             this.road = road;
             Ground = ground;
             WildTreeChance = wildTreeChance;
             StartAlong = startAlong;
+            EndAlong = endAlong;
             SpireChance = spireChance;
             AutumnCanopy = autumnCanopy;
             Farmed = farmed;
@@ -121,6 +125,8 @@ namespace Horizon.World
             ClumpThreshold = clumpThreshold;
             TreeMaxSlopeDegrees = treeMaxSlopeDegrees;
             BlossomChance = blossomChance;
+            FlowerChance = flowerChance;
+            FarDensity = farDensity;
 
             cosAngle = Mathf.Cos(FieldAngleDegrees * Mathf.Deg2Rad);
             sinAngle = Mathf.Sin(FieldAngleDegrees * Mathf.Deg2Rad);
@@ -150,6 +156,23 @@ namespace Horizon.World
         /// tarmac. Measuring from a distance along the road puts the change where the change is.</para>
         /// </summary>
         public float StartAlong { get; }
+
+        /// <summary>
+        /// How far along its own road the region stops, metres — or infinity, which is every region
+        /// that was written before this existed.
+        ///
+        /// <para><b>Without an end there is no such thing as "here and not there".</b>
+        /// <see cref="Weight"/> fades a region in over <see cref="EntryFade"/> and never fades it out,
+        /// so a region ran from <see cref="StartAlong"/> to wherever its road happened to finish. That
+        /// is right for a country — the far shore of the Meerenge is Anadolu for the rest of the drive
+        /// — and it is exactly wrong for a wood, which is a place you come out of. A forest belt is the
+        /// first thing here that has to end.</para>
+        ///
+        /// <para>The exit reuses <see cref="EntryFade"/> rather than carrying a length of its own. One
+        /// number, because a belt soft on one side and sharp on the other reads as a fault rather than
+        /// as an edge, and two would let it become one by drifting.</para>
+        /// </summary>
+        public float EndAlong { get; }
 
         /// <summary>
         /// What share of this region's trees are spires rather than round crowns.
@@ -261,6 +284,36 @@ namespace Horizon.World
         /// </summary>
         public float BlossomChance { get; }
 
+        /// <summary>
+        /// What share of this region's grass tufts come up as a flower instead.
+        ///
+        /// <para><b>It rides on the grass rather than on a scatter of its own</b>, and that is the
+        /// whole reason it is affordable. <c>ScatterTufts</c> already works only in the band between
+        /// <c>VegetationShape.TuftClearance</c> and <c>TuftMaxDistance</c> — a strip about twenty metres
+        /// wide beside the carriageway — which happens to be the only place a thirty-centimetre plant
+        /// can be seen from a car at all. A grid of its own would have had to be told the same thing
+        /// twice and would have planted flowers across hillsides nobody can resolve them on.</para>
+        ///
+        /// <para>Nought everywhere by default, so this is a signature rather than a coat of paint: a
+        /// world where every verge is in flower says nothing about any of them.</para>
+        /// </summary>
+        public float FlowerChance { get; }
+
+        /// <summary>
+        /// This region's own far-field thinning, or <c>NaN</c> to take the world's.
+        ///
+        /// <para><b>The global is right for a mountain and wrong for a plain, which is why this is a
+        /// region.</b> <c>VegetationShape.FarDensity</c> thins what stands more than a hundred metres
+        /// from a carriageway, and its own remarks record that a switchback stack has no such ground and
+        /// therefore nothing to thin. The reverse is what makes open country look empty: a road across a
+        /// plain has almost nothing <i>but</i> far field, so half of everything past a hundred metres is
+        /// removed and the middle distance comes out bare between the verge and the horizon.</para>
+        ///
+        /// <para>It is a region knob and not a global one because the two mountains own the world's
+        /// heaviest tiles, and this is the one setting here that would grow exactly those.</para>
+        /// </summary>
+        public float FarDensity { get; }
+
         /// <summary>The region the rest of the world is in: none of it, and the colours it already had.</summary>
         public static LandRegion None { get; } = new LandRegion(
             "None",
@@ -298,7 +351,17 @@ namespace Horizon.World
                     fields),
                 wildTreeChance: 0.18f,
                 autumnCanopy: true,
-                farmed: true);
+                farmed: true,
+
+                // Fewer than the Bahçe's, and different in kind: this valley is at the other end of the
+                // year. What flowers along a verge in autumn is the last of it, so the share is low
+                // enough to read as scattered rather than as a meadow in bloom.
+                flowerChance: 0.14f,
+
+                // Three quarters of the far field kept rather than half, for the reason the Bahçe keeps
+                // it: this is farmland on a valley floor, so nearly all of it is the far ground the
+                // world's falloff thins, and thinning open country is what makes it read as empty.
+                farDensity: 0.75f);
         }
 
         /// <summary>
@@ -505,7 +568,84 @@ namespace Horizon.World
                 startAlong: startAlong,
                 farmed: true,
                 clumpThreshold: 0.30f,
-                blossomChance: 0.55f);
+                blossomChance: 0.55f,
+
+                // In flower on the ground as well as in the trees. This is the region the whole idea is
+                // for — an orchard valley in spring with a bare verge is a contradiction — so it carries
+                // the highest share in the world.
+                flowerChance: 0.30f,
+
+                // And it keeps three quarters of its far field rather than half. The lap runs across a
+                // floor between 30 and 60 m with nothing steep anywhere on it, so almost all of this
+                // region is the ground the world's falloff exists to thin — and thinning a plain is what
+                // makes a plain look empty. The tiles here are among the lightest in the world.
+                farDensity: 0.78f);
+        }
+
+        /// <summary>
+        /// A wood, on a stretch of road that has an end to it.
+        ///
+        /// <para><b>Every other factory here is a country and this one is a place.</b> A country begins
+        /// somewhere and is the rest of the drive — Anadolu starts at the eastern anchorage and does not
+        /// stop. A wood is something you go into and come out of, which is the whole of why
+        /// <see cref="EndAlong"/> had to exist before this could.</para>
+        ///
+        /// <para><b>It is the same three knobs the Weissjoch is woody by</b>, and it is worth saying
+        /// that they are three rather than one. <see cref="TreeDensity"/> divides the candidate grid, so
+        /// it is the only one that can put down more trees than were offered — everything after that
+        /// point can only remove candidates. <see cref="ClumpThreshold"/> is the share of hillside that
+        /// is clearing rather than wood, and at the world's 0.34 two thirds of a forest is a gap.
+        /// <see cref="TreeMaxSlopeDegrees"/> is the one nobody expects: the world's 30° was chosen
+        /// against a mean face angle, and <c>MountainField</c> blends between legs with an inverse-fifth
+        /// power, so the middle of a slope is far steeper than its average and a wood on one comes out
+        /// in stripes.</para>
+        ///
+        /// <para><b>The ground goes dark with it, and that is not decoration.</b> A dense wood standing
+        /// on the world's open meadow green reads as trees placed on a field. Spruce country has needle
+        /// litter under it, so the palette is a deep cold green and a damp grey-brown crag, and the
+        /// change is on the same fade as the trees — one region, one edge.</para>
+        ///
+        /// <para><b>No fields, no altitude bands, and both are deliberate.</b> A null palette is what
+        /// says nobody farms here, which is what keeps hay bales and post-and-rail fences out of a wood
+        /// — the failure <see cref="Farmed"/> records. And a belt that carried its own tree line would
+        /// re-normalise the elevation axis under it: <c>VegetationBuilder.ClimbAt</c> maps a region with
+        /// bands onto an absolute scale and one without onto the mountain pass's, so a line here would
+        /// move where the world's own wood stops. It has to stay <c>NaN</c>, and the build log's "Tree
+        /// line around 160 m" is what says it did.</para>
+        /// </summary>
+        public static LandRegion Forest(
+            string name,
+            IRoadPath path,
+            float startAlong,
+            float endAlong,
+            float treeDensity = 1.8f,
+            float clumpThreshold = 0.14f)
+        {
+            return new LandRegion(
+                name,
+                new RoadProximity(path),
+                new GroundPalette(
+                    // Needle litter and deep shade rather than open meadow. Darker and cooler than the
+                    // world's 0.36/0.48/0.26 by about as much as the Weissjoch's alpine grass is paler
+                    // than it — the two are the same distance from the world in opposite directions,
+                    // which is what makes either read as somewhere.
+                    new Color(0.24f, 0.34f, 0.21f),
+                    // Damp rock. The world's crag is a dry warm brown; stone under a canopy is not.
+                    new Color(0.36f, 0.35f, 0.31f),
+                    null),
+                // Nothing thins a wild wood. The two regions that thin do it because somebody cleared
+                // the trees or because the climate never grew them, and a belt exists to say the
+                // opposite of both.
+                wildTreeChance: 1f,
+                startAlong: startAlong,
+                endAlong: endAlong,
+                treeDensity: treeDensity,
+                clumpThreshold: clumpThreshold,
+
+                // The same 44° the mountain carries, and for the same reason rather than by copying:
+                // the faces this world builds between two road legs are steeper in the middle than
+                // their average, and 30° puts the trees on the shelves and nowhere between them.
+                treeMaxSlopeDegrees: 44f);
         }
 
         /// <summary>Name of the circuit's region. Its own constant so the course and this agree.</summary>
@@ -546,7 +686,14 @@ namespace Horizon.World
                 ? 1f
                 : Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(StartAlong, StartAlong + EntryFade, along));
 
-            return across * entry;
+            // And out again, where the region has an end. Written as the same fade run backwards, so a
+            // belt is symmetric by construction — see EndAlong. A loop is left alone here for the reason
+            // above: `along` runs back to zero at the start line, so any test against it cuts the lap.
+            float exit = road.IsLoop || float.IsPositiveInfinity(EndAlong)
+                ? 1f
+                : 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(EndAlong - EntryFade, EndAlong, along));
+
+            return across * entry * exit;
         }
 
         /// <summary>
@@ -564,9 +711,27 @@ namespace Horizon.World
                 return false;
             }
 
-            road.Nearest(x, z, out float distance, out float _);
+            road.Nearest(x, z, out float distance, out float along);
 
-            return distance - radius < EdgeReach;
+            if (distance - radius >= EdgeReach)
+            {
+                return false;
+            }
+
+            // <b>The along test belongs here as much as the distance one, and leaving it out is the
+            // quiet half of giving a region an end.</b> This predicate is what picks *which* region a
+            // tile gets — PrototypeSetup takes the first in its list that reaches — so a belt that went
+            // on claiming tiles past its own end would shadow whatever region lies behind it. The
+            // Ebental would lose its parcels, its orchards, its bales and its avenue wherever a wood
+            // overlapped, and nothing in the build would say a word: the tiles would simply come out as
+            // somebody else's country.
+            //
+            // Conservative by the same radius, so a tile clipping the boundary is kept rather than
+            // dropped. The start is deliberately not tested: a region reaches back over its own entry
+            // fade and a tile before it costs one query to find that its weight is zero.
+            return road.IsLoop
+                || float.IsPositiveInfinity(EndAlong)
+                || along - radius <= EndAlong;
         }
 
         /// <summary>

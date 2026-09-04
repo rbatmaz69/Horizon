@@ -2097,6 +2097,68 @@ builder counts them as it chooses them, before anything has wandered, and the nu
 identical to the build before: 23 756 sand, 69 728 snow, 2 884 petal. It is also three fewer whole-array
 allocations per tile across nineteen hundred tiles.
 
+## Woods that end
+
+`LandRegion.Weight` faded a region *in* over `EntryFade` and never faded it out, so a region ran from
+`StartAlong` to wherever its road finished. That is right for a country — the far shore of the Meerenge
+is Anadolu for the rest of the drive — and exactly wrong for a wood, which is a thing you come out of.
+`EndAlong` is what makes "here and not there" expressible at all, and the exit reuses the entry's fade
+length rather than carrying one of its own: a belt soft on one side and sharp on the other reads as a
+fault rather than as an edge.
+
+**The along test had to go into `Reaches` as well, and that is the quiet half.** That predicate decides
+*which* region a tile gets — `PrototypeSetup.RegionFor` takes the first entry in its list that reaches —
+so a belt still claiming tiles past its own end would shadow whatever lies behind it. The Ebental would
+have lost its parcels, its orchards, its bales and its avenue wherever a wood overlapped, and the build
+would not have said a word: the tiles would simply have come out as somebody else's country. For the
+same reason the two belts are listed **first**. Neither of them overlaps a region that exists today, and
+they are written in the position a belt has to be in because the next one will.
+
+**Two woods, on the two roads that had no region at all.** The Talwald is two kilometres on the pass's
+lower slopes, so the climb begins inside a forest and drives out of it; its bounds hang off
+`MountainPassCourse.TownEndDistance` rather than being typed, so retuning the arrival moves the wood with
+the town instead of leaving it standing over the last houses. The Kalkgratwald runs up to three hundred
+metres short of the tunnel portal and is there for what is on the far side of the bore rather than for
+itself — the class note on that road already records that its reveal was designed for a distance this
+world does not have, and the contrast either side of 280 m of rock is what it does have.
+
+Both use the three knobs the Weissjoch is woody by, and they are three rather than one: `TreeDensity`
+divides the candidate grid and is therefore the only one that can put down *more* trees than were
+offered; `ClumpThreshold` is the share of hillside that is clearing, and at the world's 0.34 two thirds
+of a forest is a gap; `TreeMaxSlopeDegrees` is the one nobody expects, because the world's 30° was chosen
+against a mean face angle and `MountainField` blends between legs with an inverse-fifth power, so the
+middle of a slope is far steeper than its average and a wood on one comes out in stripes.
+
+**What it cost: a tenth of the world total, and nothing at all on the heaviest tile.** 12.67 M
+vegetation triangles to 14.01 M, and `Terrain_-16_-6` stayed at 26 284 — the record is held by the
+Weissjoch's switchback stack and neither belt is anywhere near it. Growing the world costs streaming;
+growing a tile costs frame time, and only the second is a budget. The tree line still reads 160 m, which
+is the line that says the elevation axis did not leak.
+
+**No woodlots in the Ebental, and that is a decision rather than an omission.** `PlantAvenue` runs only
+where `tileRegion.Farmed`, and a belt replaces the region on the tiles it claims — so a wood between the
+fields would take out the stretch of poplar avenue standing beside it. The avenue is what says a road was
+planted here, and losing seven hundred metres of it to gain a copse is the wrong trade. Doing it properly
+means the avenue surviving a region change, which is its own change.
+
+**Wildflowers ride on the grass rather than on a scatter of their own.** `ScatterTufts` was the only
+scatter the region had never been given, and it is already banded between `TuftClearance` and
+`TuftMaxDistance` — a strip about twenty metres wide beside the carriageway, which is the only place a
+thirty-centimetre plant can be seen from a car at all. A grid of its own would have had to be told the
+same thing twice and would have planted flowers across hillsides nobody can resolve them on. Two head
+colours and not one, for the reason there are three conifer greens, and both tinted so they fold into the
+one merged draw call. 5 683 of them among 130 551 tufts, counted on their own line and warned at zero:
+they replace grass rather than adding to it, so a share that never fires moves no other number in the log.
+
+**The far-field falloff is a region knob now, and the reason is that the global is right for a
+mountain.** `VegetationShape.FarDensity` thins what stands more than a hundred metres from a carriageway,
+and its own remarks already record that a switchback stack has no such ground and nothing to thin. The
+reverse is what made open country look empty: a road across a valley floor has almost nothing *but* far
+field, so half of everything past that line was removed and the middle distance came out bare between the
+verge and the horizon. The Ebental and the Bahçe keep three quarters of theirs. It is a region knob and
+not a global one because the two mountains own the world's heaviest tiles and this is the one setting
+that would grow exactly those.
+
 ## Updating
 
 The game is sideloaded, so nothing tells a player that a release happened. `Horizon.Updates` asks

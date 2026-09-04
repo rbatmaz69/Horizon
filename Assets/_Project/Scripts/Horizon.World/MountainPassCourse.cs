@@ -135,6 +135,30 @@ namespace Horizon.World
         public static float TownEndDistance => ApproachLength + PassFirstStraight;
 
         /// <summary>
+        /// Where the wood on the lower slopes begins and ends along the course, metres.
+        ///
+        /// <para><b>The climb starts inside a forest and drives out of it</b>, which is a thing this
+        /// road can do and nothing else in the world could until <c>LandRegion.EndAlong</c> existed. It
+        /// begins past the town rather than in it — a village in a clearing is a village, a village in a
+        /// wood is a wood with roofs in it — and it stops well below the tree line, because above that
+        /// the world's own scatter is already thinning towards the snags and a dense belt there would be
+        /// arguing with it.</para>
+        ///
+        /// <para>Both ends are hung off <see cref="TownEndDistance"/> rather than typed, so retuning the
+        /// arrival moves the wood with the town instead of leaving it standing over the last houses.
+        /// That is <see cref="StartPoint"/>'s own argument about a number kept in two places.</para>
+        ///
+        /// <para>The tree line here sits at about 160 m of a 196 m summit and the course climbs 203 m
+        /// over six kilometres, so the belt's far end is comfortably inside the wooded half of the
+        /// climb. It is measured rather than assumed: the build's "Tree line around 160 m" line and
+        /// <c>WorldPreview_2</c> are what say so.</para>
+        /// </summary>
+        public static float ForestStart => TownEndDistance + 240f;
+
+        /// <summary>See <see cref="ForestStart"/>.</summary>
+        public static float ForestEnd => TownEndDistance + 2100f;
+
+        /// <summary>
         /// The arrival road: eight hundred metres of sub-1 % valley floor before the town.
         ///
         /// Shaped rather than straight, so the town does not sit on a ruler and so you see it from a

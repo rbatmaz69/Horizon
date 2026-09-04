@@ -1426,6 +1426,14 @@ namespace Horizon.EditorTools
             // pass. Everything that gives the Ebental its own look reads this.
             LandRegion ebental = LandRegion.Ebental(ebentalPath);
 
+            // The wood on the pass's lower slopes. Two kilometres of it, on a road that had no region
+            // at all until now — the climb begins inside a forest and drives out of it, which is the
+            // first thing in this world that a region has been able to say since LandRegion.EndAlong
+            // existed. The bounds are the course's own, so retuning the arrival moves the wood with the
+            // town rather than leaving it standing over the last houses.
+            LandRegion passWood = LandRegion.Forest(
+                "Talwald", path, MountainPassCourse.ForestStart, MountainPassCourse.ForestEnd);
+
             // --- The Stadtfeldstraße: back down to Hochstadt, and the road that closes the ring.
             //
             // Built from the city outwards, so it starts at the boulevard's last node rather than at
@@ -1484,6 +1492,13 @@ namespace Horizon.EditorTools
             WorldChunk kalkgratChunk = kalkgratObject.AddComponent<WorldChunk>();
             kalkgratChunk.RecalculateBounds();
             kalkgratChunk.SetBounds(kalkgratChunk.Center, 100000f);
+
+            // The wood on the Kalkgrat's climb, and it is here for what is on the far side of the bore
+            // rather than for itself — see KalkgratCourse.ForestStart. It reads RevealDistance, which
+            // Build() sets during the walk above, so it must be constructed after the course and not
+            // beside the other regions.
+            LandRegion kalkgratWood = LandRegion.Forest(
+                "Kalkgratwald", kalkgratPath, KalkgratCourse.ForestStart, KalkgratCourse.ForestEnd);
 
             // --- The coast road along the Meerenge, the crossing, and the first of the far shore.
             var meerengePathObject = new GameObject("MeerengeRoadPath");
@@ -2277,6 +2292,12 @@ namespace Horizon.EditorTools
                 // not the tile grid's.
                 new[]
                 {
+                    // The two woods come first, and the order is load-bearing rather than tidy:
+                    // RegionFor takes the first entry that reaches a tile, so a belt listed after a
+                    // country would never be seen on any tile they share. Neither of these overlaps a
+                    // region that exists today — the pass and the Kalkgrat had none — but they are
+                    // written in the position a belt has to be in, because the next one will overlap.
+                    passWood, kalkgratWood,
                     ebental, stadtfeld, weissjochring, weissjoch, anadolu, yalikoyRegion,
                     bahceRegion, bahceApproach,
                 },
@@ -9240,6 +9261,23 @@ namespace Horizon.EditorTools
                 Debug.Log($"[Horizon] Bahçe: {stats.CherryTrees} cherry trees.");
             }
 
+            // Flowers, warned at nought for the reason the cherries are. They ride on the grass scatter
+            // rather than on one of their own, so a share that never fires takes nothing away and moves
+            // no other number in this log — the tufts simply stay tufts, and the verge looks like every
+            // other verge in the world.
+            if (stats.Flowers == 0)
+            {
+                Debug.LogWarning("[Horizon] Verges: no flowers anywhere. Some region has to carry a "
+                                 + "FlowerChance and be listed in the regions array — see "
+                                 + "LandRegion.FlowerChance. Nothing else in this build reports it, "
+                                 + "because the grass they replace is counted on its own line.");
+            }
+            else
+            {
+                Debug.Log($"[Horizon] Verges: {stats.Flowers} wildflowers among "
+                          + $"{stats.Tufts} grass tufts.");
+            }
+
             float minimum = roadShape.OuterHalfWidth + 1f;
             if (stats.ClosestToRoad < minimum)
             {
@@ -9265,8 +9303,11 @@ namespace Horizon.EditorTools
             if (heaviestTile > vegetationShape.MaxTrianglesPerTile)
             {
                 Debug.LogWarning($"[Horizon] Vegetation: {heaviestTileName} carries {heaviestTile} triangles, "
-                                 + $"over the {vegetationShape.MaxTrianglesPerTile} budget. Raise the cell "
-                                 + "sizes or lower FarDensity in VegetationShape.");
+                                 + $"over the {vegetationShape.MaxTrianglesPerTile} budget. The knob is "
+                                 + "LandRegion.TreeDensity on whichever region owns that tile, not "
+                                 + "FarDensity: a switchback stack has no ground far from a "
+                                 + "carriageway, so there is nothing there for the falloff to thin. See "
+                                 + "VegetationShape.MeasuredWorldTriangles.");
             }
 
             ReportWindingFlips("Vegetation", stats.Flips);

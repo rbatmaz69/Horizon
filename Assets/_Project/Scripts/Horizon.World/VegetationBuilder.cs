@@ -30,6 +30,12 @@ namespace Horizon.World
         /// </summary>
         public int CherryTrees;
 
+        /// <summary>
+        /// Flowers in the verge. Counted apart from <see cref="Tufts"/> because they ride on the same
+        /// scatter — one number covering both would let the flowers go to nothing without moving it.
+        /// </summary>
+        public int Flowers;
+
         public int FruitTrees;
         public int HayBales;
         public int WallRuns;
@@ -84,6 +90,7 @@ namespace Horizon.World
             // as a region that had stopped planting rather than as a line missing from a sum.
             Cypresses += other.Cypresses;
             CherryTrees += other.CherryTrees;
+            Flowers += other.Flowers;
             FruitTrees += other.FruitTrees;
             HayBales += other.HayBales;
             WallRuns += other.WallRuns;
@@ -788,7 +795,11 @@ namespace Horizon.World
             // appearance is still nobody's business but the shape's — see ClimbAt.
             ScatterShrubs(buffer, field, terrainShape, shape, context, originX, originZ, tileSize, stats,
                 tileRegion);
-            ScatterTufts(buffer, field, terrainShape, shape, context, originX, originZ, tileSize, stats);
+            // The region reaches the grass now, and only so it can put flowers in it — see
+            // LandRegion.FlowerChance. What a blade of grass looks like is still nobody's business but
+            // the shape's, which is the line ScatterShrubs already draws for itself.
+            ScatterTufts(buffer, field, terrainShape, shape, context, originX, originZ, tileSize, stats,
+                tileRegion);
             ScatterBoulders(buffer, field, terrainShape, shape, context, originX, originZ, tileSize, stats,
                 tileRegion);
 
@@ -906,7 +917,7 @@ namespace Horizon.World
                     float z = (gz + 0.5f) * cell + random.Range(-0.42f, 0.42f) * cell;
 
                     float toRoad = field.DistanceToRoad(x, z);
-                    if (toRoad < shape.TreeClearance || !PassesFalloff(shape, toRoad, ref random))
+                    if (toRoad < shape.TreeClearance || !PassesFalloff(shape, region, toRoad, ref random))
                     {
                         continue;
                     }
@@ -1506,7 +1517,7 @@ namespace Horizon.World
                     float z = (gz + 0.5f) * cell + random.Range(-0.45f, 0.45f) * cell;
 
                     float toRoad = field.DistanceToRoad(x, z);
-                    if (toRoad < shape.ShrubClearance || !PassesFalloff(shape, toRoad, ref random))
+                    if (toRoad < shape.ShrubClearance || !PassesFalloff(shape, region, toRoad, ref random))
                     {
                         continue;
                     }
@@ -1572,7 +1583,8 @@ namespace Horizon.World
             float originX,
             float originZ,
             float tileSize,
-            VegetationStats stats)
+            VegetationStats stats,
+            LandRegion region)
         {
             float cell = shape.TuftCellSize;
             float minSlopeCosine = Mathf.Cos(shape.TuftMaxSlopeDegrees * Mathf.Deg2Rad);
@@ -1631,9 +1643,32 @@ namespace Horizon.World
                     // No altitude limit: alpine grass is exactly what covers the ground above the tree line,
                     // and at six triangles a tuft it is the cheapest thing in the whole system.
                     int mark = buffer.VertexCount;
-                    PlantMeshes.AddGrassTuft(buffer, Place(point, normal, ref random, random.Range(0.8f, 1.3f)));
+
+                    // Some of the grass comes up as a flower where a region asks for it. Drawn from the
+                    // tuft's own stream at the *end*, after every other draw this method makes, for the
+                    // reason the blossom branch records: a new random.Next() in front of an existing one
+                    // shifts every draw after it, and here that would move every blade of grass in the
+                    // world by a fraction of a metre. Cheap to check, and reported nowhere.
+                    float flowerChance = region != null
+                        ? region.FlowerChance * region.Weight(x, z)
+                        : 0f;
+
+                    var placement = Place(point, normal, ref random, random.Range(0.8f, 1.3f));
+
+                    if (flowerChance > 0f && random.Next() < flowerChance)
+                    {
+                        PlantMeshes.AddWildflower(buffer, placement,
+                            random.Next() < 0.55f ? PlantMeshes.FlowerSubmesh
+                                                  : PlantMeshes.FlowerPaleSubmesh);
+                        stats.Flowers++;
+                    }
+                    else
+                    {
+                        PlantMeshes.AddGrassTuft(buffer, placement);
+                        stats.Tufts++;
+                    }
+
                     buffer.ApplySway(mark, PlantMeshes.GrassSway);
-                    stats.Tufts++;
                     Record(stats, toRoad, context, x, z);
                 }
             }
@@ -1742,15 +1777,24 @@ namespace Horizon.World
         /// Thins the far half of the corridor. It is seen edge-on through fog, so full density there costs
         /// as much as the near field and shows almost nothing.
         /// </summary>
-        private static bool PassesFalloff(in VegetationShape shape, float distanceToRoad, ref PlantRandom random)
+        private static bool PassesFalloff(
+            in VegetationShape shape, LandRegion region, float distanceToRoad, ref PlantRandom random)
         {
             if (distanceToRoad <= shape.FarDensityStart)
             {
                 return true;
             }
 
+            // A region may keep more of its far field than the world does. The world's 0.5 was set
+            // against a mountain, where there is barely any ground more than a hundred metres from a
+            // carriageway; on a valley floor there is almost nothing else, so half of everything past
+            // that line is removed and the middle distance comes out bare. See LandRegion.FarDensity.
+            float far = region != null && !float.IsNaN(region.FarDensity)
+                ? region.FarDensity
+                : shape.FarDensity;
+
             float t = Mathf.InverseLerp(shape.FarDensityStart, shape.FarDensityEnd, distanceToRoad);
-            return random.Chance(Mathf.Lerp(1f, shape.FarDensity, t));
+            return random.Chance(Mathf.Lerp(1f, far, t));
         }
 
         /// <summary>

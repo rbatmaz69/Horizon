@@ -116,6 +116,28 @@ namespace Horizon.World
         /// </summary>
         public static float RevealDistance { get; private set; }
 
+        /// <summary>
+        /// Where the wood on the climb begins and ends along the course, metres.
+        ///
+        /// <para><b>Two kilometres of dark conifer, and it is here for what comes after it rather than
+        /// for itself.</b> This road's whole shape is a climb, a bore, and then the strait — and the one
+        /// thing the class note above records is that the reveal was designed for a distance this world
+        /// does not have. What it does have is the contrast either side of 280 m of rock, and a wood is
+        /// the cheapest way to make the far side of it feel like somewhere else.</para>
+        ///
+        /// <para><see cref="ForestEnd"/> is hung off <see cref="RevealDistance"/> and therefore follows
+        /// the climb when the climb is retuned. It stops short of the portal because the last stretch
+        /// wants to be open rock — the belt's exit fade is 400 m, so what the driver gets is a wood
+        /// thinning into bare ground and then the bore.</para>
+        ///
+        /// <para>The road climbs to 163 m against the world's tree line at about 160, so the top of it
+        /// is at the line by construction and the belt could not have reached there anyway.</para>
+        /// </summary>
+        public static float ForestStart => 600f;
+
+        /// <summary>See <see cref="ForestStart"/>.</summary>
+        public static float ForestEnd => RevealDistance - 300f;
+
         /// <summary>The whole course, from the end of the Ebental down to the water.</summary>
         public static RoadCourse Build()
         {

@@ -635,7 +635,24 @@ namespace Horizon.World
         /// <summary>See <see cref="BlossomSubmesh"/>. The near-white one.</summary>
         public const int BlossomPaleSubmesh = 17;
 
-        public const int SubmeshCount = 18;
+        /// <summary>
+        /// Flower heads, in two colours.
+        ///
+        /// <para><b>Two, for the reason there are three conifer greens.</b> A meadow of one dot colour
+        /// repeated is a texture rather than a meadow, and at the size a flower head is read — a few
+        /// pixels, at the roadside, at speed — colour is the only thing about it there is to read.</para>
+        ///
+        /// <para>Both are tinted, so both fold into the one merged draw call and neither costs a
+        /// material. That is <see cref="FoliageTints"/>'s whole mechanism, and the rule that goes with
+        /// it is that a tint means "fold me in" and a null means "keep me, I have my own material" — a
+        /// new slot has to mean one of the two on purpose.</para>
+        /// </summary>
+        public const int FlowerSubmesh = 18;
+
+        /// <summary>See <see cref="FlowerSubmesh"/>.</summary>
+        public const int FlowerPaleSubmesh = 19;
+
+        public const int SubmeshCount = 20;
 
         /// <summary>
         /// The colour each plant submesh is tinted with when they are merged, or null to keep its own
@@ -695,6 +712,13 @@ namespace Horizon.World
             // of these is no difference at all by forty metres.
             tints[BlossomSubmesh] = new Color(0.93f, 0.70f, 0.78f);
             tints[BlossomPaleSubmesh] = new Color(0.97f, 0.90f, 0.91f);
+
+            // Warm and cool, rather than two shades of one hue. The two blossom tints above are the only
+            // pale cool colours in this world and they belong to one region; these have to work in an
+            // alpine meadow and in an orchard valley both, so they are as far apart as two flowers
+            // sensibly get.
+            tints[FlowerSubmesh] = new Color(0.92f, 0.78f, 0.30f);
+            tints[FlowerPaleSubmesh] = new Color(0.86f, 0.86f, 0.90f);
 
             return tints;
         }
@@ -985,6 +1009,74 @@ namespace Horizon.World
                 Vector3 tip = place.ToWorld(dirX * spread, bladeHeight, dirZ * spread);
 
                 buffer.AddDoubleSided(UndergrowthSubmesh, a, b, tip);
+            }
+        }
+
+        /// <summary>
+        /// A wildflower: three blades and a head. About 10 triangles.
+        ///
+        /// <para><b>It exists in the grass band and nowhere else, and that is what makes it
+        /// affordable.</b> A thirty-centimetre plant is invisible past about forty metres, so the only
+        /// place one is worth a triangle is the strip beside the road — which is exactly the band
+        /// <c>ScatterTufts</c> already works in, capped by <c>VegetationShape.TuftMaxDistance</c>. It
+        /// costs nothing to reach and nothing to draw: the head's two submeshes are tinted, so they
+        /// merge into the same call as everything else on the tile.</para>
+        ///
+        /// <para>Three blades against the tuft's four, and shorter ones, so that a flower reads as a
+        /// stem with something on top rather than as a tuft somebody has painted. The head is a flat
+        /// four-sided fan carried at the top of the stem and tilted off vertical — laid horizontal it
+        /// disappears entirely from a driver's eye, which is roughly its own height above it, and the
+        /// whole point of the thing is to be seen from the road.</para>
+        /// </summary>
+        public static void AddWildflower(VegetationMeshBuffer buffer, in PlantPlacement place, int head)
+        {
+            var random = new PlantRandom(place.Seed);
+
+            float height = random.Range(0.30f, 0.55f);
+            float halfWidth = height * 0.10f;
+            float phase = random.Range(0f, Mathf.PI * 2f);
+
+            const int blades = 3;
+            for (int blade = 0; blade < blades; blade++)
+            {
+                float angle = phase + blade * (Mathf.PI * 2f / blades) + random.Range(-0.4f, 0.4f);
+                float dirX = Mathf.Cos(angle);
+                float dirZ = Mathf.Sin(angle);
+                float bladeHeight = height * random.Range(0.5f, 0.85f);
+                float spread = height * random.Range(0.2f, 0.4f);
+
+                Vector3 a = place.ToWorld(-dirZ * halfWidth, -0.05f, dirX * halfWidth);
+                Vector3 b = place.ToWorld(dirZ * halfWidth, -0.05f, -dirX * halfWidth);
+                Vector3 tip = place.ToWorld(dirX * spread, bladeHeight, dirZ * spread);
+
+                buffer.AddDoubleSided(UndergrowthSubmesh, a, b, tip);
+            }
+
+            // The head. A fan about a stem tip, leaning over — see the note above about the angle it is
+            // looked at from.
+            float lean = random.Range(0.35f, 0.6f);
+            float leanAngle = random.Range(0f, Mathf.PI * 2f);
+            float radius = height * random.Range(0.16f, 0.24f);
+
+            Vector3 stem = place.ToWorld(
+                Mathf.Cos(leanAngle) * height * lean * 0.35f,
+                height,
+                Mathf.Sin(leanAngle) * height * lean * 0.35f);
+
+            Vector3 up = place.ToWorld(0f, height + radius * lean, 0f) - place.ToWorld(0f, height, 0f);
+            Vector3 across = place.ToWorld(radius, height, 0f) - place.ToWorld(0f, height, 0f);
+            Vector3 along = place.ToWorld(0f, height, radius) - place.ToWorld(0f, height, 0f);
+
+            const int petals = 4;
+            for (int petal = 0; petal < petals; petal++)
+            {
+                float a0 = petal * (Mathf.PI * 2f / petals);
+                float a1 = (petal + 1) * (Mathf.PI * 2f / petals);
+
+                Vector3 p0 = stem + across * Mathf.Cos(a0) + along * Mathf.Sin(a0);
+                Vector3 p1 = stem + across * Mathf.Cos(a1) + along * Mathf.Sin(a1);
+
+                buffer.AddDoubleSided(head, stem + up, p0, p1);
             }
         }
 
