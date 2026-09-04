@@ -2414,12 +2414,30 @@ Then, in order:
   because **`CreateAsset` on a path that was just deleted is twice as expensive as overwriting one that
   is still there.** 481 s → 161 s. Validation fell from 17 s to 3.6 s as well, on no change of its own.
 
-**What proves the world did not change is not the timing but the scene.** It is 15 720 095 bytes against
-15 720 419 before, holds 5624 mesh references and **zero embedded meshes**, and every count in the build
-log is identical — 1894 tiles, 643 664 terrain triangles, 14 008 920 of vegetation, 467 poplars. Had
-`CreateAsset` stopped persisting these meshes they would have been serialised into the scene instead,
-which would have shown as a scene several times the size and as `ReportOrphanedAssets` naming every one
-of them. That check is the reason to believe the paragraphs above rather than the paragraphs above.
+**The scene is what says the world survived it, and it is also what said one thing had not.** It is
+15 720 095 bytes against 15 720 419 before, holds 5624 mesh references and **zero embedded meshes**, and
+every count in the build log is identical — 1894 tiles, 643 664 terrain triangles, 14 008 920 of
+vegetation, 467 poplars. Had `CreateAsset` stopped persisting these meshes they would have been
+serialised into the scene instead, which would have shown as a scene several times the size and as
+`ReportOrphanedAssets` naming every one of them.
+
+**But the draw-call budget came back at 1418 resident material slots over 243 chunks, against 819 over
+100.** Nothing about the geometry had moved; what had was `WorldChunk.RecalculateBounds`, which unions
+`Renderer.bounds` — **a cached value, and not always a fresh one when an editor script asks for it.** It
+had been correct only because the import round trip forced every mesh through the pipeline first, so
+taking that out left a minority of chunks holding a stale figure: median radius unchanged at 123 m,
+mean 124 → 408, largest 525 m → **6.4 km**, and a chunk that believes it is kilometres wide is never
+out of streaming range.
+
+The fix is not to put the round trip back. Chunk bounds are taken from `MeshFilter.sharedMesh.bounds`
+now — serialised with the mesh, so it cannot be stale — transformed by the renderer's own transform,
+which is what `Renderer.bounds` is supposed to be anyway. 819 over 100 chunks again, and the radius
+distribution is identical to before, number for number.
+
+**The lesson is the one that keeps recurring here.** A ninefold speedup was not free; it was free *and*
+it broke something two systems away, in a value nothing looked at directly. What found it was a report
+that exists for a completely different reason, printing a number every build whether or not anybody has
+asked a question about it. That is the argument for printing them.
 
 **The 718 orphans that warning does report are older than any of this** and were in every build measured
 here: derived output from world layouts that no longer exist. Deleting them is safe, which is what it
