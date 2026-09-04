@@ -889,15 +889,20 @@ log. Both come back clean: unbroken tarmac under the gantry, and ground all the 
 
 **Two things the pictures say are not right yet, recorded rather than hidden.**
 
-- **There is almost no snow on it, and the cause is the steepness test rather than the snow line.**
-  `TerrainTileBuilder` skips snow on faces past `RockSlopeThreshold` — deliberately, because uniform
-  white above a height is a cake and the flanks between stacked legs should come out bare. But the
-  detail noise is 5 m of amplitude at a 33 m wavelength, so *open* ground is locally steep almost
-  everywhere, and a circuit with 340 m between its legs is nearly all open ground. What is left gentle
-  is the road's own shelf. The Weissjoch's stack does not have this problem because its legs are 52–72 m
-  apart and the shelves are most of the mountain. So the ring at 810 m reads as rock where it should
-  read as snowfield. The honest fix is a slope threshold that belongs to the region rather than to the
-  world, and that is a change to make on purpose rather than in passing.
+- ~~There is almost no snow on it~~ — **and this entry was wrong by a factor of nine, which is worth
+  more than the entry was.** It reasoned that `TerrainTileBuilder` skips snow past `RockSlopeThreshold`,
+  that the detail noise is 5 m of amplitude at a 33 m wavelength, and that *open* ground is therefore
+  locally steep almost everywhere — so a circuit with 340 m between its legs would come out rock. Every
+  step of that is plausible and the conclusion is false: **90 % of the ground above a snow line in this
+  world is painted snow**, measured, and the pictures agree — `_4_Descent` and `_8_Infield` are
+  snowfields with boulders and spruce standing in them, and `_6_Kessel` two hundred metres lower is
+  green forest. The three bands work.
+
+  It sat here as a known fault across several features because it was **reasoned rather than measured**,
+  in a file whose entire argument is that only measurement settles anything. The build now prints the
+  share as well as the count — what was eligible against what was painted — and warns under 40 %, so
+  the next person to move `RockSlopeThreshold` or `DetailAmplitude` is told rather than left to
+  calculate. A region-level slope threshold is not needed and is not coming.
 - **`_3_Fork` photographs the filling station instead of the fork.** The yaw sends the camera down the
   forecourt frontage and the pit mouth is off frame, so the one question it exists for — is there a
   ridge standing between the branch and the trunk — is still unanswered. It is worth more as a frame

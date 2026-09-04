@@ -7543,6 +7543,7 @@ namespace Horizon.EditorTools
             int heaviestTile = 0;
             string heaviestTileName = "none";
             int snowTriangles = 0;
+            int aboveSnowLine = 0;
             int petalTriangles = 0;
 
             // Shore, snow and blossom are counted by the tile builder now, not read back off the
@@ -7635,6 +7636,7 @@ namespace Horizon.EditorTools
                     // this build anybody would notice missing and the least likely to announce itself.
                     shoreTriangles += tints.Sand;
                     snowTriangles += tints.Snow;
+                    aboveSnowLine += tints.AboveSnowLine;
                     petalTriangles += tints.Petal;
 
                     mesh = HorizonAssetUtility.ReplaceAsset(mesh, $"{GeneratedFolder}/{name}.asset");
@@ -7789,9 +7791,25 @@ namespace Horizon.EditorTools
             // as nothing, or as the whole mountain, without the build saying a word.
             if (snowTriangles > 0)
             {
+                // The share is the number that means something. The absolute count says a winter region
+                // exists; this says whether the slope test left it a snowfield or a quarry, and it is
+                // one threshold away from doing the second. CLAUDE.md carried a claim that it had for
+                // some time, on no measurement at all.
+                float held = snowTriangles * 100f / Mathf.Max(1, aboveSnowLine);
+
                 Debug.Log($"[Horizon] Snow line: {snowTriangles} terrain triangles tinted snow, "
                           + $"{snowTriangles * 100f / Mathf.Max(1, totalTriangles):0.0} % of the terrain "
-                          + "— same material, same draw call as the rock under it.");
+                          + $"— {held:0} % of the {aboveSnowLine} above a line, the rest too steep to "
+                          + "hold any. Same material, same draw call as the rock under it.");
+
+                if (held < 40f)
+                {
+                    Debug.LogWarning($"[Horizon] Snow line: only {held:0} % of the ground above a snow "
+                                     + "line came out snow, so the winter regions read as rock with "
+                                     + "drifts rather than as snowfields with rock through them. The "
+                                     + "slope test is doing that, not the line — see "
+                                     + "TerrainShape.RockSlopeThreshold against DetailAmplitude.");
+                }
             }
             else
             {

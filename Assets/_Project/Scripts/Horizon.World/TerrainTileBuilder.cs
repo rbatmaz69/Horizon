@@ -165,6 +165,18 @@ namespace Horizon.World
             public int Sand;
             public int Snow;
             public int Petal;
+
+            /// <summary>
+            /// Ground standing above a region's snow line, whether or not it came out snow.
+            ///
+            /// <para><b>Here so the snow line can be reported as a share rather than as an
+            /// adjective.</b> Snow is skipped on faces past <see cref="TerrainShape.RockSlopeThreshold"/>
+            /// on purpose — uniform white above a height is a cake, and the flanks between stacked legs
+            /// should come out bare rock — but that test is one number away from taking the lot, and
+            /// CLAUDE.md carried a claim for some time that it had. Counting what was eligible against
+            /// what was painted is the difference between knowing and saying.</para>
+            /// </summary>
+            public int AboveSnowLine;
         }
 
         /// <summary>
@@ -685,7 +697,9 @@ namespace Horizon.World
             // the face between two stacked switchback legs a local peak far past RockSlopeThreshold, so
             // the flanks come out bare rock with snow lying on everything gentler either side of them.
             // Uniform white above a line is a cake.
-            if (!steep && region != null && !float.IsNaN(region.SnowLineElevation)
+            // The steep test moved off this condition and onto the tint below, so that ground above the
+            // line is counted whether or not it was allowed to hold any — see TerrainTintCounts.
+            if (region != null && !float.IsNaN(region.SnowLineElevation)
                 && region.Weight(centre.x, centre.z) > 0f)
             {
                 float jitter = (Mathf.PerlinNoise(
@@ -693,6 +707,11 @@ namespace Horizon.World
                     (centre.z + 512f) * SnowJitterScale) - 0.5f) * 2f * SnowLineJitter;
 
                 if (centre.y > region.SnowLineElevation + jitter)
+                {
+                    counts.AboveSnowLine++;
+                }
+
+                if (!steep && centre.y > region.SnowLineElevation + jitter)
                 {
                     tint = SnowTint;
                     variation = SnowVariation;
