@@ -2379,6 +2379,52 @@ clear frame at 17.6 h is deliberately *not* an acceptance shot — that is the o
 procedural dome already looked much like this, and a reviewer who opens only that one concludes nothing
 shipped.
 
+## How long a rebuild takes
+
+Three minutes and twenty seconds, and it was ten and a half. That matters because **this project's only
+instrument is a picture**, and a picture costs a rebuild — so the length of the loop is the length of
+every argument in this file.
+
+**Nine tenths of it was one phase, and the phase was not doing what it looked like.** "Terrain,
+vegetation and buildings" was 589 of 615 seconds; everything else in the world put together was
+twenty-five. That loop builds 1894 tiles of a few hundred triangles each, so 311 ms a tile is absurd for
+the geometry — which means it was never the geometry.
+
+**The first answer was wrong, and it is worth recording because it was so plausible.**
+`HorizonAssetUtility.Reload` called `AssetDatabase.SaveAssets()` once per asset written — a flush of
+every dirty object in the project, four thousand times in a build that writes four thousand meshes.
+Removing it changed the phase from 589 s to 616 s: noise. **A cause you can tell a good story about is
+not a measurement**, and the fix for that is to stop reasoning and instrument. `AssetIoMilliseconds`
+exists because of this, and it answered immediately: 547 of the 589 seconds were inside `ReplaceAsset`.
+
+Then, in order:
+
+- **The per-asset `ImportAsset(ForceSynchronousImport)` was never needed.** `AssetDatabase.CreateAsset`
+  makes the object it is handed *be* the asset at that path, so there was nothing to load back and
+  `LoadAssetAtPath` was returning the same reference the caller already held. 589 s → 481 s.
+- **The `DeleteAsset` before it was redundant, and it cost far more than itself.** `CreateAsset` removes
+  whatever is at the path before writing, so the explicit delete was asking the database a question it
+  was about to answer and then doing the work twice. Split three ways the method measured 182 s deciding
+  and deleting against 257 s writing — and taking the delete out did not save 182 s, it saved 323 s,
+  because **`CreateAsset` on a path that was just deleted is twice as expensive as overwriting one that
+  is still there.** 481 s → 161 s. Validation fell from 17 s to 3.6 s as well, on no change of its own.
+
+**What proves the world did not change is not the timing but the scene.** It is 15 720 095 bytes against
+15 720 419 before, holds 5624 mesh references and **zero embedded meshes**, and every count in the build
+log is identical — 1894 tiles, 643 664 terrain triangles, 14 008 920 of vegetation, 467 poplars. Had
+`CreateAsset` stopped persisting these meshes they would have been serialised into the scene instead,
+which would have shown as a scene several times the size and as `ReportOrphanedAssets` naming every one
+of them. That check is the reason to believe the paragraphs above rather than the paragraphs above.
+
+**The 718 orphans that warning does report are older than any of this** and were in every build measured
+here: derived output from world layouts that no longer exist. Deleting them is safe, which is what it
+says.
+
+`StartAssetEditing`/`StopAssetEditing` around the tile loop is the next lever and is not pulled. What
+remains is 117 s of `CreateAsset` across 3751 assets — 31 ms each — and batching them defers every import
+to the end of the block, which is a change to when things exist rather than to how long they take. At
+three minutes the loop is short enough to argue with.
+
 ## Updating
 
 The game is sideloaded, so nothing tells a player that a release happened. `Horizon.Updates` asks

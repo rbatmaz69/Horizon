@@ -2603,6 +2603,12 @@ namespace Horizon.EditorTools
             MarkTownLandmarks(worldRoot.transform, talheim.Network, talheim.Plan);
             Phase(clock, "terrain, vegetation and buildings");
 
+            // What share of that phase was the asset database rather than the geometry. The two are the
+            // only candidates and a phase timer cannot tell them apart — see
+            // HorizonAssetUtility.AssetIoMilliseconds for the guess this replaced.
+            Debug.Log($"[Horizon] Asset writes: {HorizonAssetUtility.AssetWrites} so far, "
+                      + $"{HorizonAssetUtility.AssetIoMilliseconds / 1000f:0.0} s inside ReplaceAsset.");
+
             BuildCoveredSections(worldRoot.transform, path, roadShape, course, field, materials);
             BuildGuardRails(worldRoot.transform, path, roadShape, field, course, materials);
             BuildDelineatorPosts(worldRoot.transform, path, roadShape, field, course, materials);

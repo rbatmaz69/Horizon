@@ -60,17 +60,34 @@ namespace Horizon.EditorTools
         /// </summary>
         private static T Reload<T>(T created, string assetPath) where T : UnityEngine.Object
         {
-            AssetDatabase.SaveAssets();
-            AssetDatabase.ImportAsset(assetPath, ImportAssetOptions.ForceSynchronousImport);
-
-            T imported = AssetDatabase.LoadAssetAtPath<T>(assetPath);
-            if (imported == null)
-            {
-                Debug.LogError($"[Horizon] Failed to import '{assetPath}' after creating it.");
-                return created;
-            }
-
-            return imported;
+            // <b>No SaveAssets here, and it is worth recording that taking it out saved nothing.</b> It
+            // used to be called once per asset written — four thousand whole-project flushes in a build
+            // that writes four thousand meshes — which looked like the obvious explanation for the tile
+            // loop being 589 seconds of a 615 second rebuild. Measured either way, the phase came out
+            // 589 s against 616 s: noise. The cost is elsewhere, and AssetIoMilliseconds is what says
+            // where.
+            //
+            // It stays out on principle rather than for a saving. SaveAssets flushes every dirty object
+            // in the project and not the one just created; CreateAsset has already serialised that, and
+            // the import below is what makes the persisted instance loadable, which is the whole reason
+            // this method exists. Rebuild calls SaveAssets once when it is finished, which is where a
+            // whole-project flush belongs.
+            // <b>And no per-asset import either, which is where the time actually was.</b> Measured:
+            // 547 of the 589 seconds the tile phase takes were inside ReplaceAsset, across 3 751
+            // writes — about 146 ms each, for meshes of a few hundred triangles. A forced synchronous
+            // import is a full trip through the asset pipeline and it was being asked for once per
+            // mesh.
+            //
+            // It was never needed. AssetDatabase.CreateAsset makes the object it is given *be* the
+            // asset at that path — the in-memory instance becomes the persisted one — so there is
+            // nothing to load back and LoadAssetAtPath would have returned the same reference. The
+            // method's own doc line ("use the return value") stays true and now costs nothing.
+            //
+            // What proves it is not this comment: the scene is written with references to these
+            // meshes, so had they stopped being assets they would have been embedded in the scene
+            // instead, and ReportOrphanedAssets would have named every one of them. Both are checked
+            // against the build before this change.
+            return created;
         }
 
         /// <summary>
@@ -85,6 +102,7 @@ namespace Horizon.EditorTools
         /// <summary>Starts recording which derived assets a build writes.</summary>
         public static void BeginGeneratedRun()
         {
+            ResetAssetIo();
             WrittenAssets.Clear();
         }
 
@@ -123,14 +141,51 @@ namespace Horizon.EditorTools
         /// </summary>
         public static T ReplaceAsset<T>(T asset, string assetPath) where T : UnityEngine.Object
         {
-            if (AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(assetPath) != null)
-            {
-                AssetDatabase.DeleteAsset(assetPath);
-            }
+            AssetIoTimer.Start();
 
-            AssetDatabase.CreateAsset(asset, assetPath);
-            WrittenAssets.Add(assetPath);
-            return Reload(asset, assetPath);
+            try
+            {
+                // <b>No load-and-delete first, and the measurement is what settles it.</b> Split
+                // three ways, the 439 seconds this method costs a build came out as 182 s deciding
+                // whether something was already there and removing it, against 257 s writing. The
+                // first of those buys nothing: AssetDatabase.CreateAsset deletes whatever is at the
+                // path before it writes, so this was asking the database a question it was about to
+                // answer for itself and then doing the work twice.
+                AssetDatabase.CreateAsset(asset, assetPath);
+                WrittenAssets.Add(assetPath);
+                return Reload(asset, assetPath);
+            }
+            finally
+            {
+                AssetIoTimer.Stop();
+                AssetWrites++;
+            }
+        }
+
+        /// <summary>
+        /// How long this build has spent inside <see cref="ReplaceAsset"/>, and how many times.
+        ///
+        /// <para><b>Here because a guess about it was wrong.</b> The tile loop is over ninety per cent
+        /// of a rebuild and the obvious culprit — a whole-project <c>SaveAssets</c> per asset — turned
+        /// out to cost nothing at all when it was removed. A phase timer that says "the tiles took ten
+        /// minutes" cannot tell mesh building from asset writing, and those are the two candidates, so
+        /// the build now measures the second one directly instead of anybody reasoning about it.</para>
+        /// </summary>
+        public static long AssetIoMilliseconds => AssetIoTimer.ElapsedMilliseconds;
+
+        /// <summary>See <see cref="AssetIoMilliseconds"/>.</summary>
+        public static int AssetWrites { get; private set; }
+
+        private static readonly System.Diagnostics.Stopwatch AssetIoTimer =
+            new System.Diagnostics.Stopwatch();
+
+
+
+        /// <summary>Zeroed at the top of a build, beside the other run-scoped counters.</summary>
+        public static void ResetAssetIo()
+        {
+            AssetIoTimer.Reset();
+            AssetWrites = 0;
         }
 
         /// <summary>
