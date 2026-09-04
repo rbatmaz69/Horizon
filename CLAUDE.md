@@ -2063,6 +2063,40 @@ that looks like it knows something you do not.
 
 Indicators are still nowhere, and the player's car still has no reversing light.
 
+## The ground
+
+The woods were given three greens per species and it cost nothing, because a colour on a vertex is free.
+The ground never got the same treatment, and it is far more of the frame than the trees are: every
+meadow was one flat tone from the verge to the fog wall and every rock face was one slab.
+
+**One call site, and everything already flows through it.** `TerrainTileBuilder.AddTriangle` picks
+grass, rock, a region's own ground, a parcel, snow or sand, and then writes the colour three times. The
+wander goes on the line before that, so it covers all six without knowing about any of them — the same
+argument `SandTint` and `SnowTint` are already justified by. No triangles, no draw calls, no materials.
+
+**Three terms, because they do three different jobs.** *Patch* moves value over about two hundred
+metres, which is what makes one meadow a different meadow from the next. *Warmth* moves red against blue
+on a **differently scaled** lookup, so a field can go yellower without also going lighter — one lookup
+driving both gives a single light-to-dark axis, which reads as shading rather than as ground. *Facet* is
+per triangle, and it is the one that makes flat-shaded terrain read as crafted rather than as a solid.
+That last is the whole visual idiom of the reference art and this world had none of it.
+
+Rock leans on the facet term and snow leans away from all three: stone is faceted by nature, and snow is
+the brightest thing in the world, where variation reads as dirt rather than as drift. A parcel keeps only
+a fifth of the patch term, because a ploughed field is uniform and that uniformity is exactly what makes
+it read as a field — the share is the region weight that already decided its colour, so nothing new is
+measured. The facet term still applies, so a field is a field with texture in it.
+
+**It broke three build counters, and the fix was to stop counting by colour.** `CountTinted` read
+`mesh.colors32` back at stride three and matched exact rgb; it is what printed the shoreline, the snow
+line and the Bahçe's blossom drift, two of which warn at zero. Every tint now wanders, so all three would
+have come back nought on a world with nothing wrong with it. **A tolerance would not have rescued it
+either** — the petal and the snow sit about forty levels apart in a world where either may wander thirty,
+so the distance telling them apart would not have been reliably smaller than their separation. The tile
+builder counts them as it chooses them, before anything has wandered, and the numbers came back
+identical to the build before: 23 756 sand, 69 728 snow, 2 884 petal. It is also three fewer whole-array
+allocations per tile across nineteen hundred tiles.
+
 ## Updating
 
 The game is sideloaded, so nothing tells a player that a release happened. `Horizon.Updates` asks

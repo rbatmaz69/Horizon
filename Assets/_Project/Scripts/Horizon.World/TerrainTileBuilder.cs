@@ -67,6 +67,107 @@ namespace Horizon.World
         public static readonly Color32 SnowTint = new Color(0.84f, 0.87f, 0.92f);
 
         /// <summary>
+        /// How far the ground's colour wanders, per kind, as a fraction of the tint itself.
+        ///
+        /// <para><b>This is the woods' argument applied to the thing under them.</b> Every conifer in
+        /// the world used to share one green and every broadleaf another, and a hillside of four hundred
+        /// trees was four hundred copies of two tones; three greens each fixed it and cost nothing,
+        /// because a colour on a vertex is free. The terrain never got the same treatment, and it is far
+        /// more of the frame than the trees are — a meadow was one flat colour from the verge to the fog
+        /// wall, and a rock face was one slab.</para>
+        ///
+        /// <para><b>Three terms, and they are three because they do different jobs.</b> <c>Patch</c>
+        /// moves value over roughly two hundred metres, which is what makes one meadow a different
+        /// meadow from the next. <c>Warmth</c> moves red against blue on a <i>differently scaled</i>
+        /// lookup, so a field can go yellower without also going lighter — one lookup driving both
+        /// gives a single light-to-dark axis, which reads as shading rather than as ground.
+        /// <c>Facet</c> is per triangle, and it is the one that makes flat-shaded terrain read as
+        /// crafted rather than as a solid: it is the whole visual idiom of the reference art and this
+        /// world had none of it.</para>
+        ///
+        /// <para><b>Rock leans on the facet term and snow leans away from all three.</b> Stone is
+        /// faceted by nature, so the per-triangle break is the honest part of it. Snow is the brightest
+        /// thing in the world and variation on it reads as dirt rather than as drift — its line is
+        /// already broken by <see cref="SnowLineJitter"/>, which is the term that was doing this job
+        /// there before this existed.</para>
+        /// </summary>
+        private readonly struct Variation
+        {
+            public readonly float Patch;
+            public readonly float Warmth;
+            public readonly float Facet;
+
+            public Variation(float patch, float warmth, float facet)
+            {
+                Patch = patch;
+                Warmth = warmth;
+                Facet = facet;
+            }
+        }
+
+        private static readonly Variation GrassVariation = new Variation(0.20f, 0.13f, 0.055f);
+        private static readonly Variation RockVariation = new Variation(0.15f, 0.06f, 0.075f);
+        private static readonly Variation SandVariation = new Variation(0.10f, 0.06f, 0.040f);
+        private static readonly Variation SnowVariation = new Variation(0.05f, 0.03f, 0.025f);
+
+        /// <summary>Scale of the value wander. About a hundred and ninety metres.</summary>
+        private const float PatchScale = 0.0052f;
+
+        /// <summary>
+        /// Scale of the warmth wander, deliberately not a multiple of <see cref="PatchScale"/>.
+        ///
+        /// <para>Two lookups that share a period beat against each other and the ground comes out in
+        /// stripes at the difference frequency. This one is also the coarser of the two, because how
+        /// warm a country is changes over a longer distance than how bright a field is.</para>
+        /// </summary>
+        private const float WarmthScale = 0.0031f;
+
+        /// <summary>
+        /// How finely a triangle's centroid is quantised before it is hashed, samples per metre.
+        ///
+        /// <para>Quarter-metre. Cells are twelve metres, so no two triangles in the world can land on
+        /// the same key by accident, and a quantised integer is what makes this a pure function of
+        /// position — the same rule <c>SurfaceRelief</c> states for itself. Hashing the float directly
+        /// would make the answer depend on the last bit of an accumulated sum.</para>
+        /// </summary>
+        private const float FacetQuantisation = 4f;
+
+        /// <summary>
+        /// How much of the value wander a parcel keeps.
+        ///
+        /// <para>A fifth. A ploughed field is uniform, and that uniformity is exactly what makes it
+        /// read as a field rather than as ground — so the patch term, which exists to say "this meadow
+        /// is not that meadow", has to get out of the way where somebody has already said which field
+        /// this is. Not nothing, though: a dead flat parcel beside a wandering hillside reads as a
+        /// decal.</para>
+        ///
+        /// <para>The facet term is untouched, so a field is a field with texture in it.</para>
+        /// </summary>
+        private const float ParcelFlatness = 0.2f;
+
+        /// <summary>
+        /// How many triangles of a tile came out each of the kinds the build reports.
+        ///
+        /// <para><b>Counted while they are chosen, and the reason is that they used to be counted
+        /// afterwards by colour.</b> <c>PrototypeSetup</c> read <c>mesh.colors32</c> back three times
+        /// per tile and matched exact rgb — which was correct for as long as a kind was exactly one
+        /// colour, and stopped being correct the moment <see cref="Variation"/> existed. A tolerance
+        /// would not have saved it either: the blossom drift and the snow are forty levels apart in a
+        /// world where either may wander thirty, so the two would have had to be told apart by a
+        /// distance that is not reliably smaller than their separation.</para>
+        ///
+        /// <para>It is also cheaper by a wide margin. <c>colors32</c> allocates the whole array on every
+        /// read, and there are fifteen hundred tiles and three counters.</para>
+        /// </summary>
+        public struct TerrainTintCounts
+        {
+            public int Triangles;
+            public int Sand;
+            public int Snow;
+            public int Petal;
+        }
+
+        /// <summary>
         /// How far the snow line wanders, metres either side.
         ///
         /// <para>A snow line laid on flat is a contour drawn round a mountain, which is what a map does
@@ -312,8 +413,11 @@ namespace Horizon.World
             MountainField field,
             in TerrainShape shape,
             string meshName,
+            out TerrainTintCounts counts,
             LandRegion region = null)
         {
+            counts = default;
+
             float tileSize = TileSize(shape);
             int cells = Mathf.Max(2, Mathf.RoundToInt(tileSize / shape.CellSize));
             int corners = cells + 1;
@@ -368,16 +472,16 @@ namespace Horizon.World
                     if (splitForward)
                     {
                         AddTriangle(vertices, normals, uvs, colours, triangles, rockThreshold,
-                            field, nearWater, tileRegion, c00, c01, c11);
+                            field, nearWater, tileRegion, ref counts, c00, c01, c11);
                         AddTriangle(vertices, normals, uvs, colours, triangles, rockThreshold,
-                            field, nearWater, tileRegion, c00, c11, c10);
+                            field, nearWater, tileRegion, ref counts, c00, c11, c10);
                     }
                     else
                     {
                         AddTriangle(vertices, normals, uvs, colours, triangles, rockThreshold,
-                            field, nearWater, tileRegion, c00, c01, c10);
+                            field, nearWater, tileRegion, ref counts, c00, c01, c10);
                         AddTriangle(vertices, normals, uvs, colours, triangles, rockThreshold,
-                            field, nearWater, tileRegion, c01, c11, c10);
+                            field, nearWater, tileRegion, ref counts, c01, c11, c10);
                     }
                 }
             }
@@ -492,6 +596,7 @@ namespace Horizon.World
             MountainField field,
             bool nearWater,
             LandRegion region,
+            ref TerrainTintCounts counts,
             Vector3 a,
             Vector3 b,
             Vector3 c)
@@ -534,6 +639,11 @@ namespace Horizon.World
             // the shoreline into pieces rather than describing it.
             bool steep = normal.y < rockThreshold;
             Color32 tint = steep ? RockTint : GrassTint;
+            Variation variation = steep ? RockVariation : GrassVariation;
+
+            // How much of the value wander survives here. A parcel takes most of it away — see
+            // ParcelFlatness — and nothing else does.
+            float patchShare = 1f;
 
             // The centroid, not a corner: this is one flat-shaded triangle with one colour, and asking
             // at a corner makes the answer depend on which corner the winding happened to put first,
@@ -549,8 +659,25 @@ namespace Horizon.World
                 {
                     Color32 regional = steep ? region.Ground.Rock : FieldTint(region, centre);
                     tint = Color32.Lerp(tint, regional, weight);
+
+                    // The blossom drift, recognised here rather than counted back off the finished mesh
+                    // by colour: this is the one place the palette's own entry is in hand, before
+                    // anything has wandered.
+                    if (!steep && Same(regional, LandRegion.BahcePetal))
+                    {
+                        counts.Petal++;
+                    }
+
+                    // Only where somebody has actually laid fields out. A region without them falls
+                    // through to its own meadow, which is ground and wants to wander like ground.
+                    if (!steep && region.Ground.Fields != null && region.Ground.Fields.Length > 0)
+                    {
+                        patchShare = Mathf.Lerp(patchShare, ParcelFlatness, weight);
+                    }
                 }
             }
+
+            bool wasSnow = false;
 
             // Snow, where the region has a line and the ground is not too steep to hold any.
             //
@@ -568,6 +695,10 @@ namespace Horizon.World
                 if (centre.y > region.SnowLineElevation + jitter)
                 {
                     tint = SnowTint;
+                    variation = SnowVariation;
+                    patchShare = 1f;
+                    wasSnow = true;
+                    counts.Snow++;
                 }
             }
 
@@ -580,8 +711,23 @@ namespace Horizon.World
                     // Nothing in this world has both a shore and a snow line, but the order is written
                     // down rather than left to chance for the day something does.
                     tint = SandTint;
+                    variation = SandVariation;
+                    patchShare = 1f;
+
+                    // Sand goes over the snow, so a triangle that was counted as snow one branch above
+                    // is no longer snow. Taking the count back is what keeps the two lines in the build
+                    // log adding up to what the mesh actually holds.
+                    if (counts.Snow > 0 && wasSnow)
+                    {
+                        counts.Snow--;
+                    }
+
+                    counts.Sand++;
                 }
             }
+
+            counts.Triangles++;
+            tint = Weathered(tint, centre, variation, patchShare);
 
             colours.Add(tint);
             colours.Add(tint);
@@ -590,6 +736,87 @@ namespace Horizon.World
             triangles.Add(baseIndex);
             triangles.Add(baseIndex + 1);
             triangles.Add(baseIndex + 2);
+        }
+
+        /// <summary>
+        /// Wanders a ground colour, so a hillside is a hillside rather than one flat tone.
+        ///
+        /// <para>Pure function of position, no state and no seed, which is what lets two tiles built in
+        /// any order agree along their shared edge — the same rule the height field and
+        /// <c>SurfaceRelief</c> both hold to, and the reason this is a lookup rather than a
+        /// <c>System.Random</c> walked down the triangle list.</para>
+        ///
+        /// <para><b>The wander is multiplicative and the warmth is a rotation about it</b>, so a dark
+        /// tint stays dark and a bright one stays bright: an additive term of the same size washes the
+        /// snow out and leaves the ploughed earth almost untouched, because the same number is a third
+        /// of one and a twentieth of the other.</para>
+        ///
+        /// <para>Alpha is carried through untouched and it matters: the vegetation shader reads
+        /// <c>1 - alpha</c> as its wind mask, terrain writes 255 to mean rigid, and a colour rebuilt
+        /// without its alpha would set every hillside in the world swaying. That is the trap
+        /// <c>VegetationMeshBuffer.MergeTinted</c> has already been through once.</para>
+        /// </summary>
+        private static Color32 Weathered(Color32 tint, Vector3 at, in Variation variation, float patchShare)
+        {
+            // The +512 shift is the one VegetationBuilder.Clump and the snow line already carry: Unity's
+            // Perlin mirrors about the origin, and this world starts at negative z.
+            float value = Mathf.PerlinNoise((at.x + 512f) * PatchScale, (at.z + 512f) * PatchScale);
+            float warm = Mathf.PerlinNoise((at.z + 811f) * WarmthScale, (at.x + 811f) * WarmthScale);
+
+            // x and z swapped on the second lookup as well as offset. Two Perlin fields at the same
+            // orientation share their lattice's diagonals however far apart their offsets are, and the
+            // ground comes out with a faint grain running one way across the whole world.
+            int keyX = Mathf.RoundToInt(at.x * FacetQuantisation);
+            int keyZ = Mathf.RoundToInt(at.z * FacetQuantisation);
+
+            float wander = 1f
+                + (value - 0.5f) * 2f * variation.Patch * patchShare
+                + (Hash(keyX, keyZ) - 0.5f) * 2f * variation.Facet;
+
+            float warmth = (warm - 0.5f) * 2f * variation.Warmth * patchShare;
+
+            Color colour = tint;
+
+            return new Color(
+                Mathf.Clamp01(colour.r * wander * (1f + warmth)),
+                Mathf.Clamp01(colour.g * wander),
+                Mathf.Clamp01(colour.b * wander * (1f - warmth)),
+                colour.a);
+        }
+
+        /// <summary>
+        /// Whether two palette entries are the same colour, ignoring alpha.
+        ///
+        /// <para>Exact, and it can be: both sides come straight off a <c>GroundPalette</c>, before
+        /// anything has wandered. This is the comparison that used to be made against the finished mesh,
+        /// where it could not stay exact.</para>
+        /// </summary>
+        private static bool Same(Color32 a, Color32 b)
+        {
+            return a.r == b.r && a.g == b.g && a.b == b.b;
+        }
+
+        /// <summary>
+        /// A stable pseudo-random number for one triangle, from its quantised centroid.
+        ///
+        /// <para>FNV-1a with an avalanche, the same shape <c>LandRegion.Hash</c> and
+        /// <c>VegetationBuilder.Hash</c> already use — so a rebuild is byte-identical and the order the
+        /// tiles happen to be built in cannot change what the ground looks like.</para>
+        /// </summary>
+        private static float Hash(int x, int z)
+        {
+            unchecked
+            {
+                uint hash = 2166136261u;
+
+                hash = (hash ^ (uint)x) * 16777619u;
+                hash = (hash ^ (uint)z) * 16777619u;
+                hash ^= hash >> 13;
+                hash *= 0x5bd1e995u;
+                hash ^= hash >> 15;
+
+                return (hash & 0xFFFFFFu) / (float)0x1000000;
+            }
         }
 
         /// <summary>

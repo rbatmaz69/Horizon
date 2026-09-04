@@ -6884,26 +6884,19 @@ namespace Horizon.EditorTools
             int snowTriangles = 0;
             int petalTriangles = 0;
 
-            // How much of a tile came out as shore, read back off the finished mesh rather than counted
-            // while it was built. The tint is one line inside the tile builder's own colour choice and
-            // it would be a poor trade to grow that method's signature by an out-parameter to say so.
-            static int CountTinted(Mesh mesh, Color32 want)
-            {
-                Color32[] colours = mesh.colors32;
-                int found = 0;
-
-                for (int i = 0; i < colours.Length; i += 3)
-                {
-                    Color32 colour = colours[i];
-
-                    if (colour.r == want.r && colour.g == want.g && colour.b == want.b)
-                    {
-                        found++;
-                    }
-                }
-
-                return found;
-            }
+            // Shore, snow and blossom are counted by the tile builder now, not read back off the
+            // finished mesh by colour.
+            //
+            // <b>That used to be a fair trade and stopped being one.</b> Matching exact rgb is correct
+            // for exactly as long as a kind is exactly one colour, and TerrainTileBuilder.Variation
+            // ended that: every tint in the world now wanders, so all three counters would have come
+            // back zero and two of them would have warned, on a world with nothing wrong with it. A
+            // tolerance would not have rescued it either — the blossom drift and the snow sit about
+            // forty levels apart in a world where either may wander thirty, so the distance that told
+            // them apart would not have been reliably smaller than their separation.
+            //
+            // It is also three fewer whole-array allocations per tile across fifteen hundred tiles:
+            // Mesh.colors32 copies the lot on every read.
 
             var townTotals = new TownStats[towns.Count];
             for (int i = 0; i < towns.Count; i++)
@@ -6968,19 +6961,20 @@ namespace Horizon.EditorTools
                 }
                 else
                 {
-                    Mesh mesh = TerrainTileBuilder.BuildTile(key, field, terrainShape, name, region);
-                    totalTriangles += mesh.triangles.Length / 3;
-                    shoreTriangles += CountTinted(mesh, TerrainTileBuilder.SandTint);
+                    Mesh mesh = TerrainTileBuilder.BuildTile(
+                        key, field, terrainShape, name,
+                        out TerrainTileBuilder.TerrainTintCounts tints, region);
 
-                // The snow, counted the same way and for a better reason than symmetry: it is decided by
-                // an elevation against a region's own line, so it is exactly the kind of thing that comes
-                // out as nothing at all — or as the whole mountain — without the build saying a word.
-                snowTriangles += CountTinted(mesh, TerrainTileBuilder.SnowTint);
+                    totalTriangles += tints.Triangles;
 
-                // And the Bahçe's blossom drift, for the same reason once more. It is one parcel value
-                // in four inside one region, so it is the smallest thing in this build that anybody
-                // would notice missing and the least likely to announce itself.
-                petalTriangles += CountTinted(mesh, LandRegion.BahcePetal);
+                    // The shore. The snow, which is decided by an elevation against a region's own line
+                    // and is therefore exactly the kind of thing that comes out as nothing at all — or
+                    // as the whole mountain — without the build saying a word. And the Bahçe's blossom
+                    // drift, which is one parcel value in four inside one region: the smallest thing in
+                    // this build anybody would notice missing and the least likely to announce itself.
+                    shoreTriangles += tints.Sand;
+                    snowTriangles += tints.Snow;
+                    petalTriangles += tints.Petal;
 
                     mesh = HorizonAssetUtility.ReplaceAsset(mesh, $"{GeneratedFolder}/{name}.asset");
 
