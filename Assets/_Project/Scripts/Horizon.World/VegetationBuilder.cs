@@ -814,8 +814,20 @@ namespace Horizon.World
                     stats, tileRegion);
                 BuildFieldBoundaries(buffer, field, terrainShape, context, originX, originZ, tileSize,
                     stats, tileRegion);
-                PlantAvenue(buffer, field, terrainShape, context, originX, originZ, tileSize, stats);
             }
+
+            // <b>The avenue is not furniture of worked land, and it was inside that block by accident of
+            // the four having been written together.</b> A row of poplars is planted along a <i>road</i>
+            // — VegetationContext.Avenue is a list of stations walked off one carriageway, and it is
+            // empty unless a road was handed in, so this cannot plant a poplar anywhere the Ebental's
+            // own road does not go. Asking whether the tile it lands on is farmland is asking a
+            // different question about a different thing.
+            //
+            // It matters because a region is resolved per tile: a wood laid between the fields takes
+            // those tiles away from the Ebental, and under the old gate that silently deleted the
+            // stretch of avenue standing beside it. That is one of the two obstacles to a woodlot here
+            // and it is now gone. The other one is in the note below.
+            PlantAvenue(buffer, field, terrainShape, context, originX, originZ, tileSize, stats);
 
             stats.Triangles = buffer.TriangleCount;
             stats.SwayingVertices = buffer.SwayingVertices;

@@ -175,7 +175,7 @@ namespace Horizon.World
         /// memory; growing <i>a tile</i> costs frame time. <see cref="MaxTrianglesPerTile"/> is the
         /// number that actually guards anything.</para>
         /// </summary>
-        public const int MeasuredWorldTriangles = 14007400;
+        public const int MeasuredWorldTriangles = 14008920;
 
         public static VegetationShape Default => new VegetationShape
         {

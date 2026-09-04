@@ -2198,11 +2198,27 @@ Weissjoch's switchback stack and neither belt is anywhere near it. Growing the w
 growing a tile costs frame time, and only the second is a budget. The tree line still reads 160 m, which
 is the line that says the elevation axis did not leak.
 
-**No woodlots in the Ebental, and that is a decision rather than an omission.** `PlantAvenue` runs only
-where `tileRegion.Farmed`, and a belt replaces the region on the tiles it claims — so a wood between the
-fields would take out the stretch of poplar avenue standing beside it. The avenue is what says a road was
-planted here, and losing seven hundred metres of it to gain a copse is the wrong trade. Doing it properly
-means the avenue surviving a region change, which is its own change.
+**No woodlots in the Ebental, and the obstacle is not the one it first looked like.** The avenue was
+the visible half: `PlantAvenue` sat inside the `tileRegion.Farmed` block with the orchards and the
+bales, so a belt between the fields silently deleted the poplars standing beside it. That was an
+accident of the four having been written together — an avenue is planted along a *road*, its stations
+are walked off one carriageway, and the list is empty unless a road was handed in, so it can never
+plant a poplar the Ebental's own road did not ask for. It is out of that block now and a woodlot no
+longer costs the avenue — **and the gate turns out to have been costing twenty poplars already**, on
+tiles at the region's own edge that `RegionFor` did not quite award to it. 447 to 467. Nothing had ever
+reported that, because a count only means something against another count.
+
+**What actually stops it is that a region is resolved per tile.** `RegionFor` returns one region for a
+168 m tile and `TerrainTileBuilder` then asks it for a weight per triangle — so the *strength* of a
+region varies smoothly across a tile while its *identity* does not. A belt inside farmland therefore
+takes whole tiles away from the Ebental, and those tiles lose the parcel palette, the orchard rows, the
+bales and the walls outright rather than fading out of them: a square edge across a patchwork valley,
+which is worse than no wood at all. Nothing else in the world has hit this, because every region here
+borders `None`.
+
+The two honest ways out are per-point region resolution in the tile builders, or letting a belt inherit
+its host's `Farmed` and field palette. Both are their own change, and the second is probably wrong —
+a wood with a ploughed field showing through it is not a wood.
 
 **Wildflowers ride on the grass rather than on a scatter of their own.** `ScatterTufts` was the only
 scatter the region had never been given, and it is already banded between `TuftClearance` and
