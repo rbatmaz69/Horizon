@@ -2649,6 +2649,10 @@ namespace Horizon.EditorTools
             // class gives — the camera cannot ask a car whether its wheels are on the ground.
             DriveFeel driveFeel = atmosphereObject.AddComponent<DriveFeel>();
 
+            // The phone's own channel. On the Atmosphere object with the other two joins, and it finds
+            // the car at run time for the reason they do — the shell is swapped by the garage.
+            atmosphereObject.AddComponent<HapticsDirector>();
+
             // --- Vehicle, dropped onto the road among the houses rather than at the start of the course.
             // The arrival road in front of the town is 700 m of scenery to drive *back* along, not
             // something to make the player sit through before anything happens.

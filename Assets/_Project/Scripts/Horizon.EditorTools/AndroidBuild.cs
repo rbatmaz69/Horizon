@@ -102,7 +102,7 @@ namespace Horizon.EditorTools
             AssetDatabase.SaveAssets();
 
             Debug.Log($"[Horizon] Android player: {ApplicationId}, ARM64, IL2CPP, landscape, "
-                      + $"min SDK {PlayerSettings.Android.minSdkVersion}, INTERNET. APK, not AAB.");
+                      + $"min SDK {PlayerSettings.Android.minSdkVersion}, INTERNET, VIBRATE. APK, not AAB.");
         }
 
         [MenuItem("Tools/Horizon/Build Android APK", priority = 61)]
@@ -508,6 +508,63 @@ namespace Horizon.EditorTools
             }
 
             return enabled.ToArray();
+        }
+    }
+
+    /// <summary>
+    /// Adds VIBRATE to the generated manifest.
+    ///
+    /// <para><b>There is no PlayerSettings property for this</b>, the way there is
+    /// <c>forceInternetPermission</c> for INTERNET. Unity infers VIBRATE from whether
+    /// <see cref="UnityEngine.Handheld.Vibrate"/> survives IL2CPP's stripping — and this project calls
+    /// the Android vibrator through JNI instead, precisely because Handheld.Vibrate is a fixed
+    /// half-second buzz with no amplitude. So the inference has nothing to find and would leave the
+    /// permission out.</para>
+    ///
+    /// <para>Done here rather than by dropping an <c>AndroidManifest.xml</c> into
+    /// <c>Assets/Plugins/Android</c>, which is the usual advice and is a trap: that file <i>replaces</i>
+    /// Unity's main manifest rather than merging into it, so a file containing one permission is a file
+    /// containing no activity, and the app installs and will not launch. Editing the generated one keeps
+    /// Unity's in charge.</para>
+    ///
+    /// <para>The failure mode if this ever stops working is the one <c>AndroidBuild</c> already
+    /// documents for INTERNET: it works perfectly in the editor and does nothing at all on the phone.
+    /// So it logs what it did.</para>
+    /// </summary>
+    public sealed class AndroidVibratePermission : IPostGenerateGradleAndroidProject
+    {
+        public int callbackOrder => 0;
+
+        private const string Permission = "android.permission.VIBRATE";
+
+        public void OnPostGenerateGradleAndroidProject(string path)
+        {
+            string manifest = Path.Combine(path, "src", "main", "AndroidManifest.xml");
+            if (!File.Exists(manifest))
+            {
+                Debug.LogWarning($"[Horizon] No generated manifest at {manifest}; VIBRATE not added.");
+                return;
+            }
+
+            string text = File.ReadAllText(manifest);
+            if (text.Contains(Permission))
+            {
+                return;
+            }
+
+            const string anchor = "<application";
+            int at = text.IndexOf(anchor, StringComparison.Ordinal);
+            if (at < 0)
+            {
+                Debug.LogWarning("[Horizon] Generated manifest has no <application> element; "
+                               + "VIBRATE not added.");
+                return;
+            }
+
+            text = text.Insert(at, $"<uses-permission android:name=\"{Permission}\" />\n    ");
+            File.WriteAllText(manifest, text);
+
+            Debug.Log("[Horizon] Added VIBRATE to the generated manifest.");
         }
     }
 }

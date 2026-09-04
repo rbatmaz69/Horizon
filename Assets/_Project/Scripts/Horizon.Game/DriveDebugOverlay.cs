@@ -22,6 +22,7 @@ namespace Horizon.Game
         [SerializeField] private DriveInputRouter inputRouter;
 
         private VehicleController vehicle;
+        private HapticsDirector haptics;
         private FuelTank fuel;
         private TimeOfDayController timeOfDay;
         private TrafficDirector traffic;
@@ -44,6 +45,11 @@ namespace Horizon.Game
             if (vehicle == null)
             {
                 vehicle = FindFirstObjectByType<VehicleController>();
+            }
+
+            if (haptics == null)
+            {
+                haptics = FindFirstObjectByType<HapticsDirector>();
             }
 
             if (timeOfDay == null)
@@ -147,6 +153,13 @@ namespace Horizon.Game
                 GUILayout.Label($"travel {Compression(0):0.000} {Compression(1):0.000} "
                               + $"{Compression(2):0.000} {Compression(3):0.000}"
                               + $"   spread {CompressionSpread():0.000}");
+
+                // The only way this feature is observable anywhere but on a phone. See
+                // HapticsDirector.LastPulse.
+                if (haptics != null)
+                {
+                    GUILayout.Label($"haptics {haptics.LastPulse}");
+                }
             }
             else
             {
