@@ -8,6 +8,8 @@ using Horizon.World;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.Rendering;
+using UnityEngine.Rendering.Universal;
 using UnityEngine.SceneManagement;
 
 namespace Horizon.EditorTools
@@ -2627,6 +2629,11 @@ namespace Horizon.EditorTools
 
             BuildSpeedAtmosphere(atmosphereObject.transform, timeOfDay, materials);
 
+            // The tone map, the grade and the bloom. On the Atmosphere object because a tone map is
+            // atmosphere rather than an opinion the camera holds — the same argument ImpactEffects and
+            // the speed haze are placed by.
+            BuildPostProcessing(atmosphereObject.transform);
+
             // The camera's answer to a crash. On the Atmosphere object rather than the camera, because
             // it is the world reacting to the car and not the camera having an opinion of its own —
             // which is the same argument BuildSpeedAtmosphere makes for the grit. Created here and
@@ -2672,6 +2679,16 @@ namespace Horizon.EditorTools
             // tighter plane is free performance on mobile.
             camera.farClipPlane = 600f;
             camera.nearClipPlane = 0.3f;
+
+            // Without this the whole post stack is dead, and silently: renderPostProcessing lives on
+            // UniversalAdditionalCameraData, a camera built by AddComponent has none, and the property's
+            // default is false. Every volume in the world can be correct and every profile can be
+            // populated and the frame still comes out raw. Anti-aliasing is left at None because the
+            // pipeline asset's MSAA is the cheap answer on a tile GPU; FXAA here would be a second
+            // opinion about the same edge.
+            UniversalAdditionalCameraData cameraData = camera.GetUniversalAdditionalCameraData();
+            cameraData.renderPostProcessing = true;
+
             cameraObject.AddComponent<AudioListener>();
 
             ChaseCamera chaseCamera = cameraObject.AddComponent<ChaseCamera>();
@@ -2759,9 +2776,149 @@ namespace Horizon.EditorTools
             ValidateSurfaces(ringPath, circuitShape, ringCourse, "Weissjochring");
             ValidateSurfaces(bahcePath, circuitShape, bahceCourse, "Bahce Ring");
 
+            ValidatePostStack(camera);
 
             EditorSceneManager.SaveScene(scene, WorldScenePath);
             return spawns;
+        }
+
+        /// <summary>
+        /// Reports what the post stack actually is, and fails the build on the two ways it can be
+        /// switched off without anything looking wrong.
+        ///
+        /// <para><b>This check exists because the gap it guards was open for the life of the project and
+        /// nothing said so.</b> The performance budget specified a tone map and a colour grade from the
+        /// beginning; neither scene had a <see cref="Volume"/>, the camera had no
+        /// <see cref="UniversalAdditionalCameraData"/>, and the two pipeline assets were pointed at
+        /// Unity's leftover <c>SampleSceneProfile</c> — which carries an active bloom at 0.25 and an
+        /// active vignette at 0.2 that nobody here authored. That profile is the <i>quality default</i>
+        /// layer, underneath every scene volume, so it would have gone on blooming on the Low tier after
+        /// the tier switch was built and the switch would have looked broken rather than overridden.</para>
+        ///
+        /// <para>So the numbers are printed unconditionally rather than only on failure. This file has
+        /// paid for a stale document five times now, and a line in the log is what lets the budget in
+        /// CLAUDE.md and the asset on disk be compared without opening either.</para>
+        /// </summary>
+        private static void ValidatePostStack(Camera camera)
+        {
+            UniversalAdditionalCameraData data = camera != null
+                ? camera.GetComponent<UniversalAdditionalCameraData>()
+                : null;
+
+            if (data == null || !data.renderPostProcessing)
+            {
+                Debug.LogError("[Horizon] Post: the camera is not rendering post-processing. Every "
+                             + "volume and every profile can be correct and the frame still comes out "
+                             + "raw — this builds, validates and looks exactly like a build that works.");
+            }
+
+            // Both assets, not just the active one. The editor runs PC_RPAsset and the phone runs
+            // Mobile_RPAsset, and a stray quality-default profile on the one nobody is looking at is
+            // exactly the shape this fault already had: Unity's leftover SampleSceneProfile was wired
+            // into both of them, carrying an active bloom and an active vignette, underneath every
+            // scene volume, where no amount of correct authoring above could override it away.
+            CheckNoQualityProfile(UniversalRenderPipeline.asset);
+            CheckNoQualityProfile(
+                AssetDatabase.LoadAssetAtPath<UniversalRenderPipelineAsset>(MobilePipelinePath));
+
+            Volume[] volumes = Object.FindObjectsByType<Volume>(FindObjectsSortMode.None);
+            var tonemapping = default(Tonemapping);
+            var grade = default(ColorAdjustments);
+            var bloom = default(Bloom);
+
+            for (int i = 0; i < volumes.Length; i++)
+            {
+                VolumeProfile profile = volumes[i].sharedProfile;
+                if (profile == null)
+                {
+                    continue;
+                }
+
+                if (tonemapping == null)
+                {
+                    profile.TryGet(out tonemapping);
+                }
+
+                if (grade == null)
+                {
+                    profile.TryGet(out grade);
+                }
+
+                if (bloom == null)
+                {
+                    profile.TryGet(out bloom);
+                }
+            }
+
+            // Same rule the snow line follows: a world with no tone map in it builds and validates
+            // exactly like one that has it, so the absence has to be the loud case.
+            if (tonemapping == null || tonemapping.mode.value == TonemappingMode.None)
+            {
+                Debug.LogError("[Horizon] Post: no tone map in the scene. Everything above 1 clips flat "
+                             + "to white, which is every lamp lens, forecourt sign and tower beacon in "
+                             + "the world.");
+            }
+
+            if (!UniversalRenderPipeline.asset.supportsHDR)
+            {
+                Debug.LogWarning("[Horizon] Post: HDR is off, so nothing ever exceeds 1 in the colour "
+                               + "buffer and the tone map has nothing to compress.");
+            }
+
+            string grading = grade != null
+                ? $"exposure {grade.postExposure.value:+0.00;-0.00}, contrast {grade.contrast.value:0}, "
+                  + $"saturation {grade.saturation.value:0}"
+                : "no colour grade";
+
+            string blooming = bloom != null
+                ? $"intensity {bloom.intensity.value:0.00} above {bloom.threshold.value:0.00}, "
+                  + $"{bloom.downscale.value}, {bloom.maxIterations.value} iterations"
+                : "no bloom";
+
+            Debug.Log($"[Horizon] Post: {volumes.Length} volumes — "
+                    + $"{(tonemapping != null ? tonemapping.mode.value.ToString() : "no")} tone map, "
+                    + $"{grading}; {blooming}.");
+
+            // Named, and the mobile asset read by path, because the first version of this line reported
+            // "render scale 1.00" against a mobile asset that says 0.80. UniversalRenderPipeline.asset
+            // is whichever quality level the *editor* is on, which is PC_RPAsset — so the log was
+            // faithfully describing a pipeline the phone never runs. That is this file's own recurring
+            // fault: a build reporting a number from the wrong copy of it and going on looking right.
+            ReportPipeline(UniversalRenderPipeline.asset, "active in the editor");
+            ReportPipeline(
+                AssetDatabase.LoadAssetAtPath<UniversalRenderPipelineAsset>(MobilePipelinePath),
+                "shipping on Android");
+        }
+
+        /// <summary>Where the Android quality level's pipeline asset lives.</summary>
+        private const string MobilePipelinePath = "Assets/Settings/Mobile_RPAsset.asset";
+
+        private static void CheckNoQualityProfile(UniversalRenderPipelineAsset pipeline)
+        {
+            if (pipeline != null && pipeline.volumeProfile != null)
+            {
+                Debug.LogError($"[Horizon] Post: '{pipeline.name}' carries a quality-default volume "
+                             + $"profile ('{pipeline.volumeProfile.name}'). That layer sits under every "
+                             + "scene volume, so whatever it overrides cannot be switched off from "
+                             + "above — a bloom there would go on blooming with the quality director's "
+                             + "bloom volume at zero weight. Clear m_VolumeProfile on the RP asset.");
+            }
+        }
+
+        private static void ReportPipeline(UniversalRenderPipelineAsset pipeline, string role)
+        {
+            if (pipeline == null)
+            {
+                Debug.LogWarning($"[Horizon] Pipeline ({role}): no asset found.");
+                return;
+            }
+
+            Debug.Log($"[Horizon] Pipeline '{pipeline.name}' ({role}): "
+                    + $"HDR {(pipeline.supportsHDR ? "on" : "off")}, "
+                    + $"MSAA {pipeline.msaaSampleCount}x, "
+                    + $"render scale {pipeline.renderScale:0.00}, "
+                    + $"quality volume profile "
+                    + $"{(pipeline.volumeProfile != null ? pipeline.volumeProfile.name : "none")}.");
         }
 
         /// <summary>
@@ -4157,7 +4314,7 @@ namespace Horizon.EditorTools
                     float streamLoad, float streamUnload, float streamMargin,
                     int trafficBudget, float trafficLoad, float trafficRecycle,
                     bool shadows, bool exhaust, bool tyreSmoke, bool airRush, float rainDrops,
-                    int frameRate)
+                    float bloom, int frameRate)
                 {
                     SerializedProperty level = levels.GetArrayElementAtIndex(index);
                     level.FindPropertyRelative("Name").stringValue = name;
@@ -4172,6 +4329,7 @@ namespace Horizon.EditorTools
                     level.FindPropertyRelative("TyreSmokeParticles").boolValue = tyreSmoke;
                     level.FindPropertyRelative("AirRushParticles").boolValue = airRush;
                     level.FindPropertyRelative("RainDrops").floatValue = rainDrops;
+                    level.FindPropertyRelative("Bloom").floatValue = bloom;
                     level.FindPropertyRelative("TargetFrameRate").intValue = frameRate;
                 }
 
@@ -4184,14 +4342,19 @@ namespace Horizon.EditorTools
                 // draws a third of it. The other three are decoration; rain is a state the world is in,
                 // and a phone that showed none of it while the road was slippery and the roof was
                 // rattling would be lying about the weather rather than saving a frame.
+                // Bloom is off on Low and full above it, which is what the performance budget has said
+                // all along. It is the one part of the post stack that is a separate blur chain over the
+                // colour buffer rather than a curve applied to a pixel already being written, so it is
+                // the only part with a cost worth a setting. The tone map and the grade run on all three
+                // — those are not polish, they are what every colour in this world is.
                 Set((int)QualityPreset.Low, "Low",
-                    380f, 500f, 140f, 24, 320f, 460f, false, false, true, false, 0.33f, 30);
+                    380f, 500f, 140f, 24, 320f, 460f, false, false, true, false, 0.33f, 0f, 30);
 
                 Set((int)QualityPreset.Balanced, "Balanced",
-                    650f, 820f, 220f, 56, 650f, 900f, true, true, true, true, 0.7f, 60);
+                    650f, 820f, 220f, 56, 650f, 900f, true, true, true, true, 0.7f, 1f, 60);
 
                 Set((int)QualityPreset.High, "High",
-                    820f, 1000f, 260f, TrafficPoolSize, 800f, 1050f, true, true, true, true, 1f, 60);
+                    820f, 1000f, 260f, TrafficPoolSize, 800f, 1050f, true, true, true, true, 1f, 1f, 60);
             });
         }
 
@@ -5194,6 +5357,166 @@ namespace Horizon.EditorTools
             source.volume = 0f;
 
             return source;
+        }
+
+        /// <summary>
+        /// The post-processing stack: a tone map and a colour grade that always run, and a bloom that
+        /// the quality director can turn off.
+        ///
+        /// <para><b>This is not a new feature so much as an unpaid bill.</b> The performance budget has
+        /// specified "tonemapping + colour grading always; bloom on Mid/High only" from the beginning
+        /// and none of it existed — the project's volume profile was Unity's stock file with every
+        /// override neutral, neither scene held a <see cref="Volume"/>, and the chase camera had no
+        /// <see cref="UniversalAdditionalCameraData"/> at all, so <c>renderPostProcessing</c> sat at its
+        /// default of false. Meanwhile <c>VehicleLights</c> drives its lens colours to 2.4 and 3.2 with a
+        /// comment saying that "reads as a lit lamp <i>and blooms</i>", the fuel station signs, the
+        /// bridge beacons and the circuit board are all deliberately bright unlit materials, and every
+        /// one of those values was being clipped flat to white.</para>
+        ///
+        /// <para><b>Two volumes rather than one, because a profile is an asset.</b> Switching bloom by
+        /// writing <c>active</c> on a component inside a shared profile would edit that asset, and Unity
+        /// does not roll asset edits back when Play mode ends — the hazard <c>TownLights</c> and
+        /// <c>WetSurfaces</c> both document. So the bloom gets a volume of its own and
+        /// <see cref="PostProcessing"/> turns its <see cref="Volume.weight"/> down instead, which is a
+        /// runtime value on a component and nothing else.</para>
+        ///
+        /// <para>Profiles go through <c>LoadOrCreate</c>, so a grade tuned by hand survives a rebuild the
+        /// way a <c>VehicleConfig</c> does.</para>
+        /// </summary>
+        private static PostProcessing BuildPostProcessing(Transform parent)
+        {
+            VolumeProfile baseProfile = HorizonAssetUtility.LoadOrCreate(
+                "Assets/_Project/Settings/PostProfile_Base.asset",
+                () => ScriptableObject.CreateInstance<VolumeProfile>());
+
+            if (baseProfile.components.Count == 0)
+            {
+                // Neutral rather than ACES, and that is the art direction deciding. ACES crushes the
+                // shadows, desaturates them and pulls the highlights towards film — which is a look, and
+                // it is not this one. The reference points written down for this project are Alto's
+                // Odyssey and Monument Valley: flat, saturated, warm. Neutral keeps those flats intact
+                // and does the one job actually wanted here, which is to stop values above 1 clipping.
+                Tonemapping tonemapping = baseProfile.Add<Tonemapping>(true);
+                tonemapping.mode.value = TonemappingMode.Neutral;
+
+                // Deliberately close to nothing. A grade that leans hard against the tone map makes the
+                // tone map invisible and keeps its cost, and the honest place to fix a colour is the
+                // colour. These two give back the small amount of bite Neutral takes out, and the asset
+                // exists mainly so there is somewhere to tune without a rebuild.
+                // +0.5 stops, and leaving it at zero would have made this change a regression.
+                // Neutral maps linear 1.0 to 0.63 and 2.4 to 0.89, so a tone map with no exposure lift
+                // takes every value in the world *down* — and the lamp lenses at 2.4 and the brake
+                // lights at 3.2, which clip to flat white today, would come back dimmer than they are
+                // now. That is the exact opposite of what VehicleLights' comment has been promising.
+                // Full compensation of the highlights wants about +1.1 stops, which lifts mid grey from
+                // 0.18 to 0.35 and washes the world out; +0.5 opens the shadows and mid tones, brings
+                // the highlights down far enough to have shape instead of clipping, and leaves the
+                // brake lights the brightest thing in the frame.
+                ColorAdjustments grade = baseProfile.Add<ColorAdjustments>(true);
+                grade.postExposure.value = 0.5f;
+
+                // Both applied after the curve — postExposure is the only grading control that acts
+                // before it. These give back the separation and the bite the shoulder takes out.
+                grade.contrast.value = 10f;
+                grade.saturation.value = 8f;
+
+                // Four ALU inside the pass that is already running, no extra pass, and the HUD is a
+                // ScreenSpaceOverlay canvas so the dials are composited after it and stay unvignetted.
+                // Deliberately half of the 0.2 that Unity's sample profile had been about to impose.
+                Vignette vignette = baseProfile.Add<Vignette>(true);
+                vignette.intensity.value = 0.12f;
+                vignette.smoothness.value = 0.4f;
+
+                AttachProfileComponents(baseProfile);
+            }
+
+            VolumeProfile bloomProfile = HorizonAssetUtility.LoadOrCreate(
+                "Assets/_Project/Settings/PostProfile_Bloom.asset",
+                () => ScriptableObject.CreateInstance<VolumeProfile>());
+
+            if (bloomProfile.components.Count == 0)
+            {
+                Bloom bloom = bloomProfile.Add<Bloom>(true);
+
+                // Above the brightest thing the sun can make of an ordinary surface, and that is the
+                // whole design of this number. Snow at 0.9 albedo under a 1.15 sun comes out around
+                // 1.03, so a threshold at 1 would put a halo on every snowfield on the Weissjoch and
+                // every white line on the motorway. At 1.1 nothing lit blooms and only things *driven*
+                // past 1 do — which is exactly the set of objects this project has been building for
+                // a bloom that was not there: lamp lenses at 2.4 and 3.2, forecourt signs, tower
+                // beacons, the start/finish board.
+                bloom.threshold.value = 1.1f;
+                bloom.intensity.value = 0.55f;
+                bloom.scatter.value = 0.62f;
+
+                // Both off the cheap path on purpose. High-quality filtering costs extra taps per
+                // iteration for a difference nobody sees on a phone, and half-resolution downscale is
+                // the standard mobile setting.
+                // Quarter and four iterations rather than half and six, and the reason is passes rather
+                // than pixels. Every mip in the chain is its own render pass with a load and a store, and
+                // on a tile GPU that fixed cost dominates once the textures are small — the last two
+                // iterations of a six-deep chain are a 15x7 and an 8x4 texture bought at full pass price.
+                // Quarter-res on an 0.8-scale render is a fifth of native, which for a glow around a lamp
+                // is not a loss but a free widening.
+                bloom.highQualityFiltering.value = false;
+                bloom.downscale.value = BloomDownscaleMode.Quarter;
+                bloom.maxIterations.value = 4;
+
+                // A ceiling, so a future emissive or a specular hit cannot turn into a white disc.
+                bloom.clamp.value = 20f;
+
+                AttachProfileComponents(bloomProfile);
+            }
+
+            var baseObject = new GameObject("Post_Base");
+            baseObject.transform.SetParent(parent, false);
+            Volume baseVolume = baseObject.AddComponent<Volume>();
+            baseVolume.isGlobal = true;
+            baseVolume.priority = 0f;
+            baseVolume.sharedProfile = baseProfile;
+
+            var bloomObject = new GameObject("Post_Bloom");
+            bloomObject.transform.SetParent(parent, false);
+            Volume bloomVolume = bloomObject.AddComponent<Volume>();
+            bloomVolume.isGlobal = true;
+            bloomVolume.priority = 1f;
+            bloomVolume.sharedProfile = bloomProfile;
+
+            PostProcessing post = parent.gameObject.AddComponent<PostProcessing>();
+            HorizonAssetUtility.Configure(post, serialized =>
+                serialized.FindProperty("bloomVolume").objectReferenceValue = bloomVolume);
+
+            HorizonAssetUtility.AssertReferenceAssigned(post, "bloomVolume");
+
+            Debug.Log("[Horizon] Post-processing: Neutral tone map and colour grade always, "
+                    + $"bloom above {1.1f:0.00} on a volume of its own.");
+
+            return post;
+        }
+
+        /// <summary>
+        /// Writes a profile's components into the profile's own asset file.
+        ///
+        /// <para><see cref="VolumeProfile.Add{T}"/> creates the component and puts it in the profile's
+        /// list, but a <c>VolumeComponent</c> is a <c>ScriptableObject</c> in its own right — left
+        /// unattached it is never serialised, and the profile comes back from a domain reload with a
+        /// list of nulls. Nothing complains; the stack simply stops doing anything, which is
+        /// indistinguishable from the stack not being there.</para>
+        /// </summary>
+        private static void AttachProfileComponents(VolumeProfile profile)
+        {
+            for (int i = 0; i < profile.components.Count; i++)
+            {
+                VolumeComponent component = profile.components[i];
+                if (component != null && !AssetDatabase.IsSubAsset(component))
+                {
+                    component.name = component.GetType().Name;
+                    AssetDatabase.AddObjectToAsset(component, profile);
+                }
+            }
+
+            EditorUtility.SetDirty(profile);
+            AssetDatabase.SaveAssets();
         }
 
         /// <summary>Smoke emitters at the tailpipe mouths, pointing backwards out of the car.</summary>

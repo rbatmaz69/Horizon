@@ -9,7 +9,8 @@
         "Horizon.Atmosphere",
         "Horizon.Updates",
         "Unity.InputSystem",
-        "UnityEngine.UI"
+        "UnityEngine.UI",
+        "Unity.RenderPipelines.Core.Runtime"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

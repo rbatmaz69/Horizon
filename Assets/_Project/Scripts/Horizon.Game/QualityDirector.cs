@@ -71,6 +71,14 @@ namespace Horizon.Game
                    + "noise and the grip never scale with this; only the drop count does.")]
             public float RainDrops;
 
+            [Tooltip("How much of the bloom volume to blend in, 0 to 1.\n\n"
+                   + "The tone map and the colour grade are never scaled — they are what the world's "
+                   + "colour is, and a phone that skipped them would be showing different art rather "
+                   + "than cheaper art. Bloom is the separable half: it is one extra blur chain on the "
+                   + "colour buffer, it is the most expensive thing in the stack on a tile GPU, and "
+                   + "without it a bright lamp is merely a bright lamp rather than a bad one.")]
+            public float Bloom;
+
             [Tooltip("30 on Low is a real thermal and battery win on a weak phone, and a steady 30 "
                    + "reads better than a 60 that cannot hold.")]
             public int TargetFrameRate;
@@ -150,6 +158,7 @@ namespace Horizon.Game
             SetTyreSmokeEnabled(level.TyreSmokeParticles);
             SetAirRushEnabled(level.AirRushParticles);
             SetRainDrops(level.RainDrops);
+            SetBloom(level.Bloom);
         }
 
         /// <summary>
@@ -167,6 +176,22 @@ namespace Horizon.Game
             if (weather != null)
             {
                 weather.DropScale = scale;
+            }
+        }
+
+        /// <summary>
+        /// Turns the bloom volume's weight up or down.
+        ///
+        /// <para>Through <see cref="PostProcessing"/> rather than at a <c>Volume</c> found here, because
+        /// the world scene holds two of them and nothing about the type says which is which — see that
+        /// class for why the profile itself is never touched.</para>
+        /// </summary>
+        private static void SetBloom(float amount)
+        {
+            PostProcessing post = FindFirstObjectByType<PostProcessing>();
+            if (post != null)
+            {
+                post.BloomAmount = amount;
             }
         }
 
