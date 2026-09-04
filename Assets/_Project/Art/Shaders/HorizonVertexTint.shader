@@ -110,7 +110,13 @@ Shader "Horizon/VertexTintLit"
                 float3 along = _HorizonWind.xyz;
                 float3 across = float3(-along.z, 0.0, along.x);
 
-                return positionWS + (along * gust + across * gust * 0.35) * sway;
+                // A vertical term on its own phase, so a surface that only wants to rise and fall — open
+                // water — has something to do, and a canopy gets the small lift that stops a wood
+                // reading as a row of metronomes. Its length is the wind's, so one strength drives both.
+                float bob = cos(t * 0.83 + phase * 0.61) * length(_HorizonWind.xyz) * 0.4;
+
+                return positionWS
+                     + (along * gust + across * gust * 0.35 + float3(0.0, bob, 0.0)) * sway;
             }
 
             Varyings Vertex(Attributes input)
@@ -228,7 +234,13 @@ Shader "Horizon/VertexTintLit"
                 float3 along = _HorizonWind.xyz;
                 float3 across = float3(-along.z, 0.0, along.x);
 
-                return positionWS + (along * gust + across * gust * 0.35) * sway;
+                // A vertical term on its own phase, so a surface that only wants to rise and fall — open
+                // water — has something to do, and a canopy gets the small lift that stops a wood
+                // reading as a row of metronomes. Its length is the wind's, so one strength drives both.
+                float bob = cos(t * 0.83 + phase * 0.61) * length(_HorizonWind.xyz) * 0.4;
+
+                return positionWS
+                     + (along * gust + across * gust * 0.35 + float3(0.0, bob, 0.0)) * sway;
             }
 
 
@@ -341,7 +353,13 @@ Shader "Horizon/VertexTintLit"
                 float3 along = _HorizonWind.xyz;
                 float3 across = float3(-along.z, 0.0, along.x);
 
-                return positionWS + (along * gust + across * gust * 0.35) * sway;
+                // A vertical term on its own phase, so a surface that only wants to rise and fall — open
+                // water — has something to do, and a canopy gets the small lift that stops a wood
+                // reading as a row of metronomes. Its length is the wind's, so one strength drives both.
+                float bob = cos(t * 0.83 + phase * 0.61) * length(_HorizonWind.xyz) * 0.4;
+
+                return positionWS
+                     + (along * gust + across * gust * 0.35 + float3(0.0, bob, 0.0)) * sway;
             }
 
             struct DepthAttributes

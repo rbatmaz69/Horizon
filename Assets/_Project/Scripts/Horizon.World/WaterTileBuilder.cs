@@ -226,11 +226,52 @@ namespace Horizon.World
             }
         }
 
+        /// <summary>
+        /// How much of the wind open water feels, 0 still and 1 as flexible as a canopy.
+        ///
+        /// <para>Small, and it is the shoreline that decides how small rather than the look of the open
+        /// surface. This world's water meets its land as a mesh edge with no foam animation behind it,
+        /// so every centimetre the surface moves horizontally is a centimetre the waterline moves across
+        /// the beach.</para>
+        /// </summary>
+        private const float WaterSway = 0.35f;
+
+        /// <summary>Depth in metres over which the swell fades in from a dead-still shore.</summary>
+        private const float SwellShallows = 2.5f;
+
+        /// <summary>
+        /// Water vertices that came out able to move, counted since the last read.
+        ///
+        /// <para>Counted for the reason the vegetation's mask is, which the build log already states: a
+        /// world whose swell never got written builds, validates and photographs exactly like one that
+        /// works. Water is the harder case of the two — the mask fades with depth, so a shoreline change
+        /// or a shallower body could quietly take it to nothing everywhere without any code being
+        /// wrong.</para>
+        /// </summary>
+        public static int SwellVertices { get; private set; }
+
+        /// <summary>Zeroes the count. Called by the setup tool before it builds the water.</summary>
+        public static void ResetSwellCount() => SwellVertices = 0;
+
         private static void Add(
             List<Vector3> vertices, List<Color32> colours, float x, float y, float z, float depth)
         {
             vertices.Add(new Vector3(x, y, z));
-            colours.Add(TintFor(depth));
+
+            // The tint carries the colour and the alpha carries the wind, which the shared shader reads
+            // as 1 - alpha. Water was already on that shader and already writing vertex colours, so a
+            // moving surface costs nothing here either — but it is faded out in the shallows on purpose:
+            // a swell that keeps its full amplitude right up to the beach slides the waterline back and
+            // forth across the sand, which reads as the shore being loose rather than as water.
+            Color32 tint = TintFor(depth);
+            float sway = WaterSway * Mathf.Clamp01(depth / SwellShallows);
+
+            colours.Add(new Color32(tint.r, tint.g, tint.b, (byte)Mathf.RoundToInt((1f - sway) * 255f)));
+
+            if (sway > 0.02f)
+            {
+                SwellVertices++;
+            }
         }
 
         /// <summary>

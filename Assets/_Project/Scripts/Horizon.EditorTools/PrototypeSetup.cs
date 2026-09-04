@@ -46,6 +46,10 @@ namespace Horizon.EditorTools
         [MenuItem("Tools/Horizon/Rebuild Prototype Scene", priority = 0)]
         public static void Rebuild()
         {
+            // Static counters live across an editor session, so a second run in the same one would
+            // otherwise report twice the swell it built.
+            WaterTileBuilder.ResetSwellCount();
+
             if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
             {
                 return;
@@ -110,6 +114,21 @@ namespace Horizon.EditorTools
 
             // Last of all, because it photographs whatever is open and this is where Bootstrap is.
             HudPreviewRenderer.Render();
+
+            // Reported at the very end, and the first version was not. It sat beside "Water: N bodies",
+            // which counts *plans* — the tiles are built thousands of lines of work later, so the check
+            // ran before a single water vertex existed and reported a still world every time. The
+            // counter caught the placement of its own report, which is the only thing that would have.
+            if (WaterTileBuilder.SwellVertices == 0)
+            {
+                Debug.LogWarning("[Horizon] Swell: no water vertex carries one, so every body in the "
+                               + "world is a still pane. Either the mask is not being written or every "
+                               + "body is shallower than the depth the swell fades in over.");
+            }
+            else
+            {
+                Debug.Log($"[Horizon] Swell: {WaterTileBuilder.SwellVertices} water vertices move.");
+            }
 
             Debug.Log(
                 "[Horizon] Prototype rebuilt. Both scenes are open: Bootstrap holds the persistent "
