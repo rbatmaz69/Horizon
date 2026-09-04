@@ -2313,6 +2313,25 @@ smoothness to put the sheen back would be tuning a material to compensate for th
 "fifty changes each of which looks right alone and none of which can be attributed" failure the tone map's
 own notes record.
 
+**The rain sky came back gold, and the term that was missing is the one worth remembering.** A cloud
+lit by `lerp(ambient, sun, 0.7)` is a cloud lit by the *sun's hue* whatever `sunDim` has done to its
+intensity — so a rainstorm at four in the afternoon came out ochre, which reads as a sunset with drops
+falling through it. The share of sun reaching a cloud now falls to nothing as `Overcast` rises, because
+under thin cloud you are looking at tops the sun is on and under a rain deck you are looking at a base
+it never reaches; and the result is desaturated by the same `Overcast × 0.7` the fog already uses, so
+the sky and the air cannot come to different conclusions about how grey the day is. That second term is
+the fog's own lesson, restated one system up.
+
+**One thing the pictures say and is recorded rather than tuned: at a grazing angle a wet carriageway
+reads as water.** `WeatherPreview_1_Pass_Rain` is right — dark asphalt, a sheen, the markings still
+legible — and `_2_Motorway_Rain`, taken nearly level down a long straight, is a mirror. That is Fresnel
+doing what Fresnel does and it was true before this existed; what is new is that the mirror now has a
+structured sky in it rather than a flat grey dome, and that an up-facing surface gains about a quarter
+more ambient under Trilight. Both are correct on their own. The temptation is to pull
+`WetSurfaces`' smoothness back, and this file already says why not: that would be tuning a material to
+compensate for the sky, which is the failure the tone map's notes record. It wants a drive, not a
+number.
+
 **The profile heals itself on a version bump.** `LoadOrCreate` returns an existing asset untouched — that
 is what lets a hand-tuned gradient survive a rebuild — so a field added later arrives empty on every
 existing checkout, and an empty `Gradient` is black. The sky would still dim, through its horizon, and

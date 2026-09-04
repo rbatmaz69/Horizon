@@ -102,7 +102,13 @@ namespace Horizon.Atmosphere
         /// </summary>
         private const float SunDiscBrightness = 3.2f;
 
-        /// <summary>How much of the sun reaches a cloud top, against how much of the ambient sky.</summary>
+        /// <summary>
+        /// How much of the sun reaches a cloud top under a clear sky, against how much of the ambient.
+        ///
+        /// <para>Scaled to nothing by <see cref="Overcast"/> where it is read — see the note there. This
+        /// is the fair-weather figure, and fair weather is the only condition in which anybody is
+        /// looking at a sunlit cloud top rather than at the base of a deck.</para>
+        /// </summary>
         private const float CloudSunShare = 0.7f;
 
         /// <summary>
@@ -338,6 +344,32 @@ namespace Horizon.Atmosphere
             // first build.
         }
 
+        /// <summary>A linear colour back as a <see cref="Color"/>, alpha discarded.</summary>
+        private static Color FromLinear(Vector4 linear)
+        {
+            return new Color(linear.x, linear.y, linear.z, 1f);
+        }
+
+        /// <summary>
+        /// Takes the colour out of something as the weather closes in.
+        ///
+        /// <para>The same expression <see cref="Apply"/> uses on the fog, and the same 0.7, written once
+        /// so the sky and the air cannot come to different conclusions about how grey the day is. That
+        /// disagreement is exactly what the fog's own desaturation was added to fix, one system
+        /// earlier.</para>
+        /// </summary>
+        private static Color Desaturated(Color colour, float overcast)
+        {
+            if (overcast <= 0f)
+            {
+                return colour;
+            }
+
+            float grey = colour.grayscale;
+
+            return Color.Lerp(colour, new Color(grey, grey, grey), overcast * 0.7f);
+        }
+
         /// <summary>
         /// Scales a gamma colour by a gain that means what it says in the light.
         ///
@@ -437,9 +469,27 @@ namespace Horizon.Atmosphere
             Vector4 sunLinear = sun != null ? (Vector4)sun.color.linear * sun.intensity : Vector4.zero;
             Vector4 ambientLinear = (Vector4)ambient.linear;
 
-            Shader.SetGlobalVector(CloudLitId,
-                Vector4.Lerp(ambientLinear, sunLinear, CloudSunShare) * CloudAlbedo);
-            Shader.SetGlobalVector(CloudShadeId, ambientLinear * 0.9f);
+            // <b>How much sun reaches a cloud falls to nothing as the weather closes in, and leaving
+            // that out put a gold sunset over a rainstorm.</b> Under thin cloud you are looking at tops
+            // the sun is on; under a rain sky you are looking at the base of a deck the sun never
+            // reaches, and the two are different sides of the same object. Written without this term the
+            // rain frames came back lit in ochre — a sunset with drops falling through it — because
+            // sunDim takes the sun's *intensity* down and leaves its hue exactly where the hour put it.
+            float overcast = Mathf.Clamp01(Overcast);
+            float sunShare = CloudSunShare * (1f - overcast);
+
+            Color lit = FromLinear(Vector4.Lerp(ambientLinear, sunLinear, sunShare) * CloudAlbedo);
+            Color shade = FromLinear(ambientLinear * 0.9f);
+
+            // And the colour comes out of a cloud the same way it comes out of the air, by the same
+            // term and for the reason stated against the fog above: left saturated, the sky and the
+            // fog under it disagree about the weather, which is the fault the fog's own desaturation
+            // was added to fix. Same 0.7, so the two cannot drift apart.
+            lit = Desaturated(lit, overcast);
+            shade = Desaturated(shade, overcast);
+
+            Shader.SetGlobalVector(CloudLitId, (Vector4)lit);
+            Shader.SetGlobalVector(CloudShadeId, (Vector4)shade);
 
             // Read off the transform, after the rotation above wrote it — never recomputed from
             // SunAzimuth and SunElevation. Two copies of one formula agree until one of them changes,

@@ -5140,8 +5140,13 @@ namespace Horizon.EditorTools
             // Quarter of the resolution it was. There are no reflection probes here, so this cubemap is
             // every wet road, every pane of glass and every wheel rim in the world — and it is now
             // rebuilt as the clock moves rather than once at load, so its cost is per second instead of
-            // once. The binding surface is M_CarGlass at smoothness 0.92, which samples the top mip;
-            // the wet carriageway at 0.46 is three mips down and would be happy with half of this.
+            // once.
+            //
+            // The binding surface is M_CarGlass at smoothness 0.92, which samples the top mip, and 64
+            // is enough for it only because of what is being reflected: this sky is a gradient with
+            // soft-edged cloud on it and carries no detail a higher resolution could resolve. That is
+            // the argument, and it is worth stating rather than the arithmetic about the wet road at
+            // 0.46 being three mips down — the road is not what sets this number.
             RenderSettings.defaultReflectionResolution = 64;
 
             // After the scene switch, never before it. See LoadWorldMap.
