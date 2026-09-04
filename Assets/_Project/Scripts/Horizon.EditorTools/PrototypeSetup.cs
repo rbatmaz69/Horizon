@@ -235,6 +235,12 @@ namespace Horizon.EditorTools
             /// paying for a rock face it may not have.</para>
             /// </summary>
             public readonly Material TerrainTint;
+
+            /// <summary>
+            /// The town's streets. The same shader and the same smoothness as <see cref="TerrainTint"/>,
+            /// and a separate asset only so that the rain can tell them apart from a hillside.
+            /// </summary>
+            public readonly Material TownStreet;
             public readonly Material Rock;
             public readonly Material Lane;
             public readonly Material Footway;
@@ -398,6 +404,19 @@ namespace Horizon.EditorTools
                 // by, and next to a carriageway at 0.34 it reads as a patch of something else.
                 RoadTint = HorizonAssetUtility.LoadOrCreateTintMaterial(
                     MaterialsFolder + "/M_RoadTint.mat", "M_RoadTint", 0.34f);
+
+                // <b>The town's streets, at exactly the terrain's smoothness they already had.</b> They
+                // shared M_TerrainTint with every hillside in the world, which is why rain darkened
+                // every carriageway and left four towns dry: WetSurfaces swaps by material identity, and
+                // wetting that one would have wetted the ground as well. An asset of their own is the
+                // whole of the fix.
+                //
+                // 0.08 and not the carriageway's 0.34, deliberately: this change is meant to add a wet
+                // state and to leave the dry one pixel-identical, which is checkable in the town frames.
+                // Whether a town street should be as glossy as a trunk road when dry is a separate
+                // question and a separate look — see RoadTint's own note for the argument it would use.
+                TownStreet = HorizonAssetUtility.LoadOrCreateTintMaterial(
+                    MaterialsFolder + "/M_TownStreet.mat", "M_TownStreet", 0.08f);
 
                 // Water, on the same vertex-tinted shader and glossier than anything else in the
                 // world. 0.55 is what puts the low sun on it — this game is lit at dusk more often
@@ -623,6 +642,21 @@ namespace Horizon.EditorTools
 
                     WetVariant(MaterialsFolder + "/M_LaneWet.mat", "M_LaneWet",
                         Lane, new Color(0.17f, 0.17f, 0.19f), 0.44f),
+
+                    // <b>The town's streets, and the two numbers are derived rather than picked.</b> The
+                    // tint is the carriageway's, because darkening is what reads as wet and asphalt,
+                    // footway and kerb all darken. The smoothness is not: MergeTinted folds this mesh's
+                    // surface, kerb, footway, marking *and grass verge* into one material, so a single
+                    // number has to cover paved and unpaved together. 0.38 sits between the
+                    // carriageway's 0.46 and the shoulder's 0.22 in about the proportion the
+                    // cross-section does — verge, footway, kerb, surface, surface, kerb, footway, verge.
+                    //
+                    // Giving the verge a null tint would give it a material and the right gloss, and it
+                    // would also give every town tile in the world another draw call for two metres of
+                    // grass. See VegetationMeshBuffer.MergeTinted on what a null tint means.
+                    HorizonAssetUtility.LoadOrCreateTintMaterial(
+                        MaterialsFolder + "/M_TownStreetWet.mat", "M_TownStreetWet", 0.38f,
+                        new Color(0.52f, 0.53f, 0.57f)),
                 };
 
                 Sky = SkyMaterial();
@@ -978,7 +1012,7 @@ namespace Horizon.EditorTools
             /// <summary>The dry road materials, in the order <see cref="RoadWet"/> gives their wet twins.</summary>
             public Material[] WetRoadMaterials => new[]
             {
-                RoadSurface, MotorwaySurface, CircuitSurface, RoadShoulder, Lane,
+                RoadSurface, MotorwaySurface, CircuitSurface, RoadShoulder, Lane, TownStreet,
             };
         }
 
@@ -6690,8 +6724,9 @@ namespace Horizon.EditorTools
             // is here because the build reported a fork's width from its own second copy of the formula
             // and went on looking right after the formula had been fixed.
             Debug.Log($"[Horizon] Rain: {surfaces.GroupCount} renderers carrying {slotCount} road material "
-                      + "slots will darken when it rains, found by the material the builder assigned. "
-                      + "Town streets are not among them — they share M_TerrainTint with the hillsides.");
+                      + "slots will darken when it rains, found by the material the builder assigned — "
+                      + "the town streets among them now that they have an asset of their own rather "
+                      + "than sharing one with every hillside in the world.");
 
             if (groups.Count == 0)
             {
@@ -7230,7 +7265,7 @@ namespace Horizon.EditorTools
 
             for (int i = 0; i < used.Count; i++)
             {
-                result[i] = materials.TerrainTint;
+                result[i] = materials.TownStreet;
             }
 
             return result;

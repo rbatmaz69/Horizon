@@ -362,7 +362,12 @@ namespace Horizon.EditorTools
         /// rather than magenta and says so. A magenta town is obvious; a white one with a warning is
         /// diagnosable.</para>
         /// </summary>
-        public static Material LoadOrCreateTintMaterial(string assetPath, string name, float smoothness)
+        /// <param name="tint">
+        /// Multiplied into the vertex colour. White for everything that wants its palette as authored;
+        /// anything else is a wash over the whole mesh, which is what the wet road variants are.
+        /// </param>
+        public static Material LoadOrCreateTintMaterial(
+            string assetPath, string name, float smoothness, Color? tint = null)
         {
             Material existing = AssetDatabase.LoadAssetAtPath<Material>(assetPath);
             if (existing != null)
@@ -386,7 +391,7 @@ namespace Horizon.EditorTools
 
             if (created.HasProperty("_BaseColor"))
             {
-                created.SetColor("_BaseColor", Color.white);
+                created.SetColor("_BaseColor", tint ?? Color.white);
             }
 
             if (created.HasProperty("_Smoothness"))

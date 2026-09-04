@@ -211,6 +211,31 @@ namespace Horizon.EditorTools
 
             ParticleSystem.EmissionModule emission = rain.emission;
 
+            // The same shutter as FromRoad, stationed on a marker the build left in the scene rather
+            // than on a distance along a road. Shares every line below the aim, including the roof probe
+            // — a junction under a canopy would be as wrong to rain on as a tunnel is.
+            void FromMarker(string markerName, Vector3 offset, float fieldOfView, string name)
+            {
+                GameObject marker = GameObject.Find(markerName);
+
+                if (marker == null)
+                {
+                    Debug.LogWarning($"[Horizon] No '{markerName}' in the scene, so the town frame is "
+                                     + "not taken. Run Rebuild Prototype Scene — that marker is what "
+                                     + "the town previews are stationed on.");
+                    return;
+                }
+
+                camera.fieldOfView = fieldOfView;
+                camera.farClipPlane = 900f;
+                camera.nearClipPlane = 0.3f;
+                camera.transform.position = marker.transform.position + offset;
+                camera.transform.rotation = Quaternion.LookRotation(
+                    marker.transform.position - camera.transform.position, Vector3.up);
+
+                Expose(name);
+            }
+
             void FromRoad(
                 RoadPath road, float at, float across, float lift, float pitch, float yaw, string name)
             {
@@ -233,10 +258,17 @@ namespace Horizon.EditorTools
                 camera.transform.rotation = Quaternion.LookRotation(
                     (look + Vector3.up * pitch).normalized, Vector3.up);
 
+                Expose(name);
+            }
+
+            // Everything from the aim to the shutter, shared by every station so none of them can be
+            // taken under different rain from the others.
+            void Expose(string name)
+            {
                 // Through the same roof probe the running game uses, not around it. Written the first
-                // way — a flat rate — this frame showed rain falling through a mountain and would have
-                // gone on showing it after the fix, because the tool was bypassing the very thing being
-                // tested. A frame that cannot fail is not a check.
+                // way — a flat rate — the portal frame showed rain falling through a mountain and would
+                // have gone on showing it after the fix, because the tool was bypassing the very thing
+                // being tested. A frame that cannot fail is not a check.
                 bool roofed = raining && VehicleCover.RoofedAt(
                     camera.transform.position, Vector3.up, 16f, ~0, out _);
 
@@ -271,6 +303,27 @@ namespace Horizon.EditorTools
             // 3. The Kehrtunnel's mouth from inside it, looking out. The one frame that would show rain
             // falling through a mountain.
             FromRoad(pass, TunnelMiddle(), 0f, 2.2f, 0f, 0f, "3_Portal");
+
+            // 4. A junction inside Talheim, looking down at it.
+            //
+            // <b>Town streets shared M_TerrainTint with every hillside in the world, so a shower darkened
+            // twelve kilometres of carriageway and left four towns bone dry</b> — and nothing in the
+            // build said so, because the swap is counted by material and the count was perfectly correct
+            // about the materials it was given. They have an asset of their own now and this is the only
+            // frame that says whether it took.
+            //
+            // <b>It stands on a town street and not on the trunk road through the town, which is the
+            // whole point of it.</b> The first version was taken from WorldPreview_Town_Street's station
+            // — the driver's eye on the pass's own carriageway as it runs through Talheim — and that
+            // carriageway has been wettable since the day rain was built, so the frame came back showing
+            // a wet road and answering nothing. A frame that cannot resolve its subject is worse than no
+            // frame, because it looks like an answer.
+            //
+            // The station is the scene marker PrototypeSetup leaves on the worst junction in the
+            // network, for the reason WorldPreview_Town_Junction gives: aiming at the junction most
+            // likely to be wrong beats aiming at a representative one, and it is the one place in a town
+            // where surface, kerb, footway, markings and verge are all in shot at once.
+            FromMarker("TownWorstJunction", new Vector3(0f, 22f, -16f), 55f, "4_Town");
         }
 
         /// <summary>

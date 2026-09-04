@@ -1632,12 +1632,29 @@ places to forget one — with no symptom but a stretch of tarmac that stays dry.
 sweeps the finished world once and records every renderer slot holding a known dry road material. That
 is not a checker forming an opinion of its own: the test is the exact asset the builder assigned.
 
-**Town streets cannot be wetted, and that is recorded rather than hidden.** They are painted
-`M_TerrainTint` — the one vertex-tinted material that also carries grass, rock, sand and snow — so
-wetting them would wet every hillside in the world. Giving the streets a material of their own is the
-honest fix, and it is a change to make on purpose rather than in passing, which is the same call the
-Weissjochring's missing snow got. Until then a shower darkens the carriageways and leaves the towns
-dry.
+**Town streets can be wetted now, and the fix was one asset.** They were painted `M_TerrainTint` — the
+one vertex-tinted material that also carries grass, rock, sand and snow — so a shower darkened twelve
+kilometres of carriageway and left four towns bone dry, because `WetSurfaces` swaps by material identity
+and wetting that one would have wetted every hillside in the world. `M_TownStreet` is the same shader at
+the same 0.08 smoothness, so **the dry world is pixel-identical** and only a wet state was added.
+
+**The wet twin's two numbers are derived rather than picked, and the reason is what shares the mesh.**
+The tint is the carriageway's `(0.52, 0.53, 0.57)`, because darkening is what reads as wet and asphalt,
+kerb and footway all darken. The smoothness is not: `MergeTinted` folds surface, kerb, footway, marking
+**and a grass verge** into one material, so a single number has to cover paved and unpaved together.
+0.38 sits between the carriageway's 0.46 and the shoulder's 0.22 in about the proportion the
+cross-section does — verge, footway, kerb, surface, surface, kerb, footway, verge. Giving the verge a
+null tint would buy it the right gloss and cost every town tile in the world another draw call for two
+metres of grass.
+
+**And there was no frame that could show any of it.** `WeatherPreviewRenderer` stood on the pass, the
+motorway and a tunnel mouth; `_4_Town` is new. The first version of it was taken from
+`WorldPreview_Town_Street`'s station — the driver's eye on the pass's own carriageway where it runs
+*through* Talheim — and came back showing a wet road while answering nothing at all, because that
+carriageway has been wettable since the day rain was built. It stands on the `TownWorstJunction` marker
+now, which is the one place in a town where surface, kerb, footway, markings and verge are all in shot
+at once. A frame that cannot resolve its subject is worse than no frame, because it looks like an
+answer.
 
 **The drops hang off the camera and are simulated in world space.** The grit in `SpeedAtmosphere` is
 placed ahead of the *car* because the whole point of it is the car passing it; rain only has to be
