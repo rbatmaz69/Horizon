@@ -121,9 +121,15 @@ in Play mode and the changes persist — that is the intended tuning loop.
 
 - Forward renderer, SRP Batcher on, GPU instancing on, static batching for props
 - Baked lightmaps + light probes; realtime shadows from the sun only, tight cascade distance
-- Post: tonemapping + colour grading always; bloom on Mid/High only; **no** SSAO, no realtime
-  reflections, no motion blur
-- MSAA 2× (cheap on mobile tile GPUs, and low-poly edges benefit)
+- Post: tonemapping + colour grading always; bloom on Balanced/High only; **no** SSAO, no realtime
+  reflections, no motion blur — see *The frame* for what this specified for years without existing
+- **MSAA is off, and this line used to say 2×.** That was true when it was written and stopped being
+  true when the renderer went to `RenderScale 0.8`: MSAA there is antialiasing an image that is about to
+  be bilinearly upscaled, and on a tile GPU 2× halves the tile and doubles the bins in a world that is
+  geometry-bound rather than fill-bound. They are alternatives, not companions — if edges are the
+  complaint, `RenderScale 0.85` is the cheaper answer and it is one number. `ValidatePostStack` prints
+  MSAA, render scale and grading mode for both pipeline assets every build, so this line and
+  `Mobile_RPAsset.asset` cannot silently disagree again
 - **No per-frame GC allocation** in driving code. This is the usual cause of mobile stutter:
   cache arrays, avoid LINQ and `foreach` over interfaces in `Update`/`FixedUpdate`, never
   allocate in a physics step.
@@ -1796,6 +1802,266 @@ reports what each frame actually drew. `Tools > Horizon > Render HUD Preview` ph
 itself — the first thing in this project ever to do so, and it found both the unclipped map and the fact
 that a saved scene has every control scheme active at once. Both run at the end of `Rebuild`. **Every fault
 this feature has had was found in those two pictures.** The build reported none of them.
+
+## The frame
+
+There was no post-processing at all, for the life of the project, while the budget above specified a
+tone map and a colour grade from the beginning. `DefaultVolumeProfile` was Unity's stock file with
+every override neutral, neither scene held a `Volume`, and the `ChaseCamera` object carried no
+`UniversalAdditionalCameraData` — so `renderPostProcessing` sat at its default of `false`. Meanwhile
+`VehicleLights` drives its lens colours to 2.4 and 3.2 with a comment saying that *"reads as a lit
+lamp and blooms"*, and the forecourt signs, the tower beacons and the circuit boards are all
+deliberately bright unlit materials. Every one of those values was clipping flat to white.
+
+**Both pipeline assets were also pointed at Unity's leftover `SampleSceneProfile`**, which carries an
+active bloom at 0.25 and an active vignette at 0.2 that nobody here authored. That is the
+*quality-default* layer, underneath every scene volume, so the Low tier would have gone on blooming
+after the tier switch was built and the switch would have looked broken rather than overridden.
+
+**Two volumes rather than one, because a `VolumeProfile` is an asset.** Switching bloom by writing
+`active` on a component inside a shared profile edits that asset, and Unity does not roll asset edits
+back when Play mode ends — the hazard `TownLights` and `WetSurfaces` both document. Bloom gets a
+volume of its own and `PostProcessing` turns its `weight` down, which is exactly what
+`QualityDirector`'s own remarks call for: *everything there is a runtime value on a component*.
+
+**Neutral rather than ACES.** ACES skews saturated hues towards yellow as they brighten, and this
+world's identity is in the Ebental's unvarying gold, the Bahçe's two blossom tints — *"the only pale
+cool colours anywhere in this world"* — and Anadolu's red earth. Neutral moves mid grey by about one
+per cent, which on a flat-shaded world that is mostly mid tones is the tone mapper that keeps the art.
+
+**`postExposure` is +0.5 and leaving it at zero would have made the whole change a regression.**
+Neutral maps linear 1.0 to 0.63 and 2.4 to 0.89, so a tone map with no lift takes every value in the
+world *down* — and the lamps, which clip to flat white today, would have come back dimmer than they
+are. The comment on `VehicleLights` is only made true by the tone map and the bloom together.
+
+**A tone mapper is one curve over the whole world, so the answer to it is one number.** Dozens of
+tints in this file were chosen against an untone-mapped frame and every one of them moves. The
+compensation is `postExposure`, `contrast` and `saturation`, and **not** a pass over the world's
+colours: fifty changes each of which looks right alone and none of which can be attributed is the
+failure shape already recorded against the paddock's null tints.
+
+`ValidatePostStack` prints the stack and both pipeline assets by name every build and fails if post is
+off or a quality-default profile returns. Its first version reported `render scale 1.00` against a
+mobile asset that says 0.80, because `UniversalRenderPipeline.asset` is whichever level the *editor*
+is on — which is `PC_RPAsset`. It names what it read now.
+
+**And every preview frame this project takes had to be fixed before any of it could be trusted.** All
+five capture paths built their camera with a bare `AddComponent<Camera>()`, so post was off in every
+picture; turning it on for the game without them would have left four hundred PNGs quietly showing a
+world the player never sees. `PreviewCapture` is the one place a frame is taken now — which also
+carried the map preview's two hard-won fixes to the other four, neither of which had ever reached
+them.
+
+**The HUD and map previews keep post off on purpose, and so does the car thumbnail.** The game's canvas
+is `ScreenSpaceOverlay`, which URP composites *after* the post stack, so a tone-mapped HUD preview
+would show a HUD that does not exist. The thumbnail clears to alpha zero for the garage sprite and post
+does not preserve that alpha.
+
+**The world shots keep the plain `GetTemporary` target they have always used.** Moving them onto the
+descriptor blew `M_SkyOvercast` from (139,152,132) to pure white in every overcast and rain frame,
+day and night, while leaving the procedural clear sky and the road pixel-identical. Three quarters of
+the frames unchanged is the shape of a regression that ships.
+
+**One thing the pictures said and is not fixed: the overcast sky does not dim.** `T_SkyOvercast.png`
+is a fixed grey gradient with `_Exposure: 1` and a white tint, so the rain sky reads the same at
+midnight as at noon — measured, day and night frames identical. That is a `TimeOfDayController`
+change and it is the one place a per-asset fix is honest here, because the sky is one material rather
+than fifty tints. Recorded rather than hidden.
+
+## What the road feels like
+
+The terrain has `TerrainShape.DetailAmplitude` and the asphalt had nothing. A suspension with four
+raycasts, a spring, a damper, two anti-roll bars and a load-dependent grip curve had nothing whatever
+to work against until the car reached a verge — the whole model stood still on the one surface the
+game is played on.
+
+**`SurfaceRelief` changes no mesh.** It is a world-space height field sampled at the contact point and
+subtracted from what the wheel measures. Displacing the geometry instead would cost vertices on the
+heaviest tiles in the world, would break every piece of laid-on paving this file has already paid four
+times to get flush, and would put bumps in the shadow map.
+
+In `Horizon.Core` beside `GroundSurface` for the reason that class already gives: `Horizon.Vehicle`
+reads it, `Horizon.EditorTools` checks it, and Core is the only assembly both can reach. It is a pure
+function of a position — no state, no seed, no time — so a parked car is perfectly still.
+
+**The noise is hand-rolled rather than `Mathf.PerlinNoise`, and this is the one place in the project
+where that choice reverses.** `MountainField`, `TerrainTileBuilder` and `VegetationBuilder` are right
+to use Unity's: they bake a mesh once, so a changed implementation would move the world and nothing
+else. Here the function runs at 50 Hz on the device and its *derivative* is spent as a damper force,
+so a quintic fade being C2 — continuous in the second derivative — is load-bearing rather than tidy.
+
+**The short octave is 5.8 m, and it is chosen against the car rather than against taste.** All ten
+cars share a 3.375 m wheelbase and a 2.475 m track. 4 m is what the load budget alone would have
+picked, and it sits between the wheelbase and twice the track, which locks the wheels into a fixed
+pattern. 5.8 clears twice the track by 17 % and stays under twice the wheelbase by 14 %.
+
+**The per-surface gain is eased, never read raw.** `GainOf` is a step function in space, and a step in
+a height field is a step in the distance a wheel measures — which is exactly the kerb
+`MaxDamperSpeed` exists to survive, arriving on every verge exit.
+
+**The binding limit is the wheel load, not the damper clamp.** `MaxDamperSpeed` is 4 m/s, which at
+3800 N·s/m is over six times the Hatchback's static wheel load; the field reaches 1.3 % of it. Sizing
+the amplitude against the clamp means sizing against the wrong number and arriving at a car whose
+wheels leave the ground on a straight.
+
+`ValidateSurfaceRelief` measures it, because **this is the one feature here a picture cannot check at
+all**: the road is pixel-identical with the field and without it. Peak 4.0–4.4 mm, shaft speed
+1.2–1.4 % of the clamp, peak load 10.2–11.8 % of static, and a differential of about half a millimetre
+of pitch and a third of roll.
+
+**That check reported two faults of its own before it reported none, and both are the lesson.** It
+measured a front-to-rear correlation and got exactly −1.00 on every road, because subtracting the
+four-wheel mean makes the rear pair identically minus the front. Fixed to a real Pearson coefficient it
+got +0.74 to +0.95 — also wrong to warn about, since two of the three octaves are deliberately longer
+than the wheelbase and a car riding a swell *should* have its wheels in phase, and the roll figure is
+always the higher of the two because a car is narrower than it is long. It measures differential travel
+in millimetres now, which is a length rather than an opinion.
+
+**What it will not do is move a wheel visibly in its arch.** 2.7 mm of travel against 57 mm of static
+sag is five per cent. Visible wheel motion needs about four times the amplitude, which is 45 % load
+swing, which reopens ten commits of grip work. If a drive reports that it cannot be felt, the answer is
+**one scale factor on the three amplitudes** and then reading what the check prints — not a fourth
+octave and not a special case.
+
+## What the rig knows about the car
+
+The camera knew about speed and about being hit. It knew nothing about a corner or a crest.
+
+**Cornering and pitch are measured in `ChaseCamera` itself rather than pushed in**, which is that
+class's own stated design: it takes a bare `Transform` and `Rigidbody` so it can follow anything, and
+it already differentiates the velocity it reads. The sideways component is one more subtraction, where
+importing `VehicleController.LateralG` would need an interface, a push and a component to own it.
+Measured across the *direction of travel* and not across the car's own right, so a car sideways in a
+drift is not reported as cornering hard — a slide is the path going straight while the nose does not.
+
+**The roll argues with something already written down, so it is the smallest number here.** The
+buffeting tremor deliberately has no roll because roll at speed reads as a crash, and the impact kick
+rolls for exactly that reason. The claim that a corner is different — sub-hertz, smooth, caused by the
+driver and of a sign they know — is an argument rather than a measurement. `corneringRoll` is 0.6° and
+it is the first thing to set to zero if a bend starts reading as an accident.
+
+**Nothing in this project read `GroundedWheelCount`.** It has been published since the wheel model was
+written and every consumer ignored it, while the Stadtfeld leg was designed around crests, the pass has
+its own and the Weissjoch's stack is nothing but them. A landing is also *not* an impact: the wheels
+are raycasts, so a clean one never touches the body collider and the existing thud only catches a car
+putting its floor on the road. `DriveFeel` watches the wheel count and reuses `ChaseCamera.Shake`,
+because a landing and a knock are the same thing happening to the rig.
+
+One wheel may still be down and the car still count as flying — a car leaving a crest lifts its nose
+first and trails a rear wheel for a good part of the jump, which is the half the driver is looking at.
+
+## What the phone feels
+
+This is played on a phone and the phone was never used as an output: no `Handheld.Vibrate`, no gamepad
+rumble, nothing, while `Impacted`, `IsShifting` and `SurfaceRoughness` were all published and read only
+by sound.
+
+**Not `Handheld.Vibrate`.** It is a fixed half-second buzz with no amplitude — long enough to still be
+running when the next corner arrives, and identical for a kerb and for a parapet at speed. The whole
+value here is that a graze and a crash feel different, which needs a duration and an amplitude, so it
+goes through `VibrationEffect` over JNI.
+
+**Events only, never a continuous rumble.** That is `ContactAudio`'s distinction and it is right twice
+over: a scrape is a state and belongs to sound, which can hold a level, where a motor asked to hold one
+drains the battery and arrives as a buzz that swamps the moments worth feeling. Three of them — hitting
+something, the next gear taking the load, and the tyres finding the verge.
+
+**Wheelspin is deliberately not one, and it is the interesting omission.** It was on the list and it is
+a state: a wheel lit up for two seconds out of a hairpin is either one tick that says nothing about the
+two seconds, or a stream of them, which is the buzz again. It already has a voice, and the tyre squeal
+is driven off exactly that number.
+
+**There is no `PlayerSettings` property for VIBRATE** the way there is `forceInternetPermission`. Unity
+infers it from whether `Handheld.Vibrate` survives stripping, and this calls the vibrator through JNI,
+so the inference has nothing to find. `AndroidVibratePermission` edits the *generated* manifest rather
+than dropping one into `Assets/Plugins/Android` — that file **replaces** Unity's main manifest rather
+than merging with it, so a file holding one permission is a file holding no activity, and the app
+installs and will not launch.
+
+**None of it is observable outside a device**, which is the cost structure this file already records
+for `REQUEST_INSTALL_PACKAGES`. So `HapticsDirector` publishes what the last pulse asked for and
+`DriveDebugOverlay` prints it: the tuning happens at a desk and only the last step needs a phone.
+
+## The wind
+
+Nothing in this world moved on its own. The complete list was the sun, the traffic, four material swaps
+every sixteen seconds at the lights, two a day at the windows, and two particle systems — park at noon
+in clear weather with no traffic in frame and the picture was perfectly still.
+
+**The sway rides on the vertex colour's alpha, which was free.** This project has exactly one custom
+shader and all of the vegetation and all of the water go through it, and it had only ever read
+`colour.rgb`. So a wind mask costs no extra vertex attribute, no second material, no draw call and no
+triangle, and it reaches every plant in the world at once. The rebuild comes back with the identical
+triangle count and the identical heaviest tile.
+
+**The channel is inverted: the shader reads `1 - alpha`.** Everything here writes 255, which under that
+reading is rigid, so terrain, buildings, roads and anything anybody forgets to mark stay still. The
+other way round, one missed call sets a hillside swaying. That is `GroundSurface`'s rule about untagged
+geometry — being wrong has to be invisible rather than catastrophic.
+
+**`MergeTinted` had to stop writing the whole `Color32`.** It assigned the tint over all four channels,
+so every tree in the world would have been flattened back to rigid at the moment it was given its
+green — and the count in the log would have said so while the picture said nothing.
+
+**The sway is in all three passes.** Left out of `ShadowCaster` the wind moves a canopy and leaves its
+shadow standing, which is worse than no wind; left out of `DepthOnly` the depth disagrees with what was
+drawn.
+
+**Shrubs and grass move less than trees, and not for the reason it looks.** A real bush moves more than
+a spruce — but a bush here is two metres of four facets, and the same absolute push that reads as a
+canopy breathing reads on a shrub as the whole plant sliding along the ground.
+
+**`WindDirector` is the one wind.** The moment more than one thing sways they have to agree, and trees
+leaning north-east over a lake rippling south is two weathers in one frame. Global rather than per
+material because the vegetation is merged into terrain tiles by the thousand and shares a material with
+the ground it stands on.
+
+**The water's swell fades out in the shallows.** This world's water meets its land as a mesh edge with
+no foam behind it, so every centimetre the surface moves horizontally is a centimetre the waterline
+moves across the beach.
+
+**Both are counted in the build log and warned about at zero**, because this is the one thing here a
+picture cannot check at all: a still frame of a swaying wood and a still frame of a dead one are the
+same photograph. **The swell count came back zero twice, and the feature was fine both times.** First
+the report sat beside `Water: N bodies`, which counts *plans* — the tiles are built thousands of lines
+of work later, so it ran before a single water vertex existed. Then the fix for that silently failed to
+apply because the anchor it matched spanned two lines. The instrument was wrong twice and the thing it
+measures never was, which is why the counter is worth more than the swell.
+
+**Clouds and the windmills are not done.** The clear sky is Unity's procedural skybox with no cloud
+layer, so clouds mean authoring a sky rather than rotating one; `MillMeshes.AddWindmill` lofts its
+sails into the shared tile mesh as static geometry, so turning them needs a transform of their own.
+Both are their own change.
+
+## Traffic that says what it is doing
+
+The traffic has braked for the player since `GapAhead` learned to treat them as an obstacle, and it
+showed it with nothing at all. The tail lamps were a single binary day/night material swap on a
+`TownLights` group, so a car stopping dead at a signal looked exactly like one cruising past it, at
+every hour.
+
+**The lamps left the group, because that mechanism cannot answer this question.** A `LitGroup` swaps a
+whole set at once between a day material and a night one, which is right for a window and wrong for a
+lamp that also has to know about a brake pedal — and two writers on one material slot is the failure
+this file keeps naming.
+
+**The braking flag is taken at the line that already decides between the acceleration and the braking
+rate.** Anywhere downstream would be a second opinion about whether the car is slowing, and the lamps
+could disagree with the speed being integrated on the next line.
+
+**Not any deceleration at all.** These agents ease off constantly — for a limit, for a corner, for a
+gap closing slightly — and lighting up for all of it is a motorway where every car brakes forever,
+which reads as broken rather than as busy.
+
+**The material array is cached per car and assigned only on a change.** `Renderer.sharedMaterials`
+allocates a fresh array on every read, so the obvious spelling is ninety-six allocations a frame in
+driving code.
+
+**Night is on `VehicleLights`' thresholds and not the group's**, which differed by a quarter of a stop:
+the traffic used to light up a full minute of game time before the player's car did, which is a road
+that looks like it knows something you do not.
+
+Indicators are still nowhere, and the player's car still has no reversing light.
 
 ## Updating
 
