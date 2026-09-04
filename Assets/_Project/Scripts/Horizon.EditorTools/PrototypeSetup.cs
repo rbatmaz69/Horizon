@@ -199,6 +199,9 @@ namespace Horizon.EditorTools
             public readonly Material SignFace;
             public readonly Material TailNight;
 
+            /// <summary>A traffic car's tail lamps under braking. See <c>TrafficDirector</c>.</summary>
+            public readonly Material TailBrake;
+
             /// <summary>An unlit traffic-light lens, and the three lit ones indexed by state.</summary>
             public readonly Material SignalDark;
 
@@ -395,6 +398,16 @@ namespace Horizon.EditorTools
                 TailNight = HorizonAssetUtility.LoadOrCreateUnlitMaterial(
                     MaterialsFolder + "/M_TailNight.mat", "M_TailNight",
                     new Color(1.35f, 0.12f, 0.07f));
+
+                // Under braking, and it has to clear the lit one by enough to read at a distance in a
+                // mirror-less game — the only place traffic brake lights are ever seen is from behind on
+                // the motorway, at night, several car lengths back. Two and a half times the lit value,
+                // which with the bloom now in the stack is the difference between a red rectangle and a
+                // lamp. Bright enough to be worth having by day as well, which matters: a car braking at
+                // noon used to show nothing at all.
+                TailBrake = HorizonAssetUtility.LoadOrCreateUnlitMaterial(
+                    MaterialsFolder + "/M_TailBrake.mat", "M_TailBrake",
+                    new Color(3.4f, 0.22f, 0.12f));
 
                 // Traffic lights. Unlit like everything above, and for a further reason of their own: a
                 // signal has to read at noon as well as at midnight, and a lit lens that took the sun
@@ -7234,6 +7247,10 @@ namespace Horizon.EditorTools
             var cars = new Transform[TrafficPoolSize];
             var renderers = new MeshRenderer[TrafficPoolSize];
 
+            // Which slot the tail lamps ended up in on each body, -1 where a body folded them away.
+            // Looked up rather than assumed for the reason the headlight index is, one loop down.
+            var taillightSlots = new int[TrafficPoolSize];
+
             for (int i = 0; i < TrafficPoolSize; i++)
             {
                 // Shape and colour are indexed separately and the two counts share no factor, so a pool
@@ -7283,6 +7300,7 @@ namespace Horizon.EditorTools
                 // after dark.
                 int headlight = slots.IndexOf(CarMeshBuilder.HeadlightSubmesh);
                 int taillight = slots.IndexOf(CarMeshBuilder.TaillightSubmesh);
+                taillightSlots[i] = taillight;
 
                 if (headlight >= 0 || taillight >= 0)
                 {
@@ -7294,12 +7312,12 @@ namespace Horizon.EditorTools
                         litSlotGroups.Add((int)LitGroup.Headlights);
                     }
 
-                    if (taillight >= 0)
-                    {
-                        litSlots.Add(taillight);
-                        litSlotGroups.Add((int)LitGroup.Taillights);
-                    }
-
+                    // The tail lamps are deliberately *not* registered any more. TownLights swaps a
+                    // whole group at once, which is exactly right for a thing that only knows about
+                    // dusk and exactly wrong for one that also has to know about the brake pedal — and
+                    // two writers on one material slot is the failure this project keeps naming. The
+                    // director owns them now, day, night and braking, because it is the only thing that
+                    // knows all three.
                     litSlotStart.Add(litSlots.Count);
                 }
             }
@@ -7325,12 +7343,26 @@ namespace Horizon.EditorTools
                 HorizonAssetUtility.SetObjectArray(serialized, "cars", cars);
                 HorizonAssetUtility.SetObjectArray(serialized, "renderers", renderers);
 
+                // The tail lamps, which the director owns rather than TownLights — see UpdateTailLamps
+                // for why a group swap cannot also answer a brake pedal.
+                SerializedProperty slotArray = serialized.FindProperty("taillightSlots");
+                slotArray.arraySize = taillightSlots.Length;
+                for (int slot = 0; slot < taillightSlots.Length; slot++)
+                {
+                    slotArray.GetArrayElementAtIndex(slot).intValue = taillightSlots[slot];
+                }
+
+                serialized.FindProperty("taillightDay").objectReferenceValue = materials.WindowDay;
+                serialized.FindProperty("taillightNight").objectReferenceValue = materials.TailNight;
+                serialized.FindProperty("taillightBraking").objectReferenceValue = materials.TailBrake;
+
                 // From the mesh builder, so reshaping the body cannot leave the traffic riding at a
                 // height nothing else believes in.
                 serialized.FindProperty("rideHeight").floatValue = CarMeshBuilder.TrafficRideHeight;
             });
 
             HorizonAssetUtility.AssertReferenceAssigned(director, "network");
+            HorizonAssetUtility.AssertReferenceAssigned(director, "taillightBraking");
 
             ReportTraffic(routes, profiles, bodies, bodyTriangles);
 

@@ -26,6 +26,24 @@ namespace Horizon.Game
     public sealed class TrafficDirector : MonoBehaviour
     {
         /// <summary>One car: where it is on the network and what it is doing.</summary>
+        /// <summary>What a traffic car's tail lamps are showing.</summary>
+        private enum TailLamp
+        {
+            /// <summary>Unlit. Dark red glass in daylight.</summary>
+            Day = 0,
+
+            /// <summary>Lit because it is dark.</summary>
+            Night = 1,
+
+            /// <summary>Braking, which reads at any hour.</summary>
+            Braking = 2,
+        }
+
+        /// <summary>One material array per car, held so the lamp swap allocates nothing.</summary>
+        private Material[][] lampCache;
+
+        private bool lampsAreLit;
+
         private struct Agent
         {
             public int Lane;
@@ -34,6 +52,12 @@ namespace Horizon.Game
 
             /// <summary>The junction whose capacity this agent is occupying, or -1.</summary>
             public int HeldNode;
+
+            /// <summary>What its tail lamps are showing, so the material is only assigned on a change.</summary>
+            public TailLamp Lamp;
+
+            /// <summary>Whether it is slowing hard enough this step to light them.</summary>
+            public bool Braking;
 
             /// <summary>
             /// The connector this agent has decided to take, chosen once as it approaches the junction.
@@ -60,6 +84,24 @@ namespace Horizon.Game
 
         [Tooltip("Renderers to switch off past the load radius, parallel to the car array.")]
         [SerializeField] private MeshRenderer[] renderers;
+
+        [Tooltip("Which material slot on each renderer is the tail lamps, or -1 where a body folded "
+               + "them away. Looked up at build time, never assumed: traffic bodies compact their "
+               + "submeshes, so the index is not the same on every car.")]
+        [SerializeField] private int[] taillightSlots;
+
+        [Tooltip("Tail lamps unlit, lit after dark, and under braking.")]
+        [SerializeField] private Material taillightDay;
+
+        [SerializeField] private Material taillightNight;
+
+        [SerializeField] private Material taillightBraking;
+
+        [Tooltip("Deceleration in m/s^2 above which the lamps come on.\n\n"
+               + "Not any deceleration at all. These agents ease off constantly — for a speed limit, "
+               + "for a corner, for the gap closing a little — and lighting up for all of it would be a "
+               + "motorway where every car brakes forever, which reads as broken rather than as busy.")]
+        [SerializeField] private float brakeThreshold = 2.2f;
 
         [Header("Motion")]
         [Tooltip("Multiplies every lane's own speed limit. 1 drives them as baked.\n\n"
@@ -301,6 +343,7 @@ namespace Horizon.Game
             }
 
             agents = new Agent[cars.Length];
+            lampCache = new Material[cars.Length][];
             agentAt = new Vector3[cars.Length];
             agentForward = new Vector3[cars.Length];
 
@@ -351,6 +394,9 @@ namespace Horizon.Game
                 Advance(i, dt, eye, gaze, count);
             }
 
+            // After Advance, because it reads the braking each agent decided this step.
+            UpdateTailLamps(count);
+
             Census(dt, eye, gaze, count);
         }
 
@@ -387,6 +433,12 @@ namespace Horizon.Game
             }
 
             float rate = target > agents[index].Speed ? acceleration : braking;
+
+            // Taken here because this is where the decision already exists. Anything downstream would be
+            // a second opinion about whether this car is slowing, and the lamps would disagree with the
+            // speed that is actually being integrated one line below.
+            agents[index].Braking = target < agents[index].Speed - brakeThreshold * dt;
+
             agents[index].Speed = Mathf.MoveTowards(agents[index].Speed, target, rate * dt);
             agents[index].Distance += agents[index].Speed * dt;
 
@@ -439,6 +491,94 @@ namespace Horizon.Game
         ///
         /// <para>Bounded by the active budget, not by the pool. See <see cref="ActiveBudget"/>.</para>
         /// </summary>
+        /// <summary>
+        /// Shows each car's tail lamps, and assigns a material only when one actually changes.
+        ///
+        /// <para><b>Why the director owns these and TownLights does not.</b> That class swaps a whole
+        /// group between a day material and a night one, twice a day, which is right for a window and
+        /// wrong for a lamp that also has to answer the brake pedal — and two writers on one material
+        /// slot is the failure this project keeps naming. So the traffic tail lamps left the group and
+        /// the thing that knows the car is slowing shows it.</para>
+        ///
+        /// <para><b>The material array is cached per car and the assignment is edge-triggered.</b>
+        /// <c>Renderer.sharedMaterials</c> allocates a fresh array on every read and
+        /// <c>MeshRenderer.sharedMaterials =</c> is not free either, so doing this per car per frame
+        /// would be ninety-six allocations a frame in driving code — which the performance budget
+        /// forbids outright. Held once, written on a change.</para>
+        ///
+        /// <para>Night comes from the sun's own intensity with hysteresis, which is
+        /// <c>VehicleLights</c>' pattern and its reason: a single threshold sits in the middle of dusk,
+        /// where the sun moves slowly, and the whole road flickers for minutes.</para>
+        /// </summary>
+        private void UpdateTailLamps(int count)
+        {
+            if (taillightSlots == null || taillightBraking == null)
+            {
+                return;
+            }
+
+            bool dark = IsDark();
+            lampsAreLit = dark;
+
+            for (int i = 0; i < count && i < renderers.Length; i++)
+            {
+                MeshRenderer renderer = renderers[i];
+                if (renderer == null || i >= taillightSlots.Length || taillightSlots[i] < 0)
+                {
+                    continue;
+                }
+
+                TailLamp wanted = agents[i].Braking
+                    ? TailLamp.Braking
+                    : (dark ? TailLamp.Night : TailLamp.Day);
+
+                if (agents[i].Lamp == wanted && lampCache[i] != null)
+                {
+                    continue;
+                }
+
+                agents[i].Lamp = wanted;
+
+                Material[] cached = lampCache[i] ??= renderer.sharedMaterials;
+                int slot = taillightSlots[i];
+                if (slot >= cached.Length)
+                {
+                    continue;
+                }
+
+                cached[slot] = wanted switch
+                {
+                    TailLamp.Braking => taillightBraking,
+                    TailLamp.Night => taillightNight,
+                    _ => taillightDay,
+                };
+
+                renderer.sharedMaterials = cached;
+            }
+        }
+
+        /// <summary>
+        /// Night from the sun's intensity, with hysteresis. Matched to <c>VehicleLights</c>' own
+        /// thresholds rather than to the ones TownLights used for this group, so the traffic and the
+        /// player's car light up together — they did not before, and a road where the other cars switch
+        /// on a full minute before yours is a road that looks like it knows something you do not.
+        /// </summary>
+        private bool IsDark()
+        {
+            Light sun = RenderSettings.sun;
+            if (sun == null)
+            {
+                return false;
+            }
+
+            if (!sun.enabled)
+            {
+                return true;
+            }
+
+            return sun.intensity < (lampsAreLit ? 0.45f : 0.35f);
+        }
+
         private float GapAhead(int index, Vector3 position, Vector3 forward, Vector3 eye, int count)
         {
             float nearest = float.MaxValue;
