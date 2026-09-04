@@ -185,42 +185,13 @@ namespace Horizon.EditorTools
             Capture(camera, filePath);
         }
 
-        private static void Capture(Camera camera, string filePath)
-        {
-            var renderTexture = new RenderTexture(Width, Height, 24, RenderTextureFormat.ARGB32)
-            {
-                antiAliasing = 4,
-            };
-
-            var texture = new Texture2D(Width, Height, TextureFormat.RGB24, false);
-            RenderTexture previous = RenderTexture.active;
-
-            // Fog off for the duration. An overview camera sits hundreds of metres back, and the scene's
-            // exponential-squared fog turns the entire frame into flat fog colour at that range — the
-            // first version of this tool produced a solid orange rectangle and nothing else.
-            bool fogWasOn = RenderSettings.fog;
-            RenderSettings.fog = false;
-
-            try
-            {
-                camera.targetTexture = renderTexture;
-                camera.Render();
-
-                RenderTexture.active = renderTexture;
-                texture.ReadPixels(new Rect(0f, 0f, Width, Height), 0, 0);
-                texture.Apply();
-
-                File.WriteAllBytes(filePath, texture.EncodeToPNG());
-            }
-            finally
-            {
-                RenderSettings.fog = fogWasOn;
-                camera.targetTexture = null;
-                RenderTexture.active = previous;
-                Object.DestroyImmediate(texture);
-                renderTexture.Release();
-                Object.DestroyImmediate(renderTexture);
-            }
-        }
+        /// <summary>
+        /// Fog off for the duration. An overview camera sits hundreds of metres back, and the scene's
+        /// exponential-squared fog turns the entire frame into flat fog colour at that range — the first
+        /// version of this tool produced a solid orange rectangle and nothing else. Post stays on: this
+        /// is still a picture of the world.
+        /// </summary>
+        private static void Capture(Camera camera, string filePath) =>
+            PreviewCapture.Shoot(camera, Width, Height, filePath, fog: false);
     }
 }

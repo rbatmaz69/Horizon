@@ -333,32 +333,11 @@ namespace Horizon.EditorTools
             return null;
         }
 
-        private static void Capture(Camera camera, string filePath)
-        {
-            RenderTexture target = RenderTexture.GetTemporary(Width, Height, 24, RenderTextureFormat.ARGB32);
-            target.antiAliasing = 4;
-
-            RenderTexture previous = RenderTexture.active;
-            var texture = new Texture2D(Width, Height, TextureFormat.RGB24, false);
-
-            try
-            {
-                camera.targetTexture = target;
-                camera.Render();
-
-                RenderTexture.active = target;
-                texture.ReadPixels(new Rect(0f, 0f, Width, Height), 0, 0);
-                texture.Apply();
-
-                File.WriteAllBytes(filePath, texture.EncodeToPNG());
-            }
-            finally
-            {
-                camera.targetTexture = null;
-                RenderTexture.active = previous;
-                RenderTexture.ReleaseTemporary(target);
-                Object.DestroyImmediate(texture);
-            }
-        }
+        /// <summary>
+        /// Photographs the world, so post-processing is on and the fog is left alone — this tool's whole
+        /// subject is what the driver sees out of the windscreen.
+        /// </summary>
+        private static void Capture(Camera camera, string filePath) =>
+            PreviewCapture.Shoot(camera, Width, Height, filePath);
     }
 }

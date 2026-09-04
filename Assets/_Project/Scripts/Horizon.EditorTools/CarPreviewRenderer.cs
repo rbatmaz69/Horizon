@@ -433,6 +433,13 @@ namespace Horizon.EditorTools
         /// <para>Separate from <see cref="RenderFrom"/> because that one writes an opaque RGB24 PNG to a
         /// path outside the project, for looking at. This writes RGBA into <c>Assets</c> and imports it
         /// as a sprite, and the two differences are not worth a pile of parameters on one method.</para>
+        ///
+        /// <para><b>It is also the one preview here that deliberately does not run post</b>, which is why
+        /// it does not go through <see cref="PreviewCapture"/>. Post-processing on a camera clearing to
+        /// alpha zero does not preserve that alpha, and the thumbnail needs it. That is the right answer
+        /// on its own terms too: this is drawn on the menu's <c>ScreenSpaceOverlay</c> canvas, which URP
+        /// composites after the post stack, so a tone-mapped thumbnail would carry the tone map twice
+        /// where the world it depicts carries it once.</para>
         /// </summary>
         private static void RenderThumbnail(Camera camera, Transform target, string assetPath)
         {
@@ -478,39 +485,20 @@ namespace Horizon.EditorTools
             }
         }
 
+        /// <summary>
+        /// A studio shot of one body, for a human to judge the mesh by.
+        ///
+        /// <para>Post is on: these are looked at to decide whether a car reads well, and the car the
+        /// player sees is tone mapped. Judging a shell through an untone-mapped frame would be tuning
+        /// against a picture the game never draws.</para>
+        /// </summary>
         private static void RenderFrom(Camera camera, Transform target, Vector3 offset, string filePath)
         {
             Vector3 focus = target.position + new Vector3(0f, 0.35f, 0f);
             camera.transform.position = focus + offset;
             camera.transform.rotation = Quaternion.LookRotation(focus - camera.transform.position, Vector3.up);
 
-            var renderTexture = new RenderTexture(Width, Height, 24, RenderTextureFormat.ARGB32)
-            {
-                antiAliasing = 4,
-            };
-
-            var texture = new Texture2D(Width, Height, TextureFormat.RGB24, false);
-            RenderTexture previous = RenderTexture.active;
-
-            try
-            {
-                camera.targetTexture = renderTexture;
-                camera.Render();
-
-                RenderTexture.active = renderTexture;
-                texture.ReadPixels(new Rect(0f, 0f, Width, Height), 0, 0);
-                texture.Apply();
-
-                File.WriteAllBytes(filePath, texture.EncodeToPNG());
-            }
-            finally
-            {
-                camera.targetTexture = null;
-                RenderTexture.active = previous;
-                Object.DestroyImmediate(texture);
-                renderTexture.Release();
-                Object.DestroyImmediate(renderTexture);
-            }
+            PreviewCapture.Shoot(camera, Width, Height, filePath, fog: false);
         }
     }
 }

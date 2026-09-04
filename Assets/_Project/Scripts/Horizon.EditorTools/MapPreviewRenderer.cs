@@ -250,59 +250,19 @@ namespace Horizon.EditorTools
             text.raycastTarget = false;
         }
 
-        /// <summary>Internal so the HUD preview shoots its frame exactly the way this one does.</summary>
+        /// <summary>
+        /// Internal so the HUD preview shoots its frame exactly the way this one does.
+        ///
+        /// <para><b>Post is off, and that is the point rather than an omission.</b> Both this and the HUD
+        /// preview photograph a canvas, and the game's canvas is <c>ScreenSpaceOverlay</c> — URP
+        /// composites it after the post stack, so no tone map and no bloom ever touch it. A preview that
+        /// ran post would be showing a HUD the player does not have.</para>
+        /// </summary>
         /// <param name="msaa">
-        /// Samples. One turns multisampling off, which the HUD shot needs: see the note below.
+        /// Samples. One turns multisampling off, which the HUD shot needs.
         /// </param>
-        internal static void Shoot(Camera camera, int width, int height, string filePath, int msaa = 4)
-        {
-            // The stencil is asked for explicitly, and that is not a detail. A uGUI `Mask` clips by
-            // writing the stencil buffer, so a target without one does not clip *and does not complain*
-            // — it draws the masked content in full. The round minimap was rebuilt as a square on the
-            // strength of a frame taken through a target that had no stencil, which made a working mask
-            // look like a broken one. `depth: 24` is documented as depth-plus-stencil and evidently is
-            // not always, so the format is named here rather than inferred.
-            var descriptor = new RenderTextureDescriptor(width, height, RenderTextureFormat.ARGB32, 24)
-            {
-                msaaSamples = Mathf.Max(1, msaa),
-                depthStencilFormat = UnityEngine.Experimental.Rendering.GraphicsFormat.D24_UNorm_S8_UInt,
-
-                // The plain RenderTexture constructor takes this from the project's colour space; a
-                // descriptor does not, and defaults to linear. Left off, every frame came back dark and
-                // the accent orange came back red — a whole preview miscoloured by one unset field.
-                sRGB = true,
-            };
-
-            var renderTexture = new RenderTexture(descriptor);
-
-            var texture = new Texture2D(width, height, TextureFormat.RGB24, false);
-            RenderTexture previous = RenderTexture.active;
-
-            // Same reason CoursePreviewRenderer turns it off: the scene's own exponential fog would
-            // otherwise be the only thing in the frame.
-            bool fogWasOn = RenderSettings.fog;
-            RenderSettings.fog = false;
-
-            try
-            {
-                camera.targetTexture = renderTexture;
-                camera.Render();
-
-                RenderTexture.active = renderTexture;
-                texture.ReadPixels(new Rect(0f, 0f, width, height), 0, 0);
-                texture.Apply();
-
-                File.WriteAllBytes(filePath, texture.EncodeToPNG());
-            }
-            finally
-            {
-                RenderSettings.fog = fogWasOn;
-                camera.targetTexture = null;
-                RenderTexture.active = previous;
-                Object.DestroyImmediate(texture);
-                renderTexture.Release();
-                Object.DestroyImmediate(renderTexture);
-            }
-        }
+        internal static void Shoot(Camera camera, int width, int height, string filePath, int msaa = 4) =>
+            PreviewCapture.Shoot(
+                camera, width, height, filePath, msaa, post: false, fog: false, stencil: true);
     }
 }

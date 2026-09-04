@@ -73,6 +73,7 @@ crashlytics-build.properties
 /WorldPreview_*.png
 /MapPreview_*.png
 /HudPreview_*.png
+/WeatherPreview_*.png
 
 # Claude Code local settings
 .claude/settings.local.json
