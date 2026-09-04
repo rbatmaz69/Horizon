@@ -2776,10 +2776,229 @@ namespace Horizon.EditorTools
             ValidateSurfaces(ringPath, circuitShape, ringCourse, "Weissjochring");
             ValidateSurfaces(bahcePath, circuitShape, bahceCourse, "Bahce Ring");
 
+            ValidateSurfaceRelief(path, "Mountain pass");
+            ValidateSurfaceRelief(eastbound, "Motorway eastbound");
+            ValidateSurfaceRelief(ringPath, "Weissjochring");
+
             ValidatePostStack(camera);
 
             EditorSceneManager.SaveScene(scene, WorldScenePath);
             return spawns;
+        }
+
+        /// <summary>
+        /// Walks a carriageway with a real car's wheel spacing and measures what
+        /// <see cref="SurfaceRelief"/> does to its suspension.
+        ///
+        /// <para><b>This is the one feature in the project a picture cannot check.</b> The road looks
+        /// pixel-identical with the field and without it — that is the entire point of doing it this way
+        /// rather than in the mesh — so the only thing that can say whether it is present, whether it is
+        /// too loud, and whether it has locked the wheels together is an arithmetic walk. Same argument
+        /// <c>ValidateSurfaces</c> makes for itself, one sense further removed: that one is invisible and
+        /// silent, this one is invisible, silent, and leaves the geometry untouched.</para>
+        ///
+        /// <para>The car is read off the configs on disk rather than typed here, which is
+        /// <c>ValidateMergeSeam</c>'s lesson about a rule spelt as a number in a file the car does not
+        /// pass through. The worst case is whichever car has the highest damping-to-quarter-mass ratio,
+        /// because above the suspension's own resonance the load ripple goes as that and nothing
+        /// else.</para>
+        /// </summary>
+        private static void ValidateSurfaceRelief(IRoadPath path, string name)
+        {
+            const float Track = CarMeshBuilder.TrackHalfWidth * 2f;
+            const float Wheelbase = CarMeshBuilder.WheelBaseHalf * 2f;
+            const float Step = 1f / 50f;
+
+            if (!TryWorstCar(out string worstCar, out float mass, out float damping, out float topSpeed))
+            {
+                Debug.LogWarning($"[Horizon] Relief on {name}: no vehicle config could be read, so the "
+                               + "load figures are unmeasured.");
+                return;
+            }
+
+            float quarterMass = mass * 0.25f;
+            float staticLoad = quarterMass * 9.81f;
+
+            float peakRelief = 0f;
+            float peakShaft = 0f;
+            float peakLoad = 0f;
+            Vector3 worstAt = Vector3.zero;
+            float worstAlong = 0f;
+
+            // How much of the field the car actually turns into motion, in three parts: heave (all four
+            // wheels together), pitch (front pair against rear) and roll (left pair against right).
+            //
+            // Reported as amplitudes rather than as a correlation, and that is the second thing this
+            // check got wrong about itself. A correlation between the front and rear pairs came out at
+            // +0.74 to +0.95 on every road in the world and looked like an alarm — but two of the three
+            // octaves are deliberately longer than the 3.4 m wheelbase, so all four wheels seeing nearly
+            // the same height is a car riding a swell rather than a car stuck in one. The roll figure is
+            // always the higher of the two for a reason no tuning will change: a car is narrower than it
+            // is long, so the two sides always see more similar ground than the two ends. What actually
+            // matters is whether any differential survives, and that is a length in millimetres.
+            float heaveSquare = 0f;
+            float pitchSquare = 0f;
+            float rollSquare = 0f;
+            int samples = 0;
+
+            float advance = topSpeed * Step;
+            var previous = new float[4];
+            var height = new float[4];
+            bool hasPrevious = false;
+
+            for (float along = 0f; along < path.Length; along += advance)
+            {
+                Vector3 centre = path.GetPositionAtDistance(along);
+                Vector3 forward = path.GetDirectionAtDistance(along);
+                Vector3 right = path.GetRightAtDistance(along);
+
+                for (int i = 0; i < 4; i++)
+                {
+                    float alongSign = i < 2 ? 1f : -1f;
+                    float acrossSign = (i % 2 == 0) ? -1f : 1f;
+
+                    Vector3 at = centre
+                               + forward * (alongSign * Wheelbase * 0.5f)
+                               + right * (acrossSign * Track * 0.5f);
+
+                    // Asphalt gain: the check measures the carriageway, which is what the amplitudes
+                    // were sized against. The verge is louder by construction and is not the case that
+                    // decides whether the field is safe.
+                    height[i] = SurfaceRelief.HeightAt(at.x, at.z, 1f);
+
+                    peakRelief = Mathf.Max(peakRelief, Mathf.Abs(height[i]));
+                }
+
+                float heave = (height[0] + height[1] + height[2] + height[3]) * 0.25f;
+                float pitch = (height[0] + height[1]) * 0.5f - (height[2] + height[3]) * 0.5f;
+                float roll = (height[0] + height[2]) * 0.5f - (height[1] + height[3]) * 0.5f;
+
+                heaveSquare += heave * heave;
+                pitchSquare += pitch * pitch;
+                rollSquare += roll * roll;
+                samples++;
+
+                if (hasPrevious)
+                {
+                    for (int i = 0; i < 4; i++)
+                    {
+                        // The road-induced shaft rate with the body held still, which is the honest
+                        // upper bound: the sprung mass never moves faster than the input at these
+                        // frequencies.
+                        float shaft = Mathf.Abs(height[i] - previous[i]) / Step;
+                        peakShaft = Mathf.Max(peakShaft, shaft);
+
+                        float load = Mathf.Abs(height[i] * ReliefStiffness + shaft * damping);
+                        if (load > peakLoad)
+                        {
+                            peakLoad = load;
+                            worstAt = centre;
+                            worstAlong = along;
+                        }
+                    }
+                }
+
+                for (int i = 0; i < 4; i++)
+                {
+                    previous[i] = height[i];
+                }
+
+                hasPrevious = true;
+            }
+
+            float scale = samples > 0 ? 1f / samples : 0f;
+            float heaveRms = Mathf.Sqrt(heaveSquare * scale) * 1000f;
+            float pitchRms = Mathf.Sqrt(pitchSquare * scale) * 1000f;
+            float rollRms = Mathf.Sqrt(rollSquare * scale) * 1000f;
+            float loadShare = staticLoad > 0f ? peakLoad / staticLoad : 0f;
+
+            Debug.Log($"[Horizon] Relief on {name}: peak {peakRelief * 1000f:0.0} mm, "
+                    + $"peak shaft {peakShaft:0.000} m/s ({peakShaft / ReliefDamperClamp * 100f:0.0} % of "
+                    + $"the damper clamp), peak load {loadShare * 100f:0.0} % of static on the {worstCar} "
+                    + $"at ({worstAt.x:0}, {worstAt.y:0}, {worstAt.z:0}), {worstAlong:0} m along; "
+                    + $"heave {heaveRms:0.00} mm rms, pitch {pitchRms:0.00} mm, roll {rollRms:0.00} mm.");
+
+            // The loudest line here, and the reason is the snow line's: a world with no relief in it
+            // builds, validates and drives exactly like one that works.
+            if (peakRelief < 0.0001f)
+            {
+                Debug.LogError($"[Horizon] Relief on {name} is flat. The field is off, zero, or being "
+                             + "asked at coordinates it happens to be level at — the road has no texture "
+                             + "and nothing else in this build would say so.");
+            }
+
+            if (peakShaft > ReliefDamperClamp * 0.5f)
+            {
+                Debug.LogError($"[Horizon] Relief on {name} reaches {peakShaft:0.00} m/s of shaft speed, "
+                             + $"over half the {ReliefDamperClamp:0} m/s clamp that exists for kerbs. "
+                             + "The amplitude ladder is too loud.");
+            }
+
+            if (loadShare > 0.25f)
+            {
+                Debug.LogWarning($"[Horizon] Relief on {name} moves {loadShare * 100f:0} % of the "
+                               + $"{worstCar}'s static wheel load. The grip curve is load-dependent and "
+                               + "was tuned on a flat road.");
+            }
+
+            // The real failure this replaces a correlation with. A field the car cannot pitch or roll
+            // on is one it only heaves on, which reads as the whole car breathing rather than as a road
+            // — and it is what a short wavelength landing on the wheelbase or the track would produce.
+            if (pitchRms < 0.05f || rollRms < 0.05f)
+            {
+                Debug.LogWarning($"[Horizon] Relief on {name} gives the car almost no differential to "
+                               + $"work with (pitch {pitchRms:0.00} mm, roll {rollRms:0.00} mm against "
+                               + $"{heaveRms:0.00} mm of heave). A short wavelength is sitting on the "
+                               + $"{Wheelbase:0.00} m wheelbase or the {Track:0.00} m track, so the car "
+                               + "moves up and down as a block instead of being unsettled.");
+            }
+        }
+
+        /// <summary>Spring rate the relief check bills against. Matches the configs' shared value.</summary>
+        private const float ReliefStiffness = 42000f;
+
+        /// <summary>Mirrors <c>VehicleController.MaxDamperSpeed</c>, which is private to that class.</summary>
+        private const float ReliefDamperClamp = 4f;
+
+        /// <summary>
+        /// The car the relief is worst for: the highest damping over quarter mass in the garage.
+        ///
+        /// <para>Above the suspension's own resonance the load ripple tends to amplitude times frequency
+        /// times that ratio, so it is the only ranking that matters and a light car with a firm damper
+        /// beats a heavy one every time.</para>
+        /// </summary>
+        private static bool TryWorstCar(
+            out string name, out float mass, out float damping, out float topSpeed)
+        {
+            name = null;
+            mass = 0f;
+            damping = 0f;
+            topSpeed = 0f;
+
+            float worstRatio = 0f;
+            CarMeshBuilder.CarProfile[] profiles = CarMeshBuilder.PlayerProfiles;
+
+            for (int i = 0; i < profiles.Length; i++)
+            {
+                VehicleConfig config = LoadVehicleConfig(profiles[i].Name);
+                if (config == null || config.Mass <= 0f)
+                {
+                    continue;
+                }
+
+                topSpeed = Mathf.Max(topSpeed, config.TopSpeed);
+
+                float ratio = config.SuspensionDamping / (config.Mass * 0.25f);
+                if (ratio > worstRatio)
+                {
+                    worstRatio = ratio;
+                    name = profiles[i].Name;
+                    mass = config.Mass;
+                    damping = config.SuspensionDamping;
+                }
+            }
+
+            return name != null && topSpeed > 0f;
         }
 
         /// <summary>

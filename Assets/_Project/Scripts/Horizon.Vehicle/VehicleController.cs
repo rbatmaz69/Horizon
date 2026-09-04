@@ -34,6 +34,12 @@ namespace Horizon.Vehicle
         /// </summary>
         private const float MaxDamperSpeed = 4f;
 
+        /// <summary>
+        /// How fast a wheel's <see cref="SurfaceRelief"/> gain crossfades between surfaces, per second.
+        /// See <see cref="WheelState.ReliefGain"/> for why it is eased at all.
+        /// </summary>
+        private const float ReliefGainResponse = 8f;
+
         private const int WheelCount = 4;
         private const int FrontLeft = 0;
         private const int FrontRight = 1;
@@ -65,6 +71,19 @@ namespace Horizon.Vehicle
             public float SpringLength;
             public float Compression01;
             public float SpinAngle;
+
+            /// <summary>
+            /// How loud <see cref="SurfaceRelief"/> is under this wheel, eased towards
+            /// <c>SurfaceRelief.GainOf(Surface)</c> rather than read from it.
+            ///
+            /// <para>Per wheel and not per car, because two wheels on the verge and two on the asphalt is
+            /// the ordinary case on a hairpin exit. Eased because <c>GainOf</c> is a step in space, and a
+            /// step in a height field is a step in the distance this wheel measures — which is exactly
+            /// the kerb <see cref="MaxDamperSpeed"/> exists to survive, arriving on every verge exit.
+            /// Starts at 1 so a car placed on tarmac does not ease up from nothing on its first step.
+            /// </para>
+            /// </summary>
+            public float ReliefGain = 1f;
 
             /// <summary>
             /// What this tyre is being pressed onto the road with, newtons — the spring and damper,
@@ -574,6 +593,34 @@ namespace Horizon.Vehicle
         /// <para><see cref="SlipAngle"/> is the honest gate: it measures the car's direction of travel
         /// against where it is pointing, so steering does not move it and only actually sliding does.</para>
         /// </summary>
+        /// <summary>
+        /// How far this wheel's spring is compressed, 0 at full droop and 1 at the bump stop.
+        ///
+        /// <para>Published for <c>DriveDebugOverlay</c>, and the reason is the argument that class
+        /// already makes about surfaces: <see cref="SurfaceRelief"/> moves no pixel a still frame can
+        /// show and makes no sound of its own, so without a number on screen "the road has no texture"
+        /// and "the texture is switched off" look exactly alike. Driving one wheel over a swell should
+        /// move this and nothing else in the game would say whether it did.</para>
+        /// </summary>
+        public bool TryGetWheelCompression(int index, out float compression01)
+        {
+            compression01 = 0f;
+
+            if (index < 0 || index >= WheelCount)
+            {
+                return false;
+            }
+
+            WheelState wheel = wheels[index];
+            if (!wheel.Grounded)
+            {
+                return false;
+            }
+
+            compression01 = wheel.Compression01;
+            return true;
+        }
+
         public bool TryGetWheelSlip(int index, out Vector3 contactPoint, out float slipSpeed)
         {
             contactPoint = Vector3.zero;
@@ -1496,7 +1543,12 @@ namespace Horizon.Vehicle
 
             WheelState wheel = wheels[index];
 
-            float maxDistance = config.SuspensionRestLength + config.WheelRadius;
+            // The relief can lift the road towards the wheel, so the ray has to be able to find a
+            // surface it is about to be told is higher than it is. Read off the field rather than
+            // written down here, so widening the field moves this with it.
+            float maxDistance =
+                config.SuspensionRestLength + config.WheelRadius + SurfaceRelief.PeakHeight;
+
             bool hitGround = Physics.Raycast(
                 anchor.position,
                 -transform.up,
@@ -1516,12 +1568,31 @@ namespace Horizon.Vehicle
             }
 
             wheel.Grounded = true;
-            wheel.ContactPoint = hit.point;
             wheel.ContactNormal = hit.normal;
             wheel.Surface = ResolveSurface(wheel, hit);
 
+            // --- The road is smooth and the surface on it is not.
+            //
+            // Sampled at the contact point rather than at the anchor, because the ray leans with the car
+            // and the anchor is not where the tyre is. The gain is eased for the reason WheelState.
+            // ReliefGain gives; 8/s turns the asphalt-to-verge step into a crossfade of about an eighth
+            // of a second, which is 0.02 m/s of shaft speed against a 4 m/s clamp.
+            wheel.ReliefGain = Mathf.Lerp(
+                wheel.ReliefGain,
+                SurfaceRelief.GainOf(wheel.Surface),
+                1f - Mathf.Exp(-ReliefGainResponse * deltaTime));
+
+            float distance = hit.distance
+                           - SurfaceRelief.HeightAt(hit.point.x, hit.point.z, wheel.ReliefGain);
+
+            // Derived from the distance the spring is about to be measured against, never taken from
+            // hit.point. The suspension force, the tyre force and GetPointVelocity all read this, and
+            // taking the raw hit would leave them describing a contact a few millimetres from the one
+            // the spring is working on — two answers about one contact patch.
+            wheel.ContactPoint = anchor.position - transform.up * distance;
+
             // --- Suspension: spring pushes out of compression, damper resists the rate of change.
-            float springLength = Mathf.Clamp(hit.distance - config.WheelRadius, 0f, config.SuspensionRestLength);
+            float springLength = Mathf.Clamp(distance - config.WheelRadius, 0f, config.SuspensionRestLength);
             float compression = config.SuspensionRestLength - springLength;
 
             // Clamped, and a step in the road is the whole reason. A raycast wheel does not roll up a

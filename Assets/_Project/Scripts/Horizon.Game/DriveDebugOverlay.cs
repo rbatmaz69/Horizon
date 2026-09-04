@@ -138,6 +138,15 @@ namespace Horizon.Game
                 GUILayout.Label($"surface {vehicle.SurfaceGrip:0.00}"
                               + $"   rough {vehicle.SurfaceRoughness:0.00}"
                               + $"   grit {vehicle.SurfaceGrit:0.00}{scraping}");
+
+                // Suspension travel, for the same reason and one step further. SurfaceRelief is the one
+                // thing in this project a photograph cannot check at all — the road looks identical with
+                // it and without it — so these four numbers are the only place "the road has texture"
+                // is distinguishable from "the texture is off". They should breathe on a straight and
+                // jump on a verge; four numbers sitting still is the field not running.
+                GUILayout.Label($"travel {Compression(0):0.000} {Compression(1):0.000} "
+                              + $"{Compression(2):0.000} {Compression(3):0.000}"
+                              + $"   spread {CompressionSpread():0.000}");
             }
             else
             {
@@ -184,6 +193,32 @@ namespace Horizon.Game
         }
 
 
+
+        /// <summary>One wheel's spring compression, or zero if it is in the air.</summary>
+        private float Compression(int index) =>
+            vehicle != null && vehicle.TryGetWheelCompression(index, out float value) ? value : 0f;
+
+        /// <summary>
+        /// The gap between the most and the least compressed wheel.
+        ///
+        /// <para>The most useful number of the five: the four individual figures move together when the
+        /// car is loaded and apart when the road is uneven, and it is the second of those that says
+        /// <c>SurfaceRelief</c> is doing anything at all.</para>
+        /// </summary>
+        private float CompressionSpread()
+        {
+            float lowest = float.MaxValue;
+            float highest = float.MinValue;
+
+            for (int i = 0; i < VehicleController.WheelSlipCount; i++)
+            {
+                float value = Compression(i);
+                lowest = Mathf.Min(lowest, value);
+                highest = Mathf.Max(highest, value);
+            }
+
+            return highest > lowest ? highest - lowest : 0f;
+        }
 
         private void EnsureStyles()
         {
