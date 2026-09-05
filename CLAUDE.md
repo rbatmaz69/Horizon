@@ -1998,7 +1998,7 @@ is driven off exactly that number.
 
 **There is no `PlayerSettings` property for VIBRATE** the way there is `forceInternetPermission`. Unity
 infers it from whether `Handheld.Vibrate` survives stripping, and this calls the vibrator through JNI,
-so the inference has nothing to find. `AndroidVibratePermission` edits the *generated* manifest rather
+so the inference has nothing to find. `AndroidManifestPermissions` edits the *generated* manifest rather
 than dropping one into `Assets/Plugins/Android` — that file **replaces** Unity's main manifest rather
 than merging with it, so a file holding one permission is a file holding no activity, and the app
 installs and will not launch.
@@ -2485,6 +2485,149 @@ change the other.
 `AndroidBuild.Configure` sets `forceInternetPermission`. Unity's "Auto" infers INTERNET from what
 survives IL2CPP stripping, and when it guesses wrong the symptom is a transport error on the phone
 against a check that works in the editor.
+
+## Driving together
+
+Up to eight people in one world, over the local network. `Horizon.Net` is the wire and the transport;
+`NetSession` in `Horizon.Game` is everything above it. Before this the project had no networking code
+at all — the only network I/O in it was `ReleaseFeed` asking GitHub once a run whether there was a new
+release.
+
+**Three things about this world made it far cheaper than it sounds.** The geometry is *baked*, so two
+devices on the same build have the same mountains down to the triangle and nothing about the world has
+to be sent — only a handshake saying the builds match. `VehicleController.SetInput` and
+`ChaseCamera.SetTarget` were already written against interfaces rather than against the one car. And
+`WeatherDirector` *polls* `PlayerChoices.Weather` rather than being told, so a guest taking the host's
+sky is one value written in one place, and the rain, the wet road, the grip and the noise on the roof
+all follow with no second ramp to fight the first.
+
+**LAN first, behind a transport interface, and the relay is a second class rather than a rewrite.**
+The choice was between a game that needs no infrastructure and one that needs a server; `INetTransport`
+is what makes the first not be a dead end. It is seven members and knows nothing about cars, rooms or
+weather. Two things will defeat LAN and neither is a bug: most routers and effectively every public
+network have client isolation on, and Android drops broadcast frames unless something holds a multicast
+lock. **That is why joining by typed address sits beside the discovered list rather than behind it.**
+
+**There is no reliability layer, and that is the design.** Joining, leaving, changing car, moving the
+clock and changing the weather are differences between two pictures of one state, so the host sends the
+whole roster once a second and a guest takes the newest it has. Nothing is acknowledged, re-sent or
+numbered; a lost packet costs a second of staleness. The alternative is several hundred lines whose
+failure mode is a room that disagrees with itself and no way to tell which end is wrong. It is the
+`Room` message that buys this, and every other decision in the protocol leans on it.
+
+**A remote car has no `VehicleController`, and that is the single most important thing about it.**
+Seventeen places in this project resolve the player's car with `FindFirstObjectByType<VehicleController>()`
+— the instruments, the fuel gauge, the minimap, the lap timer, the traffic recycler, the haptics — and
+`InstrumentCluster` repeats the search every frame until it finds one. A second controller in the scene
+turns every one of those into a coin toss whose losing side is a rev counter reading a friend's engine.
+So a remote car is a pool of dumb transforms and all seventeen are untouched.
+
+**Nor does it simulate.** Feeding one through `SetInput` with the sender's pedals is the tempting design
+because that seam already exists — and two devices integrating the same car from the same inputs come
+apart within seconds: different frame times, different traffic in the way (which is solid and is not
+synchronised), different surface under the wheels, and floating point that does not agree between an ARM
+phone and an x86 editor. What arrives is where the car *is*, which is the one thing that cannot be wrong.
+
+**`VehicleBodySet` checks `controller`, `lights`, `hull` and `engineAudio` separately, and that is what
+made the whole feature cheap.** A remote car carries one with only bodies, wheels and paints filled in:
+it swaps a mesh, a tyre and a paint and touches no physics, no beams and no engine it does not have. Ten
+shells per slot is seventy inactive GameObjects across the pool and not one extra triangle, because the
+meshes are the same assets the player's own car uses.
+
+**No `Light` components, no collider, no audio.** The lamps are material swaps on the body's own
+submeshes, which is what makes eight cars affordable against a budget that allows realtime shadows from
+the sun and nothing else. The collider is absent because a snapshot-driven body is kinematic and wins
+every exchange — you would be shoved aside by a car that, on its owner's screen, never touched you, and
+`Impacted` already has three subscribers so a phantom contact is felt three ways. And the silence is the
+note against `EngineAudio` applied honestly: the car is the subject of this game and a second engine at a
+distance is exactly the "second thing to listen to" that got the ambient world audio deleted.
+
+**A snapshot is thirty-two bytes and position is three plain floats.** The world is sixteen kilometres by
+ten and a float32 carries about a millimetre at thirteen kilometres out — `Validate Wire Format` measures
+it at **0.00 mm**, which is the point of measuring rather than reasoning. Rotation is the whole quaternion
+as four int16 rather than a smallest-three: that saves four bytes and costs a class of bug that shows as a
+car occasionally upside down. Body and paint ride along in every snapshot so a car that appears before its
+roster row is not a fastback in the first paint for a second. A full room is 264 bytes a tick, **3960 bytes
+a second** down to each guest.
+
+**Nothing allocates once it is running, and on the host that took two tricks.** A guest `Connect`s its
+socket so it can `Receive` and `Send` with no endpoint at all; a host cannot, so `FastEndPoint` caches its
+own `SocketAddress` and returns itself from `Create`. Both of those methods are virtual and both stock
+implementations allocate — an `IPEndPoint` per datagram received and a `SocketAddress` per one sent, which
+at fifteen hertz across seven guests is a couple of kilobytes a second of garbage in a game whose budget
+forbids any.
+
+**A channel that speaks is admitted, whether or not it introduced itself.** A guest whose `Hello` was
+dropped would otherwise send snapshots into a host that never draws them, for ever, because the thing that
+would fix it is the packet that went missing. It is also what makes `LoopbackTransport` work with no
+protocol knowledge at all — so the rule is exercised every time anybody tests.
+
+**A guest does not get to say which peer it is, and it does not get to say how many.** On the host the
+channel decides the peer id, and exactly *one* snapshot is read out of a guest's datagram however many it
+claims. The second half of that is not paranoia: `LoopbackTransport` hands the host's own bundle back, and
+reading it all would stamp every row in it with the same channel and leave the ghost jittering between its
+own stale position and the host's.
+
+**A sprint through a valley is not a manoeuvre.** `MoveTo`, `Respawn` and every start place move a car by
+kilometres, and an interpolator handed two positions a valley apart slides it through the landscape at two
+hundred metres a second. The flag for it is *measured* rather than hooked into every placement — a car that
+has moved twenty-five metres since the last snapshot was placed, not driven — which is one test instead of
+a list of call sites to keep in step.
+
+**A guest's own weather and hour are put back when it leaves.** The sky is written through
+`PauseMenu.SetWeather`, which is the one place a preset becomes an `Overcast` value — and that method also
+calls `PlayerChoices.Save`. Without the restore, an evening in somebody else's rainstorm quietly becomes
+what this player had chosen, and they find out the next time they launch alone. The clock is nudged rather
+than set: it runs an hour a minute, so a snap once a second would be a visible step in the shadows.
+
+**The conditions page goes read-only for a guest and says why.** A button that silently does nothing is
+the menu lying about the world, which is the rule rain was held to. The "Weather" heading is rewritten
+rather than a row added, because that costs the page no height.
+
+**Two menu pages and not one, and the reason is measured.** `ValidatePageHeights` allows about a thousand
+units; a single page holding both the join state and the room state comes to thirteen hundred — its top and
+bottom rows off the screen, on a menu with nothing to scroll with. The front page and the pause menu each
+gained an entry by *widening a row that already existed* rather than adding one, for the same reason: both
+have stood within twenty units of the limit since the garage reached ten cars.
+
+**`MapLine.KindCount` is untouched, deliberately.** Another player is not a `MapMarkerKind` — those are
+baked into the `WorldMap` asset by the setup tool and somebody who joined two minutes ago is not in it. They
+get sprites, the way the driver's own car marker already does, and the key gained one row reading the same
+constant the marker is tinted with. Adding a kind is what once made the entire map draw nothing.
+
+**Every list row and every marker is built *inactive*, which is the opposite of the boost gauge's rule and
+is right here.** That rule exists because an instrument left inactive appears in no picture this project
+takes. A row in a list of discovered hosts is not an instrument: it exists because somebody was found, and
+in a saved scene nobody ever is. Left active, the previews came back showing two blank grey slabs where the
+host list is and four where the player list is — which is what a player sees for the first second of every
+visit, and reads as broken buttons rather than as an empty list. The full-screen map's own forty-eight name
+labels have always been built this way.
+
+**`Validate Wire Format` and `Render Multiplayer Preview` between them cover the two halves.** The byte
+layout is the one part of this a picture cannot check at all — a quantisation a hair too coarse draws a
+perfectly good car a few centimetres off somebody else's road, and no frame anywhere distinguishes that from
+the network being slow. Everything else is the ordinary case here, and the pictures found four faults the
+build reported nothing about: cars sunk into the road because the tool used a flat ride height instead of the
+body's own; tail lamps lit at four in the afternoon because the tool set the headlight flag in the day
+frames, which is a state the game cannot be in; the nearest car half outside the frame; and — the one worth
+remembering — **every one of the first four frames was taken from behind, and a car's headlights are on the
+front of it.** The lit-lens material is the whole reason another player is visible at night, and it appeared
+in none of them. A frame that cannot resolve its subject is worse than no frame, because it looks like an
+answer.
+
+**`LoopbackTransport` is thirty lines and is the most valuable thing here.** It holds what this device sends
+for a third of a second and hands it straight back, so the snapshot buffer, the interpolation, the wheels,
+the lamps, the name tag, the mark on the map and a car timing out can all be built and *looked at* in the
+editor on one machine with no build, no second device and no network. You drive along behind a ghost of
+yourself.
+
+**What is not done, and is said rather than hidden.** There is no relay, so this is one Wi-Fi only. Traffic
+is not synchronised and cannot cheaply be — `TrafficDirector` recycles cars around where the local player is
+standing and looking, integrates over `Time.deltaTime` and runs 24, 56 or 96 of them depending on a local
+quality setting, so two devices diverge within seconds; it stays local and non-authoritative. Remote cars are
+ghosts, and the gentle mutual push-apart is a later change and a room setting. And none of the network path
+has been driven on two real devices yet: the editor as host with a development build over USB as guest is the
+fast loop, and a release build is only needed at the end.
 
 ## Commits
 

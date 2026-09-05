@@ -49,6 +49,18 @@ namespace Horizon.Game
         /// </summary>
         [SerializeField] private SpawnPoint[] spawnPoints = new SpawnPoint[0];
 
+        [Tooltip("The weather buttons, so they can be switched off while a guest is taking the sky "
+               + "from somebody else.")]
+        [SerializeField] private UnityEngine.UI.Button[] weatherButtons = new UnityEngine.UI.Button[0];
+
+        [Tooltip("The 'Weather' section heading on the conditions page. Rewritten while a guest, so "
+               + "the reason the buttons do nothing is on the screen rather than a mystery.")]
+        [SerializeField] private Text weatherHeading;
+
+        [Tooltip("Found in Bootstrap. Only asked one question: is this device taking its weather from "
+               + "a host.")]
+        [SerializeField] private NetSession session;
+
         private const string SensitivityKey = "Horizon.SteerSensitivity";
 
         /// <summary>
@@ -90,8 +102,22 @@ namespace Horizon.Game
             return vehicle;
         }
 
+        /// <summary>
+        /// Whether the hour and the weather belong to somebody else.
+        ///
+        /// <para>True for a guest in a room. The host owns the world's clock and its sky, because two
+        /// friends in the same valley at different hours is the first thing anybody would photograph —
+        /// see <c>NetSession.ApplyHostConditions</c>.</para>
+        /// </summary>
+        public bool ConditionsLocked => session != null && session.IsGuest;
+
         private void Update()
         {
+            // A guest's conditions page is read-only, and it says so rather than simply not working. A
+            // button that silently does nothing is the menu lying about the world, which is the
+            // argument the weather presets themselves were held to when rain was added.
+            ApplyConditionsLock();
+
             // The world arrives a frame or two after Bootstrap, and the spawn has to be captured once
             // it has — Respawn is otherwise a teleport to the origin, five kilometres under the pass.
             if (ResolveVehicle() != null && !spawnCaptured)
@@ -332,6 +358,14 @@ namespace Horizon.Game
                 return;
             }
 
+            // A guest's slider is not interactable, so this can only be reached by the slider being
+            // written from code — and the one thing that does that is RefreshStart, putting the host's
+            // hour back on the dial. Taking it as a command would be the guest arguing with the room.
+            if (ConditionsLocked)
+            {
+                return;
+            }
+
             timeOfDay.TimeOfDayHours = Mathf.Repeat(hours, 24f);
             timeOfDay.Apply();
 
@@ -368,6 +402,52 @@ namespace Horizon.Game
 
             PlayerChoices.Save();
         }
+
+        /// <summary>
+        /// Switches the conditions page between "yours" and "the host's".
+        ///
+        /// <para>Done every frame rather than on a change, because there is no event to hang it on: a
+        /// room can be joined or left from a different page, and the state that decides this lives in
+        /// another component. It is four assignments guarded by a comparison.</para>
+        /// </summary>
+        private void ApplyConditionsLock()
+        {
+            if (session == null)
+            {
+                // Lives on the Bootstrap object beside this one, but a scene somebody assembled by
+                // hand may not have wired it. Everything else here resolves the same way.
+                session = FindFirstObjectByType<NetSession>();
+            }
+
+            bool locked = ConditionsLocked;
+
+            if (locked == conditionsLockShown)
+            {
+                return;
+            }
+
+            conditionsLockShown = locked;
+
+            if (timeSlider != null)
+            {
+                timeSlider.interactable = !locked;
+            }
+
+            for (int i = 0; i < weatherButtons.Length; i++)
+            {
+                if (weatherButtons[i] != null)
+                {
+                    weatherButtons[i].interactable = !locked;
+                }
+            }
+
+            if (weatherHeading != null)
+            {
+                weatherHeading.text = locked ? "Weather — the host decides" : "Weather";
+            }
+        }
+
+        private bool conditionsLockShown;
 
         private void RefreshStart()
         {

@@ -3,6 +3,7 @@ using Horizon.Atmosphere;
 using Horizon.Core;
 using Horizon.Game;
 using Horizon.Input;
+using Horizon.Net;
 using Horizon.Vehicle;
 using Horizon.World;
 using UnityEditor;
@@ -305,6 +306,19 @@ namespace Horizon.EditorTools
             public readonly Material CarRim;
             public readonly Material LightFront;
             public readonly Material LightRear;
+
+            /// <summary>
+            /// A headlamp lens that is on, as a whole material.
+            ///
+            /// <para>The player's own car has no need of this — <c>VehicleLights</c> drives
+            /// <see cref="LightFront"/> through a <c>MaterialPropertyBlock</c> on one submesh of one
+            /// object, which is affordable exactly once. Another player's car has no block and gets a
+            /// material instead, the same argument <see cref="TailNight"/> already makes for the
+            /// ambient traffic. The colour is <see cref="LightFront"/>'s at
+            /// <c>VehicleLights.headlightGlow</c>, so the two agree about what a lit lamp looks
+            /// like.</para>
+            /// </summary>
+            public readonly Material HeadLampLit;
             public readonly Material Smoke;
 
             /// <summary>
@@ -591,6 +605,13 @@ namespace Horizon.EditorTools
                 LightRear = HorizonAssetUtility.LoadOrCreateUnlitMaterial(
                     MaterialsFolder + "/M_LightRear.mat", "M_LightRear",
                     new Color(0.34f, 0.04f, 0.03f));
+
+                // M_LightFront's colour times VehicleLights.headlightGlow, which is 2.4. Written out
+                // rather than multiplied at a gate for the reason the road widths are: a number that
+                // exists only as an expression is a number no comment can be checked against.
+                HeadLampLit = HorizonAssetUtility.LoadOrCreateUnlitMaterial(
+                    MaterialsFolder + "/M_HeadLampLit.mat", "M_HeadLampLit",
+                    new Color(1.49f, 1.44f, 1.20f));
 
                 Texture2D smokeTexture = HorizonAssetUtility.LoadOrCreateSoftCircleTexture(
                     ProjectRoot + "/Art/T_SmokePuff.png");
@@ -1540,6 +1561,207 @@ namespace Horizon.EditorTools
 
             ReportBodies(profiles, configs, bodyBounds, materials.CarPaints.Length);
             return prefab;
+        }
+
+        /// <summary>
+        /// Builds the cars other players are drawn with: seven of them, parked below the world until
+        /// somebody joins.
+        ///
+        /// <para><b>Baked rather than instantiated, and there was no third option.</b> Nothing in this
+        /// project can reach <c>Vehicle_Prototype.prefab</c> at run time — there is no
+        /// <c>Resources</c> folder, no Addressables and no serialized reference outside this file — so
+        /// "spawn a car when somebody joins" is a loading mechanism rather than a line of code. The
+        /// traffic pool has answered the same question for ninety-six cars since it was written.</para>
+        ///
+        /// <para><b>Each one carries a <see cref="VehicleBodySet"/> with four of its five references
+        /// left null.</b> That class checks <c>controller</c>, <c>lights</c>, <c>hull</c> and
+        /// <c>engineAudio</c> separately, so a set with only bodies, wheels and paints does exactly
+        /// what is wanted here: swap a mesh, swap the tyre, swap the paint, and touch no physics, no
+        /// beams and no engine that this car does not have. Ten shells per slot is seventy inactive
+        /// GameObjects across the pool and no extra geometry at all — the meshes are the same assets
+        /// the player's own car uses.</para>
+        ///
+        /// <para><b>No <see cref="Light"/>, no collider, no audio.</b> The lamps are material swaps on
+        /// the body's own submeshes, which is what makes eight cars affordable against a budget that
+        /// allows realtime shadows from the sun and nothing else. The collider is absent because a
+        /// snapshot-driven body is kinematic and would win every exchange with the player. And the
+        /// silence is the note against <c>EngineAudio</c> applied honestly: the car is the subject of
+        /// this game, and a second engine at a distance is the "second thing to listen to" that got
+        /// the ambient world audio deleted.</para>
+        /// </summary>
+        private static RemoteCarPool BuildRemoteCarPool(
+            PrototypeMaterials materials, WorldStreamer streamer, Vector3 park)
+        {
+            CarMeshBuilder.CarProfile[] profiles = CarMeshBuilder.PlayerProfiles;
+            int slotCount = NetProtocol.MaxPeers - 1;
+
+            var bodyMeshes = new Mesh[profiles.Length];
+            var wheelMeshes = new Mesh[profiles.Length];
+            var configs = new VehicleConfig[profiles.Length];
+
+            for (int i = 0; i < profiles.Length; i++)
+            {
+                // Loaded, not rebuilt. BuildVehiclePrefab has just written these, and a second copy of
+                // the same geometry under a different asset name would double the memory and give the
+                // two cars different silhouettes the first time anybody edited one of them.
+                bodyMeshes[i] = AssetDatabase.LoadAssetAtPath<Mesh>(
+                    $"{GeneratedFolder}/CarBodyMesh_{profiles[i].Name}.asset");
+                wheelMeshes[i] = AssetDatabase.LoadAssetAtPath<Mesh>(
+                    $"{GeneratedFolder}/WheelMesh_{profiles[i].Name}.asset");
+                configs[i] = LoadVehicleConfig(profiles[i].Name);
+
+                if (bodyMeshes[i] == null || wheelMeshes[i] == null)
+                {
+                    Debug.LogError(
+                        $"[Horizon] Remote car pool: no mesh for '{profiles[i].Name}'. It is built by "
+                        + "BuildVehiclePrefab, which has to run first.");
+                    return null;
+                }
+            }
+
+            const float trackX = CarMeshBuilder.TrackHalfWidth;
+            const float baseZ = CarMeshBuilder.WheelBaseHalf;
+
+            var anchors = new[]
+            {
+                new Vector3(-trackX, 0f, baseZ),
+                new Vector3(trackX, 0f, baseZ),
+                new Vector3(-trackX, 0f, -baseZ),
+                new Vector3(trackX, 0f, -baseZ),
+            };
+            var wheelNames = new[] { "Wheel_FL", "Wheel_FR", "Wheel_RL", "Wheel_RR" };
+
+            var poolObject = new GameObject("RemoteCars");
+            var cars = new RemoteCar[slotCount];
+
+            for (int slot = 0; slot < slotCount; slot++)
+            {
+                var carObject = new GameObject($"RemoteCar_{slot}");
+                carObject.transform.SetParent(poolObject.transform, false);
+                carObject.transform.position = park;
+
+                var bodiesRoot = new GameObject("Bodies");
+                bodiesRoot.transform.SetParent(carObject.transform, false);
+
+                var bodyObjects = new GameObject[profiles.Length];
+
+                for (int i = 0; i < profiles.Length; i++)
+                {
+                    bodyObjects[i] = CreateMeshObject(
+                        bodiesRoot.transform,
+                        $"Body_{profiles[i].Name}",
+                        bodyMeshes[i],
+                        new[]
+                        {
+                            materials.CarBody,
+                            materials.CarGlass,
+                            materials.LightFront,
+                            materials.LightRear,
+                            materials.CarRim,
+                        },
+                        addCollider: false,
+                        markStatic: false);
+
+                    bodyObjects[i].SetActive(i == 0);
+                }
+
+                var pivots = new Transform[4];
+                var filters = new MeshFilter[4];
+
+                for (int i = 0; i < 4; i++)
+                {
+                    var pivot = new GameObject(wheelNames[i]);
+                    pivot.transform.SetParent(carObject.transform, false);
+                    pivot.transform.localPosition =
+                        anchors[i] - new Vector3(0f, configs[0].SuspensionRestLength, 0f);
+                    pivots[i] = pivot.transform;
+
+                    MeshFilter filter = pivot.AddComponent<MeshFilter>();
+                    filter.sharedMesh = wheelMeshes[0];
+                    filters[i] = filter;
+
+                    pivot.AddComponent<MeshRenderer>().sharedMaterials =
+                        new[] { materials.Tyre, materials.CarRim };
+                }
+
+                VehicleBodySet bodySet = carObject.AddComponent<VehicleBodySet>();
+                HorizonAssetUtility.Configure(bodySet, serialized =>
+                {
+                    SerializedProperty array = serialized.FindProperty("bodies");
+                    array.arraySize = profiles.Length;
+
+                    for (int i = 0; i < profiles.Length; i++)
+                    {
+                        SerializedProperty element = array.GetArrayElementAtIndex(i);
+                        element.FindPropertyRelative("Name").stringValue = profiles[i].Name;
+                        element.FindPropertyRelative("Root").objectReferenceValue = bodyObjects[i];
+                        element.FindPropertyRelative("Renderer").objectReferenceValue =
+                            bodyObjects[i].GetComponent<MeshRenderer>();
+                        element.FindPropertyRelative("Config").objectReferenceValue = configs[i];
+                        element.FindPropertyRelative("WheelMesh").objectReferenceValue = wheelMeshes[i];
+                        element.FindPropertyRelative("Headlights").arraySize = 0;
+                    }
+
+                    HorizonAssetUtility.SetObjectArray(serialized, "paints", materials.CarPaints);
+                    HorizonAssetUtility.SetObjectArray(serialized, "wheelFilters", filters);
+
+                    // controller, lights, hull and engineAudio are deliberately left null. See the
+                    // remarks above, and VehicleBodySet.Select, which checks each of them.
+                });
+
+                RemoteCar car = carObject.AddComponent<RemoteCar>();
+                car.SetParts(
+                    bodySet,
+                    pivots,
+                    anchors,
+                    materials.HeadLampLit,
+                    materials.LightFront,
+                    materials.LightRear,
+                    materials.TailNight,
+                    materials.TailBrake);
+
+                EditorUtility.SetDirty(car);
+                cars[slot] = car;
+            }
+
+            RemoteCarPool pool = poolObject.AddComponent<RemoteCarPool>();
+            pool.SetCars(cars, streamer, park);
+            EditorUtility.SetDirty(pool);
+
+            ReportRemoteCarPool(pool, profiles.Length, materials.CarPaints.Length);
+            return pool;
+        }
+
+        /// <summary>
+        /// Says what the pool came out as, and complains when any of it is empty.
+        ///
+        /// <para>A pool with no cars, no bodies or no paints builds without a word, validates cleanly
+        /// and plays exactly like one that works right up until somebody joins — which is the failure
+        /// shape the snow line and the surface tagging are already warned about here. There is no
+        /// picture that answers it either, because an empty pool is invisible by construction.</para>
+        /// </summary>
+        private static void ReportRemoteCarPool(RemoteCarPool pool, int bodies, int paints)
+        {
+            int slots = pool != null ? pool.SlotCount : 0;
+
+            Debug.Log($"[Horizon] Remote cars: {slots} slots, {bodies} bodies and {paints} paints each, "
+                      + $"for a protocol that carries {NetProtocol.MaxPeers} players "
+                      + $"({NetProtocol.MaxPeers - 1} of them somebody else).");
+
+            if (slots == 0 || bodies == 0 || paints == 0)
+            {
+                Debug.LogWarning(
+                    "[Horizon] The remote car pool is empty. Nobody who joins will be visible, and "
+                    + "nothing else in the build or the checks will say so.");
+                return;
+            }
+
+            if (slots < NetProtocol.MaxPeers - 1)
+            {
+                Debug.LogWarning(
+                    $"[Horizon] The pool has {slots} cars but the protocol admits "
+                    + $"{NetProtocol.MaxPeers - 1} guests. The last to join would be heard and not seen.");
+            }
         }
 
         /// <summary>
@@ -3074,6 +3296,11 @@ namespace Horizon.EditorTools
             vehicle.transform.SetPositionAndRotation(
                 spawnPosition,
                 Quaternion.LookRotation(spawnDirection, Vector3.up));
+
+            // --- The cars other players are drawn with. Parked where the traffic pool parks its
+            // spares, which is far enough below the world that nothing can see them and no terrain
+            // tile has to exist for them.
+            BuildRemoteCarPool(materials, streamer, new Vector3(0f, -10000f, 0f));
 
             // --- Camera.
             var cameraObject = new GameObject("ChaseCamera");
@@ -5198,6 +5425,16 @@ namespace Horizon.EditorTools
             DriveDebugOverlay overlay = root.AddComponent<DriveDebugOverlay>();
             QualityDirector quality = root.AddComponent<QualityDirector>();
 
+            // On the Bootstrap object rather than in the world, for the same reason the menus are: a
+            // room outlives a zone change, and the multiplayer page has to exist before there is a car
+            // to report. The lap board is beside it because it reads LapTiming the way LapTimer does —
+            // from Bootstrap, retrying while the world scene is still loading.
+            NetSession session = root.AddComponent<NetSession>();
+            NetLapBoard lapBoard = root.AddComponent<NetLapBoard>();
+
+            HorizonAssetUtility.Configure(lapBoard, serialized =>
+                serialized.FindProperty("session").objectReferenceValue = session);
+
             BuildQualityLevels(quality);
 
             HorizonAssetUtility.Configure(overlay, serialized =>
@@ -5228,7 +5465,30 @@ namespace Horizon.EditorTools
                 serialized.FindProperty("inputRouter").objectReferenceValue = router;
                 serialized.FindProperty("qualityDirector").objectReferenceValue = quality;
                 serialized.FindProperty("startScreen").objectReferenceValue = ui.StartScreen;
+                serialized.FindProperty("netSession").objectReferenceValue = session;
             });
+
+            // The one thing a guest takes from the host that this class does not own: the weather goes
+            // through PauseMenu.SetWeather, which is the single place a preset becomes an Overcast
+            // value. A second writer ramping that field is the fault recorded at length against the
+            // rain, and it shows as a sky that snaps and then slides back.
+            HorizonAssetUtility.Configure(session, serialized =>
+                serialized.FindProperty("pauseMenu").objectReferenceValue = ui.Menu);
+
+            // And back the other way, for the one question the menu asks the session: is the sky on
+            // this device somebody else's to set.
+            HorizonAssetUtility.Configure(ui.Menu, serialized =>
+                serialized.FindProperty("session").objectReferenceValue = session);
+
+            HorizonAssetUtility.AssertReferenceAssigned(session, "pauseMenu");
+
+            // The menu builder wires every part of its own two pages and leaves this one hole, because
+            // the session lives on the Bootstrap object rather than on the canvas. Without it the page
+            // draws perfectly and no button on it does anything.
+            HorizonAssetUtility.Configure(ui.Multiplayer, serialized =>
+                serialized.FindProperty("session").objectReferenceValue = session);
+
+            HorizonAssetUtility.AssertReferenceAssigned(ui.Multiplayer, "session");
 
             HorizonAssetUtility.Configure(ui.StartScreen, serialized =>
                 serialized.FindProperty("quality").objectReferenceValue = quality);

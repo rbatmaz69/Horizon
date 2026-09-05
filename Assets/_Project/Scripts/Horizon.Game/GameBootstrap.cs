@@ -30,6 +30,10 @@ namespace Horizon.Game
         [Tooltip("The start screen, if the scene has one. Told when the world is ready.")]
         [SerializeField] private StartScreen startScreen;
 
+        [Tooltip("Playing with other people. Told when the world is ready, for the same reason the "
+               + "start screen is: the car it reports to the room does not exist until then.")]
+        [SerializeField] private NetSession netSession;
+
         /// <summary>The vehicle the player is currently driving, once the world has loaded.</summary>
         public VehicleController PlayerVehicle { get; private set; }
 
@@ -97,6 +101,15 @@ namespace Horizon.Game
             {
                 Debug.LogWarning("[Horizon] No ChaseCamera in the loaded world.", this);
             }
+
+            // Before the start screen, which places the car: a session that already knows about the
+            // vehicle reports that placement as a placement rather than as the fastest lap in history.
+            if (netSession == null)
+            {
+                netSession = FindFirstObjectByType<NetSession>();
+            }
+
+            netSession?.OnWorldReady(PlayerVehicle);
 
             // Last, so the start screen finds a bound camera when it puts the car at the chosen place.
             if (startScreen == null)

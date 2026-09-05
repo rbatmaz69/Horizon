@@ -52,5 +52,25 @@ namespace Horizon.Game
         /// the middle moves every page after it under buttons that still name the old numbers.</para>
         /// </summary>
         Map = 9,
+
+        /// <summary>
+        /// Hosting a game on this network, or joining one somebody else is hosting.
+        ///
+        /// <para>Appended, for the reason this enum's remarks give twice already: the page a button
+        /// opens is a bare integer in a saved UnityEvent, and a value inserted in the middle moves
+        /// every page after it under buttons that still name the old numbers.</para>
+        /// </summary>
+        Multiplayer = 10,
+
+        /// <summary>
+        /// Who is in the room, and the way out of it.
+        ///
+        /// <para><b>A second page rather than a second state of the first one, and the reason is
+        /// measured rather than aesthetic.</b> <c>ValidatePageHeights</c> allows about a thousand units
+        /// and a page holding both states comes to thirteen hundred — its top and bottom rows off the
+        /// screen, on a menu with nothing to scroll with. Two pages that each fit is the answer that
+        /// page-height check exists to push people towards.</para>
+        /// </summary>
+        Room = 11,
     }
 }

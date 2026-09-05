@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using Horizon.Game;
 using Horizon.Input;
+using Horizon.Net;
 using Horizon.World;
 using UnityEditor;
 using UnityEngine;
@@ -74,6 +75,7 @@ namespace Horizon.EditorTools
             MenuPanels panels = canvas.gameObject.AddComponent<MenuPanels>();
             StartScreen start = canvas.gameObject.AddComponent<StartScreen>();
             UpdateScreen updates = canvas.gameObject.AddComponent<UpdateScreen>();
+            MultiplayerScreen together = canvas.gameObject.AddComponent<MultiplayerScreen>();
 
             // All three on the canvas object, which is what makes the Awake/Start ordering in
             // StartScreen safe to rely on — see the note there.
@@ -107,6 +109,12 @@ namespace Horizon.EditorTools
             MapPage mapPage = BuildMapPage(safe, box, map);
             Register(panelList, MenuPage.Map, mapPage.Panel);
 
+            MultiplayerPage multiplayer = BuildMultiplayerPage(safe, box);
+            Register(panelList, MenuPage.Multiplayer, multiplayer.Panel);
+
+            RoomPage room = BuildRoomPage(safe, box);
+            Register(panelList, MenuPage.Room, room.Panel);
+
             HorizonAssetUtility.Configure(panels, serialized =>
                 HorizonAssetUtility.SetObjectArray(serialized, "panels", panelList.ToArray()));
 
@@ -124,6 +132,8 @@ namespace Horizon.EditorTools
                 serialized.FindProperty("recalibrateButton").objectReferenceValue = controls.Recalibrate;
                 serialized.FindProperty("timeSlider").objectReferenceValue = conditions.TimeSlider;
                 serialized.FindProperty("timeLabel").objectReferenceValue = conditions.TimeLabel;
+                serialized.FindProperty("weatherHeading").objectReferenceValue = conditions.WeatherHeading;
+                HorizonAssetUtility.SetObjectArray(serialized, "weatherButtons", conditions.Weather);
             });
 
             HorizonAssetUtility.Configure(start, serialized =>
@@ -159,16 +169,33 @@ namespace Horizon.EditorTools
                 serialized.FindProperty("downloadLabel").objectReferenceValue = update.DownloadLabel;
             });
 
-            WireStartPage(startPage, start, panels);
+            WireStartPage(startPage, start, panels, together);
             WireGarage(garage, start, panels);
             WirePaint(paint, start, panels);
             WirePlace(place, start, menu, panels);
             WireConditions(conditions, start, menu, panels);
             WireControls(controls, menu, panels);
             WireQuality(quality, start, panels);
-            WirePaused(paused, start, menu, panels, pauseButton);
+            WirePaused(paused, start, menu, panels, pauseButton, together);
             WireUpdate(update, updates, panels);
             WireMap(mapPage, menu, panels, minimapButton);
+            WireMultiplayer(multiplayer, room, together, panels);
+
+            // Wired last of the parts, because it needs both pages built. NetSession itself is attached
+            // to the Bootstrap object rather than to the canvas, so PrototypeSetup fills that one in.
+            together.SetParts(
+                null,
+                panels,
+                multiplayer.Status,
+                multiplayer.Name,
+                multiplayer.Hosts,
+                multiplayer.HostLabels,
+                multiplayer.Address,
+                room.Status,
+                room.Players,
+                room.PlayerLabels);
+
+            EditorUtility.SetDirty(together);
 
             // Everything starts hidden. StartScreen shows its own first page in Start().
             for (int i = 0; i < panelList.Count; i++)
@@ -182,7 +209,224 @@ namespace Horizon.EditorTools
                 Menu = menu,
                 Panels = panels,
                 StartScreen = start,
+                Multiplayer = together,
             };
+        }
+
+
+        private sealed class MultiplayerPage
+        {
+            public RectTransform Panel;
+            public Text Status;
+            public InputField Name;
+            public Button Host;
+            public Button[] Hosts;
+            public Text[] HostLabels;
+            public InputField Address;
+            public Button Join;
+            public Button Back;
+        }
+
+        private sealed class RoomPage
+        {
+            public RectTransform Panel;
+            public Text Status;
+            public Button[] Players;
+            public Text[] PlayerLabels;
+            public Button Leave;
+            public Button Back;
+        }
+
+        /// <summary>
+        /// Hosting a game on this network, or joining one.
+        ///
+        /// <para><b>The discovered-host list is two rows tall and holds six.</b> That is the page-height
+        /// budget rather than a guess about how many friends anybody has: a thousand units of usable
+        /// canvas, ninety-two of padding and seven rows leaves 776 for the rows themselves, and a
+        /// three-row list puts it 24 over. It scrolls, which is what <c>TouchUiSetup.ScrollList</c> is
+        /// for and what the place page already does with ten.</para>
+        ///
+        /// <para><b>The typed address is not a fallback nobody finds.</b> Two things routinely stop a
+        /// broadcast arriving — client isolation, which most routers and every public network have on,
+        /// and Android's Wi-Fi power saving, which drops broadcast frames unless something holds a
+        /// multicast lock — and in both cases the list stays empty with no error anywhere. A field
+        /// beside the list is the only thing that turns "it does not work" into "type this in".</para>
+        /// </summary>
+        private static MultiplayerPage BuildMultiplayerPage(RectTransform parent, Sprite box)
+        {
+            var page = new MultiplayerPage();
+            page.Panel = TouchUiSetup.StackPanel(parent, "MultiplayerPanel", box, PanelWidth);
+
+            TouchUiSetup.MenuLabel(page.Panel, "PLAY TOGETHER", 44, 52f);
+
+            // Two lines. Every state but the first says something about the network and something about
+            // what to do next, and a row sized for one line would clip the second.
+            page.Status = TouchUiSetup.MenuLabel(page.Panel, "Host a game, or join one.", 24, 56f);
+            page.Status.color = new Color(1f, 1f, 1f, 0.72f);
+            page.Status.horizontalOverflow = HorizontalWrapMode.Wrap;
+
+            page.Name = TextField(page.Panel, box, "Name", "Your name");
+
+            page.Host = TouchUiSetup.MenuButton(page.Panel, "Host", box, "Host a game");
+            Accent(page.Host);
+
+            RectTransform list = TouchUiSetup.ScrollList(page.Panel, "Hosts", 2);
+            page.Hosts = new Button[FoundHostRows];
+            page.HostLabels = new Text[FoundHostRows];
+
+            for (int i = 0; i < FoundHostRows; i++)
+            {
+                page.Hosts[i] = TouchUiSetup.MenuButton(list, $"Host{i}", box, string.Empty);
+                page.HostLabels[i] = page.Hosts[i].GetComponentInChildren<Text>();
+
+                // Off until a host has actually been found, the way the full-screen map's own name
+                // labels are. Left on, the preview came back showing two blank grey slabs where the
+                // list is — which is what a player would see for the first second of every visit, and
+                // reads as two broken buttons rather than as an empty list.
+                page.Hosts[i].gameObject.SetActive(false);
+            }
+
+            page.Join = FieldWithButton(
+                page.Panel, box, "Address", "or type an address", "Join", out page.Address);
+
+            page.Back = TouchUiSetup.MenuButton(page.Panel, "Back", box, "Back");
+            return page;
+        }
+
+        /// <summary>Six rows in the list, which scrolls. Seven guests can be in a room; six fit a list.</summary>
+        private const int FoundHostRows = 6;
+
+        /// <summary>
+        /// Who is in the room.
+        ///
+        /// <para>Separate from the page above because the two together do not fit — see
+        /// <c>MenuPage.Room</c>. The split is also the better menu: the way out of a room and the way
+        /// into one are different questions, and a page that answered both would have half its rows
+        /// greyed out at any moment.</para>
+        /// </summary>
+        private static RoomPage BuildRoomPage(RectTransform parent, Sprite box)
+        {
+            var page = new RoomPage();
+            page.Panel = TouchUiSetup.StackPanel(parent, "RoomPanel", box, PanelWidth);
+
+            TouchUiSetup.MenuLabel(page.Panel, "ROOM", 44, 52f);
+
+            page.Status = TouchUiSetup.MenuLabel(page.Panel, "Not in a game.", 24, 56f);
+            page.Status.color = new Color(1f, 1f, 1f, 0.72f);
+            page.Status.horizontalOverflow = HorizontalWrapMode.Wrap;
+
+            RectTransform list = TouchUiSetup.ScrollList(page.Panel, "Players", 4);
+            page.Players = new Button[NetProtocol.MaxPeers];
+            page.PlayerLabels = new Text[NetProtocol.MaxPeers];
+
+            for (int i = 0; i < NetProtocol.MaxPeers; i++)
+            {
+                page.Players[i] = TouchUiSetup.MenuButton(list, $"Player{i}", box, string.Empty);
+                page.PlayerLabels[i] = page.Players[i].GetComponentInChildren<Text>();
+
+                // A row in this list names somebody; it does nothing when tapped. Left as a Button so
+                // it is the same shape, the same height and the same tint as every other row in this
+                // menu — a Text on a panel would be the one row on any page that looked different.
+                page.Players[i].interactable = false;
+
+                // And off until there is somebody to name. Same finding as the host list above.
+                page.Players[i].gameObject.SetActive(false);
+            }
+
+            page.Leave = TouchUiSetup.MenuButton(page.Panel, "Leave", box, "Leave the game");
+            page.Back = TouchUiSetup.MenuButton(page.Panel, "Back", box, "Back");
+            return page;
+        }
+
+        /// <summary>
+        /// A one-row text field.
+        ///
+        /// <para>The first text entry anywhere in this project, and it is deliberately a plain uGUI
+        /// <c>InputField</c> rather than anything cleverer: on Android that raises the system keyboard,
+        /// which is the keyboard the player already knows how to use.</para>
+        /// </summary>
+        private static InputField TextField(
+            RectTransform parent, Sprite box, string name, string placeholder)
+        {
+            RectTransform row = TouchUiSetup.Panel(
+                parent, name, box, TouchUiSetup.ControlTint,
+                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                new Vector2(560f, TouchUiSetup.MenuRowHeight), Vector2.zero);
+
+            TouchUiSetup.Row(row.gameObject, TouchUiSetup.MenuRowHeight);
+            return FillField(row, placeholder);
+        }
+
+        /// <summary>
+        /// A text field with a button beside it, both on one row.
+        ///
+        /// <para>One row rather than two, and that is the page-height budget again: the field and its
+        /// Join button as separate rows put the multiplayer page over the thousand units
+        /// <c>ValidatePageHeights</c> allows.</para>
+        /// </summary>
+        private static Button FieldWithButton(
+            RectTransform parent, Sprite box, string name, string placeholder, string caption,
+            out InputField field)
+        {
+            var lineObject = new GameObject($"{name}Row", typeof(RectTransform));
+            lineObject.transform.SetParent(parent, false);
+            TouchUiSetup.Row(lineObject, TouchUiSetup.MenuRowHeight);
+
+            var line = lineObject.AddComponent<HorizontalLayoutGroup>();
+            line.spacing = 20f;
+            line.childAlignment = TextAnchor.MiddleCenter;
+            line.childControlWidth = true;
+            line.childControlHeight = true;
+            line.childForceExpandWidth = true;
+            line.childForceExpandHeight = true;
+
+            var row = (RectTransform)lineObject.transform;
+
+            RectTransform fieldRect = TouchUiSetup.Panel(
+                row, name, box, TouchUiSetup.ControlTint,
+                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                new Vector2(360f, TouchUiSetup.MenuRowHeight), Vector2.zero);
+
+            // Two to one in favour of the field: an address is fourteen characters and "Join" is four.
+            var fieldElement = fieldRect.gameObject.AddComponent<LayoutElement>();
+            fieldElement.flexibleWidth = 2f;
+
+            field = FillField(fieldRect, placeholder);
+
+            Button button = TouchUiSetup.MenuButton(row, $"{name}Go", box, caption);
+            var buttonElement = button.gameObject.AddComponent<LayoutElement>();
+            buttonElement.flexibleWidth = 1f;
+
+            return button;
+        }
+
+        /// <summary>
+        /// Puts the text, the placeholder and the caret of an <c>InputField</c> into a panel that
+        /// already exists.
+        ///
+        /// <para>An <c>InputField</c> with no <c>textComponent</c> silently accepts input and draws
+        /// none of it, which looks exactly like a field that is not receiving taps — so both children
+        /// are built here rather than left to a caller to remember.</para>
+        /// </summary>
+        private static InputField FillField(RectTransform panel, string placeholder)
+        {
+            RectTransform textRect = TouchUiSetup.StretchChild(panel, "Text", 26f, 12f);
+            Text text = TouchUiSetup.Label(textRect, string.Empty, 30);
+            text.alignment = TextAnchor.MiddleLeft;
+            text.supportRichText = false;
+
+            RectTransform hintRect = TouchUiSetup.StretchChild(panel, "Placeholder", 26f, 12f);
+            Text hint = TouchUiSetup.Label(hintRect, placeholder, 30);
+            hint.alignment = TextAnchor.MiddleLeft;
+            hint.color = new Color(1f, 1f, 1f, 0.40f);
+
+            InputField field = panel.gameObject.AddComponent<InputField>();
+            field.textComponent = text;
+            field.placeholder = hint;
+            field.lineType = InputField.LineType.SingleLine;
+            field.targetGraphic = panel.GetComponent<Image>();
+
+            return field;
         }
 
         /// <summary>
@@ -370,6 +614,33 @@ namespace Horizon.EditorTools
             // No rest rotation on purpose. MapScreen turns this to the car's heading, which the
             // north-up view leaves as an honest bearing — and anything set here is overwritten by it.
 
+            // The other players, on the same sprite in a cooler colour, and children of the view for
+            // exactly the reason the labels above are: LocalPointOf hands back an anchoredPosition with
+            // nothing to convert. No clip radius — this map is a rectangle.
+            var remoteMarkers = new RectTransform[RemoteMapMarkers.MarkerCount];
+
+            for (int i = 0; i < remoteMarkers.Length; i++)
+            {
+                remoteMarkers[i] = TouchUiSetup.Panel(
+                    view, $"Remote{i}", carSprite, RemoteMapMarkers.MarkerTint,
+                    new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                    new Vector2(32f, 40f), Vector2.zero);
+
+                Image markerImage = remoteMarkers[i].GetComponent<Image>();
+                markerImage.type = Image.Type.Simple;
+                markerImage.raycastTarget = false;
+
+                // Off, the way the full-screen map's own name labels are, and for the same reason: a
+                // marker exists because somebody is in the room, and in a saved scene nobody ever is.
+                // Left on, all seven sit stacked at the centre of the map — which is what the HUD
+                // preview came back showing, a friend on a road with nobody on it.
+                remoteMarkers[i].gameObject.SetActive(false);
+            }
+
+            RemoteMapMarkers remotes = viewObject.AddComponent<RemoteMapMarkers>();
+            remotes.SetParts(graphic, remoteMarkers, 0f);
+            EditorUtility.SetDirty(remotes);
+
             // --- Controls, over the map rather than beside it.
             page.ZoomIn = MapButton(page.Panel, box, "ZoomIn", "+", new Vector2(-110f, 400f));
             page.ZoomOut = MapButton(page.Panel, box, "ZoomOut", "\u2212", new Vector2(-110f, 280f));
@@ -463,6 +734,12 @@ namespace Horizon.EditorTools
             LegendRow(panel, box, graphic.ColourOf(MapMarkerKind.Tunnel), "TUNNEL, BRIDGE", LegendMark.Diamond);
 
             LegendRow(panel, arrow, TouchUiSetup.AccentTint, "YOU", LegendMark.Arrow);
+
+            // The one thing on this map that is not baked into the WorldMap asset, and therefore the
+            // one row here that does not come off MapGraphic.ColourOf. It reads the same constant the
+            // marker itself is tinted with, which is the rule this key already follows: a swatch with
+            // its own copy of a colour agrees until the first retune and then quietly lies.
+            LegendRow(panel, arrow, RemoteMapMarkers.MarkerTint, "FRIENDS", LegendMark.Arrow);
         }
 
         /// <summary>How one row of the key draws its sample.</summary>
@@ -631,6 +908,7 @@ namespace Horizon.EditorTools
             public Button Conditions;
             public Button Controls;
             public Button Quality;
+            public Button Together;
             public Button Update;
 
             public Text CarLabel;
@@ -669,9 +947,19 @@ namespace Horizon.EditorTools
             // The page already stands 988 units tall against a reference height of 1080 — title, Drive,
             // five summary rows and this — so a ninth full-height row would hang off the bottom of the
             // screen, and further off it on a phone with a notch eating into the safe area.
-            Button[] bottom = ButtonPair(page.Panel, box, "Controls", "Controls", "Update", "Version");
+            //
+            // Three of them now rather than two, and for the same arithmetic: playing with somebody
+            // else is a front-page thing — you host before you drive off, not after — and there is no
+            // ninth row available to put it on.
+            Button[] bottom = ButtonRow(
+                page.Panel, box,
+                "Controls", "Controls",
+                "Together", "Together",
+                "Update", "Version");
+
             page.Controls = bottom[0];
-            page.Update = bottom[1];
+            page.Together = bottom[1];
+            page.Update = bottom[2];
             page.UpdateLabel = page.Update.GetComponentInChildren<Text>();
 
             return page;
@@ -848,6 +1136,7 @@ namespace Horizon.EditorTools
             public Button[] Weather;
             public Image[] WeatherBackgrounds;
             public Button Back;
+            public Text WeatherHeading;
         }
 
         /// <summary>
@@ -870,7 +1159,10 @@ namespace Horizon.EditorTools
             page.TimeLabel = TouchUiSetup.MenuLabel(page.Panel, "--:--", 34, 44f);
             page.TimeSlider = BuildTimeSlider(page.Panel, box);
 
-            TouchUiSetup.MenuLabel(page.Panel, "Weather", 26, 38f);
+            // Kept as a field so PauseMenu can rewrite it while a guest is taking the sky from the
+            // host — the heading is the free place to say why the buttons under it are dead, and it
+            // costs the page no height at all.
+            page.WeatherHeading = TouchUiSetup.MenuLabel(page.Panel, "Weather", 26, 38f);
 
             string[] names = PlayerChoices.WeatherNames;
             page.Weather = new Button[names.Length];
@@ -1004,6 +1296,7 @@ namespace Horizon.EditorTools
             public Button Controls;
             public Button Map;
             public Button Respawn;
+            public Button Together;
         }
 
         /// <summary>
@@ -1022,7 +1315,12 @@ namespace Horizon.EditorTools
             page.Garage = TouchUiSetup.MenuButton(page.Panel, "Car", box, "Car and paint");
             page.Conditions = TouchUiSetup.MenuButton(page.Panel, "Conditions", box, "Time and weather");
             page.Controls = TouchUiSetup.MenuButton(page.Panel, "Controls", box, "Controls");
-            page.Map = TouchUiSetup.MenuButton(page.Panel, "Map", box, "Map");
+            // Side by side, so the room is reachable from a paused game without the page growing a
+            // ninth row — it already stands at about 984 units against a thousand of usable canvas.
+            Button[] pair = ButtonPair(page.Panel, box, "Map", "Map", "Together", "Together");
+            page.Map = pair[0];
+            page.Together = pair[1];
+
             page.Respawn = TouchUiSetup.MenuButton(page.Panel, "Respawn", box, "Put the car back");
 
             return page;
@@ -1031,7 +1329,8 @@ namespace Horizon.EditorTools
         // --- Wiring. Persistent listeners throughout, so it is saved into the scene rather than
         //     rebuilt at run time — the same reason everything else here goes through SerializedObject.
 
-        private static void WireStartPage(StartPage page, StartScreen start, MenuPanels panels)
+        private static void WireStartPage(
+            StartPage page, StartScreen start, MenuPanels panels, MultiplayerScreen together)
         {
             Bind(page.Drive, start, nameof(StartScreen.Drive));
 
@@ -1046,6 +1345,11 @@ namespace Horizon.EditorTools
             BindPage(page.Controls, panels, MenuPage.Controls);
             BindPage(page.Quality, panels, MenuPage.Quality);
             BindPage(page.Update, panels, MenuPage.Update);
+
+            // Two listeners, like the place button above: one opens the page, the other tells the
+            // screen it is open so it can start listening for hosts.
+            BindPage(page.Together, panels, MenuPage.Multiplayer);
+            Bind(page.Together, together, nameof(MultiplayerScreen.Open));
         }
 
         private static void WireGarage(GaragePage page, StartScreen start, MenuPanels panels)
@@ -1129,7 +1433,7 @@ namespace Horizon.EditorTools
 
         private static void WirePaused(
             PausedPage page, StartScreen start, PauseMenu menu, MenuPanels panels,
-            GameObject pauseButton)
+            GameObject pauseButton, MultiplayerScreen together)
         {
             Bind(pauseButton.GetComponent<Button>(), menu, nameof(PauseMenu.Toggle));
 
@@ -1142,6 +1446,54 @@ namespace Horizon.EditorTools
             BindPage(page.Conditions, panels, MenuPage.Conditions);
             BindPage(page.Controls, panels, MenuPage.Controls);
             BindPage(page.Map, panels, MenuPage.Map);
+
+            // Straight to the room when there is one, and to the page that opens one when there is
+            // not. MultiplayerScreen decides which — a button cannot, because the answer changes while
+            // the menu is closed.
+            BindPage(page.Together, panels, MenuPage.Multiplayer);
+            Bind(page.Together, together, nameof(MultiplayerScreen.Open));
+        }
+
+        /// <summary>
+        /// Wires the two rooms pages.
+        ///
+        /// <para><b>The six host rows get six differently named methods rather than one taking an
+        /// index.</b> A persistent listener can carry an int, which is how every other list in this
+        /// file works — but those lists are fixed and this one changes while the page is open, so the
+        /// row a listener was bound to is not the host it is showing by the time it is tapped. The
+        /// index is read at the moment of the tap instead, off what is on screen.</para>
+        ///
+        /// <para>Opening and closing are bound <i>beside</i> the page navigation rather than instead of
+        /// it, which is the arrangement the place page already uses to scroll itself to the chosen
+        /// row. Here it is what starts and stops listening for hosts — and therefore what takes and
+        /// gives back Android's Wi-Fi multicast lock.</para>
+        /// </summary>
+        private static void WireMultiplayer(
+            MultiplayerPage page, RoomPage room, MultiplayerScreen screen, MenuPanels panels)
+        {
+            Bind(page.Host, screen, nameof(MultiplayerScreen.HostGame));
+            Bind(page.Join, screen, nameof(MultiplayerScreen.JoinTyped));
+
+            string[] rowMethods =
+            {
+                nameof(MultiplayerScreen.JoinRow0),
+                nameof(MultiplayerScreen.JoinRow1),
+                nameof(MultiplayerScreen.JoinRow2),
+                nameof(MultiplayerScreen.JoinRow3),
+                nameof(MultiplayerScreen.JoinRow4),
+                nameof(MultiplayerScreen.JoinRow5),
+            };
+
+            for (int i = 0; i < page.Hosts.Length && i < rowMethods.Length; i++)
+            {
+                Bind(page.Hosts[i], screen, rowMethods[i]);
+            }
+
+            BindBack(page.Back, panels);
+            Bind(page.Back, screen, nameof(MultiplayerScreen.Close));
+
+            Bind(room.Leave, screen, nameof(MultiplayerScreen.LeaveRoom));
+            BindBack(room.Back, panels);
         }
 
         private static void Bind(Button button, MonoBehaviour target, string method)
@@ -1319,7 +1671,21 @@ namespace Horizon.EditorTools
             RectTransform parent, Sprite box, string leftName, string leftCaption,
             string rightName, string rightCaption)
         {
-            var lineObject = new GameObject($"{leftName}{rightName}", typeof(RectTransform));
+            return ButtonRow(parent, box, leftName, leftCaption, rightName, rightCaption);
+        }
+
+        /// <summary>
+        /// Two or more buttons side by side on one row, as name/caption pairs.
+        ///
+        /// <para>Grew out of <see cref="ButtonPair"/> when the front page needed a third: that page has
+        /// stood at about 988 units against a thousand of usable canvas since the garage reached ten
+        /// cars, so a new full-height row would hang off the bottom of the screen. Widening a row that
+        /// already exists costs nothing at all.</para>
+        /// </summary>
+        private static Button[] ButtonRow(RectTransform parent, Sprite box, params string[] pairs)
+        {
+            var lineObject = new GameObject(
+                $"{pairs[0]}Row", typeof(RectTransform));
             lineObject.transform.SetParent(parent, false);
             TouchUiSetup.Row(lineObject, TouchUiSetup.MenuRowHeight);
 
@@ -1333,11 +1699,14 @@ namespace Horizon.EditorTools
 
             var row = (RectTransform)lineObject.transform;
 
-            return new[]
+            var buttons = new Button[pairs.Length / 2];
+
+            for (int i = 0; i < buttons.Length; i++)
             {
-                TouchUiSetup.MenuButton(row, leftName, box, leftCaption),
-                TouchUiSetup.MenuButton(row, rightName, box, rightCaption),
-            };
+                buttons[i] = TouchUiSetup.MenuButton(row, pairs[i * 2], box, pairs[i * 2 + 1]);
+            }
+
+            return buttons;
         }
 
         /// <summary>Paints a button in the accent colour. For the one button on a page that is the point.</summary>

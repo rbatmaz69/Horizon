@@ -92,6 +92,9 @@ namespace Horizon.EditorTools
             public PauseMenu Menu;
             public MenuPanels Panels;
             public StartScreen StartScreen;
+
+            /// <summary>The two room pages. Its NetSession reference is filled in by the scene builder.</summary>
+            public MultiplayerScreen Multiplayer;
         }
 
         /// <summary>
@@ -130,6 +133,8 @@ namespace Horizon.EditorTools
 
             GameObject pauseButton = BuildPauseButton(safe, box);
             GameObject instruments = BuildInstruments(safe, map, out Button minimapButton);
+
+            BuildNameTags(safe);
 
             TouchControlsHud hud = canvas.gameObject.AddComponent<TouchControlsHud>();
 
@@ -704,6 +709,55 @@ namespace Horizon.EditorTools
         /// <c>raycastTarget</c> off, on the argument that a readout swallowing taps is worse than one
         /// that cannot be touched. This is a readout you press.</para>
         /// </summary>
+        /// <summary>
+        /// The names of the other players, drawn over their cars.
+        ///
+        /// <para><b>Seven ordinary rows on the canvas that already exists, not seven world-space
+        /// canvases.</b> A world-space <c>Canvas</c> is a renderer with a material and at least one
+        /// draw call of its own, and one following each car would be seven more things for the SRP
+        /// batcher to break on — against a budget where the whole world is a few hundred.
+        /// <c>RemoteNameTags</c> moves them with <c>WorldToScreenPoint</c>.</para>
+        ///
+        /// <para>Inside the safe area, so a name never lands under a notch. Untargeted throughout: a
+        /// label over a car must not swallow a tap meant for the steering wheel behind it.</para>
+        /// </summary>
+        private static void BuildNameTags(RectTransform parent)
+        {
+            var holderObject = new GameObject("NameTags", typeof(RectTransform));
+            holderObject.transform.SetParent(parent, false);
+
+            var holder = (RectTransform)holderObject.transform;
+            Stretch(holder);
+
+            var rows = new RectTransform[RemoteNameTags.LabelCount];
+            var labels = new Text[RemoteNameTags.LabelCount];
+
+            for (int i = 0; i < labels.Length; i++)
+            {
+                var rowObject = new GameObject($"Tag{i}", typeof(RectTransform));
+                rowObject.transform.SetParent(holder, false);
+
+                var rect = (RectTransform)rowObject.transform;
+                rect.anchorMin = new Vector2(0.5f, 0.5f);
+                rect.anchorMax = new Vector2(0.5f, 0.5f);
+                rect.pivot = new Vector2(0.5f, 0.5f);
+                rect.sizeDelta = new Vector2(320f, 40f);
+                rows[i] = rect;
+
+                Text label = Label(rect, string.Empty, 26);
+                label.alignment = TextAnchor.MiddleCenter;
+                label.raycastTarget = false;
+                labels[i] = label;
+
+                // Off until somebody is there to be named. Same rule as the map markers beside it.
+                rowObject.SetActive(false);
+            }
+
+            RemoteNameTags tags = holderObject.AddComponent<RemoteNameTags>();
+            tags.SetLabels(rows, labels);
+            EditorUtility.SetDirty(tags);
+        }
+
         private static Button BuildMinimap(Transform parent, Sprite ring, Sprite tick, WorldMap map)
         {
             const float MapSize = 300f;
@@ -775,6 +829,37 @@ namespace Horizon.EditorTools
                 new Vector2(0f, -MapSize * 0.5f * Minimap.ForwardBias));
 
             Untargeted(car, Image.Type.Simple);
+
+            // The other players, on the same sprite in a cooler colour. Parented to the map rect rather
+            // than to the face, so a marker moves with the view the way the roads under it do.
+            //
+            // Not a MapMarkerKind: those are baked into the WorldMap asset by the setup tool and a
+            // player who joined two minutes ago is not in it. See RemoteMapMarkers.
+            var remoteMarkers = new RectTransform[RemoteMapMarkers.MarkerCount];
+
+            for (int i = 0; i < remoteMarkers.Length; i++)
+            {
+                remoteMarkers[i] = Panel(
+                    mapRect, $"Remote{i}", carSprite, RemoteMapMarkers.MarkerTint,
+                    new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                    new Vector2(26f, 31f), Vector2.zero);
+
+                Untargeted(remoteMarkers[i], Image.Type.Simple);
+
+                // Off, the way the full-screen map's own name labels are, and for the same reason: a
+                // marker exists because somebody is in the room, and in a saved scene nobody ever is.
+                // Left on, all seven sit stacked at the centre of the map — which is what the HUD
+                // preview came back showing, a friend on a road with nobody on it.
+                remoteMarkers[i].gameObject.SetActive(false);
+            }
+
+            RemoteMapMarkers remotes = mapObject.AddComponent<RemoteMapMarkers>();
+
+            // The same 0.80 the graphic clips its own geometry at, as a radius rather than a fraction:
+            // MapGraphic clips what it emits and these are separate Images, so without this a friend
+            // two kilometres away is drawn on the rim, outside the map, over the rev counter.
+            remotes.SetParts(graphic, remoteMarkers, MapSize * 0.5f * 0.80f);
+            EditorUtility.SetDirty(remotes);
 
             // Outside the mask, so its own outer edge survives being drawn.
             RectTransform rim = Panel(parent, "MinimapRim", ring, ControlTint,

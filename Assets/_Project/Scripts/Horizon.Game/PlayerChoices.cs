@@ -65,6 +65,7 @@ namespace Horizon.Game
         private const string HoursKey = "Horizon.TimeOfDay";
         private const string WeatherKey = "Horizon.Weather";
         private const string QualityKey = "Horizon.Quality";
+        private const string NameKey = "Horizon.Name";
 
         /// <summary>
         /// The hour the world starts at when nothing is saved.
@@ -93,6 +94,48 @@ namespace Horizon.Game
         public static QualityPreset Quality { get; set; } = QualityPreset.Balanced;
 
         /// <summary>
+        /// What other players see over this car's roof.
+        ///
+        /// <para>Here rather than in <c>NetSession</c> for the reason this class already gives about
+        /// the car and the paint: it is a thing the player chose that has to survive being closed, and
+        /// there is exactly one player. It is also read before any transport exists — the multiplayer
+        /// page shows it on the way in — so a session component would be a thing to find before it was
+        /// alive.</para>
+        ///
+        /// <para><b>Trimmed and capped on read like every other value here.</b> The wire has sixteen
+        /// bytes for it (<c>NetProtocol.NameBytes</c>) and truncates on a byte boundary, so a name that
+        /// arrives too long comes back with its last character possibly missing. Capping here means
+        /// what the player typed and what their friends read are the same string.</para>
+        /// </summary>
+        public static string Name { get; set; } = string.Empty;
+
+        /// <summary>Sixteen bytes of UTF-8 is what the roster row holds, so this is where it is cut.</summary>
+        public const int MaxNameLength = 16;
+
+        /// <summary>
+        /// The name, guaranteed to be something. Falls back to the device's own name rather than to
+        /// "Player", because in a room of four the useful default is the one nobody has to explain.
+        /// </summary>
+        public static string DisplayName()
+        {
+            string chosen = Name != null ? Name.Trim() : string.Empty;
+
+            if (chosen.Length > 0)
+            {
+                return chosen.Length > MaxNameLength ? chosen.Substring(0, MaxNameLength) : chosen;
+            }
+
+            string device = SystemInfo.deviceName;
+
+            if (string.IsNullOrEmpty(device) || device == SystemInfo.unsupportedIdentifier)
+            {
+                return "Driver";
+            }
+
+            return device.Length > MaxNameLength ? device.Substring(0, MaxNameLength) : device;
+        }
+
+        /// <summary>
         /// Reads everything back. Called once, from <c>GameBootstrap.Awake</c>, before the world scene
         /// is asked to load.
         ///
@@ -115,6 +158,8 @@ namespace Horizon.Game
             Quality = (QualityPreset)Mathf.Clamp(
                 PlayerPrefs.GetInt(QualityKey, (int)QualityPreset.Balanced),
                 (int)QualityPreset.Low, (int)QualityPreset.High);
+
+            Name = PlayerPrefs.GetString(NameKey, string.Empty);
         }
 
         /// <summary>
@@ -129,6 +174,7 @@ namespace Horizon.Game
             PlayerPrefs.SetFloat(HoursKey, Hours);
             PlayerPrefs.SetInt(WeatherKey, (int)Weather);
             PlayerPrefs.SetInt(QualityKey, (int)Quality);
+            PlayerPrefs.SetString(NameKey, Name != null ? Name : string.Empty);
             PlayerPrefs.Save();
         }
 

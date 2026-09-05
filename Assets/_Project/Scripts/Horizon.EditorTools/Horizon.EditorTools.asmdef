@@ -9,6 +9,7 @@
         "Horizon.Atmosphere",
         "Horizon.Game",
         "Horizon.Updates",
+        "Horizon.Net",
         "UnityEngine.UI",
         "Unity.InputSystem",
         "Unity.RenderPipelines.Universal.Runtime",

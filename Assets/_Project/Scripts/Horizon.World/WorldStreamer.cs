@@ -33,6 +33,16 @@ namespace Horizon.World
         public float LoadRadius => loadRadius;
 
         /// <summary>
+        /// Where a chunk finally goes dark. The class remarks above have referred to this by name
+        /// since they were written; it had never actually been exposed.
+        ///
+        /// <para>Read by anything that has to agree with the streamer about how much world exists —
+        /// <c>RemoteCarPool</c> hides another player's car past it, because a car drawn over ground
+        /// that has not been built is worse than a car that is not drawn.</para>
+        /// </summary>
+        public float UnloadRadius => unloadRadius;
+
+        /// <summary>
         /// Sets how much world is kept up.
         ///
         /// <para>The first lever to pull for a weak phone, and the cheapest: a chunk that is not

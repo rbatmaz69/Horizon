@@ -109,7 +109,24 @@ namespace Horizon.EditorTools
                 Canvas.ForceUpdateCanvases();
                 MapPreviewRenderer.Shoot(camera, Width, Height, Path.Combine(directory, MapShot), Msaa);
 
-                Debug.Log($"[Horizon] HUD preview written to {directory}/{DrivingShot} and {MapShot}");
+                Restore();
+
+                // --- Hosting and joining, and the room once you are in one.
+                ShowMenuPage(canvas, "MultiplayerPanel");
+
+                Canvas.ForceUpdateCanvases();
+                MapPreviewRenderer.Shoot(
+                    camera, Width, Height, Path.Combine(directory, MultiplayerShot), Msaa);
+
+                Restore();
+
+                ShowMenuPage(canvas, "RoomPanel");
+
+                Canvas.ForceUpdateCanvases();
+                MapPreviewRenderer.Shoot(camera, Width, Height, Path.Combine(directory, RoomShot), Msaa);
+
+                Debug.Log($"[Horizon] HUD preview written to {directory}: {DrivingShot}, {MapShot}, "
+                          + $"{MultiplayerShot} and {RoomShot}");
             }
             finally
             {
@@ -124,6 +141,18 @@ namespace Horizon.EditorTools
         private const string DrivingShot = "HudPreview_Driving.png";
 
         private const string MapShot = "HudPreview_Map.png";
+
+        /// <summary>
+        /// The two room pages.
+        ///
+        /// <para>They carry the first text entry anywhere in this project, and a uGUI
+        /// <c>InputField</c> whose <c>textComponent</c> or placeholder is missing accepts typing and
+        /// draws none of it — which is indistinguishable, on a phone, from a field that is not
+        /// receiving taps at all. The build reports nothing about either; only a picture does.</para>
+        /// </summary>
+        private const string MultiplayerShot = "HudPreview_Multiplayer.png";
+
+        private const string RoomShot = "HudPreview_Room.png";
 
         /// <summary>What a shot switched off or on, and puts back.</summary>
         private static readonly List<GameObject> Hidden = new List<GameObject>();
@@ -188,6 +217,45 @@ namespace Horizon.EditorTools
                 {
                     screen.Open();
                 }
+            }
+        }
+
+        /// <summary>
+        /// Puts one menu page up over an empty screen, with the driving controls out of the way.
+        ///
+        /// <para>The generalisation of <see cref="ShowTheMap"/>, which had the page it shows written
+        /// into it. A page is a named panel under the canvas, so a shot of one is a name.</para>
+        ///
+        /// <para><b>Rows the page hides at run time stay hidden here.</b> The two room pages build a
+        /// list of discovered hosts and a list of players and switch the unused rows off on their first
+        /// frame, and there is no first frame in a saved scene — so the tool leaves whatever the
+        /// builder left, which is the state a player sees before anything has been found. That is the
+        /// honest picture: the interesting question is whether the page reads with nothing in those
+        /// lists, because that is what everybody sees first.</para>
+        /// </summary>
+        private static void ShowMenuPage(Canvas canvas, string panelName)
+        {
+            Hide(canvas, "Wheel");
+            Hide(canvas, "Arrows");
+            Hide(canvas, "Pedals");
+            Hide(canvas, "AutoPedals");
+            Hide(canvas, "Slider");
+            Hide(canvas, "Handbrake");
+            Hide(canvas, "PauseButton");
+            Hide(canvas, "Instruments");
+            Hide(canvas, "MinimapRim");
+
+            Transform[] all = canvas.GetComponentsInChildren<Transform>(true);
+
+            for (int i = 0; i < all.Length; i++)
+            {
+                if (all[i].name != panelName)
+                {
+                    continue;
+                }
+
+                all[i].gameObject.SetActive(true);
+                Shown.Add(all[i].gameObject);
             }
         }
 

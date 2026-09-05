@@ -111,6 +111,30 @@ namespace Horizon.Vehicle
 
         public int ActivePaint { get; private set; } = -1;
 
+        /// <summary>
+        /// The renderer of the body currently shown, or null before <see cref="Select"/> has run.
+        ///
+        /// <para>Exposed for the sake of a car this set is <i>not</i> attached to a controller on. A
+        /// remote player's car carries one of these with <c>controller</c>, <c>lights</c>, <c>hull</c>
+        /// and <c>engineAudio</c> all left null — it wants the mesh, the wheel and the paint and none
+        /// of the physics — and it still has to reach the lamp submeshes to light them. The
+        /// alternative is that caller keeping its own parallel table of which renderer belongs to
+        /// which body, which is the second copy of a fact this class already owns.</para>
+        /// </summary>
+        public MeshRenderer ActiveRenderer =>
+            ActiveBody >= 0 && ActiveBody < BodyCount ? bodies[ActiveBody].Renderer : null;
+
+        /// <summary>
+        /// The handling asset of the body currently shown, or null.
+        ///
+        /// <para>Same argument as <see cref="ActiveRenderer"/>. What a remote car reads off it is the
+        /// wheel radius, so its tyres turn at the speed it is actually travelling rather than at some
+        /// average one — an off-roader's wheel is half again a hatchback's and a shared constant would
+        /// be visibly wrong on both.</para>
+        /// </summary>
+        public VehicleConfig ActiveConfig =>
+            ActiveBody >= 0 && ActiveBody < BodyCount ? bodies[ActiveBody].Config : null;
+
         /// <summary>The menu label for a body, or an empty string if the index is not one.</summary>
         public string NameOf(int bodyIndex)
         {

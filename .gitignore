@@ -75,6 +75,7 @@ crashlytics-build.properties
 /HudPreview_*.png
 /WeatherPreview_*.png
 /Sky_*.png
+/Multiplayer_*.png
 
 # Claude Code local settings
 .claude/settings.local.json

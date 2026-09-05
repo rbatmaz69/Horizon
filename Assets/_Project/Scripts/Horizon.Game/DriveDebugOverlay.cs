@@ -26,6 +26,8 @@ namespace Horizon.Game
         private FuelTank fuel;
         private TimeOfDayController timeOfDay;
         private TrafficDirector traffic;
+        private NetSession session;
+        private RemoteCarPool pool;
         private Vector3 spawnPosition;
         private Quaternion spawnRotation;
         private bool spawnCaptured;
@@ -60,6 +62,16 @@ namespace Horizon.Game
             if (traffic == null)
             {
                 traffic = FindFirstObjectByType<TrafficDirector>();
+            }
+
+            if (session == null)
+            {
+                session = FindFirstObjectByType<NetSession>();
+            }
+
+            if (pool == null)
+            {
+                pool = FindFirstObjectByType<RemoteCarPool>();
             }
 
             if (vehicle != null && !spawnCaptured)
@@ -173,6 +185,23 @@ namespace Horizon.Game
             {
                 GUILayout.Label($"traffic {traffic.NearCount}/{traffic.NearTarget} near"
                               + $"   budget {traffic.ActiveBudget}");
+            }
+
+            // A network moves no pixel and makes no sound. The cars other people are driving are the
+            // only visible symptom of any of it, and they look exactly the same whether the room is
+            // healthy or held together by extrapolation — so these numbers are the whole instrument.
+            // Bytes rather than packets, because what a phone's radio minds is bytes.
+            if (session != null && session.InRoom)
+            {
+                string me = session.Admitted ? session.LocalPeerId.ToString() : "-";
+                GUILayout.Label($"net {session.Role} {session.Status}   peer {me}"
+                              + $"   {session.PeerCount} in room   {session.BytesInPerSecond} B/s in"
+                              + $"   {session.BytesOutPerSecond} B/s out");
+
+                if (pool != null)
+                {
+                    GUILayout.Label($"remote cars {pool.InUseCount}/{pool.SlotCount}");
+                }
             }
 
             if (inputRouter != null)

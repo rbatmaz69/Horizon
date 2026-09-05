@@ -512,14 +512,15 @@ namespace Horizon.EditorTools
     }
 
     /// <summary>
-    /// Adds VIBRATE to the generated manifest.
+    /// Adds the permissions Unity cannot work out for itself to the generated manifest.
     ///
-    /// <para><b>There is no PlayerSettings property for this</b>, the way there is
+    /// <para><b>There is no PlayerSettings property for any of them</b>, the way there is
     /// <c>forceInternetPermission</c> for INTERNET. Unity infers VIBRATE from whether
     /// <see cref="UnityEngine.Handheld.Vibrate"/> survives IL2CPP's stripping — and this project calls
     /// the Android vibrator through JNI instead, precisely because Handheld.Vibrate is a fixed
     /// half-second buzz with no amplitude. So the inference has nothing to find and would leave the
-    /// permission out.</para>
+    /// permission out. The two Wi-Fi ones are reached through JNI for the same reason, by
+    /// <c>AndroidMulticastLock</c>, and are invisible to the same inference.</para>
     ///
     /// <para>Done here rather than by dropping an <c>AndroidManifest.xml</c> into
     /// <c>Assets/Plugins/Android</c>, which is the usual advice and is a trap: that file <i>replaces</i>
@@ -531,40 +532,73 @@ namespace Horizon.EditorTools
     /// documents for INTERNET: it works perfectly in the editor and does nothing at all on the phone.
     /// So it logs what it did.</para>
     /// </summary>
-    public sealed class AndroidVibratePermission : IPostGenerateGradleAndroidProject
+    public sealed class AndroidManifestPermissions : IPostGenerateGradleAndroidProject
     {
         public int callbackOrder => 0;
 
-        private const string Permission = "android.permission.VIBRATE";
+        /// <summary>
+        /// What Unity cannot infer, and why each one is here.
+        ///
+        /// <para><c>VIBRATE</c>: there is no <c>PlayerSettings</c> property for it the way there is
+        /// <c>forceInternetPermission</c>. Unity infers it from whether <c>Handheld.Vibrate</c> survives
+        /// stripping, and <c>HapticsDirector</c> calls the vibrator through JNI instead — so the
+        /// inference has nothing to find.</para>
+        ///
+        /// <para>The two Wi-Fi ones: <c>AndroidMulticastLock</c> needs them to take the lock that stops
+        /// Android's power saving dropping broadcast frames. Without the lock the multiplayer host list
+        /// is simply empty — no exception, no log line, nothing to distinguish it from there being no
+        /// host. That class carries the full argument.</para>
+        /// </summary>
+        private static readonly string[] Permissions =
+        {
+            "android.permission.VIBRATE",
+            "android.permission.ACCESS_WIFI_STATE",
+            "android.permission.CHANGE_WIFI_MULTICAST_STATE",
+        };
 
         public void OnPostGenerateGradleAndroidProject(string path)
         {
             string manifest = Path.Combine(path, "src", "main", "AndroidManifest.xml");
             if (!File.Exists(manifest))
             {
-                Debug.LogWarning($"[Horizon] No generated manifest at {manifest}; VIBRATE not added.");
+                Debug.LogWarning(
+                    $"[Horizon] No generated manifest at {manifest}; no permissions added. "
+                    + "Vibration and host discovery will both be silently dead in this build.");
                 return;
             }
 
             string text = File.ReadAllText(manifest);
-            if (text.Contains(Permission))
+            var added = 0;
+
+            foreach (string permission in Permissions)
+            {
+                if (text.Contains(permission))
+                {
+                    continue;
+                }
+
+                const string anchor = "<application";
+                int at = text.IndexOf(anchor, StringComparison.Ordinal);
+                if (at < 0)
+                {
+                    Debug.LogWarning("[Horizon] Generated manifest has no <application> element; "
+                                   + $"{permission} not added.");
+                    return;
+                }
+
+                text = text.Insert(at, $"<uses-permission android:name=\"{permission}\" />\n    ");
+                added++;
+            }
+
+            if (added == 0)
             {
                 return;
             }
 
-            const string anchor = "<application";
-            int at = text.IndexOf(anchor, StringComparison.Ordinal);
-            if (at < 0)
-            {
-                Debug.LogWarning("[Horizon] Generated manifest has no <application> element; "
-                               + "VIBRATE not added.");
-                return;
-            }
-
-            text = text.Insert(at, $"<uses-permission android:name=\"{Permission}\" />\n    ");
             File.WriteAllText(manifest, text);
 
-            Debug.Log("[Horizon] Added VIBRATE to the generated manifest.");
+            Debug.Log($"[Horizon] Added {added} of {Permissions.Length} permissions to the generated "
+                      + "manifest.");
         }
     }
 }

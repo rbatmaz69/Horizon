@@ -184,6 +184,15 @@ namespace Horizon.Game
 
         public void SelectWeather(int index)
         {
+            // A guest's sky belongs to the host. The button is not interactable while that is true, so
+            // this is belt and braces — but the alternative is one wiring mistake away from a guest
+            // being able to change the weather for one frame, until the next roster packet puts it
+            // back, which reads as the menu being broken rather than as the room working.
+            if (pauseMenu != null && pauseMenu.ConditionsLocked)
+            {
+                return;
+            }
+
             pauseMenu?.SetWeather(index);
             RefreshAll();
         }
