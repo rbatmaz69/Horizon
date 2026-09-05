@@ -2590,6 +2590,15 @@ bottom rows off the screen, on a menu with nothing to scroll with. The front pag
 gained an entry by *widening a row that already existed* rather than adding one, for the same reason: both
 have stood within twenty units of the limit since the garage reached ten cars.
 
+**The room page carries the Drive button, and it did not at first.** Two people got into a room, both
+looked at a page saying they were in it, and neither could start: the way on was Back and then Drive
+from the front page. That reads as the game not being ready rather than as the button being one screen
+away. It cannot simply call `StartScreen.Drive` either — that applies the car, the conditions *and the
+start place*, which is right on the way in and would teleport a car back to the beginning of the
+session when pressed from a pause. After the start screen has finished, the same button is a resume.
+Leave and Back moved onto one row to pay for it, because the page was at 930 units against the
+thousand `ValidatePageHeights` allows.
+
 **`MapLine.KindCount` is untouched, deliberately.** Another player is not a `MapMarkerKind` — those are
 baked into the `WorldMap` asset by the setup tool and somebody who joined two minutes ago is not in it. They
 get sprites, the way the driver's own car marker already does, and the key gained one row reading the same

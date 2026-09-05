@@ -27,6 +27,12 @@ namespace Horizon.Game
         [SerializeField] private NetSession session;
         [SerializeField] private MenuPanels panels;
 
+        [Tooltip("Asked whether the player has driven off yet. The room page's own Drive button means "
+               + "two different things before and after that.")]
+        [SerializeField] private StartScreen startScreen;
+
+        [SerializeField] private PauseMenu pauseMenu;
+
         [Header("Multiplayer page")]
         [SerializeField] private Text status;
         [SerializeField] private InputField nameField;
@@ -148,6 +154,30 @@ namespace Horizon.Game
             session.StopBrowsing();
             session.JoinGame(host.Address);
             ShowRoomIfIn();
+        }
+
+        /// <summary>
+        /// Drives, straight from the room page.
+        ///
+        /// <para><b>It is here because the way out of the room was Back and then Drive.</b> Two people
+        /// get into a room, both look at a page that says they are in it, and neither can start —
+        /// which reads as the game not being ready rather than as the button being on the previous
+        /// screen. A room is a thing you are in together and the next thing you want is to go.</para>
+        ///
+        /// <para><b>It cannot simply call <c>StartScreen.Drive</c>.</b> That method applies the car,
+        /// the conditions <i>and the start place</i>, which is right on the way in and wrong from a
+        /// pause: pressing it mid-drive would teleport the car back to wherever the session began.
+        /// After the start screen has finished, the same button is a resume.</para>
+        /// </summary>
+        public void Drive()
+        {
+            if (startScreen != null && !startScreen.Finished)
+            {
+                startScreen.Drive();
+                return;
+            }
+
+            pauseMenu?.Resume();
         }
 
         public void LeaveRoom()
@@ -373,6 +403,8 @@ namespace Horizon.Game
         public void SetParts(
             NetSession netSession,
             MenuPanels menuPanels,
+            StartScreen start,
+            PauseMenu menu,
             Text joinStatus,
             InputField name,
             Button[] rows,
@@ -384,6 +416,8 @@ namespace Horizon.Game
         {
             session = netSession;
             panels = menuPanels;
+            startScreen = start;
+            pauseMenu = menu;
             status = joinStatus;
             nameField = name;
             hostRows = rows;

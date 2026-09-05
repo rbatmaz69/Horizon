@@ -186,6 +186,8 @@ namespace Horizon.EditorTools
             together.SetParts(
                 null,
                 panels,
+                start,
+                menu,
                 multiplayer.Status,
                 multiplayer.Name,
                 multiplayer.Hosts,
@@ -235,6 +237,7 @@ namespace Horizon.EditorTools
             public Text[] PlayerLabels;
             public Button Leave;
             public Button Back;
+            public Button Drive;
         }
 
         /// <summary>
@@ -333,8 +336,18 @@ namespace Horizon.EditorTools
                 page.Players[i].gameObject.SetActive(false);
             }
 
-            page.Leave = TouchUiSetup.MenuButton(page.Panel, "Leave", box, "Leave the game");
-            page.Back = TouchUiSetup.MenuButton(page.Panel, "Back", box, "Back");
+            // The point of being in a room, and it is the accent button for that reason. It was not
+            // here at first and the way out was Back and then Drive from the front page — two people
+            // sat in a room they could both see and neither could start.
+            page.Drive = TouchUiSetup.MenuButton(page.Panel, "Drive", box, "Drive");
+            Accent(page.Drive);
+
+            // Side by side, so the page keeps the height it had. The room page stands at 930 units
+            // against the thousand ValidatePageHeights allows, and a sixth full row would put it over.
+            Button[] pair = ButtonPair(page.Panel, box, "Leave", "Leave the game", "Back", "Back");
+            page.Leave = pair[0];
+            page.Back = pair[1];
+
             return page;
         }
 
@@ -1492,6 +1505,7 @@ namespace Horizon.EditorTools
             BindBack(page.Back, panels);
             Bind(page.Back, screen, nameof(MultiplayerScreen.Close));
 
+            Bind(room.Drive, screen, nameof(MultiplayerScreen.Drive));
             Bind(room.Leave, screen, nameof(MultiplayerScreen.LeaveRoom));
             BindBack(room.Back, panels);
         }
