@@ -172,7 +172,7 @@ namespace Horizon.Game
             }
 
             buffer[next] = snapshot;
-            buffer[next].ReceivedAt = Time.time;
+            buffer[next].ReceivedAt = Time.unscaledTime;
             next = (next + 1) % BufferSlots;
 
             if (count < BufferSlots)
@@ -198,11 +198,18 @@ namespace Horizon.Game
         }
 
         /// <summary>
-        /// Draws the car at <c>Time.time - InterpolationDelay</c>.
+        /// Draws the car at <c>Time.unscaledTime - InterpolationDelay</c>.
         ///
         /// <para>In <c>LateUpdate</c> rather than <c>Update</c> so it lands after anything that might
         /// have moved the world, and after <c>ChaseCamera</c> has read the player's car — a remote car
         /// is drawn, never followed.</para>
+        ///
+        /// <para><b>Unscaled, like everything in <c>NetSession</c>, and that is not tidiness.</b> A room
+        /// is opened from the pause menu, which sits at <c>timeScale</c> zero — so the whole of joining,
+        /// the first roster and the first few seconds of snapshots all arrive while scaled time is
+        /// stopped. Stamped with <c>Time.time</c> they would all carry the same instant, the
+        /// interpolator would find every pair zero apart, and the first thing anybody saw on pressing
+        /// Drive would be their friend's car snapping between two positions.</para>
         /// </summary>
         private void LateUpdate()
         {
@@ -211,7 +218,7 @@ namespace Horizon.Game
                 return;
             }
 
-            float renderTime = Time.time - InterpolationDelay;
+            float renderTime = Time.unscaledTime - InterpolationDelay;
 
             if (!Resolve(renderTime, out Vector3 position, out Quaternion rotation, out CarSnapshot state))
             {
@@ -224,7 +231,7 @@ namespace Horizon.Game
             HasPose = true;
 
             SetVisible(!culled);
-            UpdateWheels(state, Time.deltaTime);
+            UpdateWheels(state, Time.unscaledDeltaTime);
             UpdateLamps(state);
         }
 

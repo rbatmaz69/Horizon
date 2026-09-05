@@ -187,12 +187,22 @@ namespace Horizon.Game
                 return;
             }
 
-            if (open)
+            // Each page is refreshed only while it is actually on screen, and that is not tidiness:
+            // both of these compose a status line, and a string built every frame to be compared
+            // against the one already shown is garbage. The room page in particular would otherwise be
+            // doing it for the whole of a drive, which is driving code.
+            //
+            // Asked of the label rather than of MenuPanels, because "is this page visible" is a
+            // question the object itself answers and a page index is a second copy of it.
+            if (open && status != null && status.gameObject.activeInHierarchy)
             {
                 RefreshJoinPage();
             }
 
-            RefreshRoomPage();
+            if (roomStatus != null && roomStatus.gameObject.activeInHierarchy)
+            {
+                RefreshRoomPage();
+            }
         }
 
         private void RefreshJoinPage()
@@ -327,8 +337,16 @@ namespace Horizon.Game
                     : $"Hosting at {address}.  {session.PeerCount} of {NetProtocol.MaxPeers}.";
             }
 
-            return session.Admitted
-                ? $"In a game.  {session.PeerCount} of {NetProtocol.MaxPeers}."
+            if (session.Admitted)
+            {
+                return $"In a game.  {session.PeerCount} of {NetProtocol.MaxPeers}.";
+            }
+
+            // Still asking, and nothing has come back. See NetSession.JoiningFor for why silence is
+            // the only symptom there is.
+            return session.JoiningFor > NetSession.JoinPatience
+                ? "Nothing is answering at that address.\n"
+                  + "Check the number, and that both devices are on the same Wi-Fi."
                 : "Joining...";
         }
 

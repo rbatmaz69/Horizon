@@ -121,10 +121,14 @@ namespace Horizon.Game
                     row.anchoredPosition = local;
                 }
 
+                // The fallback comes out of a table rather than being interpolated here. This runs on
+                // every frame for every car in the room, and building a string only to find it equal to
+                // the one already shown is the allocation the rev counter's number table exists to
+                // avoid — in driving code, which is where the budget forbids it outright.
                 PeerInfo info = session.PeerAt(car.PeerId);
                 string name = info.InUse && !string.IsNullOrEmpty(info.Name)
                     ? info.Name
-                    : $"Driver {car.PeerId}";
+                    : NetSession.DefaultNameFor(car.PeerId);
 
                 if (shown[car.PeerId] != name)
                 {

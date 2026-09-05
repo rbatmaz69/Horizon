@@ -93,6 +93,7 @@ namespace Horizon.Game
         private ushort tick;
 
         private uint token;
+        private float joiningSince;
         private Vector3 lastSentPosition;
         private bool hasLastSent;
 
@@ -125,6 +126,22 @@ namespace Horizon.Game
 
         /// <summary>Whether the host has this device in its roster yet.</summary>
         public bool Admitted => LocalPeerId != NetProtocol.NoPeerId;
+
+        /// <summary>
+        /// How long this device has been asking to be let in, seconds. Zero when it is not.
+        ///
+        /// <para><b>Nothing else can tell an unreachable host from a slow one.</b> A guest sends its
+        /// Hello into a socket that is perfectly happy to accept it — UDP to an address with nothing
+        /// listening produces no error on most platforms — so a wrong address, a router with client
+        /// isolation on and a host that has just quit all look identical from here: silence. Without
+        /// this the page says "Joining..." for ever and the player has no way to tell whether to wait
+        /// or to check the number they typed.</para>
+        /// </summary>
+        public float JoiningFor =>
+            Role == NetRole.Guest && !Admitted ? Time.unscaledTime - joiningSince : 0f;
+
+        /// <summary>How long to keep asking before saying that nothing is answering.</summary>
+        public const float JoinPatience = 8f;
 
         /// <summary>What a guest would have to type in to reach this device.</summary>
         public string LocalAddress => discovery != null ? discovery.LocalAddress : string.Empty;
@@ -235,7 +252,14 @@ namespace Horizon.Game
 
             // A fresh number every attempt. It is how a guest recognises its own row in a roster that
             // is one datagram sent to everybody — see NetProtocol.PeerRecordBytes.
-            token = (uint)Random.Range(int.MinValue, int.MaxValue);
+            //
+            // Never zero: that is what the host's own row carries, and a guest that drew it would
+            // decide it was the host. One chance in four billion, and the fix is one line.
+            do
+            {
+                token = (uint)Random.Range(int.MinValue, int.MaxValue);
+            }
+            while (token == 0u);
 
             transport.StartGuest(address);
 
@@ -246,6 +270,7 @@ namespace Horizon.Game
 
             LocalPeerId = NetProtocol.NoPeerId;
             WasRejected = false;
+            joiningSince = Time.unscaledTime;
             RememberOwnConditions();
         }
 
@@ -321,6 +346,14 @@ namespace Horizon.Game
             if (transport == null)
             {
                 return;
+            }
+
+            if (pool == null)
+            {
+                // Retried while null rather than resolved once. It lives in the world scene, which is
+                // still loading for the first frames — and a session with no pool draws nobody at all,
+                // with nothing anywhere saying why.
+                pool = FindFirstObjectByType<RemoteCarPool>();
             }
 
             float dt = Time.unscaledDeltaTime;
@@ -412,7 +445,7 @@ namespace Horizon.Game
             {
                 roster[peerId].InUse = true;
                 roster[peerId].PeerId = peerId;
-                roster[peerId].Name = $"Driver {peerId}";
+                roster[peerId].Name = DefaultNameFor(peerId);
                 System.Array.Clear(rosterNameBytes[peerId], 0, NetProtocol.NameBytes);
                 pool?.Acquire(peerId);
             }
@@ -1186,6 +1219,31 @@ namespace Horizon.Game
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// What a peer is called before its <c>Hello</c> has arrived, or if it never sends one.
+        ///
+        /// <para>A prebuilt table rather than an interpolated string, because the name tag over a car
+        /// reads this on <b>every frame</b> while driving — and building the string only to compare it
+        /// against the one already shown is the allocation the rev counter's own number table exists to
+        /// avoid. Eight strings, made once.</para>
+        /// </summary>
+        public static string DefaultNameFor(byte peerId) =>
+            peerId < DefaultNames.Length ? DefaultNames[peerId] : "Driver";
+
+        private static readonly string[] DefaultNames = BuildDefaultNames();
+
+        private static string[] BuildDefaultNames()
+        {
+            var names = new string[NetProtocol.MaxPeers];
+
+            for (int i = 0; i < names.Length; i++)
+            {
+                names[i] = $"Driver {i}";
+            }
+
+            return names;
         }
 
         private static string DecodeName(byte[] bytes)

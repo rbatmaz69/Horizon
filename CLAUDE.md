@@ -2603,6 +2603,28 @@ host list is and four where the player list is — which is what a player sees f
 visit, and reads as broken buttons rather than as an empty list. The full-screen map's own forty-eight name
 labels have always been built this way.
 
+**A room is opened from a paused menu, and that broke the interpolator in a way no picture would
+show.** `NetSession` runs on unscaled time throughout — it has to, because the whole of joining
+happens at `timeScale` zero — and `RemoteCar` was stamping its snapshots with `Time.time`. So every
+packet that arrived while the menu was up carried the same instant, the interpolator found every pair
+zero apart, and the first thing anybody would have seen on pressing Drive was their friend's car
+snapping between two positions. One clock or the other, never both.
+
+**`Validate LAN Transport` opens a real host and two real guests on the loopback, and it exists for
+one assumption.** A host reads with `ReceiveFrom` and hands it a `FastEndPoint` that caches its own
+`SocketAddress` and returns `this` from `Create` — which removes an allocation per datagram and rests
+entirely on the runtime calling those two virtual methods. If it ever stops, every sender's address
+reads as zero, **every guest maps to channel zero**, and what shows is a room where the second person
+to join replaces the first: no exception, no warning, nothing in any log. Reading the code cannot
+settle that; two sockets can, in about a second. It reports channels 0 and 1, and that a reply
+addressed to one reaches only that one.
+
+**A guest that cannot reach anything looks exactly like a guest that is being slow.** UDP to an
+address with nothing listening produces no error on most platforms, so a wrong number, a router with
+client isolation on and a host that has just quit are all the same silence. `JoinPatience` is eight
+seconds, after which the page says so and names the two things worth checking — without it the screen
+says "Joining..." for ever and there is nothing to act on.
+
 **`Validate Wire Format` and `Render Multiplayer Preview` between them cover the two halves.** The byte
 layout is the one part of this a picture cannot check at all — a quantisation a hair too coarse draws a
 perfectly good car a few centimetres off somebody else's road, and no frame anywhere distinguishes that from
