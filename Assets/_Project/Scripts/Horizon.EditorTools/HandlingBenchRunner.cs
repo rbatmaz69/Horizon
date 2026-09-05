@@ -85,6 +85,15 @@ namespace Horizon.EditorTools
             public float LiftOffYawChange;
             public float SlalomRollDegrees;
             public float SlalomG;
+
+            /// <summary>Seconds from reversing to moving forward again, throttle only.</summary>
+            public float ReverseRecoverySeconds;
+
+            /// <summary>
+            /// How fast the car is still going backwards, km/h, with the throttle <i>and</i> a stuck
+            /// brake both held. Zero is the pass.
+            /// </summary>
+            public float StuckPedalReverseKmh;
         }
 
         private readonly BenchInput input = new BenchInput();
@@ -145,6 +154,7 @@ namespace Horizon.EditorTools
                 yield return CoastDown(results, i);
                 yield return Skidpad(results, i);
                 yield return Slalom(results, i);
+                yield return Reverse(results, i);
             }
 
             Report(results);
@@ -308,6 +318,66 @@ namespace Horizon.EditorTools
             }
 
             results[index].BrakingDistance = distance;
+        }
+
+        /// <summary>
+        /// Getting out of reverse, and the one case in this bench that is about the controls rather
+        /// than the tyres.
+        ///
+        /// <para><b>Two things are measured and the second is the regression.</b> This car has one
+        /// pedal for braking and reversing — brake below 0.6 m/s means reverse — and every backwards
+        /// speed there is sits below that threshold. So while the car is reversing, a brake input can
+        /// only mean "reverse harder", and it used to beat the throttle outright: press forward and the
+        /// car accelerated away from you with the pedal you were holding doing nothing.</para>
+        ///
+        /// <para>With two working buttons nobody reaches that. Without them it is easy: a finger on the
+        /// brake when a notification arrives leaves it latched at 1 with no pointer-up ever coming, and
+        /// the car then brakes itself to a stop, reverses on its own and refuses to come back. This
+        /// holds both pedals at once, which is exactly that state and is otherwise unreachable, and
+        /// asks whether the car still accelerates backwards.</para>
+        /// </summary>
+        private IEnumerator Reverse(Result[] results, int index)
+        {
+            yield return Reset();
+
+            // Into reverse the way a player gets there: hold the one pedal and wait.
+            input.Brake = 1f;
+
+            float elapsed = 0f;
+            while (Speed > -3f && elapsed < 20f)
+            {
+                yield return step;
+                elapsed += Time.fixedDeltaTime;
+            }
+
+            // --- Both pedals, which is the stuck-brake case. The throttle is unambiguous and must win.
+            input.Throttle = 1f;
+
+            float worst = Speed;
+            elapsed = 0f;
+
+            while (elapsed < 3f)
+            {
+                yield return step;
+                elapsed += Time.fixedDeltaTime;
+                worst = Mathf.Min(worst, Speed);
+            }
+
+            results[index].StuckPedalReverseKmh = Mathf.Max(0f, -Speed) * KmhPerMs;
+
+            // --- And the ordinary case: brake off, throttle on, how long back to going forwards.
+            input.Brake = 0f;
+
+            elapsed = 0f;
+            while (Speed < 1f && elapsed < 20f)
+            {
+                yield return step;
+                elapsed += Time.fixedDeltaTime;
+            }
+
+            results[index].ReverseRecoverySeconds = Speed >= 1f ? elapsed : float.NaN;
+
+            input.Clear();
         }
 
         /// <summary>
@@ -547,6 +617,41 @@ namespace Horizon.EditorTools
                     Number(r.LiftOffYawChange * 100f, 1),
                     Number(r.SlalomRollDegrees, 1),
                     Number(r.SlalomG, 2)));
+            }
+
+            text.AppendLine();
+            text.AppendLine("Getting out of reverse");
+            text.AppendLine(
+                "Car          Recover s   Stuck-pedal km/h back");
+
+            var worstStuck = 0f;
+
+            for (int i = 0; i < results.Length; i++)
+            {
+                Result r = results[i];
+                worstStuck = Mathf.Max(worstStuck, r.StuckPedalReverseKmh);
+
+                text.AppendLine(string.Format(
+                    culture,
+                    "{0,-12}{1,10}{2,24}",
+                    r.Name,
+                    Number(r.ReverseRecoverySeconds, 2),
+                    Number(r.StuckPedalReverseKmh, 1)));
+            }
+
+            text.AppendLine();
+            text.AppendLine("Recover s is throttle-only, from 3 m/s backwards to 1 m/s forwards.");
+            text.AppendLine("Stuck-pedal is how fast the car is still going backwards with the throttle");
+            text.AppendLine("and a latched brake both held -- the state a lost pointer-up leaves behind.");
+            text.AppendLine("Anything but zero there is the car driving away from the pedal being asked.");
+
+            if (worstStuck > 1f)
+            {
+                Debug.LogError(
+                    $"[Horizon] A car still reverses at {worstStuck:0.0} km/h with the throttle held. "
+                    + "The brake is beating the throttle into reverse, which is what a latched pedal "
+                    + "looks like from the driver's seat: a car that accelerates on its own and will "
+                    + "not come back. See VehicleController's reverse condition.");
             }
 
             text.AppendLine();

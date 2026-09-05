@@ -898,10 +898,29 @@ namespace Horizon.Vehicle
             steerAngle = Mathf.MoveTowards(steerAngle, targetSteer, config.SteerRate * deltaTime);
 
             // Brake doubles as reverse once we are almost stopped — one pedal, no gear selection.
+            //
+            // <b>Unless the driver is also asking to go forward, and that exception is not a nicety.</b>
+            // Reverse used to be taken from the brake whenever the car was under 0.6 m/s, which
+            // includes every backwards speed there is — so once the car was reversing, a brake input
+            // could only ever mean "reverse harder", and `Mathf.Max(throttle, reverse)` downstream let
+            // it beat the throttle. Press forward and the car reversed away from you, with the pedal
+            // you were holding doing nothing at all.
+            //
+            // That is unreachable with two working buttons and perfectly reachable without them: a
+            // finger on the brake when a notification arrives leaves it latched at 1 with no
+            // pointer-up ever coming — see DriveInputRouter.OnApplicationFocus for the other half of
+            // this — and the car then brakes itself to a stop, reverses on its own, and refuses to
+            // come back. Both halves of what that looks like from the driver's seat were reported
+            // together, which is what identified it.
+            //
+            // The throttle is the one input in this scheme that is unambiguous: there is exactly one
+            // thing it can mean. So it wins, and the brake stays a brake — the car does not lurch
+            // forward under a stuck pedal, it simply stops going backwards, which is honest about
+            // what is being held.
             float throttle = drive.Throttle;
             float brake = drive.Brake;
             float reverse = 0f;
-            if (brake > 0f && forwardSpeed < 0.6f)
+            if (brake > 0f && throttle <= 0f && forwardSpeed < 0.6f)
             {
                 reverse = brake;
                 brake = 0f;

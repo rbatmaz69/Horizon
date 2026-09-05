@@ -124,6 +124,40 @@ namespace Horizon.Input
             Apply(method, Pedals, save: true);
         }
 
+        /// <summary>
+        /// Lets go of every on-screen control when the app stops being the thing in front of the
+        /// player.
+        ///
+        /// <para><b>A pedal is held by a finger, and a finger that leaves with the app never sends its
+        /// release.</b> <c>TouchHoldButton</c> writes on pointer-down and clears on pointer-up, and
+        /// clears again in <c>OnDisable</c> — which covers the pause menu, because that hides the
+        /// controls. It does not cover a notification pulling the shade down, a call arriving, the home
+        /// gesture, or Android's edge-swipe cancelling a touch: the app keeps running, the widget stays
+        /// enabled, and the pointer-up simply never arrives. What is left behind is a throttle latched
+        /// at 1 — a car that accelerates on its own — or a brake latched at 1, which below 0.6 m/s is
+        /// this car's reverse, so it drives itself backwards.</para>
+        ///
+        /// <para>Both callbacks, because Android does not use them interchangeably: losing focus to a
+        /// notification shade raises one, going to the background raises the other, and which of the
+        /// two arrives depends on the launcher and the gesture. Clearing twice costs six
+        /// assignments.</para>
+        /// </summary>
+        private void OnApplicationFocus(bool focused)
+        {
+            if (!focused)
+            {
+                TouchControlState.Clear();
+            }
+        }
+
+        private void OnApplicationPause(bool paused)
+        {
+            if (paused)
+            {
+                TouchControlState.Clear();
+            }
+        }
+
         /// <summary>Switches the pedal half, keeping the steering.</summary>
         public void SetPedals(PedalMethod method)
         {
