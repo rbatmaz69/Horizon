@@ -194,6 +194,7 @@ namespace Horizon.EditorTools
                 multiplayer.HostLabels,
                 multiplayer.Address,
                 room.Status,
+                room.Name,
                 room.Players,
                 room.PlayerLabels);
 
@@ -238,6 +239,7 @@ namespace Horizon.EditorTools
             public Button Leave;
             public Button Back;
             public Button Drive;
+            public InputField Name;
         }
 
         /// <summary>
@@ -318,7 +320,9 @@ namespace Horizon.EditorTools
             page.Status.color = new Color(1f, 1f, 1f, 0.72f);
             page.Status.horizontalOverflow = HorizontalWrapMode.Wrap;
 
-            RectTransform list = TouchUiSetup.ScrollList(page.Panel, "Players", 4);
+            // Three visible rather than four, to pay for the name field below. It scrolls, and eight
+            // rows was never going to fit on a page that also has to carry a way out and a way on.
+            RectTransform list = TouchUiSetup.ScrollList(page.Panel, "Players", 3);
             page.Players = new Button[NetProtocol.MaxPeers];
             page.PlayerLabels = new Text[NetProtocol.MaxPeers];
 
@@ -335,6 +339,12 @@ namespace Horizon.EditorTools
                 // And off until there is somebody to name. Same finding as the host list above.
                 page.Players[i].gameObject.SetActive(false);
             }
+
+            // Here as well as on the page before it, because once you are in a room that page is
+            // unreachable — MultiplayerScreen.Open sends you straight here — and a nickname you cannot
+            // change after joining is a nickname almost nobody sets, since the moment you want one is
+            // when you see everybody else's. The two fields are kept in step by the screen.
+            page.Name = TextField(page.Panel, box, "Name", "Your name");
 
             // The point of being in a room, and it is the accent button for that reason. It was not
             // here at first and the way out was Back and then Drive from the front page — two people

@@ -2557,6 +2557,24 @@ implementations allocate — an `IPEndPoint` per datagram received and a `Socket
 at fifteen hertz across seven guests is a couple of kilobytes a second of garbage in a game whose budget
 forbids any.
 
+**A guest's `Hello` repeats for ever, and stopping it at the join was a real bug.** It was sent once a
+second only until the roster came back with the guest's own token in it — a name delivered as an
+*event*, in a protocol whose entire argument is that identity, like everything else here, is state
+that gets resent. What that produced was an asymmetry visible from the car: `ExpirePeers` rewrites the
+**host's** own roster row from `PlayerChoices` every frame, so the host's nickname changed live, while
+a guest who typed theirs after joining — which is when anybody types one, because that is when you see
+everybody else's — was stuck under `Driver n` for the rest of the session. Changing car or paint
+mid-session had the same hole, hidden only because a snapshot carries body and paint too. It costs
+forty-six bytes a second and it makes the join stop being a special case: the packet that introduces a
+guest and the packet that keeps it current are the same packet. The build string that rides along is
+compared as bytes now rather than decoded, since it arrives once a second per peer for ever.
+
+**The name field is on both room pages, and that is not duplication.** Once a guest is in a room,
+`MultiplayerScreen.Open` sends them to the room page and the page carrying the field is unreachable —
+so a nickname could only be set before joining, which is before anybody knows they want one. The two
+fields are written through one method for the reason the map's key reads its swatches off the graphic:
+two boxes showing one value that could disagree is the menu lying about the world.
+
 **A channel that speaks is admitted, whether or not it introduced itself.** A guest whose `Hello` was
 dropped would otherwise send snapshots into a host that never draws them, for ever, because the thing that
 would fix it is the packet that went missing. It is also what makes `LoopbackTransport` work with no

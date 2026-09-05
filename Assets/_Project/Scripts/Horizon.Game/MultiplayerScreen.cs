@@ -42,6 +42,11 @@ namespace Horizon.Game
 
         [Header("Room page")]
         [SerializeField] private Text roomStatus;
+
+        [Tooltip("The same name, on the page you are on once you are in a room. Kept in step with the "
+               + "one on the join page — two fields showing one value that could disagree would be a "
+               + "menu arguing with itself.")]
+        [SerializeField] private InputField roomNameField;
         [SerializeField] private Button[] playerRows = new Button[0];
         [SerializeField] private Text[] playerLabels = new Text[0];
 
@@ -57,26 +62,32 @@ namespace Horizon.Game
                 session = FindFirstObjectByType<NetSession>();
             }
 
-            if (nameField != null)
+            Prepare(nameField);
+            Prepare(roomNameField);
+        }
+
+        private void Prepare(InputField field)
+        {
+            if (field == null)
             {
-                nameField.characterLimit = PlayerChoices.MaxNameLength;
-                nameField.text = PlayerChoices.Name;
-                nameField.onEndEdit.AddListener(OnNameChanged);
+                return;
             }
+
+            field.characterLimit = PlayerChoices.MaxNameLength;
+            field.text = PlayerChoices.Name;
+            field.onEndEdit.AddListener(OnNameChanged);
         }
 
         private void OnDestroy()
         {
             nameField?.onEndEdit.RemoveListener(OnNameChanged);
+            roomNameField?.onEndEdit.RemoveListener(OnNameChanged);
         }
 
         /// <summary>Bound beside the page navigation on whatever button opens this page.</summary>
         public void Open()
         {
-            if (nameField != null)
-            {
-                nameField.SetTextWithoutNotify(PlayerChoices.Name);
-            }
+            ShowName();
 
             // The button that gets here navigates to the join page first and then calls this, in that
             // order, because a persistent listener list fires in the order it was built. That is what
@@ -192,6 +203,7 @@ namespace Horizon.Game
             if (session.InRoom)
             {
                 open = false;
+                ShowName();
                 panels?.Show((int)MenuPage.Room);
             }
         }
@@ -200,6 +212,23 @@ namespace Horizon.Game
         {
             PlayerChoices.Name = value != null ? value.Trim() : string.Empty;
             PlayerChoices.Save();
+
+            // Both fields, so the one that was not typed into does not go on showing the old name.
+            // Without notify, or this would call itself.
+            ShowName();
+        }
+
+        /// <summary>
+        /// Puts the saved name into both fields.
+        ///
+        /// <para>Written straight through rather than only when a page opens: the guest's name now
+        /// goes out in every <c>Hello</c>, so what is in these two boxes is what the other players
+        /// see, and two boxes disagreeing about it would be the menu lying about the world.</para>
+        /// </summary>
+        private void ShowName()
+        {
+            nameField?.SetTextWithoutNotify(PlayerChoices.Name);
+            roomNameField?.SetTextWithoutNotify(PlayerChoices.Name);
         }
 
         private void CommitName()
@@ -411,6 +440,7 @@ namespace Horizon.Game
             Text[] rowLabels,
             InputField address,
             Text roomLabel,
+            InputField roomName,
             Button[] players,
             Text[] playerCaptions)
         {
@@ -424,6 +454,7 @@ namespace Horizon.Game
             hostLabels = rowLabels;
             addressField = address;
             roomStatus = roomLabel;
+            roomNameField = roomName;
             playerRows = players;
             playerLabels = playerCaptions;
         }

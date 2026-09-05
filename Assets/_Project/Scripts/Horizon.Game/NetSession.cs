@@ -76,6 +76,9 @@ namespace Horizon.Game
         private readonly byte[] nameScratch = new byte[NetProtocol.NameBytes];
         private readonly byte[] buildScratch = new byte[NetProtocol.BuildBytes];
 
+        /// <summary>This build's own version, encoded once, to compare an arriving one against.</summary>
+        private readonly byte[] ownBuildBytes = new byte[NetProtocol.BuildBytes];
+
         private readonly PeerInfo[] roster = new PeerInfo[NetProtocol.MaxPeers];
         private readonly byte[][] rosterNameBytes = new byte[NetProtocol.MaxPeers][];
         private readonly CarSnapshot[] latest = new CarSnapshot[NetProtocol.MaxPeers];
@@ -192,6 +195,12 @@ namespace Horizon.Game
             {
                 rosterNameBytes[i] = new byte[NetProtocol.NameBytes];
             }
+
+            // Encoded through the same writer a Hello is, so the two cannot disagree about padding or
+            // truncation — the comparison is against what this build would have sent, not against what
+            // this build calls itself.
+            var writer = new NetWriter(ownBuildBytes, 0);
+            writer.FixedString(Application.version, NetProtocol.BuildBytes);
         }
 
         /// <summary>
@@ -520,14 +529,16 @@ namespace Horizon.Game
             byte carBody = reader.Byte();
             byte carPaint = reader.Byte();
             reader.FixedStringBytes(nameScratch, NetProtocol.NameBytes);
-            int buildUsed = reader.FixedStringBytes(buildScratch, NetProtocol.BuildBytes);
+            reader.FixedStringBytes(buildScratch, NetProtocol.BuildBytes);
 
             // Same protocol, different world. The geometry is baked, so two builds agree about the
             // rules and disagree about where the mountains are — which is the worse of the two
             // failures, because everything looks like it is working.
-            string build = System.Text.Encoding.UTF8.GetString(buildScratch, 0, buildUsed);
-
-            if (build != Application.version)
+            //
+            // Compared as bytes against this build's own encoding rather than decoded to a string.
+            // A Hello now arrives once a second from every guest for as long as they are in the room,
+            // and decoding one to find it equal to the last is a string a second per peer.
+            if (!SameBytes(ownBuildBytes, buildScratch))
             {
                 SendReject(channel, peerToken, NetReject.Build);
                 DropPeer(peerId);
@@ -731,10 +742,23 @@ namespace Horizon.Game
                     SendRoom();
                     SendLaps();
                 }
-                else if (!Admitted)
+                else
                 {
-                    // Repeated rather than acknowledged: this is the join, and it keeps going until the
-                    // roster comes back with our own token in it.
+                    // On the same beat for ever, not only until the roster comes back with our own
+                    // token in it.
+                    //
+                    // <b>This is a guest's identity, and identity is state like everything else on
+                    // this wire.</b> Sent once, a name is an event — and the moment it stopped being
+                    // resent, a guest who typed their nickname after joining was invisible under it
+                    // for the rest of the session, while the host's own name changed live because
+                    // ExpirePeers rewrites the host's row from PlayerChoices every frame. That
+                    // asymmetry is exactly what it looked like from the car: the host had a name and
+                    // everybody else was "Driver n". Changing car or paint mid-session had the same
+                    // hole in the roster, hidden only because a snapshot carries body and paint too.
+                    //
+                    // Forty-six bytes a second, and it makes the join itself no longer a special case:
+                    // the packet that introduces a guest and the packet that keeps it current are the
+                    // same packet.
                     SendHello();
                 }
             }
