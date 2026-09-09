@@ -75,6 +75,21 @@ namespace Horizon.Game
                    + "project can draw.")]
             public bool CameraAntialiasing;
 
+            [Tooltip("Whether the camera runs the renderer that carries screen-space ambient occlusion.\n\n"
+                   + "There is no ambient occlusion of any kind on the shipping path otherwise: the "
+                   + "shared shader writes occlusion = 1, nothing here bakes GI, and the SSAO feature "
+                   + "existed only on the renderer the editor uses. Under a single directional light on "
+                   + "flat-shaded geometry that leaves a rock face reading as one slab and a tree "
+                   + "standing on the ground with nothing under it.\n\n"
+                   + "A second renderer rather than a switch on the feature, and that is the whole "
+                   + "reason this is a preset at all. ScriptableRendererFeature.SetActive writes m_Active "
+                   + "on an asset, and Unity does not roll an asset change back when Play mode ends — so "
+                   + "a player who tried Low once would leave Mobile_Renderer.asset modified in the "
+                   + "working tree, which is the hazard this class opens with. Pointing the camera at "
+                   + "one of two renderers is a scene-side call and is discarded with the rest of Play "
+                   + "mode.")]
+            public bool AmbientOcclusion;
+
             [Tooltip("Exhaust smoke and flames. Two particle systems on the active body.")]
             public bool ExhaustParticles;
 
@@ -182,6 +197,7 @@ namespace Horizon.Game
             }
 
             SetCameraAntialiasing(level.CameraAntialiasing);
+            SetAmbientOcclusion(level.AmbientOcclusion);
             SetExhaustEnabled(level.ExhaustParticles);
             SetTyreSmokeEnabled(level.TyreSmokeParticles);
             SetAirRushEnabled(level.AirRushParticles);
@@ -220,6 +236,47 @@ namespace Horizon.Game
                 ? AntialiasingMode.FastApproximateAntialiasing
                 : AntialiasingMode.None;
         }
+
+        /// <summary>
+        /// Points the camera at the renderer with ambient occlusion on it, or at the one without.
+        ///
+        /// <para>Guarded on the count rather than assumed, because the two pipeline assets do not carry
+        /// the same number of renderers and never will. <c>Mobile_RPAsset</c> has two — plain and AO —
+        /// while <c>PC_RPAsset</c> has one, whose single renderer already carries SSAO of its own; the
+        /// editor therefore falls through to index 0 and gets it anyway, which is the behaviour it has
+        /// always had. An unguarded <c>SetRenderer(1)</c> there is a warning every frame and a camera
+        /// pointed at nothing.</para>
+        ///
+        /// <para><c>rendererDataList</c> is the only public way to ask, and asking is the point: the
+        /// alternative is a constant here saying how many renderers an asset this file does not own
+        /// happens to have.</para>
+        /// </summary>
+        private static void SetAmbientOcclusion(bool enabled)
+        {
+            Camera camera = Camera.main;
+            if (camera == null)
+            {
+                return;
+            }
+
+            UniversalAdditionalCameraData data = camera.GetUniversalAdditionalCameraData();
+            UniversalRenderPipelineAsset pipeline = UniversalRenderPipeline.asset;
+
+            if (data == null || pipeline == null)
+            {
+                return;
+            }
+
+            int wanted = enabled ? AmbientOcclusionRenderer : PlainRenderer;
+
+            data.SetRenderer(wanted < pipeline.rendererDataList.Length ? wanted : PlainRenderer);
+        }
+
+        /// <summary>Index of the renderer with no ambient occlusion on it.</summary>
+        private const int PlainRenderer = 0;
+
+        /// <summary>And of the one that has it. Only <c>Mobile_RPAsset</c> carries a second.</summary>
+        private const int AmbientOcclusionRenderer = 1;
 
         /// <summary>
         /// Thins the rain rather than switching it off.

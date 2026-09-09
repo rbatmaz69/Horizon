@@ -253,6 +253,7 @@ namespace Horizon.EditorTools
             public readonly Material WindowDay;
             public readonly Material WindowNight;
             public readonly Material LampNight;
+            public readonly Material LampPool;
 
             /// <summary>
             /// A filling station's sign face. Unlit and bright, and it never changes.
@@ -487,6 +488,18 @@ namespace Horizon.EditorTools
                 LampNight = HorizonAssetUtility.LoadOrCreateUnlitMaterial(
                     MaterialsFolder + "/M_LampNight.mat", "M_LampNight",
                     new Color(1.90f, 1.72f, 1.28f));
+
+                // And the pool that lamp throws on the road, which is emphatically not the same
+                // brightness. It shared M_LampNight for the life of the project and came out as a sheet
+                // of paper lying in the carriageway: a lantern is 20 cm of box and is *meant* to blow
+                // out, a pool is three metres of tarmac being lit and is meant to stay tarmac.
+                //
+                // Under 1 on every channel for that reason — this is a surface catching light rather
+                // than a light — and warmer than the lantern, because what reaches the ground has come
+                // off a sodium source and then off asphalt.
+                LampPool = HorizonAssetUtility.LoadOrCreateUnlitMaterial(
+                    MaterialsFolder + "/M_LampPool.mat", "M_LampPool",
+                    new Color(0.62f, 0.54f, 0.38f));
 
                 // Warm near-white, and under 1 on every channel unlike the lamps above: those are light
                 // sources and are allowed to blow out, this is a painted panel catching the day. It has
@@ -4191,7 +4204,50 @@ namespace Horizon.EditorTools
                     + $"{pipeline.shadowCascadeCount} cascade{(pipeline.shadowCascadeCount == 1 ? "" : "s")} "
                     + $"at {pipeline.mainLightShadowmapResolution} ({texels * 100f:0.0} cm a texel), "
                     + $"quality volume profile "
-                    + $"{(pipeline.volumeProfile != null ? pipeline.volumeProfile.name : "none")}.");
+                    + $"{(pipeline.volumeProfile != null ? pipeline.volumeProfile.name : "none")}; "
+                    + $"renderers {DescribeRenderers(pipeline)}.");
+        }
+
+        /// <summary>
+        /// The renderers an asset carries and what is on each of them.
+        ///
+        /// <para><b>Printed because a renderer feature is invisible from everywhere else.</b> SSAO sat
+        /// on <c>PC_Renderer</c> and nowhere else for the life of the project, so the editor had ambient
+        /// occlusion and the phone had none — and nothing anybody would read said so, in a world whose
+        /// shared shader writes <c>occlusion = 1</c> and which bakes no GI at all. The index matters as
+        /// much as the names: <c>QualityDirector</c> points the camera at renderer 1 for ambient
+        /// occlusion, and a list that came back in a different order would put the phone on a renderer
+        /// nobody chose.</para>
+        /// </summary>
+        private static string DescribeRenderers(UniversalRenderPipelineAsset pipeline)
+        {
+            var described = new List<string>();
+
+            for (int i = 0; i < pipeline.rendererDataList.Length; i++)
+            {
+                ScriptableRendererData data = pipeline.rendererDataList[i];
+                if (data == null)
+                {
+                    described.Add($"{i}: missing");
+                    continue;
+                }
+
+                var features = new List<string>();
+                for (int f = 0; f < data.rendererFeatures.Count; f++)
+                {
+                    ScriptableRendererFeature feature = data.rendererFeatures[f];
+                    if (feature != null)
+                    {
+                        features.Add($"{feature.name}{(feature.isActive ? "" : " (off)")}");
+                    }
+                }
+
+                described.Add(features.Count > 0
+                    ? $"{i}: {data.name} [{string.Join(", ", features)}]"
+                    : $"{i}: {data.name} [none]");
+            }
+
+            return string.Join(" | ", described);
         }
 
         /// <summary>
@@ -5665,7 +5721,7 @@ namespace Horizon.EditorTools
                     int index, string name,
                     float streamLoad, float streamUnload, float streamMargin,
                     int trafficBudget, float trafficLoad, float trafficRecycle,
-                    bool shadows, bool antialiasing,
+                    bool shadows, bool antialiasing, bool ambientOcclusion,
                     bool exhaust, bool tyreSmoke, bool airRush, float rainDrops,
                     float bloom, int frameRate)
                 {
@@ -5679,6 +5735,7 @@ namespace Horizon.EditorTools
                     level.FindPropertyRelative("TrafficRecycleRadius").floatValue = trafficRecycle;
                     level.FindPropertyRelative("SunShadows").boolValue = shadows;
                     level.FindPropertyRelative("CameraAntialiasing").boolValue = antialiasing;
+                    level.FindPropertyRelative("AmbientOcclusion").boolValue = ambientOcclusion;
                     level.FindPropertyRelative("ExhaustParticles").boolValue = exhaust;
                     level.FindPropertyRelative("TyreSmokeParticles").boolValue = tyreSmoke;
                     level.FindPropertyRelative("AirRushParticles").boolValue = airRush;
@@ -5707,17 +5764,22 @@ namespace Horizon.EditorTools
                 // costs. Everywhere else it is on, because a world of hard flat-shaded facets rendered
                 // at RenderScale 0.8 is the worst case for edge crawl there is, and it had nothing at
                 // all until this column existed.
+                // Ambient occlusion is the one column that is High alone rather than following the
+                // shadows, and the reason is that its cost is the only one here nobody at a desk can
+                // measure. It is an extra full-screen pass and a blur on a tile GPU; everything else in
+                // this table was chosen against a number the build prints. Balanced is the setting this
+                // game is meant to be played at, so it is the one that does not get an experiment.
                 Set((int)QualityPreset.Low, "Low",
                     380f, 500f, 140f, 24, 320f, 460f,
-                    false, false, false, true, false, 0.33f, 0f, 30);
+                    false, false, false, false, true, false, 0.33f, 0f, 30);
 
                 Set((int)QualityPreset.Balanced, "Balanced",
                     650f, 820f, 220f, 56, 650f, 900f,
-                    true, true, true, true, true, 0.7f, 1f, 60);
+                    true, true, false, true, true, true, 0.7f, 1f, 60);
 
                 Set((int)QualityPreset.High, "High",
                     820f, 1000f, 260f, TrafficPoolSize, 800f, 1050f,
-                    true, true, true, true, true, 1f, 1f, 60);
+                    true, true, true, true, true, true, 1f, 1f, 60);
             });
         }
 
@@ -8217,8 +8279,9 @@ namespace Horizon.EditorTools
                         // mesh is built: the lit glass is not in slot 7 on a tile that has no ochre walls.
                         int litSlot = townStats.Submeshes.IndexOf(BuildingMeshes.WindowLitSubmesh);
                         int lampSlot = townStats.Submeshes.IndexOf(BuildingMeshes.LampLitSubmesh);
+                        int poolSlot = townStats.Submeshes.IndexOf(BuildingMeshes.LampPoolSubmesh);
 
-                        if (litSlot >= 0 || lampSlot >= 0)
+                        if (litSlot >= 0 || lampSlot >= 0 || poolSlot >= 0)
                         {
                             townRenderers.Add(townObject.GetComponent<MeshRenderer>());
 
@@ -8232,6 +8295,12 @@ namespace Horizon.EditorTools
                             {
                                 townSlots.Add(lampSlot);
                                 townSlotGroups.Add((int)LitGroup.Lamps);
+                            }
+
+                            if (poolSlot >= 0)
+                            {
+                                townSlots.Add(poolSlot);
+                                townSlotGroups.Add((int)LitGroup.LampPools);
                             }
 
                             townSlotStart.Add(townSlots.Count);
@@ -8836,12 +8905,14 @@ namespace Horizon.EditorTools
                     {
                         materials.WindowDay, materials.Lane,
                         materials.WindowDay, materials.WindowDay,
+                        materials.Lane,
                     });
                 HorizonAssetUtility.SetObjectArray(serialized, "nightMaterials",
                     new[]
                     {
                         materials.WindowNight, materials.LampNight,
                         materials.LampNight, materials.TailNight,
+                        materials.LampPool,
                     });
             });
         }
@@ -9274,11 +9345,15 @@ namespace Horizon.EditorTools
                     // TownLights swaps this one after sunset.
                     result[i] = materials.WindowDay;
                 }
-                else if (submesh == BuildingMeshes.LampLitSubmesh)
+                else if (submesh == BuildingMeshes.LampLitSubmesh
+                         || submesh == BuildingMeshes.LampPoolSubmesh)
                 {
                     // The street's own material, so the pool of light on the carriageway is not merely
                     // close to the road colour by day but is the road colour, to the last digit. The
                     // lantern head goes dark grey with it, which is what an unlit lantern is.
+                    //
+                    // Both take it, and they differ only after dusk — which is the whole reason the pool
+                    // was split out. By day there is nothing to tell apart.
                     result[i] = materials.Lane;
                 }
                 else

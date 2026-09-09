@@ -8,7 +8,7 @@ namespace Horizon.World
         /// <summary>House and landmark glass — only the panes that drew into the lit submesh.</summary>
         Windows = 0,
 
-        /// <summary>Lantern heads and the pools of light under them.</summary>
+        /// <summary>Lantern heads.</summary>
         Lamps = 1,
 
         /// <summary>Ambient traffic's headlights. Never <c>Light</c> components — see TrafficDirector.</summary>
@@ -16,6 +16,20 @@ namespace Horizon.World
 
         /// <summary>And their tail lamps, which are the pair the player actually drives behind.</summary>
         Taillights = 3,
+
+        /// <summary>
+        /// The pools of light the lanterns throw on the carriageway.
+        ///
+        /// <para><b>Split off <see cref="Lamps"/>, which they shared for the life of the project, and
+        /// the fault was that they came out exactly as bright as the lantern.</b> A lantern head is a
+        /// 20 cm box that clips to white and reads as a bulb; the same white spread over three metres of
+        /// tarmac reads as a sheet of paper lying in the road. They are one thing physically and two
+        /// things to look at, and level is the whole difference — which is a material, which is a group.</para>
+        ///
+        /// <para>Appended, never inserted. The group is written into the scene as a bare integer in
+        /// <c>slotGroup</c>, and the two threshold arrays are indexed by it.</para>
+        /// </summary>
+        LampPools = 4,
     }
 
     /// <summary>
@@ -73,11 +87,11 @@ namespace Horizon.World
         [Tooltip("Sun intensity below which each group lights up, indexed by LitGroup. Lamps and "
                + "headlights come on earlier than windows: street lighting and dipped beams are both on "
                + "while there is still light in the sky.")]
-        [SerializeField] private float[] nightSunIntensity = { 0.38f, 0.55f, 0.60f, 0.60f };
+        [SerializeField] private float[] nightSunIntensity = { 0.38f, 0.55f, 0.60f, 0.60f, 0.55f };
 
         [Tooltip("Sun intensity each group stays lit until. The gap is hysteresis — a single threshold "
                + "sits in the middle of dusk, where the sun barely moves, and the whole town flickers.")]
-        [SerializeField] private float[] dawnSunIntensity = { 0.50f, 0.68f, 0.72f, 0.72f };
+        [SerializeField] private float[] dawnSunIntensity = { 0.50f, 0.68f, 0.72f, 0.72f, 0.68f };
 
         private bool[] lit;
         private bool applied;

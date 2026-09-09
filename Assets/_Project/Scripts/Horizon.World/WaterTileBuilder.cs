@@ -53,8 +53,27 @@ namespace Horizon.World
         /// </summary>
         private const float DeepAt = 3.5f;
 
-        /// <summary>Under how much water the foam band shows.</summary>
+        /// <summary>
+        /// Under how much water the foam band shows, on average.
+        ///
+        /// <para><b>On average, because a constant here draws the waterline as a perfect offset of the
+        /// bank.</b> The shore is already a jagged mesh edge and the foam is already a colour band on
+        /// it, so a fixed depth gives a band of exactly even width following every wiggle — which is
+        /// what a contour line does and not what a beach does. One noise lookup at the sample's own
+        /// position widens and narrows it by <see cref="FoamWander"/>, so the band pools in some places
+        /// and thins to nothing in others. It costs a Perlin call per water vertex at build time and
+        /// not one byte at run time.</para>
+        ///
+        /// <para>Unity's Perlin rather than a hand-rolled one, which is the rule <c>SurfaceRelief</c>
+        /// states: this bakes once, so a changed implementation would move the foam and nothing else.</para>
+        /// </summary>
         private const float FoamDepth = 0.55f;
+
+        /// <summary>How much of the foam depth the wander adds or takes away.</summary>
+        private const float FoamWander = 0.55f;
+
+        /// <summary>Metres per cycle of that wander. About a bus length, so it reads from the road.</summary>
+        private const float FoamWanderScale = 0.06f;
 
         /// <summary>
         /// How much finer than the terrain the water is meshed.
@@ -263,7 +282,7 @@ namespace Horizon.World
             // moving surface costs nothing here either — but it is faded out in the shallows on purpose:
             // a swell that keeps its full amplitude right up to the beach slides the waterline back and
             // forth across the sand, which reads as the shore being loose rather than as water.
-            Color32 tint = TintFor(depth);
+            Color32 tint = TintFor(depth, x, z);
             float sway = WaterSway * Mathf.Clamp01(depth / SwellShallows);
 
             colours.Add(new Color32(tint.r, tint.g, tint.b, (byte)Mathf.RoundToInt((1f - sway) * 255f)));
@@ -282,14 +301,18 @@ namespace Horizon.World
         /// rather than linear because the interesting part of the change is all in the first two
         /// metres.</para>
         /// </summary>
-        private static Color32 TintFor(float depth)
+        private static Color32 TintFor(float depth, float x, float z)
         {
-            if (depth < FoamDepth)
+            // Where the foam reaches to at this point of the shore, rather than everywhere.
+            float wander = Mathf.PerlinNoise(x * FoamWanderScale + 91.7f, z * FoamWanderScale + 41.3f);
+            float foamDepth = Mathf.Max(0.05f, FoamDepth * (1f + (wander * 2f - 1f) * FoamWander));
+
+            if (depth < foamDepth)
             {
-                return Color32.Lerp(FoamTint, ShallowTint, Mathf.Clamp01(depth / FoamDepth));
+                return Color32.Lerp(FoamTint, ShallowTint, Mathf.Clamp01(depth / foamDepth));
             }
 
-            float t = Mathf.Clamp01((depth - FoamDepth) / Mathf.Max(0.01f, DeepAt - FoamDepth));
+            float t = Mathf.Clamp01((depth - foamDepth) / Mathf.Max(0.01f, DeepAt - foamDepth));
             return Color32.Lerp(ShallowTint, DeepTint, Mathf.SmoothStep(0f, 1f, t));
         }
     }

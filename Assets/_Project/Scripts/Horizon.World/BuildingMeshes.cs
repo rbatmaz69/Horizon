@@ -97,7 +97,7 @@ namespace Horizon.World
         public const int WindowLitSubmesh = WindowDarkSubmesh + 1;
 
         /// <summary>
-        /// Lantern heads and the pools of light under them.
+        /// Lantern heads.
         ///
         /// Its own submesh rather than sharing <see cref="WindowLitSubmesh"/> because a lamp wants a
         /// brighter, whiter night material than a house window, and by day it wants to be the street
@@ -115,30 +115,57 @@ namespace Horizon.World
         public const int AccentSubmesh = GardenSubmesh + 1;
 
         /// <summary>
-        /// Twelve categories a face can belong to — but no longer twelve draw calls.
+        /// The pool of light a lantern throws on the carriageway.
         ///
-        /// <para>These stay twelve because they are what a <i>builder</i> means: a roof tile is not a
+        /// <para><b>It shared <see cref="LampLitSubmesh"/> with the lantern head, and the night frames
+        /// are what said that was wrong.</b> One material means one brightness, and a 20 cm lantern box
+        /// that clips to white reads as a bulb where the same white spread over three metres of tarmac
+        /// reads as a sheet of paper lying in the road. The two are one thing physically and two things
+        /// to look at.</para>
+        ///
+        /// <para>It costs a draw call on tiles that have street lamps, which is the thirteenth category
+        /// and the third that cannot be merged — see <see cref="SubmeshCount"/> for why that is the
+        /// expensive kind of addition and <see cref="OpaqueTints"/> for what makes it unavoidable here.
+        /// The alternative was a radial falloff in the vertex colour, and there is nowhere to put one:
+        /// the pool is on an unlit material, which ignores vertex colour, and a lit one on a road at
+        /// night is black.</para>
+        /// </summary>
+        public const int LampPoolSubmesh = AccentSubmesh + 1;
+
+        /// <summary>
+        /// Thirteen categories a face can belong to — but nothing like thirteen draw calls.
+        ///
+        /// <para>These stay thirteen because they are what a <i>builder</i> means: a roof tile is not a
         /// shutter, and saying so at the point the face is written is how the palette gets applied at
-        /// all. What changed is the other end. Ten of the twelve are merged into one submesh with their
-        /// colour written into the vertices — see <see cref="OpaqueTints"/> and
-        /// <c>VegetationMeshBuffer.MergeTinted</c> — so a town tile now costs three draw calls where it
-        /// cost twelve, and adding a thirteenth category costs a colour rather than a call.</para>
+        /// all. What changed is the other end. Ten of the thirteen are merged into one submesh with
+        /// their colour written into the vertices — see <see cref="OpaqueTints"/> and
+        /// <c>VegetationMeshBuffer.MergeTinted</c> — so a town tile costs three draw calls where it
+        /// cost twelve, and a fourteenth <i>tinted</i> category would cost a colour rather than a
+        /// call.</para>
+        ///
+        /// <para><b>A category that cannot be tinted is the expensive kind, and there are three.</b>
+        /// <see cref="LampPoolSubmesh"/> was the third and it was added against a draw-call report
+        /// already over its own warning threshold, which is the honest thing to know about it: what it
+        /// buys is a pool of light that is not as bright as the lantern above it, on tiles that have
+        /// street lamps, and it buys nothing anywhere else.</para>
         ///
         /// <para>Merging at the mesh rather than at the fifty-odd call sites is deliberate. Several
         /// builders cache their submesh in a <c>const</c> and reuse it down the method; a scheme that
         /// needed the tint set immediately before every emit would have had to unpick all of them, for
         /// a mesh that comes out identical either way.</para>
         /// </summary>
-        public const int SubmeshCount = AccentSubmesh + 1;
+        public const int SubmeshCount = LampPoolSubmesh + 1;
 
         /// <summary>
         /// The colour each submesh is tinted with when the opaque ones are merged, or null where a
         /// submesh must keep its own material.
         ///
-        /// <para>The two nulls are <see cref="WindowLitSubmesh"/> and <see cref="LampLitSubmesh"/>, and
-        /// they are not an oversight: <c>TownLights</c> swaps their whole material after sunset, and a
-        /// tint baked into a mesh cannot be swapped. Everything else in a building is one colour for
-        /// good, which is exactly what a vertex colour is.</para>
+        /// <para>The three nulls are <see cref="WindowLitSubmesh"/>, <see cref="LampLitSubmesh"/> and
+        /// <see cref="LampPoolSubmesh"/>, and they are not an oversight: <c>TownLights</c> swaps each of
+        /// their whole materials after sunset, and a tint baked into a mesh cannot be swapped.
+        /// Everything else in a building is one colour for good, which is exactly what a vertex colour
+        /// is. They are left unassigned rather than written as an explicit null, which is what the
+        /// array already does for anything not named below.</para>
         /// </summary>
         public static Color?[] OpaqueTints()
         {
@@ -798,9 +825,12 @@ namespace Horizon.World
         /// <para><b>This is the entire night-lighting read, and it is what makes zero runtime lights
         /// affordable.</b> The mobile renderer allows four additional lights per object with no shadows;
         /// a hundred point lights would dominate the frame on a tile GPU for a warm patch on the tarmac,
-        /// which is what this is. Sharing <see cref="LampLitSubmesh"/> with the lantern head makes the
-        /// pool exactly as bright as the lantern — in flat-shaded stylised rendering that reads fine, and
-        /// it saves a submesh.</para>
+        /// which is what this is.</para>
+        ///
+        /// <para>It used to share <see cref="LampLitSubmesh"/> with the lantern head, and the note
+        /// against that said the shared brightness "reads fine". The night frames disagreed: a pool as
+        /// bright as the bulb above it is a sheet of paper in the road. It has a submesh and a material
+        /// of its own now — see <see cref="LampPoolSubmesh"/>, including what that costs.</para>
         ///
         /// <para>The corners arrive in world space already sitting on the street's cross-section, because
         /// a carriageway has a 6 cm crown and a polygon lifted bodily off one height z-fights against it
@@ -829,7 +859,7 @@ namespace Horizon.World
             for (int i = 0; i < count; i++)
             {
                 buffer.AddTriangleFacing(
-                    LampLitSubmesh,
+                    LampPoolSubmesh,
                     centre,
                     corners[start + (i + 1) % count],
                     corners[start + i],

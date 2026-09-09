@@ -121,8 +121,20 @@ in Play mode and the changes persist — that is the intended tuning loop.
 
 - Forward renderer, SRP Batcher on, GPU instancing on, static batching for props
 - Baked lightmaps + light probes; realtime shadows from the sun only, tight cascade distance
-- Post: tonemapping + colour grading always; bloom on Balanced/High only; **no** SSAO, no realtime
-  reflections, no motion blur — see *The frame* for what this specified for years without existing
+- Post: tonemapping + colour grading always; bloom on Balanced/High only; no realtime reflections, no
+  motion blur — see *The frame* for what this specified for years without existing
+- **This line used to say "no SSAO", and it was describing the wrong renderer.** SSAO existed the whole
+  time, on `PC_Renderer`, which is what the editor runs and the phone never does — so the pictures had
+  ambient occlusion and the build did not, in a world whose shared shader writes `occlusion = 1` and
+  which bakes no GI at all. `Mobile_Renderer_AO` is a second renderer on the mobile asset and
+  `QualityDirector` points the camera at it on **High only**, because a camera choosing a renderer is a
+  scene-side call while `ScriptableRendererFeature.SetActive` writes `m_Active` on an asset — the
+  working-tree hazard this file keeps naming. It is configured *after* opaques from the depth copy at
+  half resolution, which is the one arrangement whose cost does not scale with geometry: the
+  depth-normals prepass the PC renderer uses is a second pass over every triangle in the frame, and
+  geometry is what this budget is short of. **Its cost is the only number in this area that has not
+  been measured**, because no picture this project takes goes through the mobile renderer. It needs a
+  device. The build prints every renderer and its features for both assets
 - **MSAA is off, and this line used to say 2×.** That was true when it was written and stopped being
   true when the renderer went to `RenderScale 0.8`: MSAA there is antialiasing an image that is about to
   be bilinearly upscaled, and on a tile GPU 2× halves the tile and doubles the bins in a world that is
@@ -2522,6 +2534,58 @@ the three that carry it** — a far shore across open water, a hem that must not
 a range that must sink rather than clip when the camera is nine hundred metres up. The build log says
 `Backdrop: 3 rings, 384 triangles` and errors at zero, because a world with no horizon in it builds,
 validates and drives exactly like one that has one.
+
+## The light on the road
+
+Street lamps have thrown a pool of light on the carriageway since the towns were built, and the pool
+was **exactly as bright as the lantern above it**. Both were `LampLitSubmesh` on `M_LampNight`, which
+saves a submesh and was written down as reading fine. The night frames disagree: a 20 cm lantern box
+that clips to white reads as a bulb, and the same white spread over three metres of tarmac reads as a
+sheet of paper lying in the road. They are one thing physically and two things to look at, and the
+whole difference is level — which is a material, which is a group.
+
+`LitGroup.LampPools` is that group and `BuildingMeshes.LampPoolSubmesh` is the submesh. `M_LampPool` is
+**under 1 on every channel**, unlike every other lit material in the town: a lantern is a light source
+and is allowed to blow out, a pool is a piece of asphalt being lit and has to stay asphalt. It is
+warmer than the lantern too, because what reaches the ground has come off a sodium source and then off
+the road.
+
+**It costs 40 draw calls at the worst station, and that number is why this took a measurement rather
+than an afternoon.** `ReportDrawCallBudget` said 819 before and 859 after, against a warning threshold
+of 400 that this world has been past for a long time. Everything else in the light-pool idea was
+cheaper and none of it worked: the pool cannot carry a radial falloff, because it is on an unlit
+material and unlit ignores vertex colour, and a lit material on a road at midnight is black; it cannot
+borrow `WindowLitSubmesh`, because that slot's *day* material is dark glass and a dark rectangle in the
+carriageway at noon is worse than a bright one at night; and it cannot be baked into the street mesh,
+because the street cannot switch off at dawn. **A category that cannot be tinted is the expensive kind
+of category** — see `BuildingMeshes.SubmeshCount` — and this is the third of them.
+
+The pool also grew from 1.5 m to 2.1 and from six corners to ten, and those two changes only make
+sense together with the material: a dimmer wash can afford to be wider, where a brighter one could
+not, and a hexagon four metres across has corners you can count from the car. It cannot spill past the
+kerb however far it is pushed, because `AddPoolCorners` seats its centre at
+`HalfWidth − PoolRadius − 0.05` — the far edge lands five centimetres inside the near gutter whatever
+the radius is, and the near edge walks towards the crown instead.
+
+**`WorldPreview_Town_Night_Square` and `WorldPreview_Town_Night_Street` are the two that carry it.**
+Nothing in the build log distinguishes a pool that is the right brightness from one that is not; the
+count is identical either way.
+
+## What the shore does
+
+`WaterTileBuilder` bakes depth into the vertex colour and puts a foam band under the last half-metre,
+which is what makes a waterline read as a line rather than as a gradient that stops. It was a
+**constant** half-metre, so the band came out exactly as wide everywhere and followed every wiggle of
+the bank at a fixed offset — which is what a contour line does, and not what a beach does.
+
+One Perlin lookup at the sample's own position now widens and narrows it by half its own depth, so the
+foam pools in some places and thins to nothing in others. It costs a call per water vertex at build
+time and **nothing at all at run time** — no triangle, no draw call, no material, because the mechanism
+it rides on was already there.
+
+Unity's Perlin rather than a hand-rolled one, which is the rule `SurfaceRelief` states from the other
+side: this bakes once, so a changed implementation would move the foam and nothing else. `SurfaceRelief`
+reverses it because its *derivative* is spent as a damper force at 50 Hz.
 
 ## How long a rebuild takes
 

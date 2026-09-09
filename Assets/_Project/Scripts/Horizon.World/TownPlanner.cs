@@ -55,7 +55,14 @@ namespace Horizon.World
     public readonly struct TownLamp
     {
         /// <summary>Corners in a pool, when it has one. A hexagon: round enough at three metres across.</summary>
-        public const int PoolCorners = 6;
+        /// <summary>
+        /// Corners round a pool of light.
+        ///
+        /// <para>Ten rather than six. A hexagon four metres across has 60-degree corners you can count
+        /// from the car, which reads as a painted sign rather than as light falling; the extra four
+        /// triangles per lamp are the cheapest thing in this file.</para>
+        /// </summary>
+        public const int PoolCorners = 10;
 
         public readonly Vector3 Position;
         public readonly float Yaw;
@@ -655,8 +662,21 @@ namespace Horizon.World
         /// <summary>How far the pool of light floats above the carriageway, metres.</summary>
         private const float PoolLift = 0.03f;
 
-        /// <summary>Radius of a pool of light on the road, metres. Three metres across.</summary>
-        private const float PoolRadius = 1.5f;
+        /// <summary>
+        /// Radius of a pool of light on the road, metres.
+        ///
+        /// <para>2.1 and not the 1.5 it was, and the two changes went together: the pool stopped
+        /// sharing the lantern's material, so it is no longer as bright as the bulb, and a wash that is
+        /// dimmer can afford to be wider. Three metres of white was a patch; four and a bit of warm
+        /// grey is a lamp lighting a street.</para>
+        ///
+        /// <para>It cannot grow past the carriageway however far it is pushed, because
+        /// <see cref="AddPoolCorners"/> seats the centre at <c>HalfWidth - PoolRadius - 0.05</c> — the
+        /// far edge lands five centimetres inside the near gutter whatever this is, and the near edge
+        /// walks towards the crown instead. On the narrowest alley that puts the pool across most of the
+        /// road, which is what a lamp on an alley does.</para>
+        /// </summary>
+        private const float PoolRadius = 2.1f;
 
         /// <summary>
         /// Lamps down one street: alternating sides, on the footway, clear of both junction pads.
