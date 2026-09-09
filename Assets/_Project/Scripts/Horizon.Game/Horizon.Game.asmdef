@@ -11,7 +11,8 @@
         "Horizon.Net",
         "Unity.InputSystem",
         "UnityEngine.UI",
-        "Unity.RenderPipelines.Core.Runtime"
+        "Unity.RenderPipelines.Core.Runtime",
+        "Unity.RenderPipelines.Universal.Runtime"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

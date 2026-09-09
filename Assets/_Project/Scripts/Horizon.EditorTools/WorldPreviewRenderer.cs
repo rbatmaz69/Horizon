@@ -56,7 +56,7 @@ namespace Horizon.EditorTools
                 camera.clearFlags = CameraClearFlags.Skybox;
                 camera.fieldOfView = 60f;
                 camera.nearClipPlane = 0.3f;
-                camera.farClipPlane = 900f;
+                camera.farClipPlane = Mathf.Max(900f, Horizon.World.BackdropBuilder.MinimumFarPlane);
                 camera.enabled = false;
 
                 string directory = Directory.GetParent(Application.dataPath).FullName;
@@ -299,7 +299,7 @@ namespace Horizon.EditorTools
                     Vector3 frontRight = seeburgAxis.GetRightAtDistance(frontFrom);
 
                     camera.fieldOfView = 60f;
-                    camera.farClipPlane = 900f;
+                    camera.farClipPlane = Mathf.Max(900f, Horizon.World.BackdropBuilder.MinimumFarPlane);
                     camera.transform.position = frontAt - frontRight * 9f + Vector3.up * 3.5f;
                     camera.transform.rotation = Quaternion.LookRotation(
                         (frontForward + Vector3.down * 0.05f).normalized, Vector3.up);
@@ -478,7 +478,7 @@ namespace Horizon.EditorTools
                 Camera camera = cameraObject.AddComponent<Camera>();
                 camera.clearFlags = CameraClearFlags.Skybox;
                 camera.nearClipPlane = 0.3f;
-                camera.farClipPlane = 900f;
+                camera.farClipPlane = Mathf.Max(900f, Horizon.World.BackdropBuilder.MinimumFarPlane);
                 camera.enabled = false;
 
                 string directory = Directory.GetParent(Application.dataPath).FullName;
@@ -636,7 +636,7 @@ namespace Horizon.EditorTools
                 Vector3 forward = road.GetDirectionAtDistance(distance);
 
                 camera.fieldOfView = 60f;
-                camera.farClipPlane = 900f;
+                camera.farClipPlane = Mathf.Max(900f, Horizon.World.BackdropBuilder.MinimumFarPlane);
                 camera.transform.position = position - forward * 9f + Vector3.up * 4f;
                 camera.transform.rotation = Quaternion.LookRotation(
                     (forward + Vector3.down * 0.14f).normalized, Vector3.up);
@@ -1112,7 +1112,7 @@ namespace Horizon.EditorTools
                 Vector3 look = Quaternion.Euler(0f, yaw, 0f) * forward;
 
                 camera.fieldOfView = 60f;
-                camera.farClipPlane = 900f;
+                camera.farClipPlane = Mathf.Max(900f, Horizon.World.BackdropBuilder.MinimumFarPlane);
                 camera.nearClipPlane = 0.3f;
                 camera.transform.position = on - forward * back + Vector3.up * lift;
                 camera.transform.rotation = Quaternion.LookRotation(
@@ -1303,7 +1303,7 @@ namespace Horizon.EditorTools
                 Vector3 look = Quaternion.Euler(0f, yaw, 0f) * forward;
 
                 camera.fieldOfView = 60f;
-                camera.farClipPlane = 900f;
+                camera.farClipPlane = Mathf.Max(900f, Horizon.World.BackdropBuilder.MinimumFarPlane);
                 camera.nearClipPlane = 0.3f;
                 camera.transform.position = on - forward * back + Vector3.up * lift;
                 camera.transform.rotation = Quaternion.LookRotation(
@@ -1504,7 +1504,7 @@ namespace Horizon.EditorTools
                 Vector3 look = Quaternion.Euler(0f, yaw, 0f) * forward;
 
                 camera.fieldOfView = 60f;
-                camera.farClipPlane = 900f;
+                camera.farClipPlane = Mathf.Max(900f, Horizon.World.BackdropBuilder.MinimumFarPlane);
                 camera.nearClipPlane = 0.3f;
                 camera.transform.position = on - forward * back + Vector3.up * lift;
                 camera.transform.rotation = Quaternion.LookRotation(
@@ -1523,7 +1523,7 @@ namespace Horizon.EditorTools
                 Vector3 right = motorway.GetRightAtDistance(at);
 
                 camera.fieldOfView = 60f;
-                camera.farClipPlane = 900f;
+                camera.farClipPlane = Mathf.Max(900f, Horizon.World.BackdropBuilder.MinimumFarPlane);
                 // Yawed to the north, at the mountain, and not along the road. Looking forward down the
                 // carriageway put the massif entirely off the left of the frame and came back as a
                 // picture of flat forest — a true photograph of somewhere that is not the subject. What
@@ -1631,7 +1631,7 @@ namespace Horizon.EditorTools
                 Vector3 forward = road.GetDirectionAtDistance(distance);
 
                 camera.fieldOfView = 60f;
-                camera.farClipPlane = 900f;
+                camera.farClipPlane = Mathf.Max(900f, Horizon.World.BackdropBuilder.MinimumFarPlane);
                 camera.nearClipPlane = 0.3f;
                 camera.transform.position = on - forward * back + Vector3.up * lift;
                 camera.transform.rotation = Quaternion.LookRotation(
@@ -1752,7 +1752,7 @@ namespace Horizon.EditorTools
                 Vector3 along = meerenge.GetDirectionAtDistance(Mathf.Clamp(at, 0f, meerenge.Length));
 
                 camera.fieldOfView = 55f;
-                camera.farClipPlane = 900f;
+                camera.farClipPlane = Mathf.Max(900f, Horizon.World.BackdropBuilder.MinimumFarPlane);
                 camera.transform.position = deck + across * 120f - along * 90f + Vector3.down * 34f;
                 camera.transform.rotation = Quaternion.LookRotation(
                     deck + along * 120f - camera.transform.position, Vector3.up);
@@ -1924,7 +1924,7 @@ namespace Horizon.EditorTools
                 Vector3 look = Quaternion.Euler(0f, yaw, 0f) * forward;
 
                 camera.fieldOfView = 60f;
-                camera.farClipPlane = 900f;
+                camera.farClipPlane = Mathf.Max(900f, Horizon.World.BackdropBuilder.MinimumFarPlane);
                 camera.nearClipPlane = 0.3f;
                 camera.transform.position = on - forward * back + Vector3.up * lift;
                 camera.transform.rotation = Quaternion.LookRotation(
@@ -2101,7 +2101,7 @@ namespace Horizon.EditorTools
                 Vector3 look = Quaternion.Euler(0f, yaw, 0f) * forward;
 
                 camera.fieldOfView = 60f;
-                camera.farClipPlane = 900f;
+                camera.farClipPlane = Mathf.Max(900f, Horizon.World.BackdropBuilder.MinimumFarPlane);
                 camera.nearClipPlane = 0.3f;
                 camera.transform.position = on - forward * back + Vector3.up * lift;
                 camera.transform.rotation = Quaternion.LookRotation(
@@ -2153,7 +2153,7 @@ namespace Horizon.EditorTools
                 try
                 {
                     camera.fieldOfView = 60f;
-                    camera.farClipPlane = 900f;
+                    camera.farClipPlane = Mathf.Max(900f, Horizon.World.BackdropBuilder.MinimumFarPlane);
                     camera.nearClipPlane = 0.3f;
                     camera.transform.rotation = Quaternion.LookRotation(Vector3.down, Vector3.forward);
 
@@ -2458,7 +2458,7 @@ namespace Horizon.EditorTools
             Vector3 look = road.GetDirectionAtDistance(distance) * sign;
 
             camera.fieldOfView = 60f;
-            camera.farClipPlane = 900f;
+            camera.farClipPlane = Mathf.Max(900f, Horizon.World.BackdropBuilder.MinimumFarPlane);
             camera.nearClipPlane = 0.3f;
             camera.transform.position = on + Vector3.up * lift;
             camera.transform.rotation = Quaternion.LookRotation(
@@ -2488,7 +2488,7 @@ namespace Horizon.EditorTools
             }
 
             camera.fieldOfView = 60f;
-            camera.farClipPlane = 900f;
+            camera.farClipPlane = Mathf.Max(900f, Horizon.World.BackdropBuilder.MinimumFarPlane);
             camera.nearClipPlane = 0.3f;
             camera.transform.position = centre + Vector3.up * 160f;
             camera.transform.rotation = Quaternion.LookRotation(Vector3.down, forward.normalized);
@@ -2587,7 +2587,7 @@ namespace Horizon.EditorTools
                 camera.clearFlags = CameraClearFlags.Skybox;
                 camera.fieldOfView = 55f;
                 camera.nearClipPlane = 0.3f;
-                camera.farClipPlane = 900f;
+                camera.farClipPlane = Mathf.Max(900f, Horizon.World.BackdropBuilder.MinimumFarPlane);
                 camera.enabled = false;
 
                 string directory = Directory.GetParent(Application.dataPath).FullName;
@@ -2960,7 +2960,7 @@ namespace Horizon.EditorTools
                         }
                     }
 
-                    camera.farClipPlane = 900f;
+                    camera.farClipPlane = Mathf.Max(900f, Horizon.World.BackdropBuilder.MinimumFarPlane);
                     camera.fieldOfView = 55f;
                     camera.transform.position = station + Vector3.up * 8f;
                     camera.transform.rotation = Quaternion.LookRotation(

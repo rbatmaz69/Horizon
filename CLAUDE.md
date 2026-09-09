@@ -126,10 +126,31 @@ in Play mode and the changes persist — that is the intended tuning loop.
 - **MSAA is off, and this line used to say 2×.** That was true when it was written and stopped being
   true when the renderer went to `RenderScale 0.8`: MSAA there is antialiasing an image that is about to
   be bilinearly upscaled, and on a tile GPU 2× halves the tile and doubles the bins in a world that is
-  geometry-bound rather than fill-bound. They are alternatives, not companions — if edges are the
-  complaint, `RenderScale 0.85` is the cheaper answer and it is one number. `ValidatePostStack` prints
+  geometry-bound rather than fill-bound. They are alternatives, not companions. `ValidatePostStack` prints
   MSAA, render scale and grading mode for both pipeline assets every build, so this line and
   `Mobile_RPAsset.asset` cannot silently disagree again
+- **And for the life of the project that added up to no antialiasing at all, in a world made entirely of
+  hard facet edges.** The bullet above is correct about MSAA and stops one step short: the camera was
+  built with `AntialiasingMode.None` and a comment beside it saying the pipeline's MSAA was the cheap
+  answer, which neither pipeline asset has ever provided. The answer is FXAA, on the camera, on
+  Balanced and High — a fixed cost on the resolved buffer *after* the upscale, where MSAA's cost scales
+  with the geometry that is the budget here. It is a `QualityDirector.Level` column beside `SunShadows`
+  and it follows it exactly, because Low is the setting that has already given up on the frame looking
+  finished in order to hold 30. `ValidatePostStack` prints the camera's mode beside the assets' now and
+  warns when both come out at nothing
+- **Every preview frame this project takes was 4× multisampled while the game had none.** Four hundred
+  pictures were flattering the world on exactly the axis nobody was looking at, and a facet edge that
+  crawls on a phone came back clean in all of them. `PreviewCapture` ties the treatment to what the
+  frame is of: a world shot is FXAA at one sample, which is what Bootstrap's camera does, and a canvas
+  shot keeps its multisampling because the HUD is composited after all of it
+- **Shadow distance is 130 m, and it was 50 against a 600 m far plane.** Everything past a twelfth of
+  the view had no shadow in it, which is most of every frame and most of why the middle distance read
+  as flat. It is free: the cascade count stays at 1 and the map stays at 1024, so it is one wider
+  orthographic projection rather than one more pass, and the whole cost is texel density — 4.9 cm per
+  texel became 12.7, on a world whose smallest object is a 0.32 m sign post. A committed edit to the
+  RP assets and deliberately not a runtime one, for the reason `QualityDirector` opens with; there is
+  nothing to stage per preset anyway, because Low casts no sun shadows at all. The build prints the
+  distance, the cascade count and the texel size for both assets
 - **No per-frame GC allocation** in driving code. This is the usual cause of mobile stutter:
   cache arrays, avoid LINQ and `foreach` over interfaces in `Update`/`FixedUpdate`, never
   allocate in a physics step.
@@ -2400,6 +2421,107 @@ recorded bug, and the second must have cloud in it, which is the setting that ha
 clear frame at 17.6 h is deliberately *not* an acceptance shot — that is the one hour where the old
 procedural dome already looked much like this, and a reviewer who opens only that one concludes nothing
 shipped.
+
+## The horizon
+
+The world had no background, and it was structural rather than an oversight.
+`TerrainShape.CorridorWidth` is 200 m — ground exists only that far from a road — so the whole world
+is a ribbon of hillside hanging in an empty plane, which is exactly what `WorldPreview_Overview` is a
+picture of. Fog hides the edge from the car, so nobody ever saw the corridor stop. What they saw
+instead was that no straight in this game ended in anything: the road ran into a flat wall of fog
+colour, and behind it there was never a distance. Half the concept this project is written against is
+*wide vistas*.
+
+`BackdropBuilder` is three concentric curtains of faceted ridge, 64 segments each, **384 triangles and
+one draw call for every view from every road in the game.** It is not terrain and it deliberately
+meets none of the machinery terrain goes through: no `WorldChunk`, so it is never streamed out from
+under a driver; no collider; and above all no level sample, so `MountainField` never hears of it and
+cannot lift the ground under a road towards a mountain that does not exist.
+
+**The profile is a sum of integer harmonics, and that is the whole reason there is no seam.** A ridge
+line drawn round a circle has to close on itself exactly. Sampling any noise field along that circle
+does not close — it leaves one vertical crack at a single bearing, which reads as a rendering fault
+rather than a texture one and is invisible from every other direction. `cos(k·θ)` for whole-number `k`
+is periodic over the circle by construction. It is the sky's cloud-field lesson arrived at from the
+other side: there the wrap had to be measured, here it can be had for free, so it is. The three
+harmonics are 3, 11 and 29 — coprime and spread wide, because sharing a factor lines the small shapes
+up with the large ones at every repeat and a range with a rhythm in it reads as wallpaper.
+
+**The obvious build does not work, and no picture would have explained why.** A `Background` queue with
+`ZWrite Off` — so the ring can never occlude anything — is the safe-looking answer and it produces
+nothing at all: URP draws the skybox *after* the opaque queues, filling wherever depth was never
+written, so a backdrop that writes no depth is painted over by the sky in its entirety, every frame.
+What ships is a feature that builds, logs its triangle count and cannot be seen. It is ordinary opaque
+geometry at the far end of the queue, and it writes depth. That it can then occlude is paid for by
+where it stands: past 640 m the fog has taken better than nine tenths of anything real, and by
+construction there is nothing real out there at all.
+
+**It is placed at 640–760 m and not at three kilometres, and the constraint comes from both sides.**
+Geometry beyond the far plane is clipped, so an honest three-kilometre range simply is not drawn;
+nearer than about six hundred metres it starts occluding hillside the fog has not finished taking; and
+further out the curtain's own hem leaves the plane and is cut off along a hard horizontal line. What a
+mountain's distance actually reads as is its angular size, so there is nothing to gain by pushing it
+out. The camera's far plane went from 600 m to 900 — free, because this world has no geometry beyond
+about three hundred metres from a road — and every camera in the project, the seven preview renderers
+included, reads `BackdropBuilder.MinimumFarPlane` rather than carrying its own copy of the number.
+
+**Each curtain hangs 260 m below its own ridge line, and that hem is not decoration.** Over the strait,
+or looking out from the col, there is no terrain at all below the horizon for the backdrop to hide
+behind — a ring that simply stopped would draw a hard horizontal line across open water. It fades into
+the air on the way down instead, and the colour it fades to is exactly `RenderSettings.fogColor`, which
+is what the sky already is at the skyline and what every ridge at the edge of the corridor already
+resolves to. Anything authored there instead would be a seam along the horizon. That is the sky
+shader's own argument for taking its horizon from the fog rather than from a gradient, one object
+further out.
+
+**All three colours are derived and none of them is a new thing to tune.** The far ring is the air; the
+near ring is the same colour pulled 30 % towards the zenith and darkened 16 %; a summit takes a third of
+the cloud's own lit colour, so it turns gold at the hour the cloud tops do. Not darkened towards black:
+distance in air is a wash towards the sky, and a range darkened instead comes out as a hole in the
+picture at dusk, when the sky behind it is the brightest thing in the frame. They are **globals written
+by `PushSky`**, for the reason that method already gives at length — the backdrop has no renderer state
+to hang a `MaterialPropertyBlock` on, and writing the material would leave `M_Backdrop` modified in a
+player's working tree the moment they drove at dusk. `ValidateSky` asserts none of the three is also
+declared in the material, because a serialized value shadows the push and what ships is a range that
+keeps one colour from noon to midnight while the sky behind it moves.
+
+**The vertical follow is deliberately incomplete.** Followed exactly in Y the rings behave as a skybox
+does: correct, and completely inert. Not followed at all, a 640 m ring seen from a col 900 m up sits
+more than fifty degrees below the horizon. So the drop is 12 % of the altitude with a hard ceiling of
+70 m — climbing the Weissjoch sinks the range by about seven degrees, which reads as having got above
+something, and no amount of further climbing can turn it into a hole in the sky.
+
+**It is not `[ExecuteAlways]`, which is the obvious attribute.** It writes a transform every frame, so
+it would leave both scenes permanently dirty and hand the author a modified working tree for having
+looked at the world — the hazard this file documents against materials and asset writes, met in the one
+place where the fix is simply not to.
+
+**And it would have been in no picture this project takes.** Every frame here is rendered from a saved
+scene in which no `Update` has ever run, by a tool that builds a camera of its own — so the ring would
+have sat around the parked car in all of them, and the one thing built to fix an empty horizon would
+have been absent from every photograph of that horizon. `PreviewCapture` calls `Backdrop.PlaceFor`,
+which is the argument `VehicleCover.RoofedAt` and the gauges' `LayOutFace` already make.
+
+**It is shown only where the fog is, and that one test does two jobs honestly rather than by
+coincidence.** The shots that switch the fog off are the plan views, the overviews and the course
+diagrams — cameras hundreds of metres up looking down, which the ring follows and would then draw as a
+wall of rock across the middle of the subject. Both the fog and the backdrop answer *what is beyond the
+far distance*, and a diagram of the world in plan is not asking it.
+
+**The first ridge line was too low, and only one kind of frame said so.** Looking along a valley the
+ring was right at the first try — the ranges behind Seeburg's water read as a far shore immediately. On
+the open flat of Anadolu the terrain fills the frame to the skyline and occludes everything but the
+summits, and a typical summit stood three degrees over the horizon, which is a bump. **The number that
+mattered was the typical rise and not the maximum**: three cosines average a half and the sharpening
+power took that to a third, so the ceiling was reached almost nowhere and raising it alone would have
+sharpened a few peaks and left the skyline as flat as it was. The exponent came down with it.
+
+`Tools > Horizon > Render World Preview` and the leg previews are where all of this was settled, and
+**`WorldPreview_Seeburg_Harbour`, `WorldPreview_Strait_6_Deck` and `WorldPreview_Weissjoch_9_Col` are
+the three that carry it** — a far shore across open water, a hem that must not show against a sea, and
+a range that must sink rather than clip when the camera is nine hundred metres up. The build log says
+`Backdrop: 3 rings, 384 triangles` and errors at zero, because a world with no horizon in it builds,
+validates and drives exactly like one that has one.
 
 ## How long a rebuild takes
 

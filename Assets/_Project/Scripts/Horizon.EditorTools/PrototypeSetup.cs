@@ -50,6 +50,11 @@ namespace Horizon.EditorTools
         /// <summary>Path of the one sky material. See <c>PrototypeMaterials.Sky</c>.</summary>
         private const string SkyMaterialPath = MaterialsFolder + "/M_Sky.mat";
 
+        private const string BackdropShaderName = "Horizon/Backdrop";
+
+        /// <summary>Path of the one backdrop material. See <c>PrototypeMaterials.Backdrop</c>.</summary>
+        private const string BackdropMaterialPath = MaterialsFolder + "/M_Backdrop.mat";
+
         /// <summary>Path of the generated cloud field.</summary>
         private const string CloudFieldPath = ProjectRoot + "/Art/Skybox/T_SkyClouds.png";
 
@@ -335,6 +340,13 @@ namespace Horizon.EditorTools
             /// <c>ValidateSky</c> fails the build over.
             /// </summary>
             public readonly Material Sky;
+
+            /// <summary>
+            /// The ring of distant ridges standing behind the world. Its three colours are globals
+            /// written by the clock, exactly as the sky's are, so nothing is written to this asset at
+            /// run time either.
+            /// </summary>
+            public readonly Material Backdrop;
 
             /// <summary>
             /// The wet counterparts, in the order <see cref="WetRoadMaterials"/> lists the dry ones.
@@ -681,6 +693,7 @@ namespace Horizon.EditorTools
                 };
 
                 Sky = SkyMaterial();
+                Backdrop = BackdropMaterial();
             }
 
             /// <summary>
@@ -745,6 +758,36 @@ namespace Horizon.EditorTools
             /// replaces. That one could fall back on the fair sky and merely look wrong in the rain;
             /// there is no fallback now, and <c>ValidateSky</c> fails the build.</para>
             /// </summary>
+            /// <summary>
+            /// The one backdrop material: <c>Horizon/Backdrop</c>, unlit and unfogged.
+            ///
+            /// <para>An error rather than a warning if the shader is missing, on the sky's own reasoning.
+            /// There is no fallback that would be right: a lit or fogged stand-in would draw a ring of
+            /// black mountains across the horizon, which is far worse than the empty sky this exists to
+            /// fill and would look deliberate.</para>
+            /// </summary>
+            private static Material BackdropMaterial()
+            {
+                Material existing = AssetDatabase.LoadAssetAtPath<Material>(BackdropMaterialPath);
+                if (existing != null)
+                {
+                    return existing;
+                }
+
+                Shader shader = Shader.Find(BackdropShaderName);
+                if (shader == null)
+                {
+                    Debug.LogError($"[Horizon] No {BackdropShaderName} shader. The world has no horizon "
+                                   + "without it — see Art/Shaders/HorizonBackdrop.shader.");
+                    return null;
+                }
+
+                var backdrop = new Material(shader) { name = "M_Backdrop" };
+
+                AssetDatabase.CreateAsset(backdrop, BackdropMaterialPath);
+                return AssetDatabase.LoadAssetAtPath<Material>(BackdropMaterialPath);
+            }
+
             private static Material SkyMaterial()
             {
                 const string assetPath = MaterialsFolder + "/M_Sky.mat";
@@ -3236,6 +3279,8 @@ namespace Horizon.EditorTools
 
             RenderSettings.skybox = materials.Sky;
 
+            BuildBackdrop(atmosphereObject.transform, materials);
+
             // See BuildBootstrapScene for the argument. Written in both, because a scene that is loaded
             // and never made active still has to be correct — one of them being wrong is exactly the
             // kind of thing nobody would find.
@@ -3311,19 +3356,42 @@ namespace Horizon.EditorTools
             Camera camera = cameraObject.AddComponent<Camera>();
             camera.fieldOfView = 60f;
 
-            // Far plane sits inside the fog wall: anything beyond it is invisible anyway, and a
-            // tighter plane is free performance on mobile.
-            camera.farClipPlane = 600f;
+            // The far plane was 600 m — inside the fog wall, on the reasoning that anything beyond it
+            // is invisible anyway and a tighter plane is free performance. That was true for as long as
+            // everything in the frame was fogged. The ring of distant ridges is the one thing that is
+            // not: it draws the colour the air would have gone on producing if there had been anything
+            // out there, so it has to be beyond the fog and inside the plane, and a plane that clips it
+            // cuts a hard horizontal line across the bottom of every mountain in the world.
+            //
+            // Raising it costs nothing here. This world has no geometry more than about three hundred
+            // metres from a road (TerrainShape.CorridorWidth is 200), so a longer plane draws no more of
+            // anything — it only asks the depth buffer for a range it has ample precision for against a
+            // 0.3 m near plane. Read off the backdrop rather than typed, because the number that matters
+            // is the slant range to the hem of its outermost curtain and that moves with its radii.
+            camera.farClipPlane = Mathf.Max(600f, BackdropBuilder.MinimumFarPlane);
             camera.nearClipPlane = 0.3f;
 
             // Without this the whole post stack is dead, and silently: renderPostProcessing lives on
             // UniversalAdditionalCameraData, a camera built by AddComponent has none, and the property's
             // default is false. Every volume in the world can be correct and every profile can be
-            // populated and the frame still comes out raw. Anti-aliasing is left at None because the
-            // pipeline asset's MSAA is the cheap answer on a tile GPU; FXAA here would be a second
-            // opinion about the same edge.
+            // populated and the frame still comes out raw.
             UniversalAdditionalCameraData cameraData = camera.GetUniversalAdditionalCameraData();
             cameraData.renderPostProcessing = true;
+
+            // <b>This line used to be a comment saying antialiasing was left at None because "the
+            // pipeline asset's MSAA is the cheap answer on a tile GPU". Neither pipeline asset has ever
+            // had MSAA on.</b> Both carry m_MSAA: 1, so the shipping game resolved a world made entirely
+            // of hard facet edges, at RenderScale 0.8, with nothing at all — while every preview frame
+            // was taken through a 4x multisampled target and came back clean. The one instrument this
+            // project has was contradicting the one line anybody would have read to check.
+            //
+            // FXAA rather than MSAA, and the budget note this replaces already gives the reason: 2x on a
+            // tile GPU halves the tile and doubles the bins in a world that is geometry-bound, and it is
+            // antialiasing an image that is about to be bilinearly upscaled anyway. FXAA runs once on the
+            // resolved colour buffer, after the upscale, at a fixed cost that does not care how much
+            // geometry is in the frame. QualityDirector turns it off again on Low.
+            cameraData.antialiasing = AntialiasingMode.FastApproximateAntialiasing;
+            cameraData.antialiasingQuality = AntialiasingQuality.Medium;
 
             cameraObject.AddComponent<AudioListener>();
 
@@ -3698,6 +3766,38 @@ namespace Horizon.EditorTools
                 }
             }
 
+            // The backdrop is checked here rather than in a validator of its own, because it is the same
+            // fault with the same cause: three colours pushed as globals by the same PushSky, onto a
+            // material with no renderer state to hang a property block on. Declare one of them in
+            // Properties and the serialized value shadows the push, and what ships is a ring of
+            // mountains that stays the same colour from noon to midnight while the sky behind it moves
+            // — which reads as the backdrop being unfinished rather than as a wiring fault.
+            Material backdrop = AssetDatabase.LoadAssetAtPath<Material>(BackdropMaterialPath);
+
+            if (backdrop == null || backdrop.shader == null || backdrop.shader.name != BackdropShaderName)
+            {
+                Debug.LogError($"[Horizon] Backdrop: {BackdropMaterialPath} is missing or is not on "
+                               + $"{BackdropShaderName}. Every road in the world ends in a flat wall of "
+                               + "fog colour without it.");
+            }
+            else
+            {
+                string[] backdropDriven =
+                {
+                    "_HorizonBackdropNear", "_HorizonBackdropFar", "_HorizonBackdropPeak",
+                };
+
+                for (int i = 0; i < backdropDriven.Length; i++)
+                {
+                    if (backdrop.HasProperty(backdropDriven[i]))
+                    {
+                        Debug.LogError($"[Horizon] Backdrop: {backdropDriven[i]} is declared in the "
+                                       + "material as well as being a global, so the ridges keep one "
+                                       + "colour all day while the sky behind them changes.");
+                    }
+                }
+            }
+
             // The three numbers this file keeps a copy of so ReportCloudField can measure what they
             // mean. A copy agrees until one of them is edited, which is the whole reason for the check.
             CheckFloat(sky, "_CoverClear", CoverClear);
@@ -4022,7 +4122,24 @@ namespace Horizon.EditorTools
 
             Debug.Log($"[Horizon] Post: {volumes.Length} volumes — "
                     + $"{(tonemapping != null ? tonemapping.mode.value.ToString() : "no")} tone map, "
-                    + $"{grading}; {blooming}.");
+                    + $"{grading}; {blooming}; camera "
+                    + $"{(data != null ? data.antialiasing.ToString() : "no camera data")}.");
+
+            // <b>The camera's antialiasing is reported here rather than left to be read off the two
+            // pipeline assets, because reading it off them is what went wrong for the life of the
+            // project.</b> Both say MSAA 1 and the camera said None, while a comment beside the camera
+            // claimed the pipeline's MSAA was handling the edges — so the world shipped with no
+            // antialiasing of any kind, and every preview frame was taken through a 4x multisampled
+            // target and came back looking as though it did. Two numbers on one line is what makes that
+            // disagreement impossible to have again.
+            if (data != null
+                && data.antialiasing == AntialiasingMode.None
+                && UniversalRenderPipeline.asset.msaaSampleCount <= 1)
+            {
+                Debug.LogWarning("[Horizon] Post: nothing is antialiasing this frame — the camera is at "
+                                + "None and the pipeline is at MSAA 1x. On flat-shaded geometry at "
+                                + "RenderScale 0.8 that is edge crawl on every silhouette in the world.");
+            }
 
             // Named, and the mobile asset read by path, because the first version of this line reported
             // "render scale 1.00" against a mobile asset that says 0.80. UniversalRenderPipeline.asset
@@ -4058,10 +4175,21 @@ namespace Horizon.EditorTools
                 return;
             }
 
+            // The shadow numbers are printed as a texel size as well as a distance, because the
+            // distance on its own says nothing about whether it was affordable. Reach and resolution
+            // trade against each other on one map, and 130 m over 1024 is a different picture from 50 m
+            // over 1024 in a way no reader works out from two separate lines.
+            float texels = pipeline.mainLightShadowmapResolution > 0
+                ? pipeline.shadowDistance / pipeline.mainLightShadowmapResolution
+                : 0f;
+
             Debug.Log($"[Horizon] Pipeline '{pipeline.name}' ({role}): "
                     + $"HDR {(pipeline.supportsHDR ? "on" : "off")}, "
                     + $"MSAA {pipeline.msaaSampleCount}x, "
                     + $"render scale {pipeline.renderScale:0.00}, "
+                    + $"shadows {pipeline.shadowDistance:0} m over "
+                    + $"{pipeline.shadowCascadeCount} cascade{(pipeline.shadowCascadeCount == 1 ? "" : "s")} "
+                    + $"at {pipeline.mainLightShadowmapResolution} ({texels * 100f:0.0} cm a texel), "
                     + $"quality volume profile "
                     + $"{(pipeline.volumeProfile != null ? pipeline.volumeProfile.name : "none")}.");
         }
@@ -5537,7 +5665,8 @@ namespace Horizon.EditorTools
                     int index, string name,
                     float streamLoad, float streamUnload, float streamMargin,
                     int trafficBudget, float trafficLoad, float trafficRecycle,
-                    bool shadows, bool exhaust, bool tyreSmoke, bool airRush, float rainDrops,
+                    bool shadows, bool antialiasing,
+                    bool exhaust, bool tyreSmoke, bool airRush, float rainDrops,
                     float bloom, int frameRate)
                 {
                     SerializedProperty level = levels.GetArrayElementAtIndex(index);
@@ -5549,6 +5678,7 @@ namespace Horizon.EditorTools
                     level.FindPropertyRelative("TrafficLoadRadius").floatValue = trafficLoad;
                     level.FindPropertyRelative("TrafficRecycleRadius").floatValue = trafficRecycle;
                     level.FindPropertyRelative("SunShadows").boolValue = shadows;
+                    level.FindPropertyRelative("CameraAntialiasing").boolValue = antialiasing;
                     level.FindPropertyRelative("ExhaustParticles").boolValue = exhaust;
                     level.FindPropertyRelative("TyreSmokeParticles").boolValue = tyreSmoke;
                     level.FindPropertyRelative("AirRushParticles").boolValue = airRush;
@@ -5571,14 +5701,23 @@ namespace Horizon.EditorTools
                 // colour buffer rather than a curve applied to a pixel already being written, so it is
                 // the only part with a cost worth a setting. The tone map and the grade run on all three
                 // — those are not polish, they are what every colour in this world is.
+                // Antialiasing follows the shadow pass exactly, and that is not a coincidence about
+                // cost — it is the same judgement twice. Low is the setting that has given up on the
+                // frame looking finished in order to hold 30, and both of these are what "finished"
+                // costs. Everywhere else it is on, because a world of hard flat-shaded facets rendered
+                // at RenderScale 0.8 is the worst case for edge crawl there is, and it had nothing at
+                // all until this column existed.
                 Set((int)QualityPreset.Low, "Low",
-                    380f, 500f, 140f, 24, 320f, 460f, false, false, true, false, 0.33f, 0f, 30);
+                    380f, 500f, 140f, 24, 320f, 460f,
+                    false, false, false, true, false, 0.33f, 0f, 30);
 
                 Set((int)QualityPreset.Balanced, "Balanced",
-                    650f, 820f, 220f, 56, 650f, 900f, true, true, true, true, 0.7f, 1f, 60);
+                    650f, 820f, 220f, 56, 650f, 900f,
+                    true, true, true, true, true, 0.7f, 1f, 60);
 
                 Set((int)QualityPreset.High, "High",
-                    820f, 1000f, 260f, TrafficPoolSize, 800f, 1050f, true, true, true, true, 1f, 1f, 60);
+                    820f, 1000f, 260f, TrafficPoolSize, 800f, 1050f,
+                    true, true, true, true, true, 1f, 1f, 60);
             });
         }
 
@@ -6741,6 +6880,67 @@ namespace Horizon.EditorTools
 
             EditorUtility.SetDirty(profile);
             AssetDatabase.SaveAssets();
+        }
+
+        /// <summary>
+        /// The ring of distant ridges that stands behind the whole world.
+        ///
+        /// <para>Under the Atmosphere object because that is what it is — it draws the colour the air
+        /// would have gone on producing if there had been anything out there to produce it, and its
+        /// three colours are written by the same <c>PushSky</c> that writes the dome's. It is not
+        /// terrain and it deliberately never meets any of the machinery terrain goes through: no
+        /// <c>WorldChunk</c>, so it is never streamed out from under a driver; no collider, because
+        /// there is nothing there; no level sample, so <c>MountainField</c> never hears of it and cannot
+        /// lift the ground under a road towards a mountain that does not exist.</para>
+        ///
+        /// <para><b>Not batched and not marked static, unlike every other mesh this tool creates.</b>
+        /// The object is moved to the camera every frame — batching a transform that moves is the one
+        /// case where the flag is actively wrong, and <c>ContributeGI</c> on an unlit ring of scenery
+        /// would ask the lightmapper about geometry that is not in the world.</para>
+        /// </summary>
+        private static void BuildBackdrop(Transform parent, PrototypeMaterials materials)
+        {
+            if (materials.Backdrop == null)
+            {
+                // The material factory has already said why, as an error. Saying it twice is noise.
+                return;
+            }
+
+            Mesh mesh = BackdropBuilder.Build("BackdropMesh", out int triangles);
+            mesh = HorizonAssetUtility.ReplaceAsset(mesh, GeneratedFolder + "/BackdropMesh.asset");
+
+            var backdropObject = new GameObject("Backdrop");
+            backdropObject.transform.SetParent(parent, false);
+
+            backdropObject.AddComponent<MeshFilter>().sharedMesh = mesh;
+
+            MeshRenderer renderer = backdropObject.AddComponent<MeshRenderer>();
+            renderer.sharedMaterial = materials.Backdrop;
+
+            // It casts nothing and receives nothing. A silhouette three streets wide standing in the
+            // sun's shadow cascade would put a mountain's shadow across the world it is drawn behind,
+            // and the shadow distance is 130 m against a ring at 520 — so the cost would be a cascade
+            // spent entirely on geometry nobody can be under.
+            renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            renderer.receiveShadows = false;
+            renderer.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
+            renderer.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
+            renderer.motionVectorGenerationMode = MotionVectorGenerationMode.ForceNoMotion;
+
+            backdropObject.AddComponent<Backdrop>();
+
+            // Counted, and loud when it is nothing. This is the whole shape of a fault in this project:
+            // a world with no horizon in it builds, validates and drives exactly like one that has one,
+            // and the only place the difference shows is a picture nobody may take.
+            if (triangles <= 0)
+            {
+                Debug.LogError("[Horizon] Backdrop: the ring came out empty, so every road in the world "
+                             + "still ends in a flat wall of fog colour with nothing behind it.");
+                return;
+            }
+
+            Debug.Log($"[Horizon] Backdrop: {BackdropBuilder.Rings} rings, {triangles} triangles, "
+                    + "one draw call, no collider and no chunk.");
         }
 
         /// <summary>Smoke emitters at the tailpipe mouths, pointing backwards out of the car.</summary>

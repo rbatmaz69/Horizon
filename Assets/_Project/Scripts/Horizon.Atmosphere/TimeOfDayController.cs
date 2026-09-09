@@ -79,7 +79,7 @@ namespace Horizon.Atmosphere
         private float lastAppliedOvercast = float.NaN;
         private float lastAppliedSpeedHaze = float.NaN;
 
-        // The eight uniforms PushSky writes. Cached ids, because this runs every frame.
+        // The uniforms PushSky writes. Cached ids, because this runs every frame.
         private static readonly int SkyHorizonId = Shader.PropertyToID("_HorizonSkyHorizon");
         private static readonly int SkyZenithId = Shader.PropertyToID("_HorizonSkyZenith");
         private static readonly int CloudLitId = Shader.PropertyToID("_HorizonSkyCloudLit");
@@ -87,6 +87,14 @@ namespace Horizon.Atmosphere
         private static readonly int SunId = Shader.PropertyToID("_HorizonSun");
         private static readonly int SunTintId = Shader.PropertyToID("_HorizonSunTint");
         private static readonly int OvercastId = Shader.PropertyToID("_HorizonOvercast");
+
+        // And the three the distant ridges read. Written here rather than by anything in Horizon.World,
+        // which is where the backdrop's geometry lives: that assembly may not see this one, and a second
+        // opinion about what colour the air is at this hour is exactly what would put a range of
+        // mountains in front of a sky it disagreed with.
+        private static readonly int BackdropNearId = Shader.PropertyToID("_HorizonBackdropNear");
+        private static readonly int BackdropFarId = Shader.PropertyToID("_HorizonBackdropFar");
+        private static readonly int BackdropPeakId = Shader.PropertyToID("_HorizonBackdropPeak");
 
         /// <summary>
         /// How bright the sun's disc is, as a multiple of the light's own intensity.
@@ -507,7 +515,59 @@ namespace Horizon.Atmosphere
                 new Vector4(tint.r, tint.g, tint.b, Mathf.Clamp01(intensity * 1.4f)));
 
             Shader.SetGlobalFloat(OvercastId, Mathf.Clamp01(Overcast));
+
+            PushBackdrop(horizon, zenith, lit);
         }
+
+        /// <summary>
+        /// The three colours the ring of distant ridges is painted with.
+        ///
+        /// <para><b>All three are derived from colours that already exist, and none of them is a new
+        /// thing to tune.</b> The far ring is <i>exactly</i> the horizon — which is
+        /// <c>RenderSettings.fogColor</c>, which is what the sky is at the skyline and what every ridge
+        /// at the edge of the corridor already resolves to. That is what makes the backdrop's own
+        /// outline invisible where it is meant to be: the hem of every curtain, and the whole of the
+        /// furthest range, are the colour of the air they are standing in. Anything authored here
+        /// instead would be a seam along the skyline, which is the argument the sky shader makes for
+        /// taking its own horizon from the fog rather than from a gradient.</para>
+        ///
+        /// <para>The near ring is the same colour pulled a little towards the zenith and darkened. Not
+        /// towards black: distance in air is a wash towards the sky, and a range darkened instead comes
+        /// out as a hole in the picture at dusk, when the sky behind it is the brightest thing in the
+        /// frame. The peak takes the cloud's own lit colour, so a summit catches the light from the
+        /// same place the cloud tops do and turns gold at the same hour they do.</para>
+        ///
+        /// <para>Overcast needs no term of its own here. All three sources have already had theirs.</para>
+        /// </summary>
+        private void PushBackdrop(Color horizon, Color zenith, Color cloudLit)
+        {
+            Color air = horizon;
+
+            Color near = Color.Lerp(air, zenith, BackdropZenithPull) * BackdropNearDim;
+            near.a = 1f;
+
+            Color peak = Color.Lerp(near, cloudLit, BackdropPeakShare);
+            peak.a = 1f;
+
+            Shader.SetGlobalVector(BackdropNearId, (Vector4)near.linear);
+            Shader.SetGlobalVector(BackdropFarId, (Vector4)air.linear);
+            Shader.SetGlobalVector(BackdropPeakId, (Vector4)peak.linear);
+        }
+
+        /// <summary>
+        /// How far the nearest ridge's colour is pulled from the air towards the sky above it.
+        ///
+        /// <para>Small. This is the difference between a range you can see the shape of and a range
+        /// that has cut a hole in the sky, and the whole point of a backdrop here is that it reads as
+        /// distance rather than as an object.</para>
+        /// </summary>
+        private const float BackdropZenithPull = 0.30f;
+
+        /// <summary>And how much darker than the air it is. Also small, and for the same reason.</summary>
+        private const float BackdropNearDim = 0.84f;
+
+        /// <summary>How much of the cloud's lit colour a summit takes.</summary>
+        private const float BackdropPeakShare = 0.34f;
 
         /// <summary>
         /// Rebuilds the environment reflection when the sky has actually moved. See

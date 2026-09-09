@@ -227,7 +227,7 @@ namespace Horizon.EditorTools
                 }
 
                 camera.fieldOfView = fieldOfView;
-                camera.farClipPlane = 900f;
+                camera.farClipPlane = Mathf.Max(900f, Horizon.World.BackdropBuilder.MinimumFarPlane);
                 camera.nearClipPlane = 0.3f;
                 camera.transform.position = marker.transform.position + offset;
                 camera.transform.rotation = Quaternion.LookRotation(
@@ -252,7 +252,7 @@ namespace Horizon.EditorTools
                 Vector3 look = Quaternion.Euler(0f, yaw, 0f) * forward;
 
                 camera.fieldOfView = 60f;
-                camera.farClipPlane = 900f;
+                camera.farClipPlane = Mathf.Max(900f, Horizon.World.BackdropBuilder.MinimumFarPlane);
                 camera.nearClipPlane = 0.3f;
                 camera.transform.position = on + Vector3.up * lift;
                 camera.transform.rotation = Quaternion.LookRotation(

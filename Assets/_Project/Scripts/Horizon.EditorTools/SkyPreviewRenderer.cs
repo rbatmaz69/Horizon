@@ -120,7 +120,7 @@ namespace Horizon.EditorTools
                 Camera camera = cameraObject.AddComponent<Camera>();
                 camera.clearFlags = CameraClearFlags.Skybox;
                 camera.fieldOfView = 60f;
-                camera.farClipPlane = 600f;
+                camera.farClipPlane = Mathf.Max(600f, Horizon.World.BackdropBuilder.MinimumFarPlane);
                 camera.enabled = false;
 
                 Vector3 centre = pass.GetPositionAtDistance(Station);

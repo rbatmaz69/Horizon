@@ -87,7 +87,7 @@ namespace Horizon.EditorTools
             var cameraObject = new GameObject("MultiplayerPreviewCamera");
             Camera camera = cameraObject.AddComponent<Camera>();
             camera.fieldOfView = 55f;
-            camera.farClipPlane = 600f;
+            camera.farClipPlane = Mathf.Max(600f, Horizon.World.BackdropBuilder.MinimumFarPlane);
             camera.nearClipPlane = 0.3f;
 
             float savedHours = clock != null ? clock.TimeOfDayHours : 0f;

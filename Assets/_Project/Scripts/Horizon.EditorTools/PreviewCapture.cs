@@ -27,7 +27,14 @@ namespace Horizon.EditorTools
         /// Renders <paramref name="camera"/> to a PNG at <paramref name="filePath"/>.
         /// </summary>
         /// <param name="msaa">
-        /// Samples. One turns multisampling off, which the HUD shot needs.
+        /// Samples, for a canvas shot. <b>Ignored when <paramref name="post"/> is on, and that is the
+        /// point of the parameter now.</b> Every world frame this project has ever taken was resolved
+        /// through a 4× multisampled target while the shipping game had no antialiasing whatever —
+        /// both pipeline assets carry <c>m_MSAA: 1</c> and the camera was built with
+        /// <c>AntialiasingMode.None</c>. So four hundred pictures were flattering the game on exactly
+        /// the axis nobody was looking at, and a hard facet edge that crawls on a phone came back clean
+        /// in every one of them. A world shot is FXAA at one sample now, which is what the camera in
+        /// Bootstrap does.
         /// </param>
         /// <param name="post">
         /// Whether to run the post-processing stack. <b>True for anything photographing the world and
@@ -80,6 +87,16 @@ namespace Horizon.EditorTools
             UniversalAdditionalCameraData data = camera.GetUniversalAdditionalCameraData();
             data.renderPostProcessing = post;
 
+            // A world shot gets the game's own edge treatment and a canvas shot keeps its multisampling.
+            // Tied to `post` rather than given a parameter of its own because the two questions have one
+            // answer: a frame photographing the world must go through what the world goes through, and a
+            // frame photographing the canvas is composited after all of it.
+            if (post)
+            {
+                data.antialiasing = AntialiasingMode.FastApproximateAntialiasing;
+                msaa = 1;
+            }
+
             RenderTexture renderTexture;
 
             if (stencil)
@@ -109,6 +126,27 @@ namespace Horizon.EditorTools
             bool fogWasOn = RenderSettings.fog;
             RenderSettings.fog = fog && fogWasOn;
 
+            // <b>The distant ridges are placed here or they are in no picture this project takes.</b>
+            // They follow whatever camera is looking, and every frame here is rendered from a saved
+            // scene in which no Update has ever run — so left to itself the ring would sit around the
+            // parked car in every shot, and the one thing built to fix an empty horizon would be absent
+            // from every photograph of that horizon. Same argument as VehicleCover.RoofedAt and the
+            // gauges' LayOutFace: a frame has to be produced by the code that produces the game.
+            //
+            // Shown only where the fog is, and that is one test doing two jobs honestly rather than a
+            // coincidence. The shots that switch the fog off are the plan views, the overviews and the
+            // course diagrams — cameras hundreds of metres up looking down, which the ring would follow
+            // and then draw as a wall of rock across the middle of the subject. Both the fog and the
+            // backdrop answer "what is beyond the far distance", and a diagram of the world is not
+            // asking it.
+            bool showBackdrop = RenderSettings.fog;
+            Horizon.World.Backdrop.SetShown(showBackdrop);
+
+            if (showBackdrop)
+            {
+                Horizon.World.Backdrop.PlaceFor(camera);
+            }
+
             try
             {
                 camera.targetTexture = renderTexture;
@@ -123,6 +161,7 @@ namespace Horizon.EditorTools
             finally
             {
                 RenderSettings.fog = fogWasOn;
+                Horizon.World.Backdrop.SetShown(true);
                 camera.targetTexture = null;
                 RenderTexture.active = previous;
                 Object.DestroyImmediate(texture);

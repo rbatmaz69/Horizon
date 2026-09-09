@@ -1,6 +1,7 @@
 using Horizon.Atmosphere;
 using Horizon.World;
 using UnityEngine;
+using UnityEngine.Rendering.Universal;
 
 namespace Horizon.Game
 {
@@ -20,6 +21,17 @@ namespace Horizon.Game
     /// <c>shadowCascades</c> entirely — it has its own — so setting them would look like it worked and
     /// do nothing. Shadows are switched at the source instead, through
     /// <see cref="TimeOfDayController.Shadows"/>.</para>
+    ///
+    /// <para><b>Which is also why the shadow distance is not a level here, and does not need to be.</b>
+    /// It went from 50 m to 130 on the mobile asset, against a 600 m far plane and roughly 700 m of
+    /// visibility at noon — the whole middle distance of every frame was unshadowed and therefore flat.
+    /// That is a committed edit to <c>Mobile_RPAsset</c> rather than a runtime write, because a runtime
+    /// write is exactly the hazard the paragraph above describes. Staging it per preset would need one
+    /// anyway, and there is nothing to stage: Low has <see cref="Level.SunShadows"/> off, so a shadow
+    /// distance means nothing there, and Balanced and High both want the reach. The distance is free —
+    /// the cascade count stays at 1 and the map stays at 1024, so it is one wider orthographic
+    /// projection and not one extra pass. It costs texel density: 4.9 cm per texel became 12.7 cm, which
+    /// on a world whose smallest object is a 0.32 m sign post is still finer than the geometry.</para>
     ///
     /// <para><b>Two phases, because the world arrives late.</b> <see cref="Apply"/> handles what is
     /// global and can be set before anything exists — the frame rate. <see cref="ApplyToWorld"/> handles
@@ -47,6 +59,21 @@ namespace Horizon.Game
 
             [Header("Rendering")]
             public bool SunShadows;
+
+            [Tooltip("Whether the camera runs FXAA.\n\n"
+                   + "The world is flat-shaded, untextured and made almost entirely of hard silhouette "
+                   + "edges, and it is rendered at RenderScale 0.8 — which is the worst case there is "
+                   + "for edge crawl. It had no antialiasing of any kind until this field existed: both "
+                   + "pipeline assets carry MSAA 1 while a comment on the camera claimed MSAA was "
+                   + "handling it.\n\n"
+                   + "A camera setting rather than the asset's MSAA, for the reason the budget note "
+                   + "already gives: 2x on a tile GPU halves the tile and doubles the bins in a world "
+                   + "that is geometry-bound, and it would be antialiasing an image that is about to be "
+                   + "upscaled. FXAA is a fixed cost on the resolved buffer after the upscale, which is "
+                   + "why it is the one that can be afforded at all — and still not on Low, where the "
+                   + "sun casts no shadows either and the frame is already the cheapest thing the "
+                   + "project can draw.")]
+            public bool CameraAntialiasing;
 
             [Tooltip("Exhaust smoke and flames. Two particle systems on the active body.")]
             public bool ExhaustParticles;
@@ -154,11 +181,44 @@ namespace Horizon.Game
                 timeOfDay.Apply();
             }
 
+            SetCameraAntialiasing(level.CameraAntialiasing);
             SetExhaustEnabled(level.ExhaustParticles);
             SetTyreSmokeEnabled(level.TyreSmokeParticles);
             SetAirRushEnabled(level.AirRushParticles);
             SetRainDrops(level.RainDrops);
             SetBloom(level.Bloom);
+        }
+
+        /// <summary>
+        /// Turns the camera's FXAA on or off.
+        ///
+        /// <para>On the camera's <c>UniversalAdditionalCameraData</c> and not on the pipeline asset,
+        /// which is the whole reason this can be a per-preset setting at all: the camera lives in a
+        /// scene, so a value written to it in Play mode is discarded when Play mode ends. The asset is
+        /// not, and would be left modified in the player's working tree — the hazard this class's own
+        /// remarks open with.</para>
+        ///
+        /// <para>Found through <c>Camera.main</c> rather than cached: the rig is tagged MainCamera and
+        /// is never replaced, but this runs on a settings change rather than per frame, so there is
+        /// nothing to save by holding a reference the world might not have created yet.</para>
+        /// </summary>
+        private static void SetCameraAntialiasing(bool enabled)
+        {
+            Camera camera = Camera.main;
+            if (camera == null)
+            {
+                return;
+            }
+
+            UniversalAdditionalCameraData data = camera.GetUniversalAdditionalCameraData();
+            if (data == null)
+            {
+                return;
+            }
+
+            data.antialiasing = enabled
+                ? AntialiasingMode.FastApproximateAntialiasing
+                : AntialiasingMode.None;
         }
 
         /// <summary>
