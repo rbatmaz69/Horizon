@@ -173,32 +173,14 @@ namespace Horizon.Vehicle
 
             bodyIndex = Mathf.Clamp(bodyIndex, 0, BodyCount - 1);
 
-            for (int i = 0; i < BodyCount; i++)
-            {
-                if (bodies[i].Root != null)
-                {
-                    bodies[i].Root.SetActive(i == bodyIndex);
-                }
-            }
+            SelectAppearance(bodyIndex, paintIndex);
 
             Body body = bodies[bodyIndex];
-            ActiveBody = bodyIndex;
 
             if (hull != null)
             {
                 hull.center = body.ColliderCenter;
                 hull.size = body.ColliderSize;
-            }
-
-            if (body.WheelMesh != null)
-            {
-                for (int i = 0; i < wheelFilters.Length; i++)
-                {
-                    if (wheelFilters[i] != null)
-                    {
-                        wheelFilters[i].sharedMesh = body.WheelMesh;
-                    }
-                }
             }
 
             if (controller != null)
@@ -210,6 +192,54 @@ namespace Horizon.Vehicle
                 if (engineAudio != null)
                 {
                     engineAudio.RebuildClips();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Everything about picking a body that a <i>picture</i> of it depends on — which shell is
+        /// switched on, which wheel it stands on, which lamps belong to it and what colour it is — and
+        /// nothing that a picture does not.
+        ///
+        /// <para><b>It exists so that a preview tool does not have to carry a second copy of it.</b>
+        /// <see cref="Select"/> also resizes a live <c>BoxCollider</c> and pushes a config into
+        /// <see cref="VehicleController"/>, and <c>SetConfig</c> writes the per-wheel spring array that
+        /// <c>Awake</c> builds — so at edit time, on a saved scene where no <c>Awake</c> has ever run,
+        /// calling it throws. <c>CarDrivePreviewRenderer</c> photographs exactly such a scene, and it
+        /// has to be able to change car or it can only ever photograph the default one.</para>
+        ///
+        /// <para>Splitting it here rather than reimplementing it in the tool is the argument
+        /// <c>PhotoMode.ShowcaseAt</c>, <c>VehicleCover.RoofedAt</c> and the gauges' <c>LayOutFace</c>
+        /// each already make: which shell is active is not a decision to be taken twice.</para>
+        /// </summary>
+        public void SelectAppearance(int bodyIndex, int paintIndex)
+        {
+            if (BodyCount == 0)
+            {
+                return;
+            }
+
+            bodyIndex = Mathf.Clamp(bodyIndex, 0, BodyCount - 1);
+
+            for (int i = 0; i < BodyCount; i++)
+            {
+                if (bodies[i].Root != null)
+                {
+                    bodies[i].Root.SetActive(i == bodyIndex);
+                }
+            }
+
+            Body body = bodies[bodyIndex];
+            ActiveBody = bodyIndex;
+
+            if (body.WheelMesh != null)
+            {
+                for (int i = 0; i < wheelFilters.Length; i++)
+                {
+                    if (wheelFilters[i] != null)
+                    {
+                        wheelFilters[i].sharedMesh = body.WheelMesh;
+                    }
                 }
             }
 

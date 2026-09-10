@@ -103,7 +103,10 @@ namespace Horizon.EditorTools
 
                 for (int i = 0; i < count; i++)
                 {
-                    bodies.Select(i, 0);
+                    // Appearance only. Select would also resize the hull and push a config into the
+                    // controller, whose per-wheel spring array Awake builds — and no Awake has run in a
+                    // saved scene, so that path throws. Nothing it does affects a still frame.
+                    bodies.SelectAppearance(i, 0);
 
                     // Asked of the rig rather than worked out here, and asked again per body: a taller
                     // car rests the camera higher, so a pose taken once and reused would frame nine of
@@ -123,7 +126,7 @@ namespace Horizon.EditorTools
             {
                 if (bodies != null && bodyWas >= 0)
                 {
-                    bodies.Select(bodyWas, Mathf.Max(paintWas, 0));
+                    bodies.SelectAppearance(bodyWas, Mathf.Max(paintWas, 0));
                 }
 
                 Object.DestroyImmediate(cameraObject);
