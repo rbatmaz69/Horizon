@@ -155,6 +155,13 @@ in Play mode and the changes persist — that is the intended tuning loop.
   crawls on a phone came back clean in all of them. `PreviewCapture` ties the treatment to what the
   frame is of: a world shot is FXAA at one sample, which is what Bootstrap's camera does, and a canvas
   shot keeps its multisampling because the HUD is composited after all of it
+- **The shadow bias is not a shadow setting you may leave alone after moving the distance**, and this
+  bullet is under the one below it for that reason. It is expressed in shadow-map *texels*, so widening
+  the distance changes what it means in the world — and the two assets were carrying `0.1 / 0.5` and
+  `1 / 1`, which is 0.78 / 3.90 cm against 12.70 / 12.70. The under-biased one is what the editor runs.
+  See *The car in its own shadow*: it mottled the bodywork of the player's car in every frame of the
+  game, was reported from the car, and appeared in no picture this project takes. The build prints both
+  biases in world centimetres now
 - **Shadow distance is 130 m, and it was 50 against a 600 m far plane.** Everything past a twelfth of
   the view had no shadow in it, which is most of every frame and most of why the middle distance read
   as flat. It is free: the cascade count stays at 1 and the map stays at 1024, so it is one wider
@@ -2242,6 +2249,79 @@ it carried anything.
 **One road is still empty as a limitation rather than as a decision**, and it is named where it lives:
 the Weissjoch ramp leaves a motorway carriageway, which is four `Highway` lanes rather than a trunk
 pair, and a diverge may only touch the nearside one. Both circuits are empty on purpose.
+
+## The car in its own shadow
+
+**The bodywork was mottled with hard-edged dark patches, and it was reported from the car.** Not from
+a build log, not from a check, and not from any of the four hundred and sixty pictures this project
+takes of itself — because none of them is of the thing that went wrong.
+
+**This project photographs its world, its HUD and its cars, and had never once photographed the frame
+the game is played from.** The world previews stand on the carriageway at eye height and look along
+it: a camera where a car would be, with no car in it. The car previews are a studio — a turntable
+against a flat colour with post deliberately off, because that image is also the garage thumbnail. So
+the one object that is in every frame of the shipping game, nearest to the camera, at the highest
+pixel density and carrying the only above-one materials in the near field, appeared in no picture
+taken through the pipeline that draws it. A whole class of fault was invisible here: **anything whose
+artefacts scale with how close a thing is to the camera.**
+
+**It was shadow acne, and four frames differing by one setting each is what said so.** A single
+picture of a blotchy frame says the frame is blotchy and nothing about why; shadow-map stepping, a
+quarter-resolution bloom pyramid and an edge filter all read as "fragments near the car" in a still.
+`DriverPreviewRenderer` takes the same frame as shipped, with the shadow distance back at 50 m, with
+the bloom volume at zero, and with no sun shadow at all. Bloom made no difference. **No sun shadow was
+clean.** And the shipped and the 50 m frames were both blotchy *in different shapes* — which is the
+tell that settles it: a real shadow is the same shape at any distance and merely coarser, so a shape
+that changes when the cascade does is the map undersampling its own subject.
+
+**The two pipeline assets had disagreed about the shadow bias since they were written, and the number
+they disagreed in is not the number that matters.** PC carried `0.1 / 0.5` against mobile's `1 / 1`,
+which reads as a small difference. URP's bias is in **shadow-map texels**, so it is only comparable
+once multiplied by the texel: 0.78 / 3.90 cm on PC against 12.70 / 12.70 on mobile. A normal bias
+three times too small, on **the asset the editor runs** — which is why the phone has never shown this
+and why the only person who could see it was somebody driving in the editor.
+
+PC's normal bias is 1.5 now, and that number is not "the smallest that looked clean". It is 11.7 cm,
+which is where mobile has always been. **The two assets agree in world space rather than in texels**,
+which is the unit the artefact happens in — and it is the smallest tested value that clears the
+bodywork, because peter-panning grows with the bias and the frames confirm the change is doing one
+thing: measured against the same frame at the old bias, the difference is 4 % of pixels on the car,
+1.3 % on the verge and **zero on the carriageway ahead**.
+
+**The depth biases still disagree by a factor of sixteen — 0.78 cm against 12.70 — and nothing has
+measured it.** It is left alone rather than tidied: the fix above is one verified change, and a second
+unverified one in the same commit is the "fifty changes each of which looks right alone and none of
+which can be attributed" failure the tone map's own notes record. It is written down here so the next
+person finds a named question rather than a silent disagreement.
+
+`ValidatePostStack` prints both biases every build, **in world centimetres and not in the texels the
+asset stores**, for exactly the reason they were able to disagree in silence.
+
+**One measurement in this hunt was worthless and is worth recording.** A patch of the boot lid was
+sampled for local variance on the theory that acne is high-frequency detail on a surface that should
+be smooth. It returned 16.0 for the shipped frame, 16.0 for the fixed one and 15.9 for the frame with
+no sun shadow at all — a metric that cannot separate the presence of a shadow from its absence is
+measuring something else, and quoting it would have dressed a broken instrument as a result. The
+pictures were unambiguous and were used instead. *Fix the instrument before trusting the reading*, and
+where it cannot be fixed cheaply, say which instrument actually answered.
+
+**What the driver's frame is for from now on.** `Tools > Horizon > Render Driver Preview` shoots at
+1920 × 1080 and not the other tools' 1280 × 720, and that is load-bearing rather than tidy: every
+fault it exists to catch is measured in pixels against a fixed world size — a shadow texel, a bloom
+mip, an FXAA span — so photographing them at two thirds of the resolution the game runs at makes every
+one of them look two thirds as bad, which is the direction that ships. The pose comes from
+`ChaseCamera.SnapToTarget`, the method that already places the rig after a respawn, for the reason
+`PhotoMode.ShowcaseAt` and the gauges' `LayOutFace` are public: a tool carrying its own copy of a
+distance, a height and a look-ahead photographs a framing the game does not use.
+
+**It is a menu item and deliberately not part of `Rebuild`.** The HUD and map previews run at the end
+of every build because a canvas is cheap and its faults are structural; three diagnostic variants of a
+world frame are a hunt, and a hunt belongs where somebody asks for it.
+
+**Nothing here goes through the mobile pipeline, which is still true and still the gap.** This frame
+is `PC_RPAsset` because that is what the editor runs. The reason the fault was PC-only is understood
+and written above, but it is understood rather than photographed, and the note under the performance
+budget about the mobile renderer's cost needing a device stands unchanged.
 
 ## The light in the shade
 

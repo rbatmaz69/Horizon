@@ -4311,6 +4311,15 @@ namespace Horizon.EditorTools
                     + $"shadows {pipeline.shadowDistance:0} m over "
                     + $"{pipeline.shadowCascadeCount} cascade{(pipeline.shadowCascadeCount == 1 ? "" : "s")} "
                     + $"at {pipeline.mainLightShadowmapResolution} ({texels * 100f:0.0} cm a texel), "
+                    // In world centimetres and not in the texels the asset stores, because a texel is
+                    // the unit that made these two disagree in silence: PC carried 0.1/0.5 against
+                    // mobile's 1/1, which reads as a small difference and was a normal bias of 3.9 cm
+                    // against 12.7. The under-biased one is the asset the editor runs, so what it cost
+                    // was shadow acne mottling the bodywork of the car in every frame of the game — on
+                    // the one object no picture this project takes had ever been pointed at. Printed in
+                    // the unit the artefact happens in.
+                    + $"bias {pipeline.shadowDepthBias * texels * 100f:0.0}/"
+                    + $"{pipeline.shadowNormalBias * texels * 100f:0.0} cm depth/normal, "
                     + $"quality volume profile "
                     + $"{(pipeline.volumeProfile != null ? pipeline.volumeProfile.name : "none")}; "
                     + $"renderers {DescribeRenderers(pipeline)}.");
