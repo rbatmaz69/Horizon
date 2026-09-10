@@ -576,7 +576,8 @@ namespace Horizon.World
         /// across grey paving is the one place in the town where the accent colour appears in quantity,
         /// and it is what makes the square read as busy from the high street.
         /// </summary>
-        public static void AddMarketStall(
+        /// <returns>How many figures were placed, for the count the build warns about at zero.</returns>
+        public static int AddMarketStall(
             VegetationMeshBuffer buffer, in PlantPlacement place, ref PlantRandom random)
         {
             const int trim = BuildingMeshes.TrimSubmesh;
@@ -621,6 +622,27 @@ namespace Horizon.World
             buffer.AddQuadFacing(accent, ridgeLeft, ridgeRight, backRight, backLeft, place.Up);
             buffer.AddQuadFacing(accent, ridgeLeft, ridgeRight, frontRight, frontLeft, -place.Up);
             buffer.AddQuadFacing(accent, backLeft, backRight, ridgeRight, ridgeLeft, -place.Up);
+
+            // One behind the counter and one or two in front of it, which is what a stall is for. They
+            // go in this buffer with everything else, so they cost triangles and not a draw call — see
+            // FigureMeshes for why they stand rather than walk.
+            //
+            // The stallholder faces out over the counter and the customers face it, so the four of them
+            // are looking at each other rather than all one way. A row of figures facing the same
+            // direction is a queue for something that is not there.
+            FigureMeshes.AddFigure(buffer, place, 0f, -halfDepth * 0.35f, 0f, accent, trim, ref random);
+
+            int customers = random.Chance(0.55f) ? 2 : 1;
+
+            for (int i = 0; i < customers; i++)
+            {
+                float side = customers == 1 ? random.Range(-0.5f, 0.5f) : (i == 0 ? -0.55f : 0.5f);
+
+                FigureMeshes.AddFigure(buffer, place,
+                    halfWidth * side, halfDepth + 0.75f, Mathf.PI, accent, trim, ref random);
+            }
+
+            return customers + 1;
         }
 
         /// <summary>A flat annulus closing the top of a two-walled ring, like a basin rim.</summary>

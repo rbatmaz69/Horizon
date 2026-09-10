@@ -5536,7 +5536,7 @@ namespace Horizon.EditorTools
                 // Six metres, because the beach begins about twenty out from the waterfront's centreline
                 // and the rail nominally stands fourteen.
                 6f,
-                out float worstSwing, out int railGaps);
+                out float worstSwing, out int railGaps, out int railFigures);
 
             buffer.MergeTinted(HarbourMeshes.Tints());
 
@@ -5580,7 +5580,8 @@ namespace Horizon.EditorTools
                       + $"{basinRimAcross:0} m off the waterfront, quay at {quayY:0.0} m over water at "
                       + $"{seaLevel:0.0} m, and a {HarbourMeshes.LighthouseHeight:0} m light on the mole "
                       + $"head. The promenade rail leans out up to {worstSwing:0.0} m to clear the "
-                      + $"paving and breaks for it at {railGaps} of its posts.");
+                      + $"paving and breaks for it at {railGaps} of its posts. "
+                      + $"{railFigures} people are standing at it.");
         }
 
         /// <summary>A world position as plan coordinates. Water is authored in X and Z.</summary>
@@ -8393,6 +8394,12 @@ namespace Horizon.EditorTools
                         }
 
                         AddPlotColliders(townObject.transform, key, terrainShape, town.Plan);
+
+                        // The one thing in a town that moves. A child of the tile object, so it streams
+                        // in and out with the mill it belongs to rather than turning on its own in an
+                        // empty world — and so WorldChunk.RecalculateBounds takes it in.
+                        BuildWindmillSails(townObject.transform, townStats, town.Name, materials);
+
                         townTotals[s].Add(townStats);
                     }
                 }
@@ -9028,9 +9035,19 @@ namespace Horizon.EditorTools
                       + $"{stats.TownHalls} town hall, {stats.Fountains} fountain, "
                       + $"{stats.Stalls} market stalls, {stats.Windmills} windmill, "
                       + $"{stats.Barns} barns, {stats.Sawmills} sawmills, {stats.Fences} fences, "
-                      + $"{stats.Lamps} lamps with {stats.Pools} ground pools, {stats.Cars} parked cars "
-                      + $"— {stats.Triangles} triangles "
+                      + $"{stats.Lamps} lamps with {stats.Pools} ground pools, {stats.Cars} parked cars, "
+                      + $"{stats.Figures} people — {stats.Triangles} triangles "
                       + $"over {plan.Footprint.size.x:0} x {plan.Footprint.size.z:0} m.");
+
+            // Warned at zero, because a figure costs no draw call and thirty triangles inside forty
+            // thousand: a build that stopped placing them would move no other number in this line, and
+            // a town with nobody in it looks exactly like the four towns did before this existed.
+            if (stats.Stalls > 0 && stats.Figures == 0)
+            {
+                Debug.LogWarning($"[Horizon] {what} has {stats.Stalls} market stalls and nobody at any "
+                                 + "of them. See FigureMeshes — the figures ride in the stall's own "
+                                 + "buffer, so this cannot be a materials or a draw-call problem.");
+            }
 
             if (stats.Triangles > shape.MaxTrianglesPerTile * 4)
             {
@@ -12347,6 +12364,64 @@ namespace Horizon.EditorTools
             Debug.Log($"[Horizon] Road signs on {Where(label)}: {tally.Total} — {tally.PlaceNames} "
                       + $"place names, {tally.Bakes} bakes, {tally.Portals} portals{dropped}. "
                       + $"{triangles} triangles.");
+        }
+
+        /// <summary>
+        /// The turning sails of every windmill on one tile.
+        ///
+        /// <para><b>One draw call each, and there is one windmill in the world.</b> Anything that moves
+        /// has to leave the merged tile mesh and carry a transform, which is the whole reason this world
+        /// has so little motion in it — see the note against <c>Spinner</c>. A mill is worth it because
+        /// a mill that does not turn is not a mill; a hundred moving shutters would not be.</para>
+        ///
+        /// <para>No collider. The sails sweep a sixteen-metre disc four metres off the ground, and a car
+        /// that could hit one has already left the road — where <c>AddPlotColliders</c> has put a box
+        /// round the tower it is bolted to.</para>
+        /// </summary>
+        private static void BuildWindmillSails(
+            Transform parent, TownStats stats, string town, PrototypeMaterials materials)
+        {
+            int built = 0;
+
+            for (int i = 0; i < stats.Sails.Count; i++)
+            {
+                SailMount mount = stats.Sails[i];
+
+                Mesh mesh = MillMeshes.BuildSails(mount, $"Sails{Slug(town)}{i}");
+
+                if (mesh == null)
+                {
+                    continue;
+                }
+
+                mesh = HorizonAssetUtility.ReplaceAsset(
+                    mesh, $"{GeneratedFolder}/Sails{Slug(town)}{i}Mesh.asset");
+
+                GameObject sails = CreateMeshObject(
+                    parent, $"WindmillSails{i}", mesh, new[] { materials.BuildingTint },
+                    addCollider: false, markStatic: false);
+
+                // Not static, unlike everything else on this tile, and that is the point: a batched
+                // renderer cannot be moved. Marking it would have baked the sails into the tile's
+                // combined mesh at build time and left them exactly as still as they were before.
+                sails.transform.position = mount.Hub;
+                sails.transform.rotation = Quaternion.LookRotation(mount.Axis, mount.Up);
+
+                sails.AddComponent<Spinner>();
+                built++;
+            }
+
+            // Warned at zero against a mill that exists, because the two states are indistinguishable in
+            // this log otherwise: the town line says "1 windmill" either way, and a tower with a stub of
+            // windshaft and no sails is a silo. It is also the one moving thing in any town, so nothing
+            // else here would notice it having stopped being built.
+            if (stats.Windmills > 0 && built == 0)
+            {
+                Debug.LogWarning($"[Horizon] {town} has {stats.Windmills} windmill(s) and no turning "
+                                 + "sails on any of them. MillMeshes.AddWindmill hands the hub back "
+                                 + "through its SailMount out-parameter and TownStats.Add has to append "
+                                 + "that list rather than sum it — see the field.");
+            }
         }
 
         /// <summary>

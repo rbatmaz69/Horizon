@@ -14,10 +14,62 @@ namespace Horizon.World
     /// into a shared <see cref="VegetationMeshBuffer"/>, submesh constants from there so the whole village
     /// stays one mesh per tile.
     /// </summary>
+    /// <summary>
+    /// Where a windmill's sails hang, so something outside the tile mesh can turn them.
+    ///
+    /// <para>Handed back by <see cref="MillMeshes.AddWindmill"/> rather than worked out again. The hub's
+    /// height falls out of a tower height drawn from the plot's own seed, and a second copy of that draw
+    /// would agree with the first until anybody touched the range it comes from — then the sails would
+    /// spin in the air a metre above the cap, silently.</para>
+    /// </summary>
+    public readonly struct SailMount
+    {
+        /// <summary>Centre of the hub, in world space.</summary>
+        public readonly Vector3 Hub;
+
+        /// <summary>The direction the sails face. They turn about this.</summary>
+        public readonly Vector3 Axis;
+
+        /// <summary>Which way is up for the lattice, so a mill on a slope does not lean.</summary>
+        public readonly Vector3 Up;
+
+        /// <summary>Length of one sail, metres. The mesh is built from it.</summary>
+        public readonly float SailLength;
+
+        /// <summary>Where the lattice starts, radians, so two mills are not in step.</summary>
+        public readonly float Lean;
+
+        public readonly bool Exists;
+
+        public SailMount(Vector3 hub, Vector3 axis, Vector3 up, float sailLength, float lean)
+        {
+            Hub = hub;
+            Axis = axis;
+            Up = up;
+            SailLength = sailLength;
+            Lean = lean;
+            Exists = true;
+        }
+    }
+
     public static class MillMeshes
     {
         /// <summary>A tower mill: tapered octagonal body, gallery, cap and four lattice sails.</summary>
         public static void AddWindmill(VegetationMeshBuffer buffer, in PlantPlacement place)
+        {
+            AddWindmill(buffer, place, out _);
+        }
+
+        /// <summary>
+        /// The same mill, handing back where its sails go.
+        ///
+        /// <para><b>The sails are no longer in the buffer at all.</b> A windmill whose sails do not turn
+        /// is not a windmill — it is a tower with a cross on it — and anything that moves has to come out
+        /// of the merged tile mesh and carry a transform of its own. That costs a draw call, and there is
+        /// exactly one windmill in this world, so it costs one.</para>
+        /// </summary>
+        public static void AddWindmill(
+            VegetationMeshBuffer buffer, in PlantPlacement place, out SailMount mount)
         {
             var random = new PlantRandom(place.Seed);
 
@@ -53,7 +105,100 @@ namespace Horizon.World
             }
 
             AddDoor(buffer, place, baseRadius, 0f);
-            AddSails(buffer, place, topRadius, height + 1.4f, ref random);
+
+            float hubY = height + 1.4f;
+            float z = topRadius + 0.9f;
+
+            // The windshaft and its housing stay in the tile: they do not turn, and a stub of timber is
+            // what the sails are missing from when the mill is too far away for the lattice to draw.
+            AddBox(buffer, place, BuildingMeshes.TrimSubmesh, 0f, hubY - 0.35f, z - 0.3f, 0.35f, 0.7f, 0.5f);
+
+            mount = new SailMount(
+                place.ToWorld(0f, hubY, z),
+                (place.ToWorld(0f, hubY, z + 1f) - place.ToWorld(0f, hubY, z)).normalized,
+                (place.ToWorld(0f, hubY + 1f, z) - place.ToWorld(0f, hubY, z)).normalized,
+                random.Range(6.5f, 8f),
+                random.Range(0.1f, 0.35f));
+        }
+
+        /// <summary>
+        /// The four sails as a mesh in their own frame: lattice in XY, turning about Z.
+        ///
+        /// <para>Local space rather than world, which is the whole point of pulling them out — a mesh
+        /// baked at a world pose cannot be rotated about anything but the world origin. The submesh is
+        /// the trim's, so the object carries the same material the mill's timber does and the sails do
+        /// not read as a different kind of wood at dusk.</para>
+        /// </summary>
+        public static Mesh BuildSails(in SailMount mount, string meshName)
+        {
+            var buffer = new VegetationMeshBuffer(BuildingMeshes.SubmeshCount);
+
+            for (int sail = 0; sail < 4; sail++)
+            {
+                float angle = sail * (Mathf.PI * 0.5f) + mount.Lean;
+                var along = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle));
+
+                // One spar the whole length of the arm, not five axis-aligned segments.
+                //
+                // <b>The old build laid the spar as five boxes a metre long in X and stepped them along
+                // the arm's direction</b>, which is a continuous spar for the two arms that happen to
+                // point along X and a ladder of loose rungs for the two that do not. It survived because
+                // the cross bars are the opposite shape and cover for it by symmetry — but the picture
+                // is a spider rather than a sail, and only a picture says so. Building in the arm's own
+                // frame is what pulling the sails out of the tile made possible: a mesh baked at a world
+                // pose has no frame to build in.
+                Bar(buffer, along, mount.SailLength * 0.5f, mount.SailLength * 0.5f + 0.2f, 0.13f);
+
+                for (int bar = 1; bar <= 4; bar++)
+                {
+                    float r = mount.SailLength * (bar / 4.5f);
+                    Bar(buffer, along, r, 0.1f, 1.5f);
+                }
+            }
+
+            buffer.MergeTinted(BuildingMeshes.OpaqueTints());
+
+            var used = new System.Collections.Generic.List<int>(BuildingMeshes.SubmeshCount);
+            return buffer.ToMesh(meshName, used);
+        }
+
+        /// <summary>
+        /// One member of a sail, in the lattice's own plane: <paramref name="halfLong"/> along the arm
+        /// and <paramref name="halfAcross"/> square to it, a hand's width thick in Z.
+        /// </summary>
+        /// <param name="at">How far out along the arm its centre sits, metres.</param>
+        private static void Bar(
+            VegetationMeshBuffer buffer, Vector2 along, float at, float halfLong, float halfAcross)
+        {
+            const float halfThick = 0.09f;
+
+            Vector2 across = new Vector2(-along.y, along.x);
+            Vector2 centre = along * at;
+
+            Vector3 a = new Vector3(along.x, along.y, 0f) * halfLong;
+            Vector3 b = new Vector3(across.x, across.y, 0f) * halfAcross;
+            Vector3 c = Vector3.forward * halfThick;
+            var mid = new Vector3(centre.x, centre.y, 0f);
+
+            // The eight corners, and the six faces walked in the order VegetationMeshBuffer.AddBox uses.
+            Vector3 p000 = mid - a - b - c;
+            Vector3 p100 = mid + a - b - c;
+            Vector3 p110 = mid + a + b - c;
+            Vector3 p010 = mid - a + b - c;
+            Vector3 p001 = mid - a - b + c;
+            Vector3 p101 = mid + a - b + c;
+            Vector3 p111 = mid + a + b + c;
+            Vector3 p011 = mid - a + b + c;
+
+            Vector3 alongDir = new Vector3(along.x, along.y, 0f);
+            Vector3 acrossDir = new Vector3(across.x, across.y, 0f);
+
+            buffer.AddQuadFacing(BuildingMeshes.TrimSubmesh, p001, p101, p111, p011, Vector3.forward);
+            buffer.AddQuadFacing(BuildingMeshes.TrimSubmesh, p010, p110, p100, p000, Vector3.back);
+            buffer.AddQuadFacing(BuildingMeshes.TrimSubmesh, p000, p100, p101, p001, -acrossDir);
+            buffer.AddQuadFacing(BuildingMeshes.TrimSubmesh, p110, p010, p011, p111, acrossDir);
+            buffer.AddQuadFacing(BuildingMeshes.TrimSubmesh, p100, p110, p111, p101, alongDir);
+            buffer.AddQuadFacing(BuildingMeshes.TrimSubmesh, p010, p000, p001, p011, -alongDir);
         }
 
         /// <summary>A long barn with a big cart door and boarded gable ends.</summary>
@@ -138,44 +283,6 @@ namespace Horizon.World
         }
 
         /// <summary>Four sails on a hub, each an open lattice of a spar and its bars.</summary>
-        private static void AddSails(
-            VegetationMeshBuffer buffer,
-            in PlantPlacement place,
-            float topRadius,
-            float hubY,
-            ref PlantRandom random)
-        {
-            float sailLength = random.Range(6.5f, 8f);
-            float lean = random.Range(0.1f, 0.35f);
-            float z = topRadius + 0.9f;
-
-            AddBox(buffer, place, BuildingMeshes.TrimSubmesh, 0f, hubY - 0.35f, z - 0.3f, 0.35f, 0.7f, 0.5f);
-
-            for (int sail = 0; sail < 4; sail++)
-            {
-                float angle = sail * (Mathf.PI * 0.5f) + lean;
-                float dirX = Mathf.Cos(angle);
-                float dirY = Mathf.Sin(angle);
-
-                // The spar.
-                for (int seg = 0; seg < 5; seg++)
-                {
-                    float t = (seg + 0.5f) / 5f;
-                    float r = sailLength * t;
-                    AddBox(buffer, place, BuildingMeshes.TrimSubmesh,
-                        dirX * r, hubY + dirY * r, z, 0.5f, 0.14f, 0.1f);
-                }
-
-                // Cross bars, giving the lattice its openness.
-                for (int bar = 1; bar <= 3; bar++)
-                {
-                    float r = sailLength * (bar / 4f);
-                    AddBox(buffer, place, BuildingMeshes.TrimSubmesh,
-                        dirX * r, hubY + dirY * r, z, 0.09f, 1.5f, 0.09f);
-                }
-            }
-        }
-
         /// <summary>An n-sided tapered tower with a lid, in the placement's local frame.</summary>
         private static void AddTaperedTower(
             VegetationMeshBuffer buffer,

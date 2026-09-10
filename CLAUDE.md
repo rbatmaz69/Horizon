@@ -2875,6 +2875,71 @@ observe. And **the orbit and the shutter have not been exercised** — the layou
 the wiring is asserted at build, but whether the camera actually turns under a finger and whether the
 file actually lands needs Play mode or a device. That is the honest state of it.
 
+## Things that move
+
+The complete list of what moved in this world was: the sun, the traffic, four material swaps at the
+lights, two a day at the windows, the wind through the vegetation, the clouds, the rain and two
+particle systems. Park at noon in clear weather with no traffic in frame and the picture was a
+photograph — which is what the *wind* section already says, and which the wind fixed for the trees and
+for nothing else.
+
+**Anything that moves has to leave the merged tile mesh and carry a transform, and that is a draw
+call.** It is the whole reason this world has so little motion in it, and it is why this wave is small
+on purpose.
+
+**The windmill's sails turn, and that one was worth a draw call because a stopped mill is *visibly*
+wrong.** `MillMeshes` has carried a note saying the sails would need a transform since the day the wind
+arrived. There is exactly one windmill in the world, in Talheim, so it costs exactly one call — and it
+lands on a tile nowhere near the worst station, which is Hochstadt. `Spinner` reads the wind through
+the `_HorizonWind` shader global rather than through `WindDirector`, which lives an assembly up and
+cannot be referenced from `Horizon.World`: a global is readable from anywhere, and it is what keeps
+this from being a second opinion about the weather. A mill turning while the trees are still is two
+weathers in one frame.
+
+**Pulling the sails out is also what let them be built properly, and the old ones were wrong.** They
+were five boxes a metre long *in X*, stepped along each arm's direction — which is a continuous spar
+for the two arms that happen to point along X and a ladder of loose rungs for the two that do not. It
+survived because the cross bars are the opposite shape and cover for it by symmetry, and the result
+photographs as a spider rather than as a sail. A mesh baked at a world pose has no frame to build in;
+one built in its own frame can lay a spar along the arm. **The only thing that said so was the picture
+that exists because the sails now move**, and the frame is deliberately of *stopped* sails — nothing
+ticks outside Play mode, so what it settles is that they exist, hang square to the cap and are the same
+timber as the mill under them.
+
+**A hundred and twelve people, and they cost nothing.** Figures ride in the buffer of the thing they
+belong to — a market stall's, a promenade's — so they are triangles inside a merged mesh and not a
+draw call. Ninety-five at the stalls in four towns, seventeen at the two harbour rails.
+
+**Standing, and never walking, and it is the ambient audio's argument from the other side.** The note
+against `EngineAudio` says a sound with no visible source reads as the device rather than as the
+world; a person with no collision, no sound and no reason to be walking where they are walking is the
+same fault seen the other way. A figure at a stall is furniture that happens to be a person. It cannot
+walk through a wall because it does not walk.
+
+**Boxes and not silhouettes, unlike every sign in this world.** A sign is read flat-on from a car at a
+known angle; a figure is walked round, and a billboard seen edge-on disappears — which is worse than
+no figure. Five boxes have a front and a back from every side, and the arms are what stop it reading as
+a bollard.
+
+**`FigureMeshes` named one builder's submeshes and the rebuild threw.** The first version wrote into
+`BuildingMeshes.TrimSubmesh` and `AccentSubmesh` directly, which makes it usable inside a town buffer
+and nowhere else — and the promenade builds into `HarbourMeshes`' five-slot scheme, where slot 11 does
+not exist. It came out as an `IndexOutOfRangeException` from inside `AddQuadFacing`, halfway through the
+world, having already built four towns' worth of figures correctly. **A mesh helper that names one
+builder's submeshes belongs to that builder**; the two slots are arguments now.
+
+**Both counts are warned about at zero**, because both are the kind of thing that vanishes silently: a
+figure is thirty triangles inside forty thousand, and the town line says "1 windmill" whether or not
+anything hangs off it.
+
+**The boats are not done, and the reason is the ratio rather than the work.** A moored boat that bobs
+is a draw call each, out of a budget standing at 873 against a warning threshold of 400 — and its
+motion is invisible in every frame this project can take, which is the same problem the wind has and
+the reason the wind is *counted* rather than photographed. So the cost is certain and the benefit
+cannot be checked. The mill is the opposite: a stopped mill is wrong in a still, which is why it was
+the one thing here worth the call. A boat crossing the strait is a better version of the idea than
+twelve bobbing at a pontoon, and it is its own change.
+
 ## How long a rebuild takes
 
 Three minutes and twenty seconds, and it was ten and a half. That matters because **this project's only

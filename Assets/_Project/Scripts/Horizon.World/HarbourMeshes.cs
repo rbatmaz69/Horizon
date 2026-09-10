@@ -506,14 +506,21 @@ namespace Horizon.World
             float clearance,
             float maxSwing,
             out float worstSwing,
-            out int gaps)
+            out int gaps,
+            out int figures)
         {
             worstSwing = 0f;
             gaps = 0;
+            figures = 0;
 
             const float postSpacing = 3.2f;
             const float railHeight = 1.05f;
             const float benchSpacing = 46f;
+
+            // Somebody at the rail, rather less often than a bench. Seventy-one rather than seventy so
+            // it does not land on a bench every time — two spacings that share a factor put a figure
+            // sitting inside the back of a seat, which is the sort of thing only a picture finds.
+            const float figureSpacing = 71f;
 
             int posts = Mathf.Max(2, Mathf.RoundToInt((toAlong - fromAlong) / postSpacing));
 
@@ -571,6 +578,30 @@ namespace Horizon.World
                     Vector3 seat = centre + right * (across + 3.4f);
                     seat.y = field.HeightAt(seat.x, seat.z);
                     AddBench(buffer, seat, Vector3.Cross(Vector3.up, right));
+                }
+
+                // And somebody standing at it, looking out. On the paved side and facing seaward, which
+                // is the one thing a person is doing on a promenade — a figure with its back to the
+                // water is a figure waiting for a bus.
+                if ((along - fromAlong) % figureSpacing < postSpacing
+                    && Mathf.Approximately(out0, across))
+                {
+                    Vector3 stand = centre + right * (across + 1.35f);
+                    stand.y = field.HeightAt(stand.x, stand.z);
+
+                    // Seaward is minus the axis' right — see the note on `across` above.
+                    Vector3 looking = -right;
+
+                    var random = new PlantRandom((uint)(stand.x * 31.7f + stand.z * 17.3f) + 1u);
+                    var place = new PlantPlacement(
+                        stand, Vector3.up, Mathf.Atan2(looking.x, looking.z), 1f, random.NextSeed());
+
+                    // The hull's painted colour for the body and the coping's stone for the head, which
+                    // is this scheme's nearest pair to the town's accent and trim. Named here rather
+                    // than inside FigureMeshes for the reason that class now records at length.
+                    FigureMeshes.AddFigure(
+                        buffer, place, 0f, 0f, 0f, HullSubmesh, CopingSubmesh, ref random);
+                    figures++;
                 }
             }
         }

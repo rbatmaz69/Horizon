@@ -345,7 +345,27 @@ namespace Horizon.World
         public int Pools;
 
         public int Cars;
+
+        /// <summary>
+        /// Standing people, at the stalls.
+        ///
+        /// <para>Counted because they are free and therefore easy to lose: a figure costs no draw call
+        /// and thirty triangles inside a mesh of forty thousand, so a build that stopped placing them
+        /// would move no other number in this log at all.</para>
+        /// </summary>
+        public int Figures;
+
         public int Triangles;
+
+        /// <summary>
+        /// Where this tile's windmills hang their sails, for the caller to build a turning object at.
+        ///
+        /// <para>A list rather than a count, and it is the one field here that is not a number — which
+        /// is why <see cref="Add"/> has to append it rather than sum it. Forgetting that is the failure
+        /// <c>VegetationStats.Add</c> has now had twice: the tile builds what it was going to build and
+        /// the total reports nothing, silently.</para>
+        /// </summary>
+        public readonly List<SailMount> Sails = new List<SailMount>();
 
         /// <summary>
         /// Triangles in each of the two glass submeshes.
@@ -390,10 +410,15 @@ namespace Horizon.World
             Lamps += other.Lamps;
             Pools += other.Pools;
             Cars += other.Cars;
+            Figures += other.Figures;
             Triangles += other.Triangles;
             LitGlass += other.LitGlass;
             DarkGlass += other.DarkGlass;
             Flips += other.Flips;
+
+            // Appended, not summed — see the field. Everything else on this class is an int and this
+            // one is not, which is exactly the shape of thing a summing method quietly drops.
+            Sails.AddRange(other.Sails);
         }
     }
 
@@ -1304,13 +1329,19 @@ namespace Horizon.World
                         continue;
 
                     case TownPlotKind.Stall:
-                        LandmarkMeshes.AddMarketStall(buffer, place, ref random);
+                        stats.Figures += LandmarkMeshes.AddMarketStall(buffer, place, ref random);
                         stats.Stalls++;
                         continue;
 
                     case TownPlotKind.Windmill:
-                        MillMeshes.AddWindmill(buffer, place);
+                        MillMeshes.AddWindmill(buffer, place, out SailMount mount);
                         stats.Windmills++;
+
+                        if (mount.Exists)
+                        {
+                            stats.Sails.Add(mount);
+                        }
+
                         continue;
 
                     case TownPlotKind.Barn:

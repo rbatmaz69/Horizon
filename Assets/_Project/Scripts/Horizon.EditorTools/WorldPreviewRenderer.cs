@@ -266,6 +266,28 @@ namespace Horizon.EditorTools
                     Capture(camera, Path.Combine(directory, "WorldPreview_Town_Mosque.png"));
                 }
 
+                // The windmill, and its sails in particular.
+                //
+                // <b>The one moving thing in any town, and the only frame that can say it was built.</b>
+                // The town's own log line says "1 windmill" whether or not the sails came out of the
+                // tile mesh — a tower with a stub of windshaft and nothing on it counts exactly the
+                // same. Found by the name the setup tool gives the object rather than by a distance,
+                // so it cannot drift off the thing it is pointed at.
+                //
+                // It cannot say whether they *turn*: nothing ticks outside Play mode, so this is a
+                // photograph of stopped sails. What it settles is that they exist, hang square to the
+                // cap and are the same timber as the mill under them.
+                GameObject sails = GameObject.Find("WindmillSails0");
+                if (sails != null)
+                {
+                    Vector3 hub = sails.transform.position;
+                    camera.fieldOfView = 50f;
+                    camera.transform.position = hub + sails.transform.forward * 34f + new Vector3(6f, -4f, 0f);
+                    camera.transform.rotation = Quaternion.LookRotation(
+                        hub - camera.transform.position, Vector3.up);
+                    Capture(camera, Path.Combine(directory, "WorldPreview_Town_Mill.png"));
+                }
+
                 CaptureFromViewpoint(camera, path, directory);
 
                 // A close look across the verge at the roadside, which is the one angle that exposes plants
