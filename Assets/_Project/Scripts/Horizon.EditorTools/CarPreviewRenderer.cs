@@ -257,7 +257,10 @@ namespace Horizon.EditorTools
                 return null;
             }
 
-            return new[] { body, glass, lamp, lamp, tyre };
+            // Six, not five: the body mesh gained a reversing-lamp submesh inboard of the tail
+            // cluster. A materials array shorter than the mesh's submesh count draws the extra one with
+            // whatever Unity picks, which on a car thumbnail is a magenta square in the tail panel.
+            return new[] { body, glass, lamp, lamp, tyre, lamp };
         }
 
         /// <summary>
@@ -424,7 +427,7 @@ namespace Horizon.EditorTools
                 return null;
             }
 
-            return new[] { body, glass, front, rear, rim };
+            return new[] { body, glass, front, rear, rim, front };
         }
 
         /// <summary>

@@ -1318,6 +1318,12 @@ namespace Horizon.EditorTools
                         materials.LightFront,
                         materials.LightRear,
                         materials.CarRim,
+
+                        // The reversing lamps, on the headlight's own off-white rather than the tail's
+                        // red — this is the one lamp on the car that is white when it is lit. The glow
+                        // is a property block like the other two, so the material is only ever the
+                        // unlit state.
+                        materials.LightFront,
                     },
                     addCollider: false,
                     markStatic: false);
@@ -1473,6 +1479,7 @@ namespace Horizon.EditorTools
                     bodyObject.GetComponent<MeshRenderer>();
                 serialized.FindProperty("headlightMaterialIndex").intValue = CarMeshBuilder.HeadlightSubmesh;
                 serialized.FindProperty("taillightMaterialIndex").intValue = CarMeshBuilder.TaillightSubmesh;
+                serialized.FindProperty("reverseMaterialIndex").intValue = CarMeshBuilder.ReverseSubmesh;
                 serialized.FindProperty("cover").objectReferenceValue = root.GetComponent<VehicleCover>();
             });
 
@@ -1714,6 +1721,14 @@ namespace Horizon.EditorTools
                             materials.LightFront,
                             materials.LightRear,
                             materials.CarRim,
+
+                            // A remote car has no VehicleLights, so its reversing lens is never driven
+                            // and stays at the material's own unlit value — which is the right answer:
+                            // nothing on the wire says whether somebody else is backing up, and a lamp
+                            // guessing would be a lamp that lies. It still needs the slot, because a
+                            // materials array shorter than the mesh's submesh count draws the rest in
+                            // Unity's magenta.
+                            materials.LightFront,
                         },
                         addCollider: false,
                         markStatic: false);

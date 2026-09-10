@@ -23,6 +23,20 @@ namespace Horizon.Vehicle
         [Tooltip("Submesh index of the headlight panels on the body mesh.")]
         [SerializeField] private int headlightMaterialIndex = 2;
 
+        [Tooltip("Submesh index of the reversing lamps, inboard of the tail cluster.")]
+        [SerializeField] private int reverseMaterialIndex = 5;
+
+        [Tooltip("What a reversing lamp looks like lit. White, because it is the one lamp on this car "
+               + "that is — and bright enough to bloom, which is what the tone map and the bloom "
+               + "together were put in for.")]
+        [SerializeField] private Color reverseColor = new Color(1f, 0.97f, 0.90f);
+
+        [Tooltip("Its brightness lit and unlit. Off is well under 1: an unlit reversing lens is dead "
+               + "plastic and reads as part of the tail panel, which is what it should.")]
+        [SerializeField] private float reverseGlow = 2.6f;
+
+        [SerializeField] private float reverseOffGlow = 0.22f;
+
         [Tooltip("Submesh index of the tail light panels.")]
         [SerializeField] private int taillightMaterialIndex = 3;
 
@@ -67,6 +81,8 @@ namespace Horizon.Vehicle
         private MaterialPropertyBlock headlightBlock;
         private MaterialPropertyBlock taillightBlock;
         private float smoothedBrake;
+        private float reverseAmount;
+        private MaterialPropertyBlock reverseBlock;
         private float headlightAmount;
 
         /// <summary>True while the headlights are lit.</summary>
@@ -126,6 +142,17 @@ namespace Horizon.Vehicle
             // Ease the brake glow so tapping the brake does not strobe.
             smoothedBrake = Mathf.MoveTowards(smoothedBrake, Mathf.Clamp01(brake), 6f * Time.deltaTime);
 
+            // <b>Read off the controller and never off the pedal.</b> The brake pedal doubles as reverse
+            // below walking pace, so a lamp driven by the pedal would light every time anybody stopped —
+            // which is the fault recorded a dozen lines above about the brake lamps, and it is waiting
+            // here for exactly the same reason. IsReversing is the one thing that can tell the two
+            // apart.
+            //
+            // Eased faster than the brake: a reversing lamp is a state rather than a pressure, and what
+            // it has to do is come on decisively when the car changes direction.
+            float reversing = controller != null && controller.IsReversing ? 1f : 0f;
+            reverseAmount = Mathf.MoveTowards(reverseAmount, reversing, 8f * Time.deltaTime);
+
             PushLampGlow();
         }
 
@@ -147,6 +174,7 @@ namespace Horizon.Vehicle
             // Lazily, because SetBody can be called before Awake has run.
             headlightBlock ??= new MaterialPropertyBlock();
             taillightBlock ??= new MaterialPropertyBlock();
+            reverseBlock ??= new MaterialPropertyBlock();
 
             float tailGlow = Mathf.Lerp(taillightIdleGlow, taillightBrakeGlow, smoothedBrake);
             taillightBlock.SetColor(BaseColorId, taillightColor * tailGlow);
@@ -155,6 +183,16 @@ namespace Horizon.Vehicle
             float headGlow = Mathf.Lerp(headlightOffGlow, headlightGlow, headlightAmount);
             headlightBlock.SetColor(BaseColorId, headlightColor * headGlow);
             bodyRenderer.SetPropertyBlock(headlightBlock, headlightMaterialIndex);
+
+            // Guarded on the slot count, because a body that folded its lamps away has no such slot —
+            // and SetPropertyBlock past the end of the materials array throws. Every player body is
+            // built uncompacted so this is always true today; the guard is for the day one is not.
+            if (reverseMaterialIndex < bodyRenderer.sharedMaterials.Length)
+            {
+                float reverseLevel = Mathf.Lerp(reverseOffGlow, reverseGlow, reverseAmount);
+                reverseBlock.SetColor(BaseColorId, reverseColor * reverseLevel);
+                bodyRenderer.SetPropertyBlock(reverseBlock, reverseMaterialIndex);
+            }
         }
 
         /// <summary>

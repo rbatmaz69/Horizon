@@ -40,7 +40,24 @@ namespace Horizon.EditorTools
         public const int HeadlightSubmesh = 2;
         public const int TaillightSubmesh = 3;
         public const int ChromeSubmesh = 4;
-        public const int BodySubmeshCount = 5;
+
+        /// <summary>
+        /// The reversing lamps, inboard of the tail cluster.
+        ///
+        /// <para><b>A slot of its own rather than a colour change on the tail lamps, and the difference
+        /// is what a reversing light <i>is</i>.</b> The cheap version — turning the whole tail panel
+        /// white while the car backs up — reads as the lamps having failed, because a real car's
+        /// reversing light is a small white square beside a large red one and it is the contrast that
+        /// says which is which. Two panels 8 cm across cost twelve triangles and one material slot on
+        /// the player's car; nothing else in the world carries them.</para>
+        ///
+        /// <para>Player bodies only. Traffic bodies go through the compacted path and there are up to
+        /// ninety-six of them — a slot each for a lamp nobody can see them reverse with would be
+        /// ninety-six draw calls for nothing.</para>
+        /// </summary>
+        public const int ReverseSubmesh = 5;
+
+        public const int BodySubmeshCount = 6;
 
         public const int TyreSubmesh = 0;
         public const int RimSubmesh = 1;
@@ -2648,6 +2665,31 @@ namespace Horizon.EditorTools
 
                     break;
                 }
+            }
+
+            // The reversing lamps, inboard of whichever of the five clusters the profile wears.
+            //
+            // <b>Outside the switch, because a reversing lamp is not part of the tail-light style.</b>
+            // Every real car puts one in the same place regardless of what the red lenses look like —
+            // small, white, and nearer the middle — and five copies of that inside five cases would be
+            // five places for it to drift.
+            //
+            // Its own submesh and not a colour change on the tail lamps: the cheap version turns the
+            // whole cluster white while the car backs up, which reads as the lamps having failed. What
+            // says "reverse" is a small white square beside a large red one, so it is the contrast that
+            // carries it and not the colour.
+            float reverseHalf = Mathf.Min(0.075f, half * 0.6f);
+            float reverseOuter = inner - 0.03f;
+            float reverseInner = Mathf.Max(0.05f, reverseOuter - reverseHalf * 2.2f);
+
+            if (reverseOuter > reverseInner)
+            {
+                List<int> reverse = submeshTriangles[ReverseSubmesh];
+
+                AddPanel(vertices, reverse, z, reverseInner, reverseOuter,
+                    lamp - reverseHalf, lamp + reverseHalf, false);
+                AddPanel(vertices, reverse, z, -reverseOuter, -reverseInner,
+                    lamp - reverseHalf, lamp + reverseHalf, false);
             }
         }
 

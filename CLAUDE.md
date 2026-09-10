@@ -2132,7 +2132,30 @@ driving code.
 the traffic used to light up a full minute of game time before the player's car did, which is a road
 that looks like it knows something you do not.
 
-Indicators are still nowhere, and the player's car still has no reversing light.
+**The player's car has a reversing light now, and it is a lamp of its own rather than a colour.** The
+cheap version — turning the tail cluster white while the car backs up — reads as the lamps having
+failed, because what says "reverse" is a small white square *beside* a large red one and the contrast
+is the whole signal. `CarMeshBuilder.ReverseSubmesh` is two 8 cm panels inboard of whichever of the
+five tail-lamp styles a profile wears, emitted outside that switch: every real car puts the lamp in
+the same place regardless of what the red lenses look like, and five copies inside five cases would be
+five places for it to drift.
+
+**Driven off `VehicleController.IsReversing` and never off the pedal**, which is the fault recorded a
+few lines above about the brake lamps waiting in the same place: the brake pedal doubles as reverse
+below walking pace, so a lamp on the pedal lights every time anybody stops.
+
+**Player bodies only.** Traffic bodies go through the compacted path and there are up to ninety-six of
+them — a slot each for a lamp nobody can see them reverse with is ninety-six draw calls for nothing.
+A remote car gets the slot but nothing drives it: **nothing on the wire says whether somebody else is
+backing up, and a lamp guessing would be a lamp that lies.** It needs the slot all the same, because a
+materials array shorter than a mesh's submesh count draws the remainder in Unity's magenta — which is
+also why both of `CarPreviewRenderer`'s two tables gained a sixth entry.
+
+`CarPreview_Rear` is what says it landed: two pale squares between the red bars, on the tail, not
+magenta. **What no frame here can show is the lamp lit** — that needs the car in reverse, which needs
+Play mode. Same limit as the photo mode's shutter, and said for the same reason.
+
+Indicators are still nowhere.
 
 ## The light in the shade
 
