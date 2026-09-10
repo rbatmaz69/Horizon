@@ -1295,6 +1295,8 @@ namespace Horizon.EditorTools
             var bodyObjects = new GameObject[profiles.Length];
             var bodyBeams = new Light[profiles.Length][];
             var bodyBounds = new Bounds[profiles.Length];
+            var bodyVertices = new int[profiles.Length];
+            var bodyTriangles = new int[profiles.Length];
             var bodyWheels = new Mesh[profiles.Length];
 
             for (int i = 0; i < profiles.Length; i++)
@@ -1304,6 +1306,13 @@ namespace Horizon.EditorTools
                 Mesh mesh = HorizonAssetUtility.ReplaceAsset(
                     CarMeshBuilder.BuildBody(profile, $"CarBodyMesh_{profile.Name}"),
                     $"{GeneratedFolder}/CarBodyMesh_{profile.Name}.asset");
+
+                // Both, because the ring-direction creases are a change whose entire signature is
+                // "vertices up, triangles flat" — a doubled ring point carries a second normal and no
+                // extra face. Neither number was printed anywhere before, so the one edit in this file
+                // that must not move a triangle had nothing that could say whether it had.
+                bodyVertices[i] = mesh.vertexCount;
+                bodyTriangles[i] = mesh.triangles.Length / 3;
 
                 // Material order must match the Submesh constants in CarMeshBuilder. Slot 0 is the paint
                 // and is the one VehicleBodySet rewrites; the other four are the same on every car.
@@ -1622,7 +1631,7 @@ namespace Horizon.EditorTools
             HorizonAssetUtility.AssertReferenceAssigned(prefab.GetComponent<VehicleController>(), "config");
             HorizonAssetUtility.AssertReferenceAssigned(prefab.GetComponent<VehicleBodySet>(), "hull");
 
-            ReportBodies(profiles, configs, bodyBounds, materials.CarPaints.Length);
+            ReportBodies(profiles, configs, bodyBounds, bodyVertices, bodyTriangles, materials.CarPaints.Length);
             return prefab;
         }
 
@@ -1875,6 +1884,8 @@ namespace Horizon.EditorTools
             CarMeshBuilder.CarProfile[] profiles,
             VehicleConfig[] configs,
             Bounds[] bounds,
+            int[] vertices,
+            int[] triangles,
             int paintCount)
         {
             var report = new System.Text.StringBuilder();
@@ -1889,7 +1900,8 @@ namespace Horizon.EditorTools
                 report.Append($"\n  {profile.Name,-10} {bounds[i].size.z:0.00} x {bounds[i].size.x:0.00} "
                               + $"x {bounds[i].size.y:0.00} m, collider centre "
                               + $"({bounds[i].center.x:0.00}, {bounds[i].center.y:0.00}, "
-                              + $"{bounds[i].center.z:0.00}), {config.Mass:0} kg, {config.DrivenAxle} drive, "
+                              + $"{bounds[i].center.z:0.00}), {vertices[i]} v / {triangles[i]} t, "
+                              + $"{config.Mass:0} kg, {config.DrivenAxle} drive, "
                               + $"{config.MaxTorqueNm:0} Nm, top {config.TopSpeed * 3.6f:0} km/h");
 
                 // The stance and the furniture, on their own line. Ride height is the number the whole

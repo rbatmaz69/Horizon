@@ -1731,6 +1731,130 @@ namespace Horizon.EditorTools
         /// </summary>
         private const int RingSubdivisions = 3;
 
+        /// <summary>
+        /// Which of the seventeen key points of a cross-section are <b>corners</b> rather than curves.
+        ///
+        /// <para><b>The body was the only smooth-shaded object in this world.</b> Terrain, trees, houses,
+        /// roads and every prop in the place are built one vertex per triangle corner and read as hard
+        /// facets; a car shared its ring vertices two ways — around the section through
+        /// <c>next = (i + 1) % ringVertexCount</c> and along the car through <c>vertices.AddRange(ring)</c>
+        /// — and then averaged over the lot in <c>RecalculateNormals</c>. The only hard edges on it were
+        /// the four <see cref="CarProfile.CreaseZ"/> stations and the two caps. On top of that
+        /// <see cref="BuildRing"/> ran Catmull-Rom through all seventeen key points, so every corner of
+        /// the section was rounded away before it was ever shaded. What came out was an airbrushed
+        /// gradient across a panel, in a world made of facets — and the off-roader, whose reference
+        /// vehicle is the most slab-sided thing ever built, came out as a loaf of bread.
+        /// <c>CarPreview_Side_Offroader.png</c> is that picture.</para>
+        ///
+        /// <para>This is <see cref="CarProfile.CreaseZ"/> turned ninety degrees, and it needs the same
+        /// two things that one needs. The corner has to <i>be</i> a corner: Catmull-Rom's tangent at
+        /// <c>p1</c> is <c>(p2 - p0) / 2</c>, so substituting <c>p0 := p1</c> leaves the point along its
+        /// own chord, which is a genuine corner rather than a tightened curve. And the normals must not
+        /// average across it, which is what the doubled ring point in <see cref="RingPlan"/> is for.</para>
+        ///
+        /// <para><b>Six, and which six is the whole of the design.</b> 0 and 16 are the sill, which over
+        /// an arch <i>is</i> the lip of the wheel opening — the edge whose absence is most visible in a
+        /// side elevation, where the arch mouth fades into the flank with no line at all. 3 and 13 are
+        /// the beltline, where <c>key[2]</c> and <c>key[3]</c> already share an X so the spline was
+        /// rounding a corner the table went to the trouble of building. 6 and 10 are the roof rail, which
+        /// is also the boundary <c>openTop</c> cuts the pickup's bed at, so its rails get an edge for
+        /// free.</para>
+        ///
+        /// <para><b>Deliberately not 5 and 11</b>, the top of the glass: two hard lines a few centimetres
+        /// apart under a rail read as a fold rather than as a rail, and
+        /// <see cref="FlankKeySegments"/> already gives that boundary a hard change of value for nothing,
+        /// because it is a change of material.</para>
+        ///
+        /// <para>A file constant and not a profile field. All ten sections have the same topology — they
+        /// differ in the numbers, not in which corners are corners — and a per-profile version would be
+        /// ten copies of one array.</para>
+        /// </summary>
+        private static readonly bool[] HardKey =
+        {
+            true,  false, false, true,  false, false, true,  false, false,
+            false, true,  false, false, true,  false, false, true,
+        };
+
+        /// <summary>
+        /// Where every point of a cross-section comes from, computed once per ring density.
+        ///
+        /// <para>It replaces the two quantities <see cref="BuildShell"/> used to derive by arithmetic —
+        /// <c>ringVertexCount = KeyPointCount * ringSubdivisions</c> and
+        /// <c>keySegment = i / ringSubdivisions</c>. Once a hard key doubles a point the ring is no
+        /// longer a uniform seventeen runs of <c>ringSubdivisions</c>, and that division silently returns
+        /// the wrong segment — which would move the glass onto the wrong panel with nothing in the build
+        /// saying so. A table cannot drift from the walk that built it.</para>
+        ///
+        /// <para><b><see cref="KeyPointCount"/> does not change and no key point is added or removed</b>,
+        /// which is why <see cref="TopKeySegments"/>, <see cref="FlankKeySegments"/> and
+        /// <see cref="ResolveSubmesh"/> are untouched by any of this. Solving the same problem by
+        /// inserting new key points would renumber <c>{6,7,8,9}</c> and <c>{3,4,11,12}</c> and every
+        /// comment in this file that names them.</para>
+        ///
+        /// <para><see cref="Seam"/> marks the zero-width quad between a doubled point and its twin, and
+        /// the stitch loop skips it exactly as <c>rowIsDuplicate</c> already skips the zero-thickness
+        /// band between the two copies of a crease station. So the ring gains six points and
+        /// <b>no triangles at all</b>: 51 points and 51 quads before, 57 points and 51 quads after.</para>
+        /// </summary>
+        private readonly struct RingPlan
+        {
+            /// <summary>Which of the seventeen key segments each point belongs to.</summary>
+            public readonly int[] Segment;
+
+            /// <summary>Parameter along that segment, 0 at its own key point.</summary>
+            public readonly float[] T;
+
+            /// <summary>True where the quad starting at this point has zero width and must be skipped.</summary>
+            public readonly bool[] Seam;
+
+            public readonly int Count;
+
+            public RingPlan(int ringSubdivisions)
+            {
+                var segment = new List<int>(KeyPointCount * ringSubdivisions + KeyPointCount);
+                var t = new List<float>(segment.Capacity);
+                var seam = new List<bool>(segment.Capacity);
+
+                for (int s = 0; s < KeyPointCount; s++)
+                {
+                    // The closing copy, which ends the previous segment's strip. Same position as the
+                    // sample that follows it, so the quad between the two is degenerate and skipped —
+                    // and the two carry different normals, which is the entire point.
+                    if (HardKey[s])
+                    {
+                        segment.Add(s);
+                        t.Add(0f);
+                        seam.Add(true);
+                    }
+
+                    for (int step = 0; step < ringSubdivisions; step++)
+                    {
+                        segment.Add(s);
+                        t.Add(step / (float)ringSubdivisions);
+                        seam.Add(false);
+                    }
+                }
+
+                Segment = segment.ToArray();
+                T = t.ToArray();
+                Seam = seam.ToArray();
+                Count = Segment.Length;
+            }
+        }
+
+        private static readonly Dictionary<int, RingPlan> RingPlans = new Dictionary<int, RingPlan>();
+
+        private static RingPlan PlanFor(int ringSubdivisions)
+        {
+            if (!RingPlans.TryGetValue(ringSubdivisions, out RingPlan plan))
+            {
+                plan = new RingPlan(ringSubdivisions);
+                RingPlans[ringSubdivisions] = plan;
+            }
+
+            return plan;
+        }
+
         /// <summary>Ring segments forming the top surface — roof, hood, windscreen, rear window.</summary>
         private static readonly HashSet<int> TopKeySegments = new HashSet<int> { 6, 7, 8, 9 };
 
@@ -1812,7 +1936,8 @@ namespace Horizon.EditorTools
             List<int> usedSubmeshes = null,
             float verticalOffset = 0f)
         {
-            int ringVertexCount = KeyPointCount * ringSubdivisions;
+            RingPlan plan = PlanFor(ringSubdivisions);
+            int ringVertexCount = plan.Count;
 
             var vertices = new List<Vector3>(2048);
             var submeshTriangles = new List<int>[BodySubmeshCount];
@@ -1831,7 +1956,7 @@ namespace Horizon.EditorTools
                 bool interior = i > 0 && i < stations.Count - 1;
                 int copies = interior && IsCrease(profile, station.Z) ? 2 : 1;
 
-                Vector3[] ring = BuildRing(profile, station, ringSubdivisions);
+                Vector3[] ring = BuildRing(profile, station, plan);
                 for (int copy = 0; copy < copies; copy++)
                 {
                     rowZ.Add(station.Z);
@@ -1859,7 +1984,14 @@ namespace Horizon.EditorTools
 
                 for (int i = 0; i < ringVertexCount; i++)
                 {
-                    int keySegment = i / ringSubdivisions;
+                    // The zero-width band between a hard key's two copies, which is the ring-direction
+                    // twin of the rowIsDuplicate skip above.
+                    if (plan.Seam[i])
+                    {
+                        continue;
+                    }
+
+                    int keySegment = plan.Segment[i];
                     if (openTop && TopKeySegments.Contains(keySegment))
                     {
                         continue;
@@ -1887,9 +2019,9 @@ namespace Horizon.EditorTools
 
             // Caps get their own vertices so the tail and nose edges stay crisp.
             AddCap(vertices, submeshTriangles[BodySubmesh],
-                BuildRing(profile, stations[0], ringSubdivisions), facingForward: false);
+                BuildRing(profile, stations[0], plan), plan, facingForward: false);
             AddCap(vertices, submeshTriangles[BodySubmesh],
-                BuildRing(profile, stations[stations.Count - 1], ringSubdivisions), facingForward: true);
+                BuildRing(profile, stations[stations.Count - 1], plan), plan, facingForward: true);
 
             // Before the detail pass, not inside it: the reduced traffic body skips details, and a
             // pickup with the lid cut off and nothing put back is a car you can see straight through.
@@ -2076,9 +2208,17 @@ namespace Horizon.EditorTools
         }
 
         /// <summary>
-        /// Fourteen control points, smoothed into a closed loop. Pairs of points sit close together at
-        /// the belt line and the shoulder, which tightens those corners — a muscle car needs a crisp
-        /// beltline, not an egg. Reuses the road's Catmull-Rom rather than a second copy of it.
+        /// <see cref="KeyPointCount"/> control points, smoothed into a closed loop — <b>except at the
+        /// six named in <see cref="HardKey"/></b>, which are corners. Reuses the road's Catmull-Rom
+        /// rather than a second copy of it.
+        ///
+        /// <para>This comment used to say "fourteen control points" against a
+        /// <see cref="KeyPointCount"/> of seventeen, and it used to argue that pairs of points sitting
+        /// close together at the belt line "tightens those corners — a muscle car needs a crisp
+        /// beltline, not an egg". The pairs are still there and the argument was right about what the
+        /// car needed; what it could not do is get it. A tightened curve through two close points is
+        /// still a curve, and <c>RecalculateNormals</c> averaged across it regardless. The beltline is
+        /// a corner now.</para>
         /// </summary>
         /// <summary>
         /// Four flat lamp panels and four wheels, for the reduced-detail body.
@@ -2344,7 +2484,7 @@ namespace Horizon.EditorTools
             }
         }
 
-        private static Vector3[] BuildRing(in CarProfile profile, in Station station, int ringSubdivisions)
+        private static Vector3[] BuildRing(in CarProfile profile, in Station station, in RingPlan plan)
         {
             float z = station.Z;
             float belt = station.BeltY;
@@ -2398,21 +2538,25 @@ namespace Horizon.EditorTools
                 new Vector3(-sillX, bottom, z),
             };
 
-            var ring = new Vector3[KeyPointCount * ringSubdivisions];
-            for (int segment = 0; segment < KeyPointCount; segment++)
+            var ring = new Vector3[plan.Count];
+            for (int i = 0; i < plan.Count; i++)
             {
-                Vector3 p0 = key[((segment - 1) + KeyPointCount) % KeyPointCount];
-                Vector3 p1 = key[segment];
-                Vector3 p2 = key[(segment + 1) % KeyPointCount];
-                Vector3 p3 = key[(segment + 2) % KeyPointCount];
+                int segment = plan.Segment[i];
+                int ahead = (segment + 1) % KeyPointCount;
 
-                for (int step = 0; step < ringSubdivisions; step++)
-                {
-                    float t = step / (float)ringSubdivisions;
-                    Vector3 point = RoadPath.CatmullRom(p0, p1, p2, p3, t);
-                    point.z = z;
-                    ring[segment * ringSubdivisions + step] = point;
-                }
+                // Endpoint clamping at a hard key. Catmull-Rom's tangent at p1 is (p2 - p0) / 2, so
+                // p0 := p1 leaves the point along its own chord and p3 := p2 arrives along it — a
+                // corner rather than a tightened curve. Doubling the point in the plan is what stops
+                // RecalculateNormals averaging across it; this is what makes there be anything to
+                // average across in the first place.
+                Vector3 p1 = key[segment];
+                Vector3 p2 = key[ahead];
+                Vector3 p0 = HardKey[segment] ? p1 : key[((segment - 1) + KeyPointCount) % KeyPointCount];
+                Vector3 p3 = HardKey[ahead] ? p2 : key[(segment + 2) % KeyPointCount];
+
+                Vector3 point = RoadPath.CatmullRom(p0, p1, p2, p3, plan.T[i]);
+                point.z = z;
+                ring[i] = point;
             }
 
             return ring;
@@ -3391,15 +3535,29 @@ namespace Horizon.EditorTools
             }
         }
 
-        private static void AddCap(List<Vector3> vertices, List<int> triangles, Vector3[] ring, bool facingForward)
+        private static void AddCap(
+            List<Vector3> vertices, List<int> triangles, Vector3[] ring, in RingPlan plan,
+            bool facingForward)
         {
+            // Seam points are skipped in both loops. In the centroid because six doubled points would
+            // drag the centre towards the sill and the belt; in the fan because a triangle spanning a
+            // doubled point has zero area, and a degenerate triangle in a mesh somebody later reads a
+            // triangleIndex off is the hazard ValidateSurfaces exists to describe.
             Vector3 center = Vector3.zero;
+            int counted = 0;
+
             for (int i = 0; i < ring.Length; i++)
             {
+                if (plan.Seam[i])
+                {
+                    continue;
+                }
+
                 center += ring[i];
+                counted++;
             }
 
-            center /= ring.Length;
+            center /= Mathf.Max(counted, 1);
 
             int centerIndex = vertices.Count;
             vertices.Add(center);
@@ -3409,6 +3567,11 @@ namespace Horizon.EditorTools
 
             for (int i = 0; i < ring.Length; i++)
             {
+                if (plan.Seam[i])
+                {
+                    continue;
+                }
+
                 int next = (i + 1) % ring.Length;
 
                 // The ring runs counter-clockwise seen from +Z, so the nose keeps that order and the
