@@ -608,9 +608,11 @@ plane at the mouth and blended to the branch's own over one verge width, which i
 `MotorwayMergeBuilder.Lift` for the reason recorded there. Unmarked, for the reason
 `StreetJunctionBuilder.AppendTrunkMouth` gives.
 
-**Traffic does not use it yet, and that is visible rather than hidden.** `TrafficNetworkBuilder`'s
-`OnwardRoad` is a chain, not a graph; a car choosing at a fork needs a node with three edges. Until
-then the ring is drawn, driveable and empty, and traffic still runs Ebental → Kalkgrat.
+**Traffic uses it now, and the ring is what it is for.** This paragraph used to say the opposite —
+`TrafficNetworkBuilder`'s `OnwardRoad` is a chain and a car choosing at a fork needs a node with three
+edges — so the leg was drawn, driveable and empty while traffic ran Ebental → Kalkgrat and back. See
+*Traffic that can choose*: it took a cut in the Ebental's lane pair at `ForkAlong`, a node there, and
+this road's own pair ending on Hochstadt's east gate.
 
 `TrafficRouteValidator`'s `trunkRoads` gained an entry, and the way it gained one matters: Yalıköy's
 street network was reaching for `trunkRoads[trunkRoads.Length - 1]`, so appending would have repointed
@@ -699,12 +701,15 @@ stage-C leg is 300 m of which the straight halves are 143 m each, while a 190 m 
 approach at either end needs 310. `TunnelBuilder` also sweeps its massif 40 m to each side, which the
 26–36 m hairpins here clear comfortably where the pass's 20 m ones barely do.
 
-**Traffic does not use the ramp.** `TrafficNetworkBuilder` is written for exactly one interchange —
+**Traffic does not use the ramp, and this is now the only road in the world where that is a
+limitation rather than a decision.** `TrafficNetworkBuilder` is written for exactly one interchange —
 scalar parameters, one `bool merging`, one node, and a lane cut that breaks the nearside westbound lane
 into exactly two pieces. `BuildMotorwayMerge` now takes a name so a second wedge does not overwrite the
 first's mesh asset, and the second call throws its out-params away. Cars stream past this exit and none
-of them take it; with the Stadtfeld road also empty, that is two, and it is the argument for doing the
-branching-traffic job as its own change.
+of them take it. **`BranchRoad` does not reach it**: that mechanism cuts a *trunk* lane pair, and a
+motorway carriageway is four `Highway` lanes whose nearside one is the only one a diverge may touch —
+which is `AddInterchangeLanes`' problem mirrored, and its own change. The two circuits are deliberately
+empty; this one is not.
 
 **The mountain is not visible from the motorway, and the stack was turned for nothing.** Its grain was
 aimed south so the wall would face the road that leads to it; the frame taken to check that came back
@@ -911,8 +916,9 @@ that cannot pass the gates is a circuit no line can. `LapTiming.SetGates` also f
 the gate directions, which its own tooltip had claimed since the day it was written and which only
 `SetCircuit` actually did for the line.
 
-**No traffic, and that is a decision rather than an omission** — said in the comment beside it, the way
-the Weissjoch ramp says it. `TrunkForkBuilder` gained a name for its mesh asset at the same time, for
+**No traffic, and that is a decision rather than an omission** — a race track with ambient cars
+pottering round it is not a race track, and the fork machinery *would* now reach it (see *Traffic that
+can choose*), which is what makes this a decision rather than a limitation. `TrunkForkBuilder` gained a name for its mesh asset at the same time, for
 exactly the reason `BuildMotorwayMerge` already had one: the second call was overwriting the first.
 
 `Tools > Horizon > Render Weissjochring Preview` photographs the lap day and night. **`_2_Line` and
@@ -1108,9 +1114,8 @@ wants 250–600 m of road behind a station clear of bores, spans and bends under
 wraps into the closing corners there is no such stretch, and there does not need to be. Nobody is
 looking for this forecourt from a distance — it is thirty metres past the pit mouth, on the way in.
 
-**No traffic**, like the Weissjochring and the Stadtfeld, and said in the comment beside it rather
-than hidden. That is now three roads without it, which is the argument for doing the branching-traffic
-job as its own change.
+**No traffic**, like the Weissjochring, and for that circuit's reason rather than for the
+Stadtfeld's — the branching-traffic job is done and this lap is left empty on purpose.
 
 `Tools > Horizon > Render Bahçe Ring Preview` photographs the lap day and night. **`_2_Line`,
 `_7_Infield` and `_5_Blossom` are the three that carry it** — the closure seam at the fastest point
@@ -2168,6 +2173,75 @@ magenta. **What no frame here can show is the lamp lit** — that needs the car 
 Play mode. Same limit as the photo mode's shutter, and said for the same reason.
 
 Indicators are still nowhere.
+
+## Traffic that can choose
+
+Fourteen courses and one shape of road network: **a chain**. `OnwardRoad` hangs each road off the end
+of the one before it, which is what makes the pass, the Ebental, the Kalkgrat, the Meerenge and Yalıköy
+one drive — and it means a car in this world has never once made a decision. Everything it can do at
+the end of a lane is carry on, or, at a dead end, turn round. The Stadtfeld leg has been tarmac since
+it was built, closes the only ring in the world, and had never had a car on it.
+
+**Nothing had to be invented, and this file said otherwise for a long time.** A lane already carries an
+entry node and an exit node; `AddConnectors` already builds one turn for every pair of lanes meeting at
+a node they share. So a fork is three things that already existed: a cut in the parent's lane pair, a
+node at the cut, and the branch's own pair ending there. That is the realisation
+`AddInterchangeLanes` recorded about the on-ramp — *"The file used to say this could not be done
+without inventing something; it could"* — applied a second time, and the second time it was cheaper
+than the first.
+
+**A fork is a town entrance as far as the cut loop is concerned**, which is why `TrunkCut` exists.
+`AddTrunkLanes` already broke a road wherever a settlement hung a junction on it, sorted by distance
+along; a fork produces the same triple and goes through the same insertion. The alternative is a second
+cut loop with its own sort, agreeing with the first until one of them is changed.
+
+**The gap at the mouth is `TrunkForkBuilder.MouthHalfWidth`, read from the builder that laid the
+throat.** A lane has to stop short of a junction so the connector *is* the turn rather than a swerve at
+the end of a straight, and how far short is how wide the bell is — a number that class already computes
+from both shapes. `MouthHalf` answers exactly this question for a town entrance from the street graph;
+this is the same question with the fork's own answer, not a constant beside it.
+
+**The parent is named by reference, not by an index into the chain.** Every road arrives at `Build` as
+an `IRoadPath` and the caller holds the same object, so identity cannot be got wrong — where an index
+into a list that has grown to five entries would silently cut the road next to the one meant, and the
+symptom would be a mouth in open country a kilometre from the tarmac. `Build` keeps the set of roads it
+actually laid lanes on and errors when a branch names one that is not in it, because a fork off a road
+with no lanes is a branch hanging off a node no lane ever reaches: it builds, it validates, and no car
+can get to it.
+
+**The far end is Hochstadt's own gate node and not a synthetic one**, which is the whole of how the
+branch joins the city — the same single fact `joinsATown` already turns on for the motorway. With a
+node of its own there, the Stadtfeld's traffic would have nothing to do at the end of the road but turn
+round, three hundred metres short of a boulevard. `HochstadtLayout.EastGateNode` is derived as the node
+after the gateway rather than written down, for the reason `GatewayNode` is.
+
+**And no settlement is handed to the branch's own `AddTrunkLanes` call, even though there is one at its
+end.** A town's `AlongTrunk` is a distance measured along *the road that town sits on*, and Hochstadt
+sits on its arterial — so cutting the Stadtfeld road at those distances would break it at five places
+that mean nothing on it. That is the fault `AddTrunkLanes`' own remarks describe and the reason the
+parameter may be null.
+
+**`ReportForks` is the instrument, and what it measures is whether anybody gets a choice.** Every number
+about this feature can be right — the branch's lanes laid, the node allocated, the parent cut in the
+right place, the log printing a length — and if the cut landed where no connector could be built, what
+ships is a road with cars on it that all carry straight on. That is indistinguishable from the fork not
+being wired, in a picture and from the driver's seat. So the check counts the ways on out of each driven
+lane that *ends* at a mouth: **three lanes arrive at the Ebental fork and the least-served of them has
+two ways on**, which is the least a fork can mean — carry on, or turn off. Under two is an error, not a
+warning: a fork with one exit is a road that widens.
+
+**This is one of the few features here a picture cannot check at all**, and it gets measurement instead,
+the way the surfaces and the wind do. Nothing ticks outside Play mode, so a saved scene has the whole
+traffic pool parked wherever it was left; there is no frame anywhere that distinguishes a wired fork
+from an unwired one. What the numbers say: 34 trunk lanes over 66.5 km against 32 before, **all 1366
+lanes lead somewhere**, all 34 are inside their carriageway, and every connector is flush to 0.0 mm.
+That last pair is what says the new lanes were baked against the right `RoadShape` — the fault
+`CheckLanesFollowTheTrunkRoad` exists for, on a road that had been in its list, uselessly, since before
+it carried anything.
+
+**One road is still empty as a limitation rather than as a decision**, and it is named where it lives:
+the Weissjoch ramp leaves a motorway carriageway, which is four `Highway` lanes rather than a trunk
+pair, and a diverge may only touch the nearside one. Both circuits are empty on purpose.
 
 ## The light in the shade
 

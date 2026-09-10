@@ -3253,6 +3253,19 @@ namespace Horizon.EditorTools
                     // puts four junctions on it. See TrafficNetworkBuilder.OnwardRoad.Town.
                     new TrafficNetworkBuilder.OnwardRoad(
                         yalikoyPath, roadShape, System.Array.IndexOf(towns, yalikoy)),
+                },
+                // And the one road that leaves another part way along rather than carrying on from its
+                // end. <b>This is what closes the ring for the traffic.</b> Everything above is a chain,
+                // so a car could drive Talheim → pass → Ebental → Kalkgrat → Yalıköy and back and never
+                // once make a decision; the Stadtfeld leg has existed as tarmac since it was built and
+                // has never had a car on it. Walked from Hochstadt's east gate to the fork, which is the
+                // direction the course is authored in, and its far end is the city's own gate node so
+                // the traffic drives into the place rather than turning round outside it.
+                new[]
+                {
+                    new TrafficNetworkBuilder.BranchRoad(
+                        stadtfeldPath, roadShape, ebentalPath, roadShape, EbentalCourse.ForkAlong,
+                        System.Array.IndexOf(towns, hochstadt), HochstadtLayout.EastGateNode),
                 });
 
             // After the routes exist, because the phase the lenses show is read off the same asset the
@@ -8574,7 +8587,8 @@ namespace Horizon.EditorTools
             int coastEndNode,
             IRoadPath country,
             RoadShape countryShape,
-            IReadOnlyList<TrafficNetworkBuilder.OnwardRoad> onward)
+            IReadOnlyList<TrafficNetworkBuilder.OnwardRoad> onward,
+            IReadOnlyList<TrafficNetworkBuilder.BranchRoad> branches)
         {
             var networks = new StreetNetwork[towns.Count];
 
@@ -8601,7 +8615,7 @@ namespace Horizon.EditorTools
                 highwayEndTown, highwayEndNode,
                 link, linkShape, rampCapDistance, rampMergeDistance, plans,
                 coast, coastShape, coastEndTown, coastEndNode,
-                country, countryShape, onward);
+                country, countryShape, onward, branches);
             routes = HorizonAssetUtility.ReplaceAsset(routes, GeneratedFolder + "/TrafficNetwork.asset");
 
             CarMeshBuilder.CarProfile[] profiles = CarMeshBuilder.TrafficProfiles;

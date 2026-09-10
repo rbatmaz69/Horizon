@@ -76,6 +76,17 @@ namespace Horizon.World
         /// </summary>
         public static int GatewayNode => Along.Length * Across.Length;
 
+        /// <summary>
+        /// The east gate's index, where the boulevard runs out and the Stadtfeld road takes over.
+        ///
+        /// <para>The next node after the gateway, for the same reason that one is derived rather than
+        /// written: they are added in that order and a literal here would go stale the first time a row
+        /// or a column was added to the grid. Exposed for the same reason too — the traffic graph needs
+        /// the branch's far end and this node to be <i>the same node</i>, or the country road ends at a
+        /// junction beside the city rather than in it, and its cars turn round outside the gate.</para>
+        /// </summary>
+        public static int EastGateNode => GatewayNode + 1;
+
         public static TownNetworkSpec Build()
         {
             var spec = new TownNetworkSpec();

@@ -670,9 +670,11 @@ namespace Horizon.EditorTools
             {
                 trunk,
                 Paved("Ebental", EbentalCourse.Build()),
-                // No traffic runs on it yet, and it belongs here anyway: CheckLanesFollowTheTrunkRoad
-                // holds every lane in the world against the nearest of these, so a paved road missing
-                // from the list is one that lanes near it are measured against something further away.
+                // It carries traffic now, and it was on this list before it did — which is why the
+                // first build with lanes on it had nothing to say. CheckLanesFollowTheTrunkRoad holds
+                // every lane in the world against the nearest of these, so a paved road missing from the
+                // list is one whose own lanes get measured against something further away and reported,
+                // by the kilometre, as cars in a field.
                 Paved("Stadtfeld", StadtfeldCourse.Build()),
                 // No traffic on it either, and here for the same reason: this check holds every
                 // lane in the world against the nearest paved road, so one missing from the list

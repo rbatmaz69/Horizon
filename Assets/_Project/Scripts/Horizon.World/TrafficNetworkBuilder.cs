@@ -63,6 +63,99 @@ namespace Horizon.World
             }
         }
 
+        /// <summary>
+        /// A road that leaves another one part way along it, rather than carrying on from its end.
+        ///
+        /// <para><b>This is the thing <see cref="OnwardRoad"/> is not.</b> That struct chains: each road
+        /// begins at the node the one before it finished on, which makes the whole world one drive and
+        /// gives a car exactly one thing to do at every join. A fork is a node with three edges, and
+        /// until there was one the ring through Hochstadt was drawn, driveable and empty — traffic ran
+        /// Ebental → Kalkgrat and nothing ever turned off.</para>
+        ///
+        /// <para><b>Nothing new had to be invented for it, which is worth saying because this file used
+        /// to claim otherwise.</b> A lane already carries an entry node and an exit node, and
+        /// <c>AddConnectors</c> already builds one turn per pair of lanes meeting at a shared node — so a
+        /// fork is a cut in the parent's lane pair, a node at the cut, and the branch's own pair ending
+        /// there. The same realisation <c>AddInterchangeLanes</c> records about the on-ramp.</para>
+        ///
+        /// <para><b>The parent is named by reference and not by an index.</b> Every road in this build
+        /// arrives here as an <c>IRoadPath</c> and the caller holds the same object, so matching on
+        /// identity cannot be got wrong — where an index into a chain that has grown to five entries
+        /// would silently cut the road next to the one meant. <see cref="Build"/> errors if the parent is
+        /// not a road it laid lanes down.</para>
+        /// </summary>
+        public readonly struct BranchRoad
+        {
+            /// <summary>The branch itself, walked from its far end towards the fork.</summary>
+            public readonly IRoadPath Path;
+
+            public readonly RoadShape Shape;
+
+            /// <summary>The road it leaves, by reference — the very object handed to <see cref="Build"/>.</summary>
+            public readonly IRoadPath Leaves;
+
+            /// <summary>How far along that road the mouth is. The course's own junction mark.</summary>
+            public readonly float LeavesAt;
+
+            /// <summary>
+            /// The parent's cross-section, which is half of how wide the mouth is.
+            ///
+            /// <para>Carried rather than looked up, because nothing here maps a path to a shape and
+            /// <c>TrunkForkBuilder.MouthHalfWidth</c> needs both — and its own remarks record what
+            /// sizing a mouth from the branch alone cost: on a circuit it returned a bell narrower at
+            /// its widest than the road it opened onto.</para>
+            /// </summary>
+            public readonly RoadShape LeavesShape;
+
+            /// <summary>
+            /// The settlement the branch's far end arrives in, as an index into the networks, or −1.
+            ///
+            /// <para>A real node and not a synthetic one wherever there is one to use, for the reason
+            /// <c>joinsATown</c> gives about the motorway: two junctions in the same place give the
+            /// traffic nothing to do at the end of the road but turn round.</para>
+            /// </summary>
+            public readonly int EndTown;
+
+            /// <summary>That settlement's own node index, before <c>nodeOffset</c> is applied.</summary>
+            public readonly int EndNode;
+
+            public BranchRoad(
+                IRoadPath path, in RoadShape shape,
+                IRoadPath leaves, in RoadShape leavesShape, float leavesAt,
+                int endTown = -1, int endNode = -1)
+            {
+                Path = path;
+                Shape = shape;
+                Leaves = leaves;
+                LeavesShape = leavesShape;
+                LeavesAt = leavesAt;
+                EndTown = endTown;
+                EndNode = endNode;
+            }
+        }
+
+        /// <summary>
+        /// One place a road's lane pair has to be broken, and how much room the mouth there takes.
+        ///
+        /// <para>A town entrance produces one of these from the street graph and a fork produces one
+        /// from a <see cref="BranchRoad"/>; <see cref="AddTrunkLanes"/> cannot tell them apart and does
+        /// not need to. That is the point of the type: the alternative is a second cut loop beside the
+        /// first, with its own sort, agreeing with it until one of them is changed.</para>
+        /// </summary>
+        private readonly struct TrunkCut
+        {
+            public readonly int Node;
+            public readonly float At;
+            public readonly float Gap;
+
+            public TrunkCut(int node, float at, float gap)
+            {
+                Node = node;
+                At = at;
+                Gap = gap;
+            }
+        }
+
         /// <summary>Target spacing between lane samples, metres.</summary>
         private const float SampleSpacing = 2.5f;
 
@@ -183,7 +276,8 @@ namespace Horizon.World
             int coastEndNode = -1,
             IRoadPath country = null,
             RoadShape countryShape = default,
-            IReadOnlyList<OnwardRoad> onward = null)
+            IReadOnlyList<OnwardRoad> onward = null,
+            IReadOnlyList<BranchRoad> branches = null)
         {
             var lanes = new LaneBuffer();
 
@@ -236,6 +330,36 @@ namespace Horizon.World
             {
                 onwardEndNode[i] = nodeCount;
                 nodeCount += 1;
+            }
+
+            // And two apiece for whatever forks off one of them. The mouth is a junction like any other
+            // — a lane ends there and connectors take over — and the far end is one too, unless it lands
+            // on a town's own gateway, in which case it is that node and the branch's traffic drives
+            // into the place rather than turning round outside it.
+            int branchCount = branches != null ? branches.Count : 0;
+            var branchForkNode = new int[branchCount];
+            var branchEndNode = new int[branchCount];
+            var branchLands = new bool[branchCount];
+
+            for (int i = 0; i < branchCount; i++)
+            {
+                branchForkNode[i] = nodeCount;
+                nodeCount += 1;
+
+                int town = branches[i].EndTown;
+                branchLands[i] = town >= 0 && town < networks.Count
+                                 && branches[i].EndNode >= 0
+                                 && branches[i].EndNode < networks[town].Nodes.Count;
+
+                if (branchLands[i])
+                {
+                    branchEndNode[i] = nodeOffset[town] + branches[i].EndNode;
+                }
+                else
+                {
+                    branchEndNode[i] = nodeCount;
+                    nodeCount += 1;
+                }
             }
 
                         bool merging = link != null && highway != null && rampMergeDistance >= 0f
@@ -311,6 +435,30 @@ namespace Horizon.World
                 }
             }
 
+            for (int i = 0; i < branchCount; i++)
+            {
+                BranchRoad branch = branches[i];
+
+                if (branch.Path == null || branch.Leaves == null)
+                {
+                    Debug.LogError("[Horizon] Traffic: a branch road was handed in with no path or no "
+                                   + "road to leave. It is matched to its parent by reference, so a "
+                                   + "null on either side cannot be resolved to anything.");
+                    continue;
+                }
+
+                nodeAt[branchForkNode[i]] = branch.Leaves.GetPositionAtDistance(
+                    Mathf.Clamp(branch.LeavesAt, 0f, branch.Leaves.Length));
+
+                // Only a synthetic far end gets a position written here. Where the branch lands on a
+                // town's own gateway, that node's position came from the street graph and writing over
+                // it would move the junction the streets are built around.
+                if (!branchLands[i])
+                {
+                    nodeAt[branchEndNode[i]] = branch.Path.GetPositionAtDistance(0f);
+                }
+            }
+
             if (merging)
             {
                 // On the nearside lane itself, not on the median: this is the point the ramp's lane and
@@ -339,8 +487,40 @@ namespace Horizon.World
                 AddStreetLanes(networks[i], nodeOffset[i], lanes, entryNode, exitNode, plan);
             }
 
+            // One cut list per road, keyed on the path object itself. A fork names its parent by
+            // reference for the reason BranchRoad gives, and this is where that reference is spent.
+            var forksOf = new Dictionary<IRoadPath, List<TrunkCut>>();
+
+            for (int i = 0; i < branchCount; i++)
+            {
+                BranchRoad branch = branches[i];
+
+                if (branch.Path == null || branch.Leaves == null)
+                {
+                    continue;
+                }
+
+                if (!forksOf.TryGetValue(branch.Leaves, out List<TrunkCut> list))
+                {
+                    list = new List<TrunkCut>(2);
+                    forksOf[branch.Leaves] = list;
+                }
+
+                // The gap is the bell mouth's own half-width on the parent, which is the same question
+                // MouthHalf answers for a town entrance — how far short of the junction a lane has to
+                // stop so the connector is the turn rather than a swerve at the end of a straight.
+                list.Add(new TrunkCut(
+                    branchForkNode[i], branch.LeavesAt,
+                    TrunkForkBuilder.MouthHalfWidth(branch.Shape, branch.LeavesShape)));
+            }
+
+            // Every road that could carry a fork, so a parent named by reference can be checked against
+            // the roads lanes are actually laid on. A branch off something not in here would otherwise
+            // build its own lanes, find no cut in anything, and hang off a node no lane ever reaches.
+            var laidOn = new HashSet<IRoadPath>();
+
             AddTrunkLanes(networks[0], trunk, trunkShape, roadStartNode, roadEndNode,
-                lanes, entryNode, exitNode);
+                lanes, entryNode, exitNode, 0, ForksOn(trunk));
 
             if (continues)
             {
@@ -349,7 +529,7 @@ namespace Horizon.World
                 // measured along the road that town sits on. Handing in a settlement that sits on a
                 // different road would cut this one at distances that mean nothing here.
                 AddTrunkLanes(null, country, countryShape, roadEndNode, countryEndNode,
-                    lanes, entryNode, exitNode);
+                    lanes, entryNode, exitNode, 0, ForksOn(country));
 
                 // Chained: each starts at the node the one before it ended on. Each is handed its own
                 // settlement when it has one, so the cut list can break the lane at that town's
@@ -363,7 +543,7 @@ namespace Horizon.World
                     int offset = on != null ? nodeOffset[town] : 0;
 
                     AddTrunkLanes(on, onward[i].Path, onward[i].Shape, previous, onwardEndNode[i],
-                        lanes, entryNode, exitNode, offset);
+                        lanes, entryNode, exitNode, offset, ForksOn(onward[i].Path));
 
                     previous = onwardEndNode[i];
                 }
@@ -381,7 +561,37 @@ namespace Horizon.World
                 // are not the flat ones and a cut would land on a junction in Talheim.
                 AddTrunkLanes(networks[coastEndTown], coast, coastShape,
                     highwayWestNode, nodeOffset[coastEndTown] + coastEndNode,
-                    lanes, entryNode, exitNode, nodeOffset[coastEndTown]);
+                    lanes, entryNode, exitNode, nodeOffset[coastEndTown], ForksOn(coast));
+            }
+
+            // The branches themselves, walked from their far end to the fork — which is the direction
+            // they are authored in, so nothing here has to reverse a path. No settlement is handed in
+            // even where one is at the far end: a town's AlongTrunk is a distance measured along the
+            // road that town sits on, and cutting this road at those distances is the fault
+            // AddTrunkLanes' own remarks describe.
+            for (int i = 0; i < branchCount; i++)
+            {
+                BranchRoad branch = branches[i];
+
+                if (branch.Path == null || branch.Leaves == null)
+                {
+                    continue;
+                }
+
+                if (!laidOn.Contains(branch.Leaves))
+                {
+                    Debug.LogError(
+                        "[Horizon] Traffic: a branch was told to leave a road this build lays no lanes "
+                        + "on, so its mouth would be a node no lane ever reaches and the branch would "
+                        + "be a piece of tarmac with cars on it and no way in. Fork off the trunk, the "
+                        + "country road, the coast road or one of the onward roads.");
+                    continue;
+                }
+
+                AddTrunkLanes(null, branch.Path, branch.Shape,
+                    branchEndNode[i], branchForkNode[i], lanes, entryNode, exitNode,
+                    0, null,
+                    TrunkForkBuilder.MouthHalfWidth(branch.Shape, branch.LeavesShape));
             }
 
             if (highway != null)
@@ -408,6 +618,20 @@ namespace Horizon.World
                     lanes, entryNode, exitNode);
             }
 
+            // Records the road as one lanes were laid on and hands back whatever forks it carries.
+            // Both jobs in one call so the two lists cannot come apart: a road that got its cuts is by
+            // construction a road a branch may name.
+            List<TrunkCut> ForksOn(IRoadPath road)
+            {
+                if (road == null)
+                {
+                    return null;
+                }
+
+                laidOn.Add(road);
+                return forksOf.TryGetValue(road, out List<TrunkCut> list) ? list : null;
+            }
+
             int drivenLanes = lanes.Count;
             AddConnectors(lanes, entryNode, exitNode, nodeAt, drivenLanes,
                 out List<int>[] connectorsOf, out List<int> connectorTarget);
@@ -419,6 +643,8 @@ namespace Horizon.World
             {
                 ReportInterchange(lanes, exitStart, exits, connectorTarget, drivenLanes);
             }
+
+            ReportForks(branches, branchForkNode, exitNode, exitStart, drivenLanes);
 
             var asset = ScriptableObject.CreateInstance<TrafficNetwork>();
             asset.Fill(
@@ -595,7 +821,9 @@ namespace Horizon.World
             LaneBuffer lanes,
             List<int> entryNode,
             List<int> exitNode,
-            int nodeOffset = 0)
+            int nodeOffset = 0,
+            IReadOnlyList<TrunkCut> forks = null,
+            float endGap = 0f)
         {
             if (trunk == null || trunk.Length < MinimumTrunkLane)
             {
@@ -614,22 +842,36 @@ namespace Horizon.World
                     continue;
                 }
 
-                // Sorted in as it is found. Five junctions makes an insertion sort the honest choice, and
-                // the layout table has no obligation to list them in order along the road.
-                int slot = 1;
-                while (slot < cutAt.Count && cutAt[slot] < node.AlongTrunk)
-                {
-                    slot++;
-                }
+                Cut(nodeOffset + i, node.AlongTrunk, MouthHalf(network, node));
+            }
 
-                cutNode.Insert(slot, nodeOffset + i);
-                cutAt.Insert(slot, Mathf.Clamp(node.AlongTrunk, 0f, trunk.Length));
-                cutGap.Insert(slot, MouthHalf(network, node));
+            // And wherever a branch leaves. A fork is exactly a town entrance as far as this loop is
+            // concerned — a place the lane has to stop so a connector can take over — which is why it
+            // goes through the same insertion rather than through a case of its own.
+            for (int i = 0; forks != null && i < forks.Count; i++)
+            {
+                Cut(forks[i].Node, forks[i].At, forks[i].Gap);
             }
 
             cutNode.Add(roadEndNode);
             cutAt.Add(trunk.Length);
-            cutGap.Add(0f);
+            cutGap.Add(endGap);
+
+            // Sorted in as it is found. Five junctions makes an insertion sort the honest choice, and
+            // neither the layout table nor a fork list has any obligation to arrive in order along the
+            // road.
+            void Cut(int node, float at, float gap)
+            {
+                int slot = 1;
+                while (slot < cutAt.Count && cutAt[slot] < at)
+                {
+                    slot++;
+                }
+
+                cutNode.Insert(slot, node);
+                cutAt.Insert(slot, Mathf.Clamp(at, 0f, trunk.Length));
+                cutGap.Insert(slot, gap);
+            }
 
             for (int s = 0; s < cutAt.Count - 1; s++)
             {
@@ -802,6 +1044,76 @@ namespace Horizon.World
                       + $"cut into {lanes.Length[upstream]:0} m before the merge plus the rest after it, "
                       + $"with {fromUpstream} way(s) on. Traffic joins the motorway here rather than "
                       + "driving past the slip road as it did.");
+        }
+
+        /// <summary>
+        /// Says whether each fork actually offers a choice, which is the one thing a count of lanes
+        /// cannot.
+        ///
+        /// <para><b>A fork that built perfectly and gave nobody a decision is the failure this exists
+        /// for.</b> The branch's lanes can be laid, its node can be allocated, the parent's pair can be
+        /// cut in the right place, every number in the log can be right — and if the cut landed on a
+        /// distance where no connector could be built, what ships is a road with cars on it that all
+        /// carry straight on, which is indistinguishable in a picture and on the road from the fork not
+        /// having been wired at all. That was the state of this world for three roads and several
+        /// builds.</para>
+        ///
+        /// <para>The measurement is the number of ways on out of each driven lane that <i>ends</i> at a
+        /// mouth. Two is the least a fork can mean — carry on, or turn off — so anything under it is an
+        /// error rather than a warning.</para>
+        /// </summary>
+        private static void ReportForks(
+            IReadOnlyList<BranchRoad> branches,
+            int[] forkNode,
+            List<int> exitNode,
+            int[] exitStart,
+            int drivenLanes)
+        {
+            for (int i = 0; branches != null && i < branches.Count; i++)
+            {
+                if (branches[i].Path == null || branches[i].Leaves == null)
+                {
+                    continue;
+                }
+
+                int arriving = 0;
+                int fewest = int.MaxValue;
+
+                for (int lane = 0; lane < drivenLanes && lane < exitNode.Count; lane++)
+                {
+                    if (exitNode[lane] != forkNode[i])
+                    {
+                        continue;
+                    }
+
+                    arriving++;
+                    fewest = Mathf.Min(fewest, exitStart[lane + 1] - exitStart[lane]);
+                }
+
+                if (arriving == 0)
+                {
+                    Debug.LogError(
+                        $"[Horizon] Traffic: the fork at {branches[i].LeavesAt:0} m has no lane ending "
+                        + "at it, so nothing can turn off and nothing can turn in. The parent's lane "
+                        + "pair was not cut where the mouth is — check that the distance handed in is "
+                        + "measured along the road named beside it.");
+                    continue;
+                }
+
+                if (fewest < 2)
+                {
+                    Debug.LogError(
+                        $"[Horizon] Traffic: the fork at {branches[i].LeavesAt:0} m has {arriving} "
+                        + $"lane(s) arriving and one of them offers {fewest} way(s) on, so a car "
+                        + "reaching it has no decision to make. A fork with one exit is a road that "
+                        + "widens.");
+                    continue;
+                }
+
+                Debug.Log($"[Horizon] Fork at {branches[i].LeavesAt:0} m: {arriving} lanes arrive and "
+                          + $"the least-served of them has {fewest} ways on. The branch is "
+                          + $"{branches[i].Path.Length:0} m of road traffic can now choose.");
+            }
         }
 
         /// <summary>
