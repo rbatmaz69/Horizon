@@ -191,6 +191,82 @@ namespace Horizon.World
         }
 
         /// <summary>
+        /// A stack of cut logs against a field boundary. About fifty triangles.
+        ///
+        /// <para><b>Ends outward, which is the whole of why it reads.</b> A cord of wood seen from the
+        /// side is a brown box and could be anything; seen from the end it is a grid of circles, and
+        /// that pattern is unmistakable at any distance a scatter is looked at from. So the stack is
+        /// laid across the placement's forward and three log ends are drawn proud of the near face —
+        /// three, because two is a pair of eyes and four is a texture.</para>
+        ///
+        /// <para>All of it in <c>PlantMeshes.BarkSubmesh</c>, which is the tinted slot every trunk in
+        /// the world already uses: a wood stack is cut trees, and giving it a colour of its own would be
+        /// a draw call to say something the tint already says.</para>
+        /// </summary>
+        public static void AddWoodStack(VegetationMeshBuffer buffer, in PlantPlacement place)
+        {
+            var random = new PlantRandom(place.Seed);
+
+            float half = random.Range(1.1f, 1.9f);
+            float height = random.Range(0.9f, 1.35f);
+            float depth = random.Range(0.42f, 0.6f);
+
+            AddBlock(buffer, place, PlantMeshes.BarkSubmesh, 0f, -Footing, 0f, half, height + Footing, depth);
+
+            // The ends, proud of the near face. Square rather than round: a 0.2 m log at thirty metres
+            // is four pixels, and eight sides of it are seven vertices spent on a circle nobody resolves.
+            for (int i = 0; i < 3; i++)
+            {
+                float x = (i - 1) * half * 0.55f;
+                float y = height * (0.25f + (i % 2) * 0.38f);
+                float log = random.Range(0.13f, 0.19f);
+
+                AddBlock(buffer, place, PlantMeshes.BarkSubmesh,
+                    x, y, depth, log, log, 0.07f);
+            }
+        }
+
+        /// <summary>
+        /// A bus shelter: three posts, a back wall, a bench and a shallow roof. About sixty triangles.
+        ///
+        /// <para><b>It stands at the edge of a village rather than in it</b>, which is where a real one
+        /// is: a shelter in the middle of a town is a bus stop, and a shelter at the last house before
+        /// open country is the thing that says people who live here leave and come back. It is also the
+        /// one piece of furniture in this world that implies a service nobody will ever see running,
+        /// which is the same trade the harbour's moored boats already make.</para>
+        ///
+        /// <para>The two submeshes are arguments for the reason <c>FigureMeshes</c> now records at
+        /// length: a helper that names one builder's slots can only be used inside that builder, and
+        /// this one is called from the plant buffer where <c>BuildingMeshes</c>' indices do not
+        /// exist.</para>
+        /// </summary>
+        public static void AddShelter(
+            VegetationMeshBuffer buffer, in PlantPlacement place, int timber, int roof)
+        {
+            const float half = 1.45f;
+            const float depth = 0.85f;
+            const float height = 2.25f;
+            const float post = 0.09f;
+
+            // Three posts and not four: the open corner is what a shelter is, and the fourth would make
+            // it a shed.
+            AddBlock(buffer, place, timber, -half + post, -Footing, -depth + post, post, height + Footing, post);
+            AddBlock(buffer, place, timber, half - post, -Footing, -depth + post, post, height + Footing, post);
+            AddBlock(buffer, place, timber, -half + post, -Footing, depth - post, post, height + Footing, post);
+
+            // The back wall, which is the side the weather comes from and the side a road is not on.
+            AddBlock(buffer, place, timber, 0f, 0.35f, -depth, half, height - 0.35f, 0.07f);
+
+            // The bench, against the back wall. It is what turns three posts and a roof into somewhere
+            // somebody waits, and at forty metres it is the one horizontal line under the roof.
+            AddBlock(buffer, place, timber, 0f, 0.42f, -depth * 0.45f, half - 0.25f, 0.1f, 0.24f);
+
+            // A shallow roof, overhanging on the open side. Stone rather than timber, because a roof
+            // that is the same colour as its posts is a box.
+            AddBlock(buffer, place, roof, 0f, height, 0.12f, half + 0.18f, 0.11f, depth + 0.3f);
+        }
+
+        /// <summary>
         /// A wayside cross: a stone plinth and a timber cross on it. About 40 triangles.
         ///
         /// <para>Small, and put where a road does something. It is not scenery for its own sake — it is

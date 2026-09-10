@@ -3181,6 +3181,21 @@ namespace Horizon.EditorTools
                 Capture(camera, Path.Combine(directory, $"SignPreview_{name}{suffix}.png"));
             }
 
+            void Toward(RoadPath road, float at, float back, float lift, Vector3 target, string name)
+            {
+                float distance = Mathf.Clamp(at, 0f, road.Length);
+                Vector3 forward = road.GetDirectionAtDistance(distance);
+                Vector3 from = road.GetPositionAtDistance(distance) - forward * back + Vector3.up * lift;
+
+                camera.fieldOfView = 60f;
+                camera.farClipPlane = Mathf.Max(900f, Horizon.World.BackdropBuilder.MinimumFarPlane);
+                camera.nearClipPlane = 0.3f;
+                camera.transform.position = from;
+                camera.transform.rotation = Quaternion.LookRotation((target - from).normalized, Vector3.up);
+
+                Capture(camera, Path.Combine(directory, $"SignPreview_{name}{suffix}.png"));
+            }
+
             // 1–2. Two hairpins, one on each stack, found rather than typed. The approach is what a
             // driver has: sixty metres back on the entry, eye height, looking into the corner.
             float passBend = FirstTightBend(pass, 900f);
@@ -3238,6 +3253,32 @@ namespace Horizon.EditorTools
             {
                 float at = NearestAlong(pass, crosses[0]);
                 FromRoad(pass, at, 32f, 2.2f, -0.02f, 0f, "7_WaysideCross");
+            }
+
+            // 8. A bus shelter, which is the sparsest thing in the world at four.
+            //
+            // <b>Aimed rather than yawed, and that is the whole reason this frame exists at all.</b> A
+            // shelter stands twelve metres off the centreline, so on the road's own axis it is 22° out
+            // at thirty metres and 37° at sixteen — the first inside a 60° frame by a margin not worth
+            // spending, the second outside it altogether. Every other station here is a yaw off the
+            // carriageway; this one looks straight at the thing, which puts the road across a corner
+            // and answers the question the offset exists for: whether it reads as standing beside a
+            // road or as dropped in a field.
+            //
+            // <b>Sixteen metres and not thirty, after the first version.</b> At thirty the shelter came
+            // back ninety pixels wide with two spruces standing in front of it — resolvable, which is
+            // the trap: a frame you have to zoom into to identify its subject is one that looks like an
+            // answer. The verge is planted right up to the shelter's own clearing, so distance here
+            // buys trees rather than context.
+            Vector4[] stops = VegetationContext.ShelterStations(pass, passCourse, null);
+
+            if (stops.Length > 0)
+            {
+                var plan = new Vector2(stops[0].x, stops[0].y);
+                float at = NearestAlong(pass, plan);
+                Vector3 on = pass.GetPositionAtDistance(at);
+
+                Toward(pass, at, 16f, 2.2f, new Vector3(plan.x, on.y + 1.4f, plan.y), "8_Shelter");
             }
         }
 

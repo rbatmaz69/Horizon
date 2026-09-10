@@ -10592,7 +10592,38 @@ namespace Horizon.EditorTools
             // spans should come to a little under the poles — one short per road, plus wherever a pole
             // was refused for water, a town or a carriageway.
             Debug.Log($"[Horizon] Roadside: {stats.Poles} utility poles carrying {stats.WireSpans} spans "
-                      + $"of wire, {stats.Crosses} wayside crosses.");
+                      + $"of wire, {stats.Crosses} wayside crosses, {stats.Shelters} bus shelters, "
+                      + $"{stats.WoodStacks} wood stacks — {stats.WoodStacksNearRoad} of those within "
+                      + "60 m of a carriageway.");
+
+            // Warned at zero because both ride in the tile mesh and cost no draw call, so a build that
+            // stopped placing them would move no other number here — the same argument the figures and
+            // the sails are warned about under.
+            if (stats.Shelters == 0)
+            {
+                Debug.LogWarning("[Horizon] Roadside: no bus shelter was built. They are walked off "
+                                 + "RoadFeatureKind.Village, which only the pass and the Yalıköy road "
+                                 + "carry — a course that lost its village span would take its shelters "
+                                 + "and its place-name boards with it and report neither.");
+            }
+
+            if (stats.WoodStacks == 0)
+            {
+                Debug.LogWarning("[Horizon] Roadside: no wood stack was built. They are scattered on a "
+                                 + "grid of their own and kept clear of the carriageway, so a clearance "
+                                 + "or a chance set too far takes all of them at once and moves no "
+                                 + "other number in this log.");
+            }
+            else if (stats.WoodStacksNearRoad == 0)
+            {
+                // The count on its own cannot say this, and it is the question that matters for a
+                // three-metre prop: every camera in this project stands on a road, so a scatter that
+                // puts all of its output in the middle of a field builds, validates and photographs
+                // exactly like one that was never called.
+                Debug.LogWarning($"[Horizon] Roadside: all {stats.WoodStacks} wood stacks stand more "
+                                 + "than 60 m from a carriageway, which is far enough that nobody "
+                                 + "driving will resolve one and no preview frame will contain one.");
+            }
 
             if (stats.Poles == 0 || stats.WireSpans == 0)
             {

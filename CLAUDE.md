@@ -2778,11 +2778,79 @@ draws it correctly. The geometry was right both times and the code that wrote it
 `PlantMeshes.BarkSubmesh`, which is merged into the tile's one tinted material. Creosoted timber is
 close enough to bark that a slot of its own would be a draw call for a colour.
 
-**Wood stacks, alpine huts and bus shelters are not done**, and they are the rest of what the plan
-asked for here. Each needs a keep-out story of its own against the plot and street machinery, which
-the poles and crosses avoid by hanging off a road. `WorldPreview_Stadtfeld_2_Leaving` is the frame
-that carries what *is* done: the same stretch of open country that was an empty ribbon a build ago
-now has a line of poles marching into the fog beside it.
+`WorldPreview_Stadtfeld_2_Leaving` is the frame that carries the poles: the same stretch of open
+country that was an empty ribbon a build ago now has a line of them marching into the fog beside it.
+
+**Wood stacks and bus shelters are done too. Alpine huts are not**, and that is the last of what the
+plan asked for here.
+
+A **wood stack** is 448 of the cheapest things in the world: a bark block with three log ends proud
+of its near face, inside the same `Farmed` gate as the orchards and the bales, on a grid of its own
+at 58 m with three cells in ten firing. **Ends outward is the whole of why it reads.** A cord of wood
+seen from the side is a brown box and could be anything; seen from the end it is a grid of circles,
+and nothing else in this world has that pattern. Three ends and not two or four — two is a pair of
+eyes and four is a texture. All of it in `PlantMeshes.BarkSubmesh`, which is what makes it free:
+creosoted timber and cut spruce are the same colour, and a slot of its own would be a draw call
+spent on a tint that already exists.
+
+**It is 13 m clear of a carriageway where a bale is further, and that is the placement decision.**
+Wood is stacked where a cart can reach it, and a stack nobody drives past is a stack nobody sees. Its
+own grid rather than a branch inside the bales' is the other half of the same argument: a bale is
+what is left after a field is cut and belongs on stubble, so sharing a walk would have tied the wood
+to the hay's parcel test for the sake of one loop.
+
+**The count alone could not say whether anybody would ever see one, so the log reports the share that
+is near a road as well.** A wood stack is three metres wide and the farmland gate is a great deal of
+ground with a thin ribbon through it that a car ever passes — a scatter can honestly report hundreds
+and put every one of them out in the middle of a field, which builds, validates and photographs
+exactly like a scatter that was never called. 98 of the 448 stand within 60 m of a carriageway, and
+the build warns when that figure is nought while the count is not. Sixty because what decides this is
+angular size rather than draw distance: past it a low-poly silhouette stops being a shape and becomes
+a smudge with a colour.
+
+A **shelter** is not a scatter. It is walked off `RoadFeatureKind.Village` — the same two spans the
+place-name boards hang from, so the shelter and the board announcing the village cannot end up at
+different ends of it — 26 m inside each end and on opposite hands, because a pair on the same side of
+a road is a pair going the same way, which is one shelter too many and one direction short. Four in
+the world. The two towns with no `Village` span get nothing, and that is visible rather than hidden.
+It takes only the plot keep-out and not the tall one, because 2.25 m belongs among the last houses of
+a village where a tree would not.
+
+**Three posts and not four**: the open corner is what a shelter is, and the fourth makes it a shed.
+The two submeshes are arguments rather than constants, for the reason `FigureMeshes` records at
+length — a helper that names one builder's slots can only be called from inside that builder, and
+this one runs in the plant buffer where `BuildingMeshes`' indices do not exist.
+
+**Its open side faces the road, and the first version had it backwards. The source said so and the
+source was not believed until there was a picture.** `ShelterStations` wrote the offset's own
+direction into the station and explained that the back faced the road so whoever was waiting looked
+away from the traffic; `AddShelter`, thirty lines away in another file, called the back wall "the
+side a road is not on". Only one of those can be true of one `Vector4`, and neither is checkable by
+reading — a yaw is right or wrong only against the thing it points at. `SignPreview_8_Shelter` came
+back as a dark slab with a roof on it, which is precisely what a shelter presents to a driver when it
+is turned round, and is also the only side of one any frame this project takes will ever see. **Two
+comments that contradict each other are a measurement waiting to be taken, not a documentation
+problem.**
+
+**That frame is aimed rather than yawed, and it is the first one here that is.** Every other station
+in this tool is an angle off a carriageway, which works for a sign standing at the verge; a shelter
+is twelve metres off the centreline, so on the road's own axis it is 22° out at thirty metres and 37°
+at sixteen — the first inside a 60° frame by a margin not worth spending and the second outside it
+altogether. Looking straight at the thing puts the road across a corner instead, which answers the
+question the offset exists for: whether it reads as standing beside a road or as dropped in a field.
+**Sixteen metres and not thirty, after the first version** — at thirty it came back ninety pixels
+wide with two spruces in front of it, resolvable only by cropping, which is the trap: a frame you
+have to zoom into to identify its subject is one that looks like an answer. The verge is planted up
+to the shelter's own clearing, so distance here buys trees rather than context.
+
+`VegetationContext.ShelterStations` is public for that one caller, exactly as `WaysideStations`
+already is and for the same reason: four shelters over seventy-five kilometres is sparse enough that
+no frame this project already takes contains one, and a camera carrying its own copy of the inset and
+the offset would agree until the first retune and then photograph bare verge.
+
+**What it cost:** 14.044 M vegetation triangles to 14.062 M, the heaviest tile unchanged at
+`Terrain_-16_-6` 26 284, the draw calls unchanged at 875 over 100 chunks, and the tree line still
+reading 160 m. Both props land in submeshes the tile mesh already merges, so neither is a draw call.
 
 ## Houses that are not the same house
 

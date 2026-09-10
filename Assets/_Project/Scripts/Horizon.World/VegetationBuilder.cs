@@ -75,6 +75,23 @@ namespace Horizon.World
 
         /// <summary>Wayside crosses at the pass's bends.</summary>
         public int Crosses;
+
+        /// <summary>Bus shelters at the village ends, and cut wood stacked in the fields.</summary>
+        public int Shelters;
+
+        public int WoodStacks;
+
+        /// <summary>
+        /// How many of those stacks stand within sight of a carriageway.
+        ///
+        /// <para><b>The count on its own does not say whether anybody will ever see one</b>, and for
+        /// this prop that is the whole question. A wood stack is three metres wide and lives inside the
+        /// farmland gate, where there is a great deal of ground and only a thin ribbon of it that a car
+        /// ever passes — so a scatter can report hundreds and put every one of them out in the middle of
+        /// a field. Every camera in this project stands on a road; this is the share of the count that
+        /// those cameras could reach.</para>
+        /// </summary>
+        public int WoodStacksNearRoad;
         public int Triangles;
 
         /// <summary>Vertices carrying a wind mask. See VegetationMeshBuffer.SwayingVertices.</summary>
@@ -138,6 +155,9 @@ namespace Horizon.World
             Poles += other.Poles;
             WireSpans += other.WireSpans;
             Crosses += other.Crosses;
+            Shelters += other.Shelters;
+            WoodStacks += other.WoodStacks;
+            WoodStacksNearRoad += other.WoodStacksNearRoad;
             Triangles += other.Triangles;
             SwayingVertices += other.SwayingVertices;
             Flips += other.Flips;
@@ -200,6 +220,16 @@ namespace Horizon.World
 
         /// <summary>Where the wayside crosses stand, in plan.</summary>
         private readonly Vector2[] waysides;
+
+        /// <summary>
+        /// Where the bus shelters stand, in plan, and which way they face.
+        ///
+        /// <para>Walked off the <c>Village</c> spans the courses already carry — the same two features
+        /// the place-name boards are hung from, so a shelter and the board announcing the village cannot
+        /// end up at different ends of it. A <c>Vector4</c> rather than a position, because a shelter
+        /// has a back and it has to be the side the road is not on.</para>
+        /// </summary>
+        private readonly Vector4[] shelters;
         private readonly float blockerRadius;
         private readonly float viewpointRadius;
         private readonly float padRadius;
@@ -431,6 +461,7 @@ namespace Horizon.World
             avenue = AvenueStations(avenueRoad);
             powerLine = PoleStations(poleRoads);
             waysides = WaysideStations(waysideRoads);
+            shelters = ShelterStations(path, course, others);
 
             LowestElevation = course != null ? course.LowestElevation : 0f;
             SummitElevation = course != null ? course.Summit.y : LowestElevation + 1f;
@@ -525,6 +556,8 @@ namespace Horizon.World
         public IReadOnlyList<PowerPole> PowerLine => powerLine;
 
         public IReadOnlyList<Vector2> Waysides => waysides;
+
+        public IReadOnlyList<Vector4> Shelters => shelters;
 
         /// <summary>Spacing of the avenue along the road, metres.</summary>
         private const float AvenueSpacing = 18f;
@@ -669,6 +702,92 @@ namespace Horizon.World
 
             return stations.ToArray();
         }
+
+        /// <summary>
+        /// Where the bus shelters go: one at each end of every village the roads run through.
+        ///
+        /// <para>Read off <c>RoadFeatureKind.Village</c> rather than off the towns, which is the same
+        /// choice the place-name boards make and for the same reason — a town is mapped against an axis
+        /// that may not be the road anybody drives in on, and a shelter belongs beside a carriageway.
+        /// Two towns carry the span today; the other two get nothing, and that is visible rather than
+        /// hidden.</para>
+        ///
+        /// <para>Set back from the last house rather than at the span's exact end: a shelter inside the
+        /// village is a bus stop, and one at the last building before open country is the thing that
+        /// says people here leave and come back.</para>
+        /// </summary>
+        /// <remarks>
+        /// Public for the same one caller <c>WaysideStations</c> is, and for the same reason. Four
+        /// shelters over seventy-five kilometres is sparser still, so no frame this project already
+        /// takes contains one — the tool asks this where they stand rather than carrying its own copy
+        /// of the inset and the offset, which would agree until the first retune and then photograph
+        /// bare verge.
+        /// </remarks>
+        public static Vector4[] ShelterStations(
+            IRoadPath path, RoadCourse course, IReadOnlyList<MountainField.FieldRoad> others)
+        {
+            var stations = new List<Vector4>(8);
+
+            Collect(path, course, stations);
+
+            if (others != null)
+            {
+                for (int i = 0; i < others.Count; i++)
+                {
+                    Collect(others[i].Path, others[i].Course, stations);
+                }
+            }
+
+            return stations.ToArray();
+
+            void Collect(IRoadPath road, RoadCourse on, List<Vector4> into)
+            {
+                if (road == null || on == null)
+                {
+                    return;
+                }
+
+                IReadOnlyList<RoadFeature> features = on.Features;
+
+                for (int i = 0; i < features.Count; i++)
+                {
+                    if (features[i].Kind != RoadFeatureKind.Village)
+                    {
+                        continue;
+                    }
+
+                    // Just inside each end, and on opposite hands — a pair of shelters on the same side
+                    // of a road is a pair going the same way, which is one shelter too many and one
+                    // direction short.
+                    Add(road, features[i].StartDistance + ShelterInset, 1f, into);
+                    Add(road, features[i].EndDistance - ShelterInset, -1f, into);
+                }
+            }
+
+            void Add(IRoadPath road, float at, float side, List<Vector4> into)
+            {
+                if (at < 0f || at > road.Length)
+                {
+                    return;
+                }
+
+                Vector3 right = road.GetRightAtDistance(at) * side;
+                Vector3 on = road.GetPositionAtDistance(at) + right * ShelterOffset;
+
+                // Facing the road, which is the way round a shelter has to be: the open side is what
+                // somebody waiting watches the road through, and the closed back is what stands between
+                // them and the weather. Turned the other way it is a bench looking into a field, and it
+                // presents a blank wall to every driver who passes — which is also the only side of it
+                // any frame this project takes would ever see.
+                into.Add(new Vector4(on.x, on.z, -right.x, -right.z));
+            }
+        }
+
+        /// <summary>How far inside a village span a shelter stands, metres.</summary>
+        private const float ShelterInset = 26f;
+
+        /// <summary>How far off the centreline, metres. Behind the footway and clear of the verge.</summary>
+        private const float ShelterOffset = 12f;
 
         /// <summary>Spacing of the poles along a road, metres. Real distribution spacing.</summary>
         private const float PoleSpacing = 44f;
@@ -961,6 +1080,20 @@ namespace Horizon.World
         /// </summary>
         private const int WaysideSpecies = 8;
 
+        /// <summary>Bus shelters and wood stacks, each on a stream of its own. Appended, as ever.</summary>
+        private const int ShelterSpecies = 9;
+
+        private const int WoodStackSpecies = 10;
+        /// <summary>
+        /// How far from a carriageway a three-metre prop is still worth counting as visible, metres.
+        ///
+        /// <para>Sixty rather than the far plane, because what decides this is angular size and not
+        /// draw distance: a 3 m box at sixty metres is about a fortieth of the frame, which is the point
+        /// where a low-poly silhouette stops being a shape and becomes a smudge with a colour. It is the
+        /// threshold the count is reported against, and it decides nothing about where a stack goes.</para>
+        /// </summary>
+        private const float NearRoad = 60f;
+
         /// <summary>
         /// How far above a water surface a plant still counts as standing in it, metres.
         ///
@@ -1025,6 +1158,8 @@ namespace Horizon.World
                     stats, tileRegion);
                 ScatterBales(buffer, field, terrainShape, shape, context, originX, originZ, tileSize,
                     stats, tileRegion);
+                ScatterWoodStacks(buffer, field, terrainShape, shape, context, originX, originZ, tileSize,
+                    stats, tileRegion);
                 BuildFieldBoundaries(buffer, field, terrainShape, context, originX, originZ, tileSize,
                     stats, tileRegion);
             }
@@ -1046,6 +1181,7 @@ namespace Horizon.World
             // by the ground, so neither belongs inside the farmland gate above.
             PlantPowerLine(buffer, field, terrainShape, context, originX, originZ, tileSize, stats);
             PlantWaysides(buffer, field, terrainShape, context, originX, originZ, tileSize, stats);
+            PlantShelters(buffer, field, terrainShape, context, originX, originZ, tileSize, stats);
 
             stats.Triangles = buffer.TriangleCount;
             stats.SwayingVertices = buffer.SwayingVertices;
@@ -1475,6 +1611,137 @@ namespace Horizon.World
 
             foot = point;
             return true;
+        }
+
+        /// <summary>A bus shelter at each end of every village a road runs through.</summary>
+        private static void PlantShelters(
+            VegetationMeshBuffer buffer,
+            MountainField field,
+            in TerrainShape terrainShape,
+            VegetationContext context,
+            float originX,
+            float originZ,
+            float tileSize,
+            VegetationStats stats)
+        {
+            IReadOnlyList<Vector4> stations = context.Shelters;
+
+            for (int i = 0; i < stations.Count; i++)
+            {
+                Vector4 station = stations[i];
+
+                if (station.x < originX || station.x >= originX + tileSize
+                    || station.y < originZ || station.y >= originZ + tileSize)
+                {
+                    continue;
+                }
+
+                // Only the plot keep-out, not the tall one: a shelter is 2.25 m and belongs among the
+                // houses at the edge of a village, where a tree would not.
+                if (context.IsBlocked(station.x, station.y, false)
+                    || context.PavedMargin(station.x, station.y) < 1.5f
+                    || field.DistanceToRoad(station.x, station.y) < 9f)
+                {
+                    continue;
+                }
+
+                TerrainTileBuilder.SampleSurface(field, terrainShape, station.x, station.y,
+                    out Vector3 point, out Vector3 normal);
+
+                if (field.IsUnderWater(station.x, station.y, point.y, WaterFreeboard) || normal.y < 0.80f)
+                {
+                    continue;
+                }
+
+                // The station carries the way the shelter looks, which is back down its own offset at
+                // the road. Taking the offset's own direction instead is the version that came back in
+                // the picture as a blank slab with a roof on it.
+                float yaw = Mathf.Atan2(station.z, station.w);
+
+                var random = new PlantRandom(Hash(i, 0, ShelterSpecies));
+                var placement = new PlantPlacement(point, Vector3.up, yaw, 1f, random.NextSeed());
+
+                EbentalMeshes.AddShelter(
+                    buffer, placement, PlantMeshes.BarkSubmesh, PlantMeshes.StoneSubmesh);
+
+                stats.Shelters++;
+                Record(stats, field.DistanceToRoad(station.x, station.y), context, station.x, station.y);
+            }
+        }
+
+        /// <summary>
+        /// Cut wood stacked at a field edge.
+        ///
+        /// <para>Its own cell rather than a branch inside the bales', because the two want different
+        /// ground: a bale is what is left after a field is cut and belongs on stubble, and a stack of
+        /// logs belongs anywhere somebody has been cutting. Sharing a grid would have tied one to the
+        /// other's parcel test for the sake of one grid walk.</para>
+        /// </summary>
+        private static void ScatterWoodStacks(
+            VegetationMeshBuffer buffer,
+            MountainField field,
+            in TerrainShape terrainShape,
+            in VegetationShape shape,
+            VegetationContext context,
+            float originX,
+            float originZ,
+            float tileSize,
+            VegetationStats stats,
+            LandRegion region)
+        {
+            const float cell = 58f;
+
+            int fromX = Mathf.FloorToInt(originX / cell);
+            int toX = Mathf.CeilToInt((originX + tileSize) / cell);
+            int fromZ = Mathf.FloorToInt(originZ / cell);
+            int toZ = Mathf.CeilToInt((originZ + tileSize) / cell);
+
+            float minSlopeCosine = Mathf.Cos(shape.TuftMaxSlopeDegrees * Mathf.Deg2Rad);
+
+            for (int gz = fromZ; gz <= toZ; gz++)
+            {
+                for (int gx = fromX; gx <= toX; gx++)
+                {
+                    if (!OwnsCell(gx, gz, cell, originX, originZ, tileSize))
+                    {
+                        continue;
+                    }
+
+                    var random = new PlantRandom(Hash(gx, gz, WoodStackSpecies));
+                    float x = (gx + 0.5f) * cell + random.Range(-0.4f, 0.4f) * cell;
+                    float z = (gz + 0.5f) * cell + random.Range(-0.4f, 0.4f) * cell;
+
+                    if (region.Weight(x, z) < 0.55f || !random.Chance(0.3f))
+                    {
+                        continue;
+                    }
+
+                    // Nearer a road than a bale is, on purpose: wood is stacked where a cart can reach
+                    // it, and a stack nobody drives past is a stack nobody sees.
+                    float toRoad = field.DistanceToRoad(x, z);
+
+                    if (toRoad < 13f || context.IsBlocked(x, z, false))
+                    {
+                        continue;
+                    }
+
+                    TerrainTileBuilder.SampleSurface(field, terrainShape, x, z,
+                        out Vector3 point, out Vector3 normal);
+
+                    if (field.IsUnderWater(x, z, point.y, WaterFreeboard) || normal.y < minSlopeCosine)
+                    {
+                        continue;
+                    }
+
+                    EbentalMeshes.AddWoodStack(buffer, Place(point, normal, ref random, 1f));
+                    stats.WoodStacks++;
+
+                    if (toRoad <= NearRoad)
+                    {
+                        stats.WoodStacksNearRoad++;
+                    }
+                }
+            }
         }
 
         /// <summary>
