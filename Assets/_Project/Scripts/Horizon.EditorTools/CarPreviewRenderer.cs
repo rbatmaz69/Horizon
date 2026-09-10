@@ -74,12 +74,13 @@ namespace Horizon.EditorTools
                 RenderFrom(camera, car.transform, new Vector3(9.5f, 0.6f, 0f),
                     Path.Combine(directory, "CarPreview_Side.png"));
 
+                RenderSideProfiles(camera, light, car, directory);
                 RenderTrafficProfiles(camera, car, directory);
                 RenderEndViews(camera, car, directory);
 
                 Debug.Log($"[Horizon] Car preview written to {directory}/CarPreview_Front.png, _Rear.png, "
-                          + "_Side.png, one _Side_<body>.png per ambient body type and a "
-                          + "_Front_<body>.png and _Rear_<body>.png per player body.");
+                          + "_Side.png, a _Side_<body>.png, _Front_<body>.png and _Rear_<body>.png per "
+                          + "player body, and a _Traffic_<body>.png per ambient body.");
             }
             finally
             {
@@ -90,24 +91,120 @@ namespace Horizon.EditorTools
         }
 
         /// <summary>
-        /// A side elevation of every ambient body type, on the same stage and the same camera as the
-        /// player's car.
+        /// A side elevation of every body the player can actually drive, at full detail and on its own
+        /// wheels.
         ///
-        /// <para>Ten silhouettes cannot be judged from a table of cross-sections — the numbers say
-        /// nothing about whether a van reads as a van — and this project already reviews geometry by
-        /// rendering it rather than by opening the editor.</para>
+        /// <para><b>This frame did not exist.</b> The ten files named for it were
+        /// <see cref="RenderTrafficProfiles"/>'s reduced ambient bodies — a fifth of the ring density,
+        /// no grille, no recessed lamps, no exhausts, and four eight-sided prisms where the wheels go.
+        /// So the one view proportion lives in had never once been taken of the car that sits in the
+        /// chase camera, which is most of why a smooth flank with no shoulder line on it went
+        /// unremarked for the life of the project.</para>
         ///
-        /// <para><b>Two views each, and the second one is not a luxury.</b> Side-on is the view
-        /// proportion lives in: a roofline, an overhang and where the cabin sits over the wheelbase. But
-        /// it is also the one view a player never has of any car except their own, and everything that
-        /// tells one of these apart from behind — the lamp cluster, the pipes, whether the tailgate has
-        /// a window in it — is invisible in it. A tail that was wrong stayed wrong for as long as the
-        /// only render of it was a profile.</para>
+        /// <para><b>It carries its own light, and that is not a preference.</b> The stage light stands
+        /// at <c>Euler(38, 145, 0)</c>, whose direction is roughly <c>(0.45, -0.62, -0.65)</c> — it
+        /// travels towards +X, so it arrives from behind the flank this camera is looking at, and every
+        /// side elevation this tool has ever written came back very nearly black. Brightened three
+        /// stops the old files are perfectly legible, which is the tell: what was missing from them was
+        /// never the geometry. A profile lit from the far side cannot show a crease, a shoulder or an
+        /// arch lip, which are the three things it is taken for. The light is put back in the
+        /// <c>finally</c>, so the front, rear and ambient frames stay pixel-identical.</para>
+        ///
+        /// <para><b>And it carries a second light, which is the half that is easy to leave out.</b> A
+        /// flat-shaded body under one directional light has exactly two values on it — lit and ambient —
+        /// so a crease that turns a normal by twenty degrees turns it from one of those to the other and
+        /// then stops saying anything. Every edge this tool exists to photograph is a small change of
+        /// normal on a surface that is already facing the light, and a single key cannot resolve one. A
+        /// dim cool fill from the opposite quarter is what gives the flank a gradient for an edge to
+        /// interrupt.</para>
+        ///
+        /// <para>Same camera station as the ambient profiles, so the reduced body and the full one can
+        /// be compared by flicking between two files — which is the only way to see what the reduction
+        /// actually costs.</para>
+        /// </summary>
+        private static void RenderSideProfiles(
+            Camera camera, Light light, GameObject car, string directory)
+        {
+            Material[] shared = PlayerMaterials();
+            Material[] wheelMaterials = WheelMaterials();
+
+            Quaternion lightWas = light.transform.rotation;
+
+            // Front-right and above: the flank the camera stands on is lit, the nose keeps enough to
+            // stay a nose, and the pitch is shallower than the stage's 38 degrees because a side
+            // elevation wants the light on the side rather than on the roof.
+            light.transform.rotation = Quaternion.Euler(30f, 215f, 0f);
+
+            var fillObject = new GameObject("PreviewFill");
+            Light fill = fillObject.AddComponent<Light>();
+            fill.type = LightType.Directional;
+            fill.intensity = 0.35f;
+            fill.color = new Color(0.78f, 0.84f, 1f);
+            fillObject.transform.rotation = Quaternion.Euler(12f, 35f, 0f);
+
+            car.SetActive(false);
+
+            try
+            {
+                foreach (CarMeshBuilder.CarProfile profile in CarMeshBuilder.PlayerProfiles)
+                {
+                    Mesh mesh = CarMeshBuilder.BuildBody(profile, $"Side_{profile.Name}");
+                    Mesh wheelMesh = CarMeshBuilder.BuildWheel(
+                        profile.WheelRadius, profile.TyreWidth, 18, $"SideWheel_{profile.Name}",
+                        profile.RimFraction, profile.Rim);
+
+                    var stand = new GameObject($"Side_{profile.Name}");
+
+                    try
+                    {
+                        stand.transform.position = StagePosition + Vector3.up * profile.RideHeight;
+                        stand.AddComponent<MeshFilter>().sharedMesh = mesh;
+
+                        MeshRenderer standRenderer = stand.AddComponent<MeshRenderer>();
+                        if (shared != null)
+                        {
+                            standRenderer.sharedMaterials = shared;
+                        }
+
+                        AddThumbnailWheels(stand.transform, profile, wheelMesh, wheelMaterials);
+
+                        RenderFrom(camera, stand.transform, new Vector3(11f, 0.5f, 0f),
+                            Path.Combine(directory, $"CarPreview_Side_{profile.Name}.png"));
+                    }
+                    finally
+                    {
+                        Object.DestroyImmediate(stand);
+                        Object.DestroyImmediate(mesh);
+                        Object.DestroyImmediate(wheelMesh);
+                    }
+                }
+            }
+            finally
+            {
+                car.SetActive(true);
+                light.transform.rotation = lightWas;
+                Object.DestroyImmediate(fillObject);
+            }
+        }
+
+        /// <summary>
+        /// A side elevation of every <i>ambient</i> body, at the reduced detail the traffic pool
+        /// actually ships — one ring point per key segment, no grille, no recessed lamps, no exhausts.
+        ///
+        /// <para><b>These used to be written as <c>CarPreview_Side_&lt;body&gt;.png</c>, and that name
+        /// was the whole fault.</b> A side elevation is the view proportion lives in — a roofline, an
+        /// overhang, where the cabin sits over the wheelbase — so it is the frame anybody reaches for to
+        /// ask what a car's shape is. For the life of the project the ten files answering that question
+        /// were photographs of a car nobody drives, at a fifth of its ring density, and the car in the
+        /// chase camera had no side elevation anywhere. <see cref="RenderSideProfiles"/> is that frame
+        /// now; this one keeps its subject and is named for it.</para>
+        ///
+        /// <para>It is still worth taking. Ninety-six of these are on the road at once and the reduction
+        /// is where a silhouette can quietly stop reading — a van that survives <c>BuildTrafficBody</c>
+        /// as a van is not something the triangle count can tell you.</para>
         ///
         /// <para>Built from the mesh straight out of <see cref="CarMeshBuilder"/> rather than from the
-        /// saved assets, so this works before a rebuild has ever run and cannot show a stale shape.
-        /// It borrows the player car's materials, which is what puts glass and lamps in the right
-        /// slots without a second material table to keep in step.</para>
+        /// saved assets, so this works before a rebuild has ever run and cannot show a stale shape.</para>
         /// </summary>
         private static void RenderTrafficProfiles(Camera camera, GameObject car, string directory)
         {
@@ -145,7 +242,7 @@ namespace Horizon.EditorTools
                         }
 
                         RenderFrom(camera, stand.transform, new Vector3(11f, 0.5f, 0f),
-                            Path.Combine(directory, $"CarPreview_Side_{profile.Name}.png"));
+                            Path.Combine(directory, $"CarPreview_Traffic_{profile.Name}.png"));
                     }
                     finally
                     {
@@ -167,8 +264,8 @@ namespace Horizon.EditorTools
         /// <para>The reduced traffic body has none of those — <c>BuildTrafficBody</c> skips the whole
         /// detail pass — so these are built with <c>BuildBody</c> and wear the player's materials, and
         /// they are the only render in the project that shows what either end of a car actually looks
-        /// like. <see cref="RenderTrafficProfiles"/>'s side elevations own proportion; these own the
-        /// furniture, and the two questions genuinely need different pictures.</para>
+        /// like. <see cref="RenderSideProfiles"/>'s elevations own proportion; these own the furniture,
+        /// and the two questions genuinely need different pictures.</para>
         ///
         /// <para>Three-quarter rather than straight-on: a flat elevation of a flat panel hides which of
         /// the lamps stand proud of it and where the pipes sit under the bumper.</para>
