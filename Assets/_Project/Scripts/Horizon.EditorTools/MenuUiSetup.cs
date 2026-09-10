@@ -186,6 +186,11 @@ namespace Horizon.EditorTools
 
             HorizonAssetUtility.Configure(menu, m =>
                 m.FindProperty("photo").objectReferenceValue = photo.Mode);
+
+            // The same component, borrowed by the start screen to orbit the parked car. One class flies
+            // this camera; two would be a second opinion about where it is.
+            HorizonAssetUtility.Configure(start, a =>
+                a.FindProperty("showcase").objectReferenceValue = photo.Mode);
             WireUpdate(update, updates, panels);
             WireMap(mapPage, menu, panels, minimapButton);
             WireMultiplayer(multiplayer, room, together, panels);
@@ -573,7 +578,14 @@ namespace Horizon.EditorTools
             page.Panel = (RectTransform)panelObject.transform;
             TouchUiSetup.Stretch(page.Panel);
 
-            page.Mode = panelObject.AddComponent<PhotoMode>();
+            // <b>On the canvas, not on the panel it belongs to.</b> MenuPanels switches a page off when
+            // another is shown, and a MonoBehaviour on a disabled object stops being updated — so put
+            // here, the start screen's slow orbit would never have run a single frame and the photo
+            // page's would have started only when the page was opened. It is the same rule
+            // BuildNoticeLine records for the same reason, and the preview tool found it: the frame that
+            // photographs the start screen looks the component up and could not see it.
+            Canvas owner = parent.GetComponentInParent<Canvas>();
+            page.Mode = owner.gameObject.AddComponent<PhotoMode>();
 
             // Fully transparent and still a raycast target, which is the one combination that catches a
             // drag without putting a pane of colour over the subject.
@@ -638,8 +650,7 @@ namespace Horizon.EditorTools
                 serialized.FindProperty("hourSlider").objectReferenceValue = clock;
                 serialized.FindProperty("hourLabel").objectReferenceValue = hour;
                 serialized.FindProperty("shotLabel").objectReferenceValue = saved;
-                serialized.FindProperty("canvas").objectReferenceValue =
-                    parent.GetComponentInParent<Canvas>();
+                serialized.FindProperty("canvas").objectReferenceValue = owner;
             });
 
             HorizonAssetUtility.AssertReferenceAssigned(page.Mode, "canvas");
@@ -1027,9 +1038,17 @@ namespace Horizon.EditorTools
 
             Image image = go.AddComponent<Image>();
 
-            // The panel colour at full opacity, so the menu reads as one surface rather than as a dark
-            // box on a slightly different dark box.
-            image.color = new Color(0.05f, 0.06f, 0.08f, 1f);
+            // <b>Not opaque any more, and that is the whole of the living start screen.</b> It was the
+            // panel colour at full alpha, which made the first thing anybody saw of this game a black
+            // rectangle with buttons on it — while the world was already loaded, lit, and being held at
+            // timeScale zero behind it. A scrim at just over half instead: the pages carry their own
+            // 0.88 panel, so nothing anybody has to read is any less legible, and what changes is the
+            // surround.
+            //
+            // Still a raycast target, for the reason below — a translucent sheet swallows a finger
+            // exactly as well as an opaque one.
+            image.color = new Color(
+                TouchUiSetup.PanelTint.r, TouchUiSetup.PanelTint.g, TouchUiSetup.PanelTint.b, 0.45f);
             image.raycastTarget = true;
 
             go.transform.SetAsFirstSibling();

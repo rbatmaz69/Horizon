@@ -273,7 +273,9 @@ namespace Horizon.EditorTools
         /// </summary>
         private static void AddLabels(WorldMap map, MapGraphic graphic, RectTransform parent)
         {
-            Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            // The one the menu uses, rather than a second fetch of the same built-in — see
+            // TouchUiSetup.MenuFont for what that seam is for.
+            Font font = TouchUiSetup.MenuFont();
 
             for (int area = 0; area < map.AreaCount; area++)
             {

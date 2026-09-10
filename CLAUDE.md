@@ -2940,6 +2940,66 @@ cannot be checked. The mill is the opposite: a stopped mill is wrong in a still,
 the one thing here worth the call. A boat crossing the strait is a better version of the idea than
 twelve bobbing at a pontoon, and it is its own change.
 
+## The menu
+
+Three things, and one of them is blocked on a file nobody in this repository can author.
+
+**The start screen was a black rectangle with buttons on it, while the world was already loaded, lit
+and being held at `timeScale` zero behind it.** `BuildBackdrop` put the panel colour at full alpha over
+everything — so the first thing anybody ever saw of this game was the one frame in it with no game in
+it. It is a scrim at 0.45 now. Nothing anybody has to read is any less legible, because every page
+carries its own 0.88 panel; what changed is the surround.
+
+**The car goes to the chosen place when the screen opens, not at Drive.** It has always been moved
+there eventually, and `SelectPlace` has always moved it the moment a different one is picked — so the
+only state that was ever wrong was the first, where the screen opened on whatever corner of the world
+the saved scene happened to be parked in. One call in `Start`, and the start screen becomes a preview
+of the choice rather than a menu in front of one.
+
+**And the camera orbits it, using `PhotoMode` rather than a second class.** That component already
+does exactly this — take the rig over, orbit the parked car, give it back — and two things flying one
+camera is the second opinion this project keeps refusing. The flag that separates them is
+`useControls`: false is the start screen, and it exists because the photo page's four sliders belong
+to a page nobody has opened, one of them writes the clock, and the hour the player chose would
+otherwise be dragged to that page's default the moment the game started.
+
+**`PhotoMode` was on the panel it belongs to, and that is a bug the preview found.** `MenuPanels`
+switches a page off when another is shown, and a `MonoBehaviour` on a disabled object stops being
+updated — so the start screen's orbit would never have run one frame, and the photo page's would have
+begun only when the page was opened. It is the rule `BuildNoticeLine` already records, one page along:
+**the component goes on the group, not on the panel it hides.** What surfaced it was the new frame
+reporting "no car or no PhotoMode in the scenes" against scenes that had both.
+
+**`HudPreview_Start` is the one frame in that tool not taken against a flat colour.** Every other shot
+there is composited over a grey by an orthographic camera twenty kilometres above the world, which is
+right for judging a HUD and useless for judging a backdrop whose whole change is what shows through
+it. This one uses a perspective camera standing where the showcase stands — asked for through
+`PhotoMode.ShowcaseAt`, which is public for that caller alone, because a tool carrying its own copy of
+the distance, the height, the lens and the sideways bias would photograph a framing the game does not
+use.
+
+**The palette is the world's own now.** Every surface in this game is warm — cream render, terracotta
+roofs, ochre canopy, red earth — and a menu in neutral grey on blue-black over it reads as a different
+application drawn on top. The four constants in `TouchUiSetup` are still the only place a colour is
+written, and `AccentTint` is untouched: it was already the world's orange.
+
+**`ControlTint` had to go much warmer than looks sensible written down**, and the first attempt at it
+did nothing visible. A control is 30 % of that colour over a panel that is already 88 % of a dark
+brown, so most of what reaches the eye is the brown — and a tint a few points off white composites to
+a neutral grey indistinguishable from the one it replaced. That is the flat-shaded vegetation's lesson
+at another scale: a subtle difference between two tones is no difference at all once something else is
+doing most of the work.
+
+**The font is still Arial, and that is a block rather than a decision.**
+`Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf")` is Unity's built-in face; every alternative
+is a licensed file that has to be committed, and there is no way to author one here. What did change
+is that there were **two** independent fetches of it — this method and the map's forty-eight place
+labels — so the menu and the map were the same typeface by coincidence rather than by decision, and
+dropping a real font in would have meant finding both. `TouchUiSetup.MenuFont` is the one place now,
+and it looks for a file at `Assets/_Project/Art/UI/Horizon.ttf` before falling back. When a typeface
+arrives the whole change is a path. It falls back silently on purpose: a build that refused to run
+without a font nobody has yet is worse than one that looks like it does today.
+
 ## How long a rebuild takes
 
 Three minutes and twenty seconds, and it was ten and a half. That matters because **this project's only

@@ -1,9 +1,12 @@
 using System.Collections.Generic;
 using System.IO;
 using Horizon.Game;
+using Horizon.Vehicle;
 using Horizon.World;
 using UnityEditor;
+using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
 namespace Horizon.EditorTools
@@ -135,8 +138,12 @@ namespace Horizon.EditorTools
                 Canvas.ForceUpdateCanvases();
                 MapPreviewRenderer.Shoot(camera, Width, Height, Path.Combine(directory, PhotoShot), Msaa);
 
+                Restore();
+
+                CaptureStart(canvas, camera, directory);
+
                 Debug.Log($"[Horizon] HUD preview written to {directory}: {DrivingShot}, {MapShot}, "
-                          + $"{MultiplayerShot}, {RoomShot} and {PhotoShot}");
+                          + $"{MultiplayerShot}, {RoomShot}, {PhotoShot} and {StartShot}");
             }
             finally
             {
@@ -174,6 +181,87 @@ namespace Horizon.EditorTools
         /// also the one page <c>ValidatePageHeights</c> is told to skip.</para>
         /// </summary>
         private const string PhotoShot = "HudPreview_Photo.png";
+
+        /// <summary>
+        /// The start screen, over the world.
+        ///
+        /// <para><b>The one frame here that is not taken against a flat colour, and it has to be.</b>
+        /// Every other shot in this tool is composited over a grey by an orthographic camera twenty
+        /// kilometres above the world, which is right for judging a HUD and useless for judging a
+        /// backdrop that is now translucent: what is behind the menu <i>is</i> the change. This one uses
+        /// a perspective camera standing where the showcase orbit stands, asked for by
+        /// <c>PhotoMode.ShowcaseAt</c> rather than worked out here.</para>
+        /// </summary>
+        private const string StartShot = "HudPreview_Start.png";
+
+        /// <summary>
+        /// The start page and its backdrop, over the parked car.
+        ///
+        /// <para>The world scene is opened additively if it is not already loaded — never Single, for
+        /// the reason this tool's own entry point gives about closing somebody's work. The camera is
+        /// turned perspective for this one shot and put back by the caller's finally.</para>
+        ///
+        /// <para><b>The backdrop is switched on by hand.</b> <c>StartScreen.Awake</c> is what enables it
+        /// in a running game and nothing runs here — so a frame that did not would photograph the start
+        /// page floating over the world with no scrim at all, which is a state the game never has.</para>
+        /// </summary>
+        private static void CaptureStart(Canvas canvas, Camera camera, string directory)
+        {
+            Scene world = SceneManager.GetSceneByPath(WorldScenePath);
+            bool openedHere = !world.isLoaded;
+
+            if (openedHere)
+            {
+                world = EditorSceneManager.OpenScene(WorldScenePath, OpenSceneMode.Additive);
+            }
+
+            // Inactive included, because the car in a saved world scene is switched off until
+            // GameBootstrap wakes it — and a search that misses it reports "no car" on a scene that has
+            // one, which is what this frame did on its first run.
+            var showcase = Object.FindFirstObjectByType<PhotoMode>(FindObjectsInactive.Include);
+            var vehicle = Object.FindFirstObjectByType<VehicleController>(FindObjectsInactive.Include);
+
+            try
+            {
+                if (showcase == null || vehicle == null)
+                {
+                    Debug.LogWarning("[Horizon] No car or no PhotoMode in the scenes, so the start "
+                                     + "screen was not photographed over the world.");
+                    return;
+                }
+
+                camera.orthographic = false;
+                camera.clearFlags = CameraClearFlags.Skybox;
+                camera.nearClipPlane = 0.3f;
+                camera.farClipPlane = Mathf.Max(900f, Horizon.World.BackdropBuilder.MinimumFarPlane);
+
+                // A quarter turn round from behind, which is where the orbit spends most of its time and
+                // the angle a car reads best from.
+                showcase.ShowcaseAt(camera, vehicle.transform, vehicle.transform.eulerAngles.y + 55f);
+
+                // The canvas hangs at planeDistance in front of the camera, so it has to be nearer than
+                // anything in the world — a metre, against a car ten metres away.
+                canvas.planeDistance = 1f;
+
+                ShowMenuPage(canvas, "StartPanel");
+                ShowByName(canvas, "Backdrop");
+
+                Canvas.ForceUpdateCanvases();
+                MapPreviewRenderer.Shoot(camera, Width, Height, Path.Combine(directory, StartShot), Msaa);
+            }
+            finally
+            {
+                Restore();
+
+                if (openedHere)
+                {
+                    EditorSceneManager.CloseScene(world, true);
+                }
+            }
+        }
+
+        /// <summary>Where the world lives, for the one shot here that needs it.</summary>
+        private const string WorldScenePath = "Assets/_Project/Scenes/World_MountainPass.unity";
 
         /// <summary>What a shot switched off or on, and puts back.</summary>
         private static readonly List<GameObject> Hidden = new List<GameObject>();
@@ -277,6 +365,21 @@ namespace Horizon.EditorTools
 
                 all[i].gameObject.SetActive(true);
                 Shown.Add(all[i].gameObject);
+            }
+        }
+
+        /// <summary>Switches one named object on and remembers to put it back.</summary>
+        private static void ShowByName(Canvas canvas, string objectName)
+        {
+            Transform[] all = canvas.GetComponentsInChildren<Transform>(true);
+
+            for (int i = 0; i < all.Length; i++)
+            {
+                if (all[i].name == objectName)
+                {
+                    all[i].gameObject.SetActive(true);
+                    Shown.Add(all[i].gameObject);
+                }
             }
         }
 

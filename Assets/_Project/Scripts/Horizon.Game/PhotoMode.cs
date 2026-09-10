@@ -51,6 +51,18 @@ namespace Horizon.Game
         /// <summary>Degrees of orbit per unit of drag, at a 1080-unit reference height.</summary>
         [SerializeField] private float dragDegrees = 0.22f;
 
+        [Tooltip("Degrees a second the showcase orbit turns at. Slow — the start screen is something "
+               + "you look at while deciding, not a title sequence.")]
+        [SerializeField] private float showcaseTurn = 5f;
+
+        [Tooltip("Where the showcase stands: metres back, metres up, and the lens. Fixed rather than "
+               + "read off the photo page's sliders, which belong to a page nobody has opened.")]
+        [SerializeField] private Vector3 showcaseStand = new Vector3(10.5f, 1.35f, 44f);
+
+        [Tooltip("How far the camera is pushed sideways, as a share of its distance, so the car does "
+               + "not sit behind the menu panel. Positive puts the car left of centre.")]
+        [SerializeField] private float showcaseBias = 0.42f;
+
         /// <summary>How far the pitch may be pushed either way. Short of the poles, where a look-at spins.</summary>
         [SerializeField] private float pitchLimit = 78f;
 
@@ -74,6 +86,7 @@ namespace Horizon.Game
         private float fieldOfView = 55f;
         private float restoreFieldOfView = 60f;
         private bool active;
+        private bool controls = true;
         private bool shooting;
 
         /// <summary>
@@ -93,13 +106,25 @@ namespace Horizon.Game
         /// </summary>
 
         /// <summary>Called by the page as it opens and closes. Wired to the panel's own events.</summary>
-        public void SetActive(bool value)
+        /// <param name="value">Whether the camera is being flown by hand.</param>
+        /// <param name="useControls">
+        /// Whether the photo page's own sliders are driving it.
+        ///
+        /// <para><b>False is the start screen, and it is the whole reason this flag exists.</b> That
+        /// screen wants exactly what this class already does — take the rig over, orbit the parked car,
+        /// give it back — and nothing else here. Left true it would read four sliders that belong to a
+        /// page nobody has opened, and one of them writes the clock: the hour the player chose would be
+        /// dragged to the photo page's default the moment the game started. Two classes that both fly
+        /// the camera would be the second opinion this project keeps refusing.</para>
+        /// </param>
+        public void SetActive(bool value, bool useControls = true)
         {
-            if (value == active)
+            if (value == active && useControls == controls)
             {
                 return;
             }
 
+            controls = useControls;
             active = value;
 
             if (active)
@@ -133,6 +158,35 @@ namespace Horizon.Game
             {
                 StartCoroutine(Capture());
             }
+        }
+
+        /// <summary>
+        /// Puts a camera where the showcase orbit would have it, at a given yaw.
+        ///
+        /// <para><b>Public for one caller, and the argument is the one this project keeps making.</b>
+        /// <c>HudPreviewRenderer</c> has to photograph the start screen over the world, and nothing here
+        /// ticks outside Play mode — so the tool either asks this class where the camera goes or carries
+        /// its own copy of the distance, the height, the lens and the sideways bias. A copy agrees until
+        /// the first retune and then photographs a framing the game does not use, which is exactly what
+        /// <c>FuelGauge.LayOutFace</c> and <c>VehicleCover.RoofedAt</c> are public for.</para>
+        /// </summary>
+        public void ShowcaseAt(Camera camera, Transform target, float atYaw)
+        {
+            view = camera;
+            car = target;
+            controls = false;
+            yaw = atYaw;
+
+            ApplyShowcaseStand();
+            Place();
+        }
+
+        /// <summary>The showcase's fixed framing. One place, read by the orbit and by the preview.</summary>
+        private void ApplyShowcaseStand()
+        {
+            distance = showcaseStand.x;
+            height = showcaseStand.y;
+            fieldOfView = showcaseStand.z;
         }
 
         private void Enter()
@@ -169,7 +223,11 @@ namespace Horizon.Game
             yaw = view.transform.eulerAngles.y;
             restoreFieldOfView = view.fieldOfView;
 
-            Sync();
+            if (controls)
+            {
+                Sync();
+            }
+
             Place();
         }
 
@@ -225,6 +283,16 @@ namespace Horizon.Game
                 return;
             }
 
+            if (!controls)
+            {
+                // Unscaled, because the whole of the start screen happens at timeScale zero.
+                yaw += showcaseTurn * Time.unscaledDeltaTime;
+
+                ApplyShowcaseStand();
+                Place();
+                return;
+            }
+
             if (distanceSlider != null)
             {
                 distance = distanceSlider.value;
@@ -272,7 +340,16 @@ namespace Horizon.Game
             Vector3 focus = car.position + Vector3.up * height;
             Quaternion turn = Quaternion.Euler(pitch, yaw, 0f);
 
-            view.transform.position = focus - (turn * Vector3.forward) * distance;
+            // The camera is moved sideways while its aim is held, which is what puts the subject off
+            // centre — swinging the aim instead would keep the car in the middle and merely point
+            // somewhere else. Only the showcase does it: on the photo page the subject belongs where
+            // the player put it.
+            float sideways = controls ? 0f : showcaseBias * distance;
+
+            view.transform.position = focus
+                                      - (turn * Vector3.forward) * distance
+                                      + (turn * Vector3.right) * sideways;
+
             view.transform.rotation = turn;
             view.fieldOfView = fieldOfView;
         }

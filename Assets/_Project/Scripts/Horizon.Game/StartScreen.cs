@@ -39,6 +39,9 @@ namespace Horizon.Game
                + "deliberately see-through so you keep your bearings.")]
         [SerializeField] private GameObject backdrop;
 
+        [Tooltip("The free camera, borrowed to orbit the parked car while the menu is up.")]
+        [SerializeField] private PhotoMode showcase;
+
         [Header("Garage")]
         [Tooltip("Row backgrounds on the car page, tinted to show which one is chosen.")]
         [SerializeField] private Image[] carRows = new Image[0];
@@ -112,6 +115,17 @@ namespace Horizon.Game
             panels?.Show(MenuPage.Start);
 
             RefreshAll();
+
+            // <b>The car goes to the chosen place now rather than at Drive.</b> It has always been moved
+            // there eventually, and SelectPlace has always moved it the moment a different one is
+            // picked — so the only state that was ever wrong was the first: the screen opened on
+            // whatever corner of the world the saved scene happened to be parked in. Applying it here
+            // makes the start screen a preview of the choice rather than a menu in front of one.
+            ApplyPlace();
+
+            // And the camera orbits it. The rig is handed back by PauseMenu.SetPaused the moment
+            // anything resumes, which includes Drive — see the note on the flag.
+            showcase?.SetActive(true, useControls: false);
         }
 
         /// <summary>
@@ -222,6 +236,10 @@ namespace Horizon.Game
 
             // Defensively, in case the world arrived after the last selection was made — which it can,
             // on a slow first load where the player is tapping before OnWorldReady has fired.
+            // Before the car is placed, so the rig is live and SnapToTarget inside ApplyPlace lands on
+            // the car rather than on a camera still being flown round where it used to be.
+            showcase?.SetActive(false);
+
             ApplyCar();
             ApplyConditions();
             ApplyPlace();

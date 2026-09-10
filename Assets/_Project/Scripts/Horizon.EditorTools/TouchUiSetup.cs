@@ -79,9 +79,33 @@ namespace Horizon.EditorTools
 
         private static Glyphset Glyphs;
 
-        internal static readonly Color ControlTint = new Color(1f, 1f, 1f, 0.30f);
-        internal static readonly Color PanelTint = new Color(0.05f, 0.06f, 0.08f, 0.88f);
-        internal static readonly Color GlyphTint = new Color(1f, 1f, 1f, 0.92f);
+        /// <summary>
+        /// The four colours the whole interface is made of, and the only place any of them is written.
+        ///
+        /// <para><b>They were neutral grey on near-black and the world is not.</b> Every surface in this
+        /// game is warm — cream render, terracotta roofs, ochre canopy, red earth — and a menu in
+        /// blue-black over it reads as a different application drawn on top, which is most of what
+        /// "the UI looks like a prototype" meant. The panel is a warm dark brown now and the glyphs are
+        /// an off-white with the same bias, so the menu is the world's own palette at its dark end
+        /// rather than a neutral one borrowed from somewhere else.</para>
+        ///
+        /// <para><b>The alphas do not move.</b> <c>PanelTint</c>'s 0.88 is what makes the photo page's
+        /// control strip readable over a bright sky, and <c>ControlTint</c>'s 0.30 is what makes a
+        /// slider track read as a groove rather than as a bar. Both were chosen against something and
+        /// the colour change is not that something.</para>
+        ///
+        /// <para><c>AccentTint</c> is untouched: it is already the world's own orange, and it is what
+        /// the tail lamps, the forecourt signs and the boost gauge's needle are.</para>
+        /// </summary>
+        // <b>Far warmer than looks sensible written down, and the picture is why.</b> A control is
+        // 30 % of this over a panel that is already 88 % of a dark brown, so most of what reaches the
+        // eye is the brown — and a tint only a few points off white composites to a neutral grey that
+        // is indistinguishable from the one this was supposed to replace. It is the flat-shaded
+        // vegetation's lesson at a different scale: a subtle difference between two tones is no
+        // difference at all once something else is doing most of the work.
+        internal static readonly Color ControlTint = new Color(1f, 0.88f, 0.74f, 0.30f);
+        internal static readonly Color PanelTint = new Color(0.11f, 0.085f, 0.075f, 0.88f);
+        internal static readonly Color GlyphTint = new Color(1f, 0.97f, 0.93f, 0.94f);
 
         internal static readonly Color AccentTint = new Color(0.86f, 0.36f, 0.17f, 0.92f);
 
@@ -1367,12 +1391,50 @@ namespace Horizon.EditorTools
             text.fontSize = fontSize;
             text.color = Color.white;
 
-            // The built-in font, so no font asset has to be imported or kept.
-            text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            text.font = MenuFont();
             text.raycastTarget = false;
 
             return text;
         }
+
+        /// <summary>
+        /// What every piece of text in this game is set in.
+        ///
+        /// <para><b>One place, because there were two and they could not have disagreed usefully.</b>
+        /// This method and <c>MapPreviewRenderer.AddLabels</c> each fetched the built-in font
+        /// independently, so the menu and the map's forty-eight place names were the same typeface by
+        /// coincidence rather than by decision — and dropping a real font into the project would have
+        /// meant finding both.</para>
+        ///
+        /// <para><b>It is still Arial, and that is a block rather than a choice.</b>
+        /// <c>LegacyRuntime.ttf</c> is Unity's built-in face; every alternative is a licensed file that
+        /// has to be put in the repository, and there is no way to author one. What this method buys is
+        /// that when one arrives, the whole change is a path: drop the file at
+        /// <see cref="MenuFontPath"/> and everything in the game — menus, HUD, map labels, the lap
+        /// readout — follows. Until then it falls back, silently and on purpose: a build that refused
+        /// to run without a font nobody has yet is worse than one that looks like it does today.</para>
+        /// </summary>
+        internal static Font MenuFont()
+        {
+            if (menuFont != null)
+            {
+                return menuFont;
+            }
+
+            menuFont = AssetDatabase.LoadAssetAtPath<Font>(MenuFontPath);
+
+            if (menuFont == null)
+            {
+                menuFont = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            }
+
+            return menuFont;
+        }
+
+        /// <summary>Where a real typeface goes. Nothing is there yet — see <see cref="MenuFont"/>.</summary>
+        internal const string MenuFontPath = "Assets/_Project/Art/UI/Horizon.ttf";
+
+        private static Font menuFont;
 
         internal static void Stretch(RectTransform rect)
         {
