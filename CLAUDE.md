@@ -1375,6 +1375,16 @@ mouth are all things you look straight past at eye level and cannot miss from ab
 lesson the `_ForkPlan` shot on the Stadtfeld already stands for, generalised to every junction in the
 world.
 
+**It carries it on the Stadtfeld fork and on neither pit lane, and that is worth writing down against
+the sentence above.** `1_StadtfeldFork_4_Plan` is exactly what the paragraph claims: the trunk running
+down the frame, the branch leaving it, and the throat between them in plain sight.
+`2_WeissjochringPit_4_Plan` is bare hillside with one road down the middle and no junction anywhere in
+it. Both are aimed the same way — `NearestOn(trunk, at)` from the course's own `JunctionPoint`, then
+straight down — so the difference is in where that point lands on a **closed** road rather than in the
+camera, and neither circuit's has been chased down. Three of the four frames a pit lane gets are
+usable; the one the docs call the important one is not. It stays in, said rather than deleted, for the
+reason `_8_Face` on the Weissjoch stays in.
+
 **The eye-level frames stand at forty-five metres, and the first version stood at ninety.** At ninety a
 mouth three metres wider than the road it opens off is a few pixels of dark asphalt against dark
 asphalt, and every fork frame came back as a photograph of an ordinary road — which is exactly the
@@ -2086,11 +2096,13 @@ of work later, so it ran before a single water vertex existed. Then the fix for 
 apply because the anchor it matched spanned two lines. The instrument was wrong twice and the thing it
 measures never was, which is why the counter is worth more than the swell.
 
-**The clouds are done and the windmills are not.** Clouds did mean authoring a sky rather than
+**The clouds and the windmill are both done now.** Clouds did mean authoring a sky rather than
 rotating one, which is what *The sky* is; they drift on `_HorizonSkyDrift`, written by this same
-director, because a sky moving one way while the trees lean another is two weathers in one frame.
-`MillMeshes.AddWindmill` still lofts its sails into the shared tile mesh as static geometry, so
-turning them needs a transform of their own. That one is its own change.
+director, because a sky moving one way while the trees lean another is two weathers in one frame. The
+sails did need a transform of their own, exactly as this paragraph used to say — `Spinner` reads the
+same `_HorizonWind` global the vegetation does, so the mill and the trees cannot disagree about the
+weather. See *Things that move* for what pulling them out of the tile mesh cost and for the fault in
+their geometry it exposed.
 
 ## Traffic that says what it is doing
 
@@ -2999,6 +3011,49 @@ dropping a real font in would have meant finding both. `TouchUiSetup.MenuFont` i
 and it looks for a file at `Assets/_Project/Art/UI/Horizon.ttf` before falling back. When a typeface
 arrives the whole change is a path. It falls back silently on purpose: a build that refused to run
 without a font nobody has yet is worse than one that looks like it does today.
+
+## Two things nothing was watching
+
+**The coast road had no roadside furniture at all, and it is the only driven road that did not.** It
+was paved, validated, given a filling station, drawn on the map and checked for clearance, support and
+surfaces — and then left with no delineator posts, no guard rail, no bakes and no board at either end.
+Nothing reported it, and the reason is structural: **every check here walks one road asking whether
+what is there is right, and not one asks whether anything is there.** The list of roads that got
+furniture and the list that got checked were maintained separately, and the second is the one anybody
+reads.
+
+**What it turned out to want was one of the four, which is worth recording because it contradicts the
+reasoning that found it.** The argument for looking was that this road runs beside the Westmeer, so it
+is where a rail matters most — and `GuardRailBuilder`'s drop test says *nothing is exposed enough*,
+because the ground there does not fall away. It has 648 triangles of delineator post now, no rail, no
+signs (nothing under 48 m, no bore, no village) and no covered section. **The measurement was the
+answer and the reasoning was only what made anybody take it.**
+
+**And the garage page had been over the height limit on every build since the garage reached ten
+cars.** `ValidatePageHeights` reported 1098 units against a thousand — its title and its Back button
+off the screen, on a menu with nothing to scroll with — and the warning named the fix in its own text:
+put the list inside `TouchUiSetup.ScrollList`, the way the place page does.
+
+**Doing that changed nothing, and the number saying so was the same to the unit.** `VisibleRows` is
+five, which is the right number of 96-unit menu rows to give a list; a car row is 120 to hold a
+thumbnail beside its name, and the garage has five lines. It asked for five, was clamped to five, and
+came out exactly as tall as before — a `ScrollRect` that could never scroll, on a page still reporting
+1098. **A page height that does not move after a layout change is the layout change not having
+happened**, and the only thing that said so was that the figure was identical rather than merely
+still too big.
+
+`ScrollList` caps on a **height** now rather than on a row count. What that constant is really about is
+how much of a page a list may take, and expressing it in rows only worked while every row was the same
+height — which stopped being true the moment one list held pictures. Four lines of cars show and the
+fifth is a thumb-flick away; the four lists made of ordinary rows are unchanged to the pixel, because
+for a 96-unit row the new arithmetic returns exactly five.
+
+Not four cars to a line, which was the other candidate: a car row is 590 units wide to hold a 300-wide
+thumbnail, and four of those in a 1200-unit panel is 285 each. The thumbnails would have had to be
+redrawn to fit a layout chosen to avoid a scroll bar.
+
+`HudPreview_Garage` is new, and it is the page that most wanted one: a viewport sized from the wrong
+row height shows two and a half cars, which is a fault no count can report.
 
 ## How long a rebuild takes
 

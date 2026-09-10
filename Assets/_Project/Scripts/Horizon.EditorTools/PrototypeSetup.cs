@@ -3202,6 +3202,24 @@ namespace Horizon.EditorTools
             BuildRoadSigns(worldRoot.transform, linkPath, roadShape, linkCourse,
                 materials, "MotorwayLink", signPosts);
 
+            // <b>The coast road had none of this, and it is the only driven road in the world that
+            // did not.</b> It was paved, validated, given a filling station, drawn on the map and
+            // checked for clearance, support and surfaces — and then left with no guard rail where the
+            // ground falls to the Westmeer, no delineator posts, no bakes on its bends and no board at
+            // either end of its bore. Nothing reported it: every check here walks one road at a time
+            // asking whether what is there is right, and none of them asks whether anything is there.
+            //
+            // It runs beside water for most of its length, which is exactly where GuardRailBuilder's
+            // drop test fires — so this is the road that wanted a rail most and had it least.
+            BuildCoveredSections(worldRoot.transform, coastPath, roadShape, coastCourse, field,
+                materials, "CoastRoad");
+            BuildGuardRails(worldRoot.transform, coastPath, roadShape, field, coastCourse,
+                materials, "CoastRoad");
+            BuildDelineatorPosts(worldRoot.transform, coastPath, roadShape, field, coastCourse,
+                materials, "CoastRoad");
+            BuildRoadSigns(worldRoot.transform, coastPath, roadShape, coastCourse,
+                materials, "CoastRoad", signPosts);
+
             TrafficNetwork routes = BuildTraffic(worldRoot.transform, towns, path, roadShape, materials,
                 litRenderers, litSlotStart, litSlots, litSlotGroups,
                 motorwayPath, motorwayShape, AutobahnCourse.CarriagewayOffset,

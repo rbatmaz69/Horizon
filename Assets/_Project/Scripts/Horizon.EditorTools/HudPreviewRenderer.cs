@@ -140,10 +140,18 @@ namespace Horizon.EditorTools
 
                 Restore();
 
+                ShowMenuPage(canvas, "GaragePanel");
+
+                Canvas.ForceUpdateCanvases();
+                MapPreviewRenderer.Shoot(camera, Width, Height, Path.Combine(directory, GarageShot), Msaa);
+
+                Restore();
+
                 CaptureStart(canvas, camera, directory);
 
                 Debug.Log($"[Horizon] HUD preview written to {directory}: {DrivingShot}, {MapShot}, "
-                          + $"{MultiplayerShot}, {RoomShot}, {PhotoShot} and {StartShot}");
+                          + $"{MultiplayerShot}, {RoomShot}, {PhotoShot}, {GarageShot} and "
+                          + $"{StartShot}");
             }
             finally
             {
@@ -181,6 +189,15 @@ namespace Horizon.EditorTools
         /// also the one page <c>ValidatePageHeights</c> is told to skip.</para>
         /// </summary>
         private const string PhotoShot = "HudPreview_Photo.png";
+
+        /// <summary>
+        /// The garage.
+        ///
+        /// <para>The one page in this menu that has ever been over the height limit, and the only one
+        /// whose list now scrolls — so it is the one that most wants a picture. A viewport sized from
+        /// the wrong row height shows two and a half cars, which is a fault no count can report.</para>
+        /// </summary>
+        private const string GarageShot = "HudPreview_Garage.png";
 
         /// <summary>
         /// The start screen, over the world.

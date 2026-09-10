@@ -1160,13 +1160,31 @@ namespace Horizon.EditorTools
             page.Rows = new Button[profiles.Length];
             page.Backgrounds = new Image[profiles.Length];
 
+            // <b>Scrolled, because ten cars in five rows of 120 do not fit on a phone.</b> This page
+            // has stood at about 1098 units against the thousand ValidatePageHeights allows since the
+            // garage reached ten — its title and its Back button off the screen, on a menu with nothing
+            // to scroll with — and the warning has fired on every build since. Three lines of cars show
+            // at a time and the rest are a thumb-flick away, which is the answer that check exists to
+            // push people towards and the one the place page already took.
+            //
+            // Not four cars to a line, which was the other candidate and is worse: a car row is 590
+            // units wide to hold a 300-wide thumbnail beside its name, and four of those in a 1200-unit
+            // panel is 285 each. The picture would have had to be redrawn to fit a layout chosen to
+            // avoid a scroll bar.
+            //
+            // How many lines show is ScrollList's business and not this page's — it caps on the height a
+            // list may take rather than on a count, which is what makes a list of 120-unit rows show
+            // fewer of them than a list of 96-unit ones without either page saying so.
+            RectTransform cars = TouchUiSetup.ScrollList(
+                page.Panel, "Cars", (profiles.Length + 1) / 2, CarRowHeight);
+
             const int perRow = 2;
             for (int start = 0; start < profiles.Length; start += perRow)
             {
                 int count = Mathf.Min(perRow, profiles.Length - start);
 
                 var lineObject = new GameObject($"Cars{start}", typeof(RectTransform));
-                lineObject.transform.SetParent(page.Panel, false);
+                lineObject.transform.SetParent(cars, false);
                 TouchUiSetup.Row(lineObject, CarRowHeight);
 
                 var line = lineObject.AddComponent<HorizontalLayoutGroup>();

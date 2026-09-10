@@ -1248,8 +1248,22 @@ namespace Horizon.EditorTools
         /// is what gets the mask and the fixed height; the content is what moves under it.</para>
         /// </summary>
         /// <param name="rows">How many rows the list will hold, so the viewport can be short if it is.</param>
-        internal static RectTransform ScrollList(RectTransform parent, string name, int rows)
+        /// <param name="rowHeight">
+        /// How tall one row of this list is.
+        ///
+        /// <para>A parameter because the garage's rows are not menu rows: a car row is 120 units to hold
+        /// a thumbnail against a menu row's own height, and a viewport sized from the wrong one shows
+        /// two and a half cars where it means to show three. Defaulted, so the four lists that are made
+        /// of ordinary rows say nothing about it.</para>
+        /// </param>
+        internal static RectTransform ScrollList(
+            RectTransform parent, string name, int rows, float rowHeight = -1f)
         {
+            if (rowHeight <= 0f)
+            {
+                rowHeight = MenuRowHeight;
+            }
+
             var viewportObject = new GameObject(name, typeof(RectTransform));
             viewportObject.transform.SetParent(parent, false);
 
@@ -1258,8 +1272,20 @@ namespace Horizon.EditorTools
             viewport.anchorMax = new Vector2(0.5f, 0.5f);
             viewport.pivot = new Vector2(0.5f, 0.5f);
 
-            int shown = Mathf.Clamp(rows, 1, VisibleRows);
-            float height = shown * MenuRowHeight + (shown - 1) * MenuRowSpacing;
+            // <b>Capped by height and not by a row count, and the garage is why.</b> VisibleRows is
+            // five, which is the right number of 96-unit menu rows to give a list — but a car row is 120
+            // and five of those is 600 against 450, so the garage asked for five, was clamped to five,
+            // and came out exactly as tall as it had been. The page went on reporting 1098 units
+            // against a thousand with a ScrollRect that never scrolled. What the constant is really
+            // about is how much of a page a list may take, and that is a height; expressing it in rows
+            // only works while every row is the same height, which stopped being true the moment one
+            // list held pictures.
+            float most = VisibleRows * MenuRowHeight + (VisibleRows - 1) * MenuRowSpacing;
+
+            int fits = Mathf.FloorToInt((most + MenuRowSpacing) / (rowHeight + MenuRowSpacing));
+            int shown = Mathf.Clamp(rows, 1, Mathf.Max(1, fits));
+
+            float height = shown * rowHeight + (shown - 1) * MenuRowSpacing;
 
             viewport.sizeDelta = new Vector2(0f, height);
             Row(viewportObject, height);
