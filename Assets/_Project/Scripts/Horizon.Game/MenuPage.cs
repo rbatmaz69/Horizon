@@ -72,5 +72,20 @@ namespace Horizon.Game
         /// page-height check exists to push people towards.</para>
         /// </summary>
         Room = 11,
+
+        /// <summary>
+        /// A free camera round the parked car, with the HUD gone.
+        ///
+        /// <para>Appended, for the reason this enum's remarks now give four times: the page a button
+        /// opens is a bare integer in a saved UnityEvent, and a value inserted in the middle moves every
+        /// page after it under buttons that still name the old numbers.</para>
+        ///
+        /// <para><b>Skipped by <c>ValidatePageHeights</c>, like the map and for the same reason.</b>
+        /// This page is the whole screen on purpose — the world is the subject and the controls are a
+        /// strip down one edge of it — so measuring it against what fits on a screen would report it as
+        /// too tall on every build for ever, and a warning that is always there is one nobody reads when
+        /// it means something.</para>
+        /// </summary>
+        Photo = 12,
     }
 }

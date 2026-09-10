@@ -115,6 +115,9 @@ namespace Horizon.EditorTools
             RoomPage room = BuildRoomPage(safe, box);
             Register(panelList, MenuPage.Room, room.Panel);
 
+            PhotoPage photo = BuildPhotoPage(safe, box);
+            Register(panelList, MenuPage.Photo, photo.Panel);
+
             HorizonAssetUtility.Configure(panels, serialized =>
                 HorizonAssetUtility.SetObjectArray(serialized, "panels", panelList.ToArray()));
 
@@ -177,6 +180,12 @@ namespace Horizon.EditorTools
             WireControls(controls, menu, panels);
             WireQuality(quality, start, panels);
             WirePaused(paused, start, menu, panels, pauseButton, together);
+
+            Bind(photo.Shutter, photo.Mode, nameof(PhotoMode.Shoot));
+            Bind(photo.Back, menu, nameof(PauseMenu.ClosePhoto));
+
+            HorizonAssetUtility.Configure(menu, m =>
+                m.FindProperty("photo").objectReferenceValue = photo.Mode);
             WireUpdate(update, updates, panels);
             WireMap(mapPage, menu, panels, minimapButton);
             WireMultiplayer(multiplayer, room, together, panels);
@@ -490,10 +499,12 @@ namespace Horizon.EditorTools
 
             for (int i = 0; i < panels.Count; i++)
             {
-                // The map is the one page that is meant to be the whole screen, so measuring it against
-                // what fits on the screen would report it as too tall on every build forever — and a
-                // warning that is always there is a warning nobody reads when it means something.
-                if ((MenuPage)i == MenuPage.Map)
+                // The map and the photo page are the two that are meant to be the whole screen, so
+                // measuring them against what fits on one would report them as too tall on every build
+                // forever — and a warning that is always there is a warning nobody reads when it means
+                // something. Both put their controls in a strip that is measured by nothing; that is the
+                // price of the exemption and it is worth saying out loud.
+                if ((MenuPage)i == MenuPage.Map || (MenuPage)i == MenuPage.Photo)
                 {
                     continue;
                 }
@@ -529,6 +540,112 @@ namespace Horizon.EditorTools
             // working rather than that every page suddenly fits.
             Debug.Log($"[Horizon] Menu: {panels.Count} pages, tallest is '{tallestPage}' at "
                       + $"{tallest:0} units against about {Available:0} of usable canvas.");
+        }
+
+        private sealed class PhotoPage
+        {
+            public RectTransform Panel;
+            public PhotoMode Mode;
+            public Button Shutter;
+            public Button Back;
+        }
+
+        /// <summary>
+        /// The photo page: a transparent drag surface over the whole screen, and a strip of controls
+        /// down one side of it.
+        ///
+        /// <para><b>No background image, unlike every other page here.</b> The world <i>is</i> the page —
+        /// a panel across the middle of it would hide the only thing anybody opened this to look at. The
+        /// drag surface is a fully transparent <c>Image</c> rather than nothing at all, because uGUI
+        /// delivers a drag to a <c>Graphic</c> and there has to be one to hit.</para>
+        ///
+        /// <para><b>The strip is anchored right and the surface is the first child</b>, which between
+        /// them are the whole layout: uGUI raycasts front to back, so the buttons drawn after the
+        /// surface win every touch that lands on one and the surface gets the rest.</para>
+        /// </summary>
+        private static PhotoPage BuildPhotoPage(RectTransform parent, Sprite box)
+        {
+            var page = new PhotoPage();
+
+            var panelObject = new GameObject("PhotoPanel", typeof(RectTransform));
+            panelObject.transform.SetParent(parent, false);
+
+            page.Panel = (RectTransform)panelObject.transform;
+            TouchUiSetup.Stretch(page.Panel);
+
+            page.Mode = panelObject.AddComponent<PhotoMode>();
+
+            // Fully transparent and still a raycast target, which is the one combination that catches a
+            // drag without putting a pane of colour over the subject.
+            var surfaceObject = new GameObject("DragSurface", typeof(RectTransform));
+            surfaceObject.transform.SetParent(page.Panel, false);
+            TouchUiSetup.Stretch((RectTransform)surfaceObject.transform);
+
+            Image surface = surfaceObject.AddComponent<Image>();
+            surface.color = new Color(0f, 0f, 0f, 0f);
+            surface.raycastTarget = true;
+
+            PhotoDragArea drag = surfaceObject.AddComponent<PhotoDragArea>();
+            drag.SetPhotoMode(page.Mode);
+            EditorUtility.SetDirty(drag);
+
+            RectTransform strip = TouchUiSetup.StackPanel(page.Panel, "PhotoControls", box, 480f);
+            strip.anchorMin = new Vector2(1f, 0.5f);
+            strip.anchorMax = new Vector2(1f, 0.5f);
+            strip.pivot = new Vector2(1f, 0.5f);
+            strip.anchoredPosition = new Vector2(-40f, 0f);
+
+            TouchUiSetup.MenuLabel(strip, "PHOTO", 40, 54f);
+
+            TouchUiSetup.MenuLabel(strip, "Distance", 24, 32f);
+            Slider distance = TouchUiSetup.BuildTrackedSlider(strip, box, "Distance");
+            distance.minValue = 3f;
+            distance.maxValue = 22f;
+            distance.value = 8f;
+
+            TouchUiSetup.MenuLabel(strip, "Height", 24, 32f);
+            Slider height = TouchUiSetup.BuildTrackedSlider(strip, box, "Height");
+            height.minValue = -0.4f;
+            height.maxValue = 6f;
+            height.value = 1.4f;
+
+            TouchUiSetup.MenuLabel(strip, "Lens", 24, 32f);
+            Slider lens = TouchUiSetup.BuildTrackedSlider(strip, box, "Lens");
+
+            // 24 to 80 degrees, which is a wide-angle to a short telephoto. Past 80 the car bends and
+            // past 20 the horizon does; neither is a picture anybody wanted.
+            lens.minValue = 24f;
+            lens.maxValue = 80f;
+            lens.value = 55f;
+
+            TouchUiSetup.MenuLabel(strip, "Hour", 24, 32f);
+            Text hour = TouchUiSetup.MenuLabel(strip, "--:--", 30, 38f);
+            Slider clock = TouchUiSetup.BuildTrackedSlider(strip, box, "Hour");
+            clock.minValue = 0f;
+            clock.maxValue = 24f;
+            clock.value = 18f;
+
+            Text saved = TouchUiSetup.MenuLabel(strip, string.Empty, 22, 30f);
+
+            page.Shutter = TouchUiSetup.MenuButton(strip, "Shutter", box, "Take the picture");
+            page.Back = TouchUiSetup.MenuButton(strip, "Back", box, "Back");
+
+            HorizonAssetUtility.Configure(page.Mode, serialized =>
+            {
+                serialized.FindProperty("distanceSlider").objectReferenceValue = distance;
+                serialized.FindProperty("heightSlider").objectReferenceValue = height;
+                serialized.FindProperty("fieldOfViewSlider").objectReferenceValue = lens;
+                serialized.FindProperty("hourSlider").objectReferenceValue = clock;
+                serialized.FindProperty("hourLabel").objectReferenceValue = hour;
+                serialized.FindProperty("shotLabel").objectReferenceValue = saved;
+                serialized.FindProperty("canvas").objectReferenceValue =
+                    parent.GetComponentInParent<Canvas>();
+            });
+
+            HorizonAssetUtility.AssertReferenceAssigned(page.Mode, "canvas");
+            HorizonAssetUtility.AssertReferenceAssigned(page.Mode, "hourSlider");
+
+            return page;
         }
 
         private sealed class MapPage
@@ -1320,6 +1437,7 @@ namespace Horizon.EditorTools
             public Button Map;
             public Button Respawn;
             public Button Together;
+            public Button Photo;
         }
 
         /// <summary>
@@ -1344,7 +1462,12 @@ namespace Horizon.EditorTools
             page.Map = pair[0];
             page.Together = pair[1];
 
-            page.Respawn = TouchUiSetup.MenuButton(page.Panel, "Respawn", box, "Put the car back");
+            // Paired with Respawn rather than given a row, because this page already stands at about
+            // 984 units against the thousand ValidatePageHeights allows — the same arithmetic that put
+            // Map and Together side by side two rows above.
+            Button[] second = ButtonPair(page.Panel, box, "Respawn", "Put the car back", "Photo", "Photo");
+            page.Respawn = second[0];
+            page.Photo = second[1];
 
             return page;
         }
@@ -1462,6 +1585,11 @@ namespace Horizon.EditorTools
 
             Bind(page.Resume, menu, nameof(PauseMenu.Resume));
             Bind(page.Respawn, menu, nameof(PauseMenu.Respawn));
+
+            // Not BindPage, and that is the difference between this page and every other one here:
+            // opening it has to switch the chase camera off and closing it has to switch it back, so
+            // the page cannot simply be shown. PauseMenu owns both halves.
+            Bind(page.Photo, menu, nameof(PauseMenu.OpenPhoto));
 
             BindPage(page.Place, panels, MenuPage.Place);
             Bind(page.Place, start, nameof(StartScreen.ShowChosenPlace));

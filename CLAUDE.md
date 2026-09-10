@@ -2827,6 +2827,54 @@ The build prints how many of the map's markers are viewpoints and errors at zero
 that array to know where the car may stop, so a map with none would make nothing in the world
 reachable — and would look exactly like a player who has not been anywhere yet.
 
+## Photo mode
+
+`CLAUDE.md` has listed this under "later" since the concept was written, and the reason to build it now
+is that the world finally earns it. A photo mode is a claim that the game is worth looking at from an
+angle the chase camera never offers — and until there was a horizon, a sky driven by the hour, signs
+on the roads and a line of poles going into the fog, the honest answer to that claim was no.
+
+**It takes the rig over rather than adding a camera.** A second camera would need its own
+`UniversalAdditionalCameraData`, its own antialiasing mode, its own renderer index and its own far
+plane — four settings that would agree with the game's until somebody changed one, and the symptom
+would be a photograph of a world the player never sees. `ChaseCamera` is switched off and its transform
+is driven directly, so the picture goes through the same post stack, the same FXAA and the same
+backdrop as the frame it was taken from.
+
+**Everything runs on unscaled time**, because the whole of this happens at `timeScale` zero — a drag
+integrated against `Time.deltaTime` would move the camera by exactly nothing. Same rule the input
+router and the menu widgets already follow.
+
+**The shutter drops the canvas for one frame and puts it back.** `ScreenCapture` photographs the
+composited frame and this game's canvas is `ScreenSpaceOverlay`, which URP composites *after* the post
+stack — so the sliders would be in the picture. Toggling `Canvas.enabled` rather than the GameObject
+leaves every layout and every selection untouched, which is what makes it safe to do sixty times a
+session.
+
+**`PauseMenu` owns both halves of opening it, and that is why it is not a plain `Show`.** Every other
+page in this menu is a panel that appears; this one takes the camera over, and something has to switch
+it back. A Back button wired straight to `MenuPanels` would leave the rig disabled and the car driving
+out from under a camera parked in a field — so `SetPaused(false)` gives the camera back too, because
+Resume is not the only way out and neither is the pause button.
+
+**The page is the whole screen with a strip down one edge, and it has no background.** The world *is*
+the page; a panel across the middle would hide the only thing anybody opened this to look at. The drag
+surface is a fully transparent `Image` rather than nothing at all, because uGUI delivers a drag to a
+`Graphic` and there has to be one to hit — and it is the first child, so every button drawn after it
+wins the raycast.
+
+**It is therefore skipped by `ValidatePageHeights`, like the map and for the same reason**, and that
+exemption has a price worth saying out loud: the control strip is the tallest stack in this menu and
+nothing measures it. `HudPreview_Photo` is what stands in for that — a picture of the strip over
+nothing, which is the frame that says whether it laid out and fits.
+
+**Two things are not done and are said rather than hidden.** A picture lands in
+`Application.persistentDataPath` and not in the gallery: `MediaStore` through `AndroidJavaObject` is
+its own change, and every failed attempt at that class of thing costs a twenty-minute IL2CPP build to
+observe. And **the orbit and the shutter have not been exercised** — the layout is photographed and
+the wiring is asserted at build, but whether the camera actually turns under a finger and whether the
+file actually lands needs Play mode or a device. That is the honest state of it.
+
 ## How long a rebuild takes
 
 Three minutes and twenty seconds, and it was ten and a half. That matters because **this project's only

@@ -21,6 +21,9 @@ namespace Horizon.Game
         [SerializeField] private DriveInputRouter router;
         [SerializeField] private TouchControlsHud hud;
 
+        [Tooltip("The free camera. On the canvas with everything else, so it is wired rather than found.")]
+        [SerializeField] private PhotoMode photo;
+
         [Header("Panels")]
         [Tooltip("Owns which page is up. See MenuPanels for why that is no longer done here.")]
         [SerializeField] private MenuPanels panels;
@@ -200,6 +203,15 @@ namespace Horizon.Game
                 hud.SetPaused(value);
             }
 
+            // Resuming from anywhere gives the camera back, including from the photo page itself. The
+            // pause button is not the only way out — Resume is on the paused page, and a player who
+            // opened the photo page and then pressed it would otherwise drive away from a camera left
+            // hanging where they parked.
+            if (!value)
+            {
+                photo?.SetActive(false);
+            }
+
             // Whatever a finger was on when the menu opened is not held any more.
             TouchControlState.Clear();
         }
@@ -219,6 +231,28 @@ namespace Horizon.Game
 
             panels?.SetHome(MenuPage.Paused);
             panels?.Show(MenuPage.Map);
+        }
+
+        /// <summary>
+        /// Stops the world and hands the camera to the player.
+        ///
+        /// <para><b>Not a plain <c>Show</c>, which is why this exists at all.</b> Every other page in
+        /// this menu is a panel that appears; this one takes the chase camera over, and something has
+        /// to switch it back. Routing both halves through here means the pair cannot come apart —
+        /// a Back button wired straight to <c>MenuPanels</c> would leave the rig disabled and the car
+        /// driving out from under a camera parked in a field.</para>
+        /// </summary>
+        public void OpenPhoto()
+        {
+            panels?.Show(MenuPage.Photo);
+            photo?.SetActive(true);
+        }
+
+        /// <summary>Gives the camera back and returns to whatever opened the page.</summary>
+        public void ClosePhoto()
+        {
+            photo?.SetActive(false);
+            panels?.Back();
         }
 
         /// <summary>Shows the controls page.</summary>

@@ -125,8 +125,18 @@ namespace Horizon.EditorTools
                 Canvas.ForceUpdateCanvases();
                 MapPreviewRenderer.Shoot(camera, Width, Height, Path.Combine(directory, RoomShot), Msaa);
 
+                Restore();
+
+                // --- The photo page's control strip. Over nothing, because this is a saved scene with
+                // no world in it — which is exactly the frame that says whether the strip stands on its
+                // own against whatever is behind it.
+                ShowMenuPage(canvas, "PhotoPanel");
+
+                Canvas.ForceUpdateCanvases();
+                MapPreviewRenderer.Shoot(camera, Width, Height, Path.Combine(directory, PhotoShot), Msaa);
+
                 Debug.Log($"[Horizon] HUD preview written to {directory}: {DrivingShot}, {MapShot}, "
-                          + $"{MultiplayerShot} and {RoomShot}");
+                          + $"{MultiplayerShot}, {RoomShot} and {PhotoShot}");
             }
             finally
             {
@@ -153,6 +163,17 @@ namespace Horizon.EditorTools
         private const string MultiplayerShot = "HudPreview_Multiplayer.png";
 
         private const string RoomShot = "HudPreview_Room.png";
+
+        /// <summary>
+        /// The photo page.
+        ///
+        /// <para>It is the one page here whose panel is deliberately not a panel — a transparent drag
+        /// surface over the whole screen with the controls in a strip down one edge — so the only thing
+        /// a picture can say about it is whether that strip laid out, fits and reads. Which is the whole
+        /// question: a stack of five sliders and two buttons is the tallest thing in this menu and it is
+        /// also the one page <c>ValidatePageHeights</c> is told to skip.</para>
+        /// </summary>
+        private const string PhotoShot = "HudPreview_Photo.png";
 
         /// <summary>What a shot switched off or on, and puts back.</summary>
         private static readonly List<GameObject> Hidden = new List<GameObject>();
