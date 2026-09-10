@@ -1375,15 +1375,27 @@ mouth are all things you look straight past at eye level and cannot miss from ab
 lesson the `_ForkPlan` shot on the Stadtfeld already stands for, generalised to every junction in the
 world.
 
-**It carries it on the Stadtfeld fork and on neither pit lane, and that is worth writing down against
-the sentence above.** `1_StadtfeldFork_4_Plan` is exactly what the paragraph claims: the trunk running
-down the frame, the branch leaving it, and the throat between them in plain sight.
-`2_WeissjochringPit_4_Plan` is bare hillside with one road down the middle and no junction anywhere in
-it. Both are aimed the same way — `NearestOn(trunk, at)` from the course's own `JunctionPoint`, then
-straight down — so the difference is in where that point lands on a **closed** road rather than in the
-camera, and neither circuit's has been chased down. Three of the four frames a pit lane gets are
-usable; the one the docs call the important one is not. It stays in, said rather than deleted, for the
-reason `_8_Face` on the Weissjoch stays in.
+**`2_WeissjochringPit_4_Plan` looks like a photograph of bare hillside and is not one — and how that
+was settled is worth more than the frame.** It was read at a glance as a junction missing from its own
+frame and written up as broken. A thirty-line throwaway `[MenuItem]` then measured where each fork's
+`JunctionPoint` actually falls: **0.1 m from both roads on the Stadtfeld, 0.0 and 1.4 on the
+Weissjochring, 0.0 and 4.1 on the Bahçe.** Every junction point is on both of its roads, so nothing
+about the aim could be wrong — which meant the fault had to be in the reading. Pushed through a
+contrast stretch, the frame is unambiguous: the circuit's main straight down the middle, the access
+road curving in from the lower right, and the throat where they meet in the centre with no ridge
+between them.
+
+**What is actually true is that these frames are low-contrast, not mis-aimed**, and the circuit is the
+worst of them for a reason this file already records: `RoadTextureBuilder` is asked for one lane on a
+circuit, so a race track has no centre line — and a centre line is the one high-contrast mark that
+tells asphalt from hillside at a hundred and sixty metres in a low sun. If anybody wants these easier
+to read, the knob is the frame's *hour*, not its aim.
+
+**The lesson is the one this file keeps paying for from the other side.** Every entry here about a
+frame that lies was found by looking; this is the first about a frame *judged* to lie without
+measuring, and the judgement was wrong. A picture is the instrument for whether something looks right.
+It is not the instrument for whether a camera is pointed where it was told to be, and thirty lines
+that print a distance answer that in forty seconds.
 
 **The eye-level frames stand at forty-five metres, and the first version stood at ninety.** At ninety a
 mouth three metres wider than the road it opens off is a few pixels of dark asphalt against dark
