@@ -2925,6 +2925,12 @@ namespace Horizon.EditorTools
             BuildGuardRails(worldRoot.transform, path, roadShape, field, course, materials);
             BuildDelineatorPosts(worldRoot.transform, path, roadShape, field, course, materials);
 
+            // Every sign in the world, collected as it is placed. A post is right by construction on
+            // the road that placed it and nothing there can see the road below it — see ValidateSigns.
+            var signPosts = new List<(Vector3 At, string Road)>(1024);
+
+            BuildRoadSigns(worldRoot.transform, path, roadShape, course, materials, "", signPosts);
+
             // --- Motorway structures. Per carriageway, because a divided road has two of everything:
             // two bores through a spur, two decks over a valley, two sets of verge rails. Only the
             // barrier down the middle is single, and it runs on the median line the carriageways were
@@ -2955,10 +2961,16 @@ namespace Horizon.EditorTools
                 materials, "MotorwayWest");
             BuildDelineatorPosts(worldRoot.transform, westbound, motorwayShape, field, motorwayCourse,
                 materials, "MotorwayWest");
+            // The outer verge, the side ValidateFuelStations already names for this carriageway. A
+            // divided road's other hand is the road coming the other way.
+            BuildRoadSigns(worldRoot.transform, westbound, motorwayShape, motorwayCourse,
+                materials, "MotorwayWest", signPosts, -1f);
             BuildGuardRails(worldRoot.transform, eastbound, motorwayShape, field, motorwayCourse,
                 materials, "MotorwayEast");
             BuildDelineatorPosts(worldRoot.transform, eastbound, motorwayShape, field, motorwayCourse,
                 materials, "MotorwayEast");
+            BuildRoadSigns(worldRoot.transform, eastbound, motorwayShape, motorwayCourse,
+                materials, "MotorwayEast", signPosts, 1f);
             BuildMedianBarrier(worldRoot.transform, motorwayPath, motorwayShape, motorwayCourse, materials,
                 GuardRailBuilder.MedianEndClearance);
 
@@ -2998,6 +3010,8 @@ namespace Horizon.EditorTools
 
             BuildDelineatorPosts(worldRoot.transform, ebentalPath, roadShape, field, ebentalCourse,
                 materials, "EbentalRoad");
+            BuildRoadSigns(worldRoot.transform, ebentalPath, roadShape, ebentalCourse,
+                materials, "EbentalRoad", signPosts);
 
             // The Stadtfeld road: rails and posts of its own, and then the mouth of the fork it leaves
             // the Ebental by.
@@ -3012,6 +3026,8 @@ namespace Horizon.EditorTools
 
             BuildDelineatorPosts(worldRoot.transform, stadtfeldPath, roadShape, field, stadtfeldCourse,
                 materials, "StadtfeldRoad");
+            BuildRoadSigns(worldRoot.transform, stadtfeldPath, roadShape, stadtfeldCourse,
+                materials, "StadtfeldRoad", signPosts);
 
             BuildTrunkFork(worldRoot.transform, "TrunkFork", ebentalPath, roadShape,
                 EbentalCourse.ForkPoint, stadtfeldPath, roadShape, stadtfeldMesh, materials);
@@ -3030,6 +3046,8 @@ namespace Horizon.EditorTools
 
             BuildDelineatorPosts(worldRoot.transform, kalkgratPath, roadShape, field, kalkgratCourse,
                 materials, "KalkgratRoad");
+            BuildRoadSigns(worldRoot.transform, kalkgratPath, roadShape, kalkgratCourse,
+                materials, "KalkgratRoad", signPosts);
 
             // The Meerenge gets the two cape bores and the crossing. The rails and posts read
             // IsBridged, which now reports a suspension span as well as a viaduct, so neither of them
@@ -3045,6 +3063,8 @@ namespace Horizon.EditorTools
 
             BuildDelineatorPosts(worldRoot.transform, meerengePath, roadShape, field, meerengeCourse,
                 materials, "MeerengeRoad");
+            BuildRoadSigns(worldRoot.transform, meerengePath, roadShape, meerengeCourse,
+                materials, "MeerengeRoad", signPosts);
 
             ValidateSuspensionBridges(meerengePath, roadShape, field, meerengeCourse,
                 MeerengeCourse.Crossing);
@@ -3059,6 +3079,8 @@ namespace Horizon.EditorTools
 
             BuildDelineatorPosts(worldRoot.transform, yalikoyPath, roadShape, field, yalikoyCourse,
                 materials, "YalikoyRoad");
+            BuildRoadSigns(worldRoot.transform, yalikoyPath, roadShape, yalikoyCourse,
+                materials, "YalikoyRoad", signPosts);
 
             // The Weissjoch: a bore through the rock band and an avalanche gallery in the snow above it,
             // and then twenty-eight hairpins' worth of verge furniture. This is the most exposed road in
@@ -3073,6 +3095,8 @@ namespace Horizon.EditorTools
 
             BuildDelineatorPosts(worldRoot.transform, weissjochPath, roadShape, field, weissjochCourse,
                 materials, "WeissjochRoad");
+            BuildRoadSigns(worldRoot.transform, weissjochPath, roadShape, weissjochCourse,
+                materials, "WeissjochRoad", signPosts);
 
             // --- The Weissjochring. Rails on both roads: a circuit cut into a mountainside is the one
             // place in this world where leaving the road is not a rare mistake, and the drop off the
@@ -3087,6 +3111,8 @@ namespace Horizon.EditorTools
 
             BuildDelineatorPosts(worldRoot.transform, ringAccessPath, roadShape, field, ringAccessCourse,
                 materials, "WeissjochringAccess");
+            BuildRoadSigns(worldRoot.transform, ringAccessPath, roadShape, ringAccessCourse,
+                materials, "WeissjochringAccess", signPosts);
 
             BuildKerbs(worldRoot.transform, ringPath, circuitShape, ringCourse, Weissjochring,
                 materials);
@@ -3113,6 +3139,8 @@ namespace Horizon.EditorTools
 
             BuildDelineatorPosts(worldRoot.transform, bahceAccessPath, roadShape, field,
                 bahceAccessCourse, materials, "BahceRingAccess");
+            BuildRoadSigns(worldRoot.transform, bahceAccessPath, roadShape,
+                bahceAccessCourse, materials, "BahceRingAccess", signPosts);
 
             BuildKerbs(worldRoot.transform, bahcePath, circuitShape, bahceCourse, BahceRing,
                 materials);
@@ -3159,6 +3187,8 @@ namespace Horizon.EditorTools
                 litRenderers, litSlotStart, litSlots, litSlotGroups);
             BuildDelineatorPosts(worldRoot.transform, linkPath, roadShape, field, linkCourse,
                 materials, "MotorwayLink");
+            BuildRoadSigns(worldRoot.transform, linkPath, roadShape, linkCourse,
+                materials, "MotorwayLink", signPosts);
 
             TrafficNetwork routes = BuildTraffic(worldRoot.transform, towns, path, roadShape, materials,
                 litRenderers, litSlotStart, litSlots, litSlotGroups,
@@ -3232,6 +3262,26 @@ namespace Horizon.EditorTools
             ValidateDriveableCorridor(ringAccessPath, "the Weissjochring access road", DriverBoxHalfWidth, 4f);
             ValidateDriveableCorridor(bahcePath, "the Bahçe Ring", DriverBoxHalfWidth, 4f);
             ValidateDriveableCorridor(bahceAccessPath, "the Bahçe Ring access road", DriverBoxHalfWidth, 4f);
+
+            // The other half of that sweep, and the reason it is a separate call: the box above is the
+            // car, and a sign has no collider for it to touch. This asks the same question of the one
+            // kind of roadside object nothing can hit.
+            ValidateSigns(signPosts,
+                (path, roadShape, "pass"),
+                (ebentalPath, roadShape, "Ebental road"),
+                (stadtfeldPath, roadShape, "Stadtfeld road"),
+                (westbound, motorwayShape, "westbound carriageway"),
+                (eastbound, motorwayShape, "eastbound carriageway"),
+                (linkPath, roadShape, "motorway link"),
+                (coastPath, roadShape, "coast road"),
+                (kalkgratPath, roadShape, "Kalkgrat road"),
+                (meerengePath, roadShape, "Meerenge road"),
+                (yalikoyPath, roadShape, "Yalıköy road"),
+                (weissjochPath, roadShape, "Weissjoch road"),
+                (ringPath, circuitShape, "Weissjochring"),
+                (ringAccessPath, roadShape, "Weissjochring access road"),
+                (bahcePath, circuitShape, "Bahçe Ring"),
+                (bahceAccessPath, roadShape, "Bahçe Ring access road"));
             ReportCourse(seeburgCourse, seeburgAxis, "Seeburg axis");
             Phase(clock, "validation");
             int worstJunction = ValidateStreetNetwork(talheim.Network, path, roadShape);
@@ -12084,6 +12134,156 @@ namespace Horizon.EditorTools
                 addCollider: false, markStatic: true);
 
             Debug.Log($"[Horizon] Delineator posts on {Where(label)}: {triangles} triangles.");
+        }
+
+        /// <summary>
+        /// Checks that no sign stands in a road.
+        ///
+        /// <para><b>Nothing else in this build can see one.</b> A sign carries no collider — for the
+        /// reason the delineator posts and the station's advance board both give — so
+        /// <c>ValidateDriveableCorridor</c> sweeps its box straight through it and reports a clean pass,
+        /// which is the failure shape this file records against a check that cannot reach its
+        /// subject.</para>
+        ///
+        /// <para><b>And the way it goes wrong is not the way it looks.</b> A post is placed off its own
+        /// road's <c>OuterHalfWidth</c>, so on that road it is right by construction and there is
+        /// nothing to check. What no builder here can know is that the outside verge of a 20 m hairpin
+        /// is, forty metres below, the carriageway of the leg the stack has already laid — and a bake
+        /// planted in it is a two-metre board standing in the middle of a road nobody was looking at.
+        /// So it is measured against the nearest of <i>every</i> paved road, which is the fix
+        /// <c>CheckLanesFollowTheTrunkRoad</c> already needed for the same reason.</para>
+        /// </summary>
+        private static void ValidateSigns(
+            List<(Vector3 At, string Road)> signs,
+            params (IRoadPath Path, RoadShape Shape, string Where)[] roads)
+        {
+            if (signs.Count == 0)
+            {
+                Debug.LogError("[Horizon] No road signs anywhere in the world. Every course either "
+                               + "refused every spot or was never asked — a world with no signs on it "
+                               + "builds, validates and drives exactly like one that has them.");
+                return;
+            }
+
+            var near = new RoadProximity[roads.Length];
+            for (int r = 0; r < roads.Length; r++)
+            {
+                near[r] = new RoadProximity(roads[r].Path);
+            }
+
+            int inside = 0;
+            float worst = float.MaxValue;
+            string worstWhere = string.Empty;
+            Vector3 worstAt = Vector3.zero;
+
+            for (int i = 0; i < signs.Count; i++)
+            {
+                (Vector3 at, string road) = signs[i];
+
+                for (int r = 0; r < roads.Length; r++)
+                {
+                    near[r].Nearest(at.x, at.z, out float distance, out _);
+
+                    // The paved edge, not the verge: a sign is meant to stand on a verge, and every one
+                    // of these stands on its own road's. What is never allowed is asphalt.
+                    float clear = distance - roads[r].Shape.HalfWidth;
+
+                    if (clear < worst)
+                    {
+                        worst = clear;
+                        worstWhere = $"a sign on {road} against the {roads[r].Where}";
+                        worstAt = at;
+                    }
+
+                    if (clear < 0f)
+                    {
+                        inside++;
+                        break;
+                    }
+                }
+            }
+
+            if (inside > 0)
+            {
+                Debug.LogError($"[Horizon] {inside} of {signs.Count} road signs stand on a carriageway. "
+                               + $"Worst is {worstWhere}, {-worst:0.0} m inside the asphalt at "
+                               + $"({worstAt.x:0}, {worstAt.z:0}). Nothing else in this build can see "
+                               + "one — a sign has no collider, so the corridor sweep passes straight "
+                               + "through it.");
+                return;
+            }
+
+            Debug.Log($"[Horizon] Road signs: {signs.Count} placed, none on a carriageway. "
+                      + $"Closest is {worstWhere}, {worst:0.0} m clear of the asphalt at "
+                      + $"({worstAt.x:0}, {worstAt.z:0}).");
+        }
+
+        /// <summary>
+        /// Every road sign on one course.
+        ///
+        /// <para><b>Two draw calls per road and a count in the log, and the count is the point.</b> The
+        /// board face keeps <c>M_SignFace</c> because it has to be legible at midnight; everything else
+        /// — post and pictogram — carries a tint and merges into one slot. What the log has to say is
+        /// how many of each kind went down, because a bake that was refused for want of clear verge and
+        /// a bend that was never tight enough to want one look identical in every frame this project
+        /// takes: both are a corner with no sign on it.</para>
+        /// </summary>
+        private static void BuildRoadSigns(
+            Transform parent,
+            IRoadPath path,
+            in RoadShape roadShape,
+            RoadCourse course,
+            PrototypeMaterials materials,
+            string label = "",
+            List<(Vector3 At, string Road)> registry = null,
+            float nearSide = 0f)
+        {
+            var used = new List<int>(RoadSignMeshes.SubmeshCount);
+            var posts = new List<Vector3>(256);
+
+            Mesh mesh = RoadSignBuilder.Build(
+                path, roadShape, course, $"RoadSign{label}Mesh", used,
+                out RoadSignBuilder.Tally tally, posts, nearSide);
+
+            if (registry != null)
+            {
+                for (int i = 0; i < posts.Count; i++)
+                {
+                    registry.Add((posts[i], Where(label)));
+                }
+            }
+
+            if (mesh == null)
+            {
+                Debug.Log($"[Horizon] No road signs on {Where(label)}.");
+                return;
+            }
+
+            int triangles = mesh.triangles.Length / 3;
+            mesh = HorizonAssetUtility.ReplaceAsset(
+                mesh, $"{GeneratedFolder}/RoadSign{label}Mesh.asset");
+
+            var signMaterials = new Material[used.Count];
+            for (int m = 0; m < used.Count; m++)
+            {
+                signMaterials[m] = used[m] == RoadSignMeshes.FaceSubmesh
+                    ? materials.SignFace
+                    : materials.BuildingTint;
+            }
+
+            // No collider, like the delineator posts and the station's own advance board. A sign is
+            // something to read, and a mesh collider on a pictogram is a row of re-entrant corners
+            // 3.5 m off the carriageway for a car that has already left the road.
+            CreateMeshObject(parent, "RoadSigns" + label, mesh, signMaterials,
+                addCollider: false, markStatic: true);
+
+            string dropped = tally.Dropped == 0
+                ? string.Empty
+                : $", {tally.Dropped} refused for a bore, a span or a forecourt";
+
+            Debug.Log($"[Horizon] Road signs on {Where(label)}: {tally.Total} — {tally.PlaceNames} "
+                      + $"place names, {tally.Bakes} bakes, {tally.Portals} portals{dropped}. "
+                      + $"{triangles} triangles.");
         }
 
         /// <summary>

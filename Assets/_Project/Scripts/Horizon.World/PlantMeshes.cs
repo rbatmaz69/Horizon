@@ -437,6 +437,46 @@ namespace Horizon.World
         }
 
         /// <summary>
+        /// A box standing on <paramref name="foot"/> and rising <paramref name="height"/>, with no
+        /// bottom face.
+        ///
+        /// <para><b>It lives here rather than in a builder because three of them wanted it.</b>
+        /// <c>FuelStationMeshes</c> wrote it first — for pump islands, shop walls, sign posts and every
+        /// bar of a pictogram — and <c>RoadSignBuilder</c> is made of almost nothing else. A second copy
+        /// would have been the cheap thing to do and the wrong one: this buffer already owns
+        /// <see cref="AddQuadFacing"/> and <see cref="AddDoubleSided"/>, so a box is the third member of
+        /// the same family, not a fuel station's private business.</para>
+        ///
+        /// <para>No bottom face on purpose, which is what lets a post be sunk into the ground rather
+        /// than sat exactly on it — see <c>FuelStationMeshes.SignBury</c> for why nothing here ever asks
+        /// the terrain how high it is.</para>
+        /// </summary>
+        public void AddBox(
+            int submesh,
+            Vector3 foot,
+            Vector3 forward,
+            Vector3 outward,
+            float halfLength,
+            float halfDepth,
+            float height)
+        {
+            Vector3 a = forward * halfLength;
+            Vector3 d = outward * halfDepth;
+            Vector3 up = Vector3.up * height;
+
+            Vector3 b0 = foot - a - d;
+            Vector3 b1 = foot + a - d;
+            Vector3 b2 = foot + a + d;
+            Vector3 b3 = foot - a + d;
+
+            AddQuadFacing(submesh, b0 + up, b1 + up, b2 + up, b3 + up, Vector3.up);
+            AddQuadFacing(submesh, b0, b1, b1 + up, b0 + up, -outward);
+            AddQuadFacing(submesh, b2, b3, b3 + up, b2 + up, outward);
+            AddQuadFacing(submesh, b1, b2, b2 + up, b1 + up, forward);
+            AddQuadFacing(submesh, b3, b0, b0 + up, b3 + up, -forward);
+        }
+
+        /// <summary>
         /// Bakes the buffers into a mesh, keeping only the submeshes that have anything in them and
         /// reporting which those were.
         ///

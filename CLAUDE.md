@@ -2587,6 +2587,116 @@ Unity's Perlin rather than a hand-rolled one, which is the rule `SurfaceRelief` 
 side: this bakes once, so a changed implementation would move the foam and nothing else. `SurfaceRelief`
 reverses it because its *derivative* is spent as a damper force at 50 Hz.
 
+## Signs
+
+**There was exactly one sign in this world** — the filling station's advance board — across
+seventy-five kilometres of road, four towns, nine bores and something over fifty hairpins. A road
+with no signs on it does not read as a quiet road. It reads as a road nobody has finished building,
+which is most of what "it looks like a beta" meant.
+
+**Everything is a pictogram, and that is a constraint rather than a style.** There is no world-space
+text rendering anywhere in this project and adding one would mean a font atlas, a second material and
+a per-sign mesh. A silhouette costs six triangles, survives being twenty pixels wide and needs no
+language — the argument `MapGraphic` already makes for drawing its marks as shapes rather than as four
+colours of one diamond.
+
+**The placement is `FuelStationBuilder.ResolveSign`'s, not a second opinion.** Foot off the road's own
+line rather than off a terrain sample, standoff measured from `RoadShape.OuterHalfWidth`, and the same
+three keep-outs — a bore, a span, a forecourt's open frontage. That method worked all of it out for
+one sign on ten stations and none of it needed changing for three hundred.
+
+**What is different is which way the walk runs.** The station's sign hunts *backwards* for a clear
+spot, because a warning that arrives late is no warning. Nothing here does: a place-name board marks
+where the houses start and a bake marks a corner already under the wheels, so a sign that shuffled up
+the road to find easier ground would be marking somewhere else. Where the spot is not clear they are
+dropped, and the count is in the log.
+
+**Three kinds, and the fourth is missing on purpose.** A board that *points* has to know which way,
+and which side a branch leaves on is the one thing about a fork `RoadCourse` does not record —
+`AddJunction` takes a name and a reach, and `RoadFeature.Side`, the field that would carry it, is set
+by filling stations alone. Guessing would make the single sign in this world whose entire job is to
+point the single sign that points wrong, at three forks, for ever. The honest version is a side
+threaded through `AddJunction`'s eight call sites and it is its own change. **Portal boards are bores
+only** for the same kind of reason: the pictogram is an arch and a viaduct is not one.
+
+**A bake points at the centre of the curve, which is why one board does for both directions.** The
+inside of a bend is in the same place whichever way you drive through it, so the pointer is a
+direction in the *world* rather than on a screen — and the symbol is therefore drawn identically on
+both faces. Mirroring it for the back is the thing that looks right and puts one of the two faces on
+a lie.
+
+**`RoadSignBuilder.BakeRadius` is 48 m.** It catches the pass's 20 m hairpins, the Weissjoch's 26–36
+and the tighter of the Steilufer's, and leaves the Ebental — nothing under 150 — and the motorway
+alone. A road where every corner is marked is a road where no corner is.
+
+**`ValidateSigns` caught a real fault on the first build it ran, and nothing else could have.** A sign
+carries no collider, so `ValidateDriveableCorridor` sweeps its box straight through one and reports a
+clean pass — the failure shape this file records against a check that cannot reach its subject. And
+the way it goes wrong is not the way it looks: a post is placed off *its own* road's half-width, so on
+that road it is right by construction. What no builder here can know is that a hairpin's outside verge
+is, forty metres below, the carriageway of the leg the stack has already laid. So it is measured
+against the nearest of **every** paved road, which is `CheckLanesFollowTheTrunkRoad`'s own fix. It
+reported **four motorway portal boards standing 0.6 m inside the asphalt of the carriageway
+alongside** — the median side of a divided road is not a verge, it is the road coming the other way.
+`RoadSignBuilder`'s `nearSide` is the answer, and it takes the −1/+1 `ValidateFuelStations` already
+names for those two carriageways.
+
+**`RoadFeatureKind.Village` had one user and a village.** It is marked on the pass for Talheim and now
+on `YalikoyCourse` too, and it suppresses nothing — `IsCovered` tests Tunnel and Gallery by name and
+`VegetationBuilder` skips it — so adding one moved no other number in the build. **Seeburg and
+Hochstadt get no place-name board**, and the reason is structural: both towns are mapped against an
+axis that is not the road you drive in on (`SeeburgAxis`, `ArterialPath`), so there is no
+along-distance on a driven road to hang the sign from. Inventing one would be a second opinion about
+where a town begins.
+
+**`VegetationMeshBuffer.AddBox` moved down from `FuelStationMeshes`**, where it had been private, when
+this turned out to be made of almost nothing else. The buffer already owns `AddQuadFacing` and
+`AddDoubleSided`; a box is the third member of that family rather than a fuel station's private
+business.
+
+`Tools > Horizon > Render Sign Preview` photographs six places day and night. **Two of the six were
+wrong before they were right, and one of those took four attempts.** `_4_TalheimEntry` stood at a
+hundred metres, where a 2 m board is nine pixels and the picture says a sign exists and nothing about
+whether three houses on it read as a village.
+
+`_6_PortalBoard` is the instructive one. The board stands 45 m clear of the bore on the nearside, and
+the pass arrives at that tunnel *through a bend* — so at fifteen metres the sign is 35° off an axis a
+60° camera sees 30 either side of, and at fifty and at ninety-five it is behind the hillside the road
+is turning round. Three photographs of a tunnel with no sign in them, each indistinguishable from a
+build that had placed none. **The log said four portal boards throughout, and the number was never the
+thing that was wrong.** The exit is straight: ninety metres beyond the far portal and turned about,
+the board sits 13° off the axis with the bore ninety metres behind it, which is the only geometry on
+this road that holds an arch pictogram and the hole it means in one picture.
+
+The corners the other frames stand at are *found* by walking the path for `BakeRadius`, which is
+`public` for that caller: a camera aimed at a hand-typed distance goes on photographing the same piece
+of tarmac after the road under it has moved.
+
+## Houses that are not the same house
+
+Three wall colours and three roof colours is nine houses, and a street has more than nine. The
+argument is the woods': what the eye sorts a row of buildings by at distance is tone before shape, and
+three tones over a hundred plots is three tones. It is five and four now — twenty combinations, which
+is past the point where a walk down a street shows you the same house twice.
+
+**It is free, and that is measured rather than assumed.** Every wall and roof submesh carries a tint
+and `MergeTinted` folds the lot into one slot with the colours in the vertices, so the rebuild came
+back with the identical triangle count, the identical heaviest tile (`Terrain_-16_-6` at 26 284) and
+the identical draw calls — 873 over 100 chunks, the same number as the build before. Adding a colour
+costs a colour.
+
+**And it is safe to extend, which a palette here is not always.** The variant is picked with
+`place.Seed % WallVariants` and never from the plot's random stream, so lengthening the arrays
+repaints the town and moves nothing else — where an extra `random.Next()` would have shifted every
+draw after it and rebuilt the whole layout. That is the trap recorded against the Bahçe's blossom
+branch, avoided here by construction rather than by care.
+
+Four roofs against five walls on purpose: equal counts make the pairing cycle, so every fifth house
+would carry the same combination as the last. The two new renders are a cool grey-green and a chalky
+pink, and the new roof is slate — the one roof colour a warm palette has no other way of reaching.
+All three are further from their neighbours than looks sensible written down, for the reason the
+conifer greens are.
+
 ## How long a rebuild takes
 
 Three minutes and twenty seconds, and it was ten and a half. That matters because **this project's only

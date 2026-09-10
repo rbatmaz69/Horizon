@@ -3037,6 +3037,214 @@ namespace Horizon.EditorTools
         /// Photographs the world, so post-processing is on and the fog is left alone — this tool's whole
         /// subject is what the driver sees out of the windscreen.
         /// </summary>
+        /// <summary>
+        /// Photographs the road signs, day and night.
+        ///
+        /// <para><b>No frame this project already takes can answer whether these are right.</b> The
+        /// world previews stand on straights and at set-pieces; a bake lives on the outside of a
+        /// twenty-metre hairpin, which is somewhere no existing camera has ever pointed. The build says
+        /// how many went down and <c>ValidateSigns</c> says none of them is in a road — neither says
+        /// whether a pictogram reads as anything from a car.</para>
+        ///
+        /// <para><b>The corners are found the way the builder found them</b>, by walking the path for a
+        /// radius under <c>RoadSignBuilder</c>'s own threshold, rather than by writing down a distance.
+        /// A camera aimed at a hand-typed number is a camera that goes on photographing the same piece
+        /// of tarmac after the road under it has moved — and it would photograph bare verge while
+        /// reporting nothing, which is the failure mode this whole tool exists against.</para>
+        /// </summary>
+        [MenuItem("Tools/Horizon/Render Sign Preview")]
+        public static void RenderSigns()
+        {
+            Scene scene = SceneManager.GetSceneByPath(WorldScenePath);
+            bool openedHere = !scene.isLoaded;
+
+            if (openedHere)
+            {
+                scene = EditorSceneManager.OpenScene(WorldScenePath, OpenSceneMode.Additive);
+            }
+
+            RoadPath pass = FindTrunkRoad();
+            RoadPath weissjoch = FindWeissjochRoad();
+            RoadPath yalikoy = FindYalikoyRoad();
+
+            // The course rather than the scene, because a bore is a span on a course and the objects the
+            // build names for it are a massif and a skin, neither of which knows how far along it is.
+            RoadCourse passCourse = MountainPassCourse.Build();
+
+            if (pass == null || weissjoch == null || yalikoy == null)
+            {
+                Debug.LogError("[Horizon] No pass, Weissjoch or Yalıköy road in the world scene. Run "
+                               + "Rebuild Prototype Scene first.");
+                return;
+            }
+
+            var clock = Object.FindFirstObjectByType<TimeOfDayController>();
+            var lights = Object.FindFirstObjectByType<TownLights>();
+
+            float hoursWere = clock != null ? clock.TimeOfDayHours : 0f;
+            bool runningWas = clock != null && clock.Running;
+
+            string directory = Directory.GetParent(Application.dataPath).FullName;
+            var cameraObject = new GameObject("SignPreviewCamera");
+
+            try
+            {
+                Camera camera = cameraObject.AddComponent<Camera>();
+                camera.clearFlags = CameraClearFlags.Skybox;
+                camera.enabled = false;
+
+                for (int pass2 = 0; pass2 < 2; pass2++)
+                {
+                    bool night = pass2 == 1;
+                    string suffix = night ? "_Night" : string.Empty;
+
+                    if (clock != null)
+                    {
+                        clock.Running = false;
+                        clock.TimeOfDayHours = night ? NightHours : 16.5f;
+                        clock.Apply();
+                    }
+
+                    if (lights != null)
+                    {
+                        lights.Refresh();
+                    }
+
+                    CaptureSigns(camera, pass, passCourse, weissjoch, yalikoy, directory, suffix);
+                }
+            }
+            finally
+            {
+                Object.DestroyImmediate(cameraObject);
+
+                if (clock != null)
+                {
+                    clock.TimeOfDayHours = hoursWere;
+                    clock.Running = runningWas;
+                    clock.Apply();
+                }
+
+                if (lights != null)
+                {
+                    lights.Refresh();
+                }
+
+                if (openedHere)
+                {
+                    EditorSceneManager.CloseScene(scene, true);
+                }
+            }
+        }
+
+        private static void CaptureSigns(
+            Camera camera, RoadPath pass, RoadCourse passCourse, RoadPath weissjoch, RoadPath yalikoy,
+            string directory, string suffix)
+        {
+            void FromRoad(RoadPath road, float at, float back, float lift, float pitch, float yaw,
+                string name)
+            {
+                float distance = Mathf.Clamp(at, 0f, road.Length);
+                Vector3 on = road.GetPositionAtDistance(distance);
+                Vector3 forward = road.GetDirectionAtDistance(distance);
+
+                Vector3 look = Quaternion.Euler(0f, yaw, 0f) * forward;
+
+                camera.fieldOfView = 60f;
+                camera.farClipPlane = Mathf.Max(900f, Horizon.World.BackdropBuilder.MinimumFarPlane);
+                camera.nearClipPlane = 0.3f;
+                camera.transform.position = on - forward * back + Vector3.up * lift;
+                camera.transform.rotation = Quaternion.LookRotation(
+                    (look + Vector3.up * pitch).normalized, Vector3.up);
+
+                Capture(camera, Path.Combine(directory, $"SignPreview_{name}{suffix}.png"));
+            }
+
+            // 1–2. Two hairpins, one on each stack, found rather than typed. The approach is what a
+            // driver has: sixty metres back on the entry, eye height, looking into the corner.
+            float passBend = FirstTightBend(pass, 900f);
+            float alpineBend = FirstTightBend(weissjoch, 3000f);
+
+            FromRoad(pass, passBend, 60f, 2.4f, -0.01f, 0f, "1_PassHairpin");
+            FromRoad(weissjoch, alpineBend, 60f, 2.4f, -0.01f, 0f, "2_AlpineHairpin");
+
+            // 3. Standing in the corner and looking across it, which is the one angle that says whether
+            // a bake is on the outside of the bend or hidden behind the driver's own line through it.
+            FromRoad(pass, passBend + 18f, 0f, 2.0f, -0.03f, 55f, "3_PassApex");
+
+            // 4. Arriving at Talheim, thirty-five metres short of the board.
+            //
+            // <b>The first version of this frame stood at a hundred metres and answered nothing.</b> A
+            // 2 m board at that range is nine pixels wide, which tells you a sign exists and nothing
+            // whatever about whether three houses on it read as a village — and a frame that cannot
+            // resolve its subject is worse than no frame, because it looks like an answer. The whole
+            // reason these are pictograms rather than words is that a silhouette survives being small;
+            // the picture has to be close enough to say whether this one does.
+            FromRoad(pass, MountainPassCourse.TownStartDistance - 35f, 0f, 2.4f, -0.01f, 0f,
+                "4_TalheimEntry");
+
+            // 5. And leaving Yalıköy, which is the other village and the only other place-name board in
+            // the world. Its span ends on the seafront, so this is the board seen from behind — the case
+            // the pictogram is drawn on both faces for.
+            FromRoad(yalikoy, YalikoyCourse.CityEnd - 28f, 0f, 2.4f, -0.01f, 0f, "5_YalikoyExit");
+
+            // 6. A portal board fifty metres short of it, with the bore it announces beyond.
+            //
+            // Both have to be in one frame or the question is unanswerable: an arch pictogram is only
+            // right if it reads as the hole ahead of it, and a board photographed on its own is a board
+            // photographed against trees.
+            //
+            // <b>Taken from beyond the far portal looking back, after three tries from the near
+            // side.</b> The board stands 45 m clear of the bore on the road's own nearside; the pass
+            // arrives at this tunnel through a bend, so from in front the sign is either outside a 60°
+            // frame (at fifteen metres, 35° off the axis) or behind the hillside the road is turning
+            // round (at fifty and at ninety-five). The exit is straight. Ninety metres out and turned
+            // about, the board sits 13° off the axis with the portal ninety metres behind it, which is
+            // the only geometry on this road that holds an arch pictogram and the hole it means in one
+            // picture. The count in the log was four throughout, and was never the thing that was wrong.
+            FirstBore(passCourse, pass, out float boreEnd);
+            FromRoad(pass, boreEnd + 90f, 0f, 2.4f, -0.01f, 180f, "6_PortalBoard");
+        }
+
+        /// <summary>
+        /// Where a road first turns tighter than a bake wants, past <paramref name="after"/>.
+        ///
+        /// <para>The same threshold and the same window <c>RoadSignBuilder</c> uses, read from that class
+        /// rather than repeated here — a camera that looked for a different corner than the builder
+        /// marked would come back with an honest photograph of the wrong place.</para>
+        /// </summary>
+        private static float FirstTightBend(RoadPath road, float after)
+        {
+            for (float at = after; at <= road.Length; at += 5f)
+            {
+                if (road.GetRadiusAtDistance(at, RoadSignBuilder.RadiusWindow)
+                    < RoadSignBuilder.BakeRadius)
+                {
+                    return at;
+                }
+            }
+
+            return Mathf.Min(after, road.Length);
+        }
+
+        /// <summary>Where a road first goes underground, for the frame that photographs a portal board.</summary>
+        private static float FirstBore(RoadCourse course, RoadPath road, out float exit)
+        {
+            IReadOnlyList<RoadFeature> features = course.Features;
+
+            for (int i = 0; i < features.Count; i++)
+            {
+                if (features[i].Kind == RoadFeatureKind.Tunnel
+                    || features[i].Kind == RoadFeatureKind.Gallery)
+                {
+                    exit = features[i].EndDistance;
+                    return features[i].StartDistance;
+                }
+            }
+
+            exit = road.Length * 0.5f;
+            return exit;
+        }
+
         private static void Capture(Camera camera, string filePath) =>
             PreviewCapture.Shoot(camera, Width, Height, filePath);
     }

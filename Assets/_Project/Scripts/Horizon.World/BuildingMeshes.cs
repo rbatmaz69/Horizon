@@ -45,11 +45,39 @@ namespace Horizon.World
         /// reads as varied at the scale of runs — which is the scale you see from a car. The constraint
         /// that made a fourth expensive is gone; the judgement that nine is enough is not.</para>
         /// </summary>
+        /// <summary>
+        /// Five renders and four roofs, and the pair of them is why a town stopped repeating.
+        ///
+        /// <para><b>Three by three is nine houses, and a street has more than nine.</b> The argument is
+        /// the woods': what the eye sorts a row of buildings by at distance is tone before shape, and
+        /// three tones over a hundred plots is three tones. Five by four is twenty, which is past the
+        /// point where a walk down a street shows you the same house twice.</para>
+        ///
+        /// <para><b>It is free.</b> Every wall and roof submesh carries a tint and
+        /// <c>VegetationMeshBuffer.MergeTinted</c> folds the lot into one slot with the colours in the
+        /// vertices — so the rebuild comes back with the identical triangle count, the identical tile
+        /// count and the identical draw calls. Adding a colour costs a colour, which is the whole point
+        /// of <see cref="SubmeshCount"/>'s note about which categories are the expensive kind.</para>
+        ///
+        /// <para><b>And it is safe to extend, which a palette here is not always.</b> The variant is
+        /// picked with <c>place.Seed % WallVariants</c> and never from the plot's random stream, so
+        /// lengthening these arrays repaints the town and moves nothing else — where an extra
+        /// <c>random.Next()</c> would have shifted every draw after it and rebuilt the whole layout.
+        /// That is the trap recorded against the Bahçe's blossom branch, avoided here by construction
+        /// rather than by care.</para>
+        /// </summary>
         public static readonly Color[] WallColours =
         {
             new Color(0.87f, 0.83f, 0.75f),
             new Color(0.91f, 0.86f, 0.70f),
             new Color(0.80f, 0.68f, 0.53f),
+
+            // A cool grey-green render and a chalky pink one. Both are further from the three above than
+            // looks sensible written down, for the reason the conifer greens are: on flat-shaded
+            // geometry under one directional light a wall is two facets, and a subtle difference between
+            // two creams is no difference at all by forty metres.
+            new Color(0.74f, 0.76f, 0.70f),
+            new Color(0.86f, 0.74f, 0.69f),
         };
 
         public static readonly Color[] RoofColours =
@@ -57,6 +85,11 @@ namespace Horizon.World
             new Color(0.44f, 0.23f, 0.18f),
             new Color(0.31f, 0.30f, 0.32f),
             new Color(0.55f, 0.32f, 0.20f),
+
+            // Slate, which is the one roof colour a warm palette has no other way of reaching. Four
+            // against five walls on purpose: equal counts make the pairing cycle, so every fifth house
+            // would carry the same combination as the last.
+            new Color(0.36f, 0.38f, 0.43f),
         };
 
         /// <summary>Doors, sills, fence posts, beams, lamp posts, timber.</summary>
@@ -77,9 +110,9 @@ namespace Horizon.World
         /// <summary>Glass that never lights, by day and by night alike.</summary>
         public static readonly Color WindowDarkColour = new Color(0.20f, 0.23f, 0.27f);
 
-        public const int WallVariants = 3;
+        public const int WallVariants = 5;
 
-        public const int RoofVariants = 3;
+        public const int RoofVariants = 4;
 
         public const int FirstWallSubmesh = 0;
         public const int FirstRoofSubmesh = FirstWallSubmesh + WallVariants;

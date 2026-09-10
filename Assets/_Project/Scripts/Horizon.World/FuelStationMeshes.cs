@@ -653,7 +653,13 @@ namespace Horizon.World
             AddBox(buffer, TrimSubmesh, at, forward, outward, thickness * 0.5f, halfAcross, halfUp * 2f);
         }
 
-        /// <summary>A box standing on <paramref name="foot"/> and rising <paramref name="height"/>.</summary>
+        /// <summary>
+        /// A box standing on <paramref name="foot"/> and rising <paramref name="height"/>.
+        ///
+        /// <para>The geometry moved onto <see cref="VegetationMeshBuffer.AddBox"/> when
+        /// <c>RoadSignBuilder</c> turned out to be made of the same shape; this stays as the spelling
+        /// the forty-odd call sites in this file already use.</para>
+        /// </summary>
         private static void AddBox(
             VegetationMeshBuffer buffer,
             int submesh,
@@ -664,20 +670,7 @@ namespace Horizon.World
             float halfDepth,
             float height)
         {
-            Vector3 a = forward * halfLength;
-            Vector3 d = outward * halfDepth;
-            Vector3 up = Vector3.up * height;
-
-            Vector3 b0 = foot - a - d;
-            Vector3 b1 = foot + a - d;
-            Vector3 b2 = foot + a + d;
-            Vector3 b3 = foot - a + d;
-
-            buffer.AddQuadFacing(submesh, b0 + up, b1 + up, b2 + up, b3 + up, Vector3.up);
-            buffer.AddQuadFacing(submesh, b0, b1, b1 + up, b0 + up, -outward);
-            buffer.AddQuadFacing(submesh, b2, b3, b3 + up, b2 + up, outward);
-            buffer.AddQuadFacing(submesh, b1, b2, b2 + up, b1 + up, forward);
-            buffer.AddQuadFacing(submesh, b3, b0, b0 + up, b3 + up, -forward);
+            buffer.AddBox(submesh, foot, forward, outward, halfLength, halfDepth, height);
         }
 
         /// <summary>

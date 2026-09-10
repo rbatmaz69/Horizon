@@ -287,6 +287,12 @@ namespace Horizon.World
             builder.Straight(880f, FrontGrade);
             CityEnd = builder.Distance;
 
+            // Marked as a settlement, which until now only the mountain pass was. It suppresses nothing
+            // — RoadFeatureKind.Village is explicitly not counted by IsCovered, and VegetationBuilder
+            // skips it — so the only thing that reads it is RoadSignBuilder, which stands a place-name
+            // board at each end. That is what the kind was for; it had one user and a village.
+            builder.AddFeature(RoadFeatureKind.Village, CityStart, CityEnd, TownName);
+
             // --- Out of the village and up the dry hillside behind it. The turn away from the water is
             // where the climb starts, so the last thing seen at sea level is the harbour in the mirror.
             //
