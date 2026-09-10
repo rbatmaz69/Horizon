@@ -545,7 +545,7 @@ namespace Horizon.EditorTools
 
             BuildFuelDial(group.transform, ring, needleSprite, tickSprite);
             BuildBoostDial(group.transform, ring, needleSprite, tickSprite);
-            BuildFuelNotice(group.transform);
+            BuildNoticeLine(group.transform, map);
             BuildLapTimer(group.transform);
 
             // In this group so it hides with the rest of the HUD: TouchControlsHud switches the whole
@@ -570,11 +570,11 @@ namespace Horizon.EditorTools
         /// <para>760 wide centred: on the narrowest canvas Android produces, 4:3 at 1440 units, that
         /// spans x 340…1100 against a pause button ending at 145.</para>
         /// </summary>
-        private static void BuildFuelNotice(Transform parent)
+        private static void BuildNoticeLine(Transform parent, WorldMap map)
         {
             Sprite box = HorizonAssetUtility.LoadOrCreateUiSprite($"{SpriteFolder}/UI_Box.png");
 
-            RectTransform notice = Panel(parent, "FuelNotice", box, PanelTint,
+            RectTransform notice = Panel(parent, "NoticeLine", box, PanelTint,
                 new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
                 new Vector2(760f, 68f), new Vector2(0f, -56f));
 
@@ -586,16 +586,26 @@ namespace Horizon.EditorTools
             // off its own GameObject would stop being updated at the same moment, and would then have no
             // way to switch it back on — the notice would appear once and never leave. The group stays
             // up for as long as the HUD does; the panel under it is what comes and goes.
-            FuelNotice component = parent.gameObject.AddComponent<FuelNotice>();
+            NoticeLine component = parent.gameObject.AddComponent<NoticeLine>();
+
+            // Beside the notice rather than in the world scene, and that is where player state belongs:
+            // which views somebody has stood at survives a zone change and a relaunch, where a forecourt
+            // is a thing the world holds. It reads the same WorldMap asset the minimap draws, so the
+            // mark and the place cannot be different places — see Viewpoints for that argument.
+            Viewpoints views = parent.gameObject.AddComponent<Viewpoints>();
+            views.SetMap(map);
+            EditorUtility.SetDirty(views);
 
             HorizonAssetUtility.Configure(component, serialized =>
             {
                 serialized.FindProperty("panel").objectReferenceValue = notice.gameObject;
                 serialized.FindProperty("label").objectReferenceValue = line;
+                serialized.FindProperty("viewpoints").objectReferenceValue = views;
             });
 
             HorizonAssetUtility.AssertReferenceAssigned(component, "panel");
             HorizonAssetUtility.AssertReferenceAssigned(component, "label");
+            HorizonAssetUtility.AssertReferenceAssigned(component, "viewpoints");
 
             // Nothing to say yet.
             notice.gameObject.SetActive(false);
@@ -645,7 +655,7 @@ namespace Horizon.EditorTools
             Text best = Row("BEST", -RowHeight * 0.5f);
             Text gates = Row("GATES", -RowHeight * 1.5f);
 
-            // On the group, not on the panel it hides, for the reason BuildFuelNotice records: a
+            // On the group, not on the panel it hides, for the reason BuildNoticeLine records: a
             // component that switched off its own GameObject would stop being updated at the same
             // moment and could never switch it back on.
             LapTimer component = parent.gameObject.AddComponent<LapTimer>();
@@ -1052,7 +1062,7 @@ namespace Horizon.EditorTools
             // On the group, not on the dial it hides. A MonoBehaviour that switched off its own
             // GameObject would stop being updated in the same moment and could never switch it back
             // on — the dial would vanish on the first naturally aspirated car and never return. The
-            // same rule BuildFuelNotice and BuildLapTimer record; FuelGauge and InstrumentCluster sit
+            // same rule BuildNoticeLine and BuildLapTimer record; FuelGauge and InstrumentCluster sit
             // on their own dials only because neither of them ever hides itself.
             BoostGauge gauge = parent.gameObject.AddComponent<BoostGauge>();
 

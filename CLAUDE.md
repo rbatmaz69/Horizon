@@ -2762,6 +2762,71 @@ pink, and the new roof is slate — the one roof colour a warm palette has no ot
 All three are further from their neighbours than looks sensible written down, for the reason the
 conifer greens are.
 
+## Places that count
+
+Twenty places were named, cleared of trees, given a lay-by and drawn on the map, and driving to one
+did **nothing whatever**. `VegetationShape.ViewpointClearing` is 38 m, so the build has been cutting a
+hole in the forest at each of them since the day they were authored — which is to say the world
+already treated them as somewhere to look from and the game did not.
+
+**`Viewpoints` reads the baked map rather than baking a list of its own, and that is the whole
+design.** `WorldMap` already holds every viewpoint as a marker with a name and a plan position, walked
+off the same `RoadFeature`s the courses carry. A second bake would be a second opinion about where a
+viewpoint is and what it is called, and the two would agree until somebody moved one. It also means
+the mark on the map and the place you stop at cannot be different places — which matters more than it
+sounds, because the mark is the only thing that tells you the place is there.
+
+Measured **in plan**, because a viewpoint is a place on a road and the car is on that road, so height
+carries no information — and the map's marker is a `Vector2`, which is the same fact from the other
+side. No trigger volume, for the reason `FillingStations` gives at length.
+
+**The notice line was `FuelNotice` and the rename is the point.** The viewpoints wanted a line at the
+top of the screen too, and the obvious build — a second component with a second panel — puts two
+sentences in the same forty pixels and lets the loser be decided by which one ran last. There is one
+strip and it needs one owner, so the ladder grew a rung rather than a rival. The viewpoint rung sits
+**under everything about fuel**: a driver who is dry needs to know it more than they need the name of
+the place they stopped at, and the two are simultaneously true exactly where it matters — a car that
+has coasted to a halt at a viewpoint on the last of its tank.
+
+**Names and not a bitmask, which is a deliberate deviation from the plan.** A mask indexed by position
+in the baked list is four bytes and breaks the first time anybody inserts a viewpoint into the middle
+of a course: every one after it shifts, and a player who had stood at twelve places would find a
+different twelve marked. That is the hazard this file already records against `WeatherPreset`, where
+the answer was "appended, never inserted" — a discipline that works for four enum values does not
+survive twenty places spread over fourteen courses that get edited for other reasons. A name is the
+identity the player already sees, and it costs a few hundred bytes.
+
+**Visited and the lap times are written the moment they change, not at the next `Save`.** Both are
+things the player earned rather than chose, and a choice lost costs one tap where an earned thing lost
+costs the drive that earned it. `LapTiming.Best` was best *of the session* until now, which made it a
+number that could only ever go down and never mean anything — a lap driven a week ago was worth
+exactly as much as no lap at all. The comparison lives in `PlayerChoices.SetBestLap` so there is one
+place that decides what better means.
+
+**On the map a viewpoint is hollow until it has been stood at, and that is the whole of the
+progression this world has.** No new `MapMarkerKind` and no new `MapLineKind` — adding a kind is what
+once made the entire map draw nothing, and there is nothing to add anyway: visited and not are one
+thing in two states, which is exactly what a hole in a shape says. That it is the *opposite* way round
+from `MapMarkerKind.Place`, which is hollow because it is somewhere you go to, is not an
+inconsistency: a start place is never collected, so its hole means something a viewpoint's does not.
+
+**And the filled state was unphotographable, which took two attempts to fix.** `MapPreviewRenderer`
+runs at edit time where `PlayerChoices.Load` has never been called, so every mark comes out hollow and
+the half a player earns would have shipped in no picture at all — the failure the boost gauge's notes
+are about. `PlayerChoices.SeedVisited` marks one in memory and writes nothing, because a tool that
+wrote a developer's registry to take a picture would be the working-tree hazard moved somewhere git
+cannot see it.
+
+**The first version of that pair was taken on the world frame and came back pixel-identical.**
+`EmitMarkers` drops every mark but a start place past `markerZoomLimit`, so at a zoom holding sixteen
+kilometres there is no viewpoint on the map to be hollow or filled. Two identical pictures read
+exactly like a feature that does nothing. `MapPreview_Viewpoint` and `MapPreview_Viewpoint_Visited`
+are cropped to the minimap's own zoom instead, which is also the size the mark is really read at.
+
+The build prints how many of the map's markers are viewpoints and errors at zero: `Viewpoints` walks
+that array to know where the car may stop, so a map with none would make nothing in the world
+reachable — and would look exactly like a player who has not been anywhere yet.
+
 ## How long a rebuild takes
 
 Three minutes and twenty seconds, and it was ten and a half. That matters because **this project's only

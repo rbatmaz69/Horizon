@@ -5,7 +5,14 @@ using UnityEngine.UI;
 namespace Horizon.Game
 {
     /// <summary>
-    /// One line at the top of the screen, shown only when the tank is low or empty.
+    /// The one line at the top of the screen, and the only thing allowed to write there.
+    ///
+    /// <para><b>It was <c>FuelNotice</c> and the rename is the point.</b> When the viewpoints arrived
+    /// they wanted a line at the top of the screen too, and the obvious build — a second component with
+    /// a second panel — puts two sentences in the same forty pixels and lets the loser be decided by
+    /// which one happened to run last. There is one strip and it needs one owner, so the ladder below
+    /// grew a rung rather than a rival. A class called <c>FuelNotice</c> that says "Ebenkopf — a new
+    /// view" would be a name that lies, which is a thing this project pays for elsewhere.</para>
     ///
     /// <para><b>Six lines, and the order they are tested in is the design.</b> Naming the nearest
     /// station is useful while the car can still be driven to it and a taunt once it cannot — a dry car
@@ -22,6 +29,12 @@ namespace Horizon.Game
     /// left and the instruments the top right; the wheel and the pedals own the bottom corners. It is
     /// also where a game conventionally puts a notification, and nowhere near a thumb.</para>
     ///
+    /// <para><b>The viewpoint rung sits at the bottom, under everything about fuel.</b> A driver who
+    /// is dry needs to know it more than they need to be told the name of the place they stopped at,
+    /// and the two are simultaneously true exactly where it matters — a car that has coasted to a halt
+    /// at a viewpoint on the last of its tank. It is also the only rung that is a reward rather than an
+    /// instruction, and a reward can wait.</para>
+    ///
     /// <para><b>On allocation.</b> Five of the six lines are constants and cost nothing at all. The
     /// sixth builds a string, and only on the transitions: entering reserve, and each time the distance
     /// crosses a hundred-metre bucket. It is polled twice a second
@@ -29,13 +42,17 @@ namespace Horizon.Game
     /// what that rule forbids is garbage every frame in the driving loop, and the alternative here would
     /// be a prebuilt table of every distance to every station, which is worse in every direction.</para>
     /// </summary>
-    public sealed class FuelNotice : MonoBehaviour
+    public sealed class NoticeLine : MonoBehaviour
     {
         [SerializeField] private GameObject panel;
         [SerializeField] private Text label;
 
         [Tooltip("Where the pumps are. Found at run time — it lives in the world scene.")]
         [SerializeField] private FillingStations stations;
+
+        [Tooltip("Where the views are. Beside this component rather than in the world scene, because "
+               + "what it holds is player state rather than world state.")]
+        [SerializeField] private Viewpoints viewpoints;
 
         /// <summary>
         /// How often the message is reconsidered, seconds.
@@ -55,8 +72,11 @@ namespace Horizon.Game
         private const string StopText = "Stop to refuel";
         private const string PullUpText = "Pull up to a pump";
 
+        /// <summary>What is appended to a place's name the first time it is reached.</summary>
+        private const string ArrivedSuffix = " — a new view";
+
         /// <summary>Which line is up. Compared rather than the text, so nothing is assigned twice.</summary>
-        private enum Line { Hidden, Full, Filling, Stop, Dry, PullUp, Reserve }
+        private enum Line { Hidden, Full, Filling, Stop, Dry, PullUp, Reserve, Arrived, AtView }
 
         private VehicleController vehicle;
         private FuelTank tank;
@@ -131,14 +151,33 @@ namespace Horizon.Game
                 return;
             }
 
-            if (!tank.IsReserve)
+            if (tank.IsReserve)
             {
-                Show(false);
+                ShowNearest();
+                Show(true);
                 return;
             }
 
-            ShowNearest();
-            Show(true);
+            // The bottom of the ladder, and the only rung here that is not about running out of
+            // something. Two lines rather than one: arriving somewhere for the first time is the thing
+            // worth saying, and a place already stood at gets its name and nothing else — otherwise
+            // every pass of a lay-by would congratulate the driver again.
+            if (viewpoints != null && viewpoints.IsStopped && viewpoints.CurrentName != null)
+            {
+                if (viewpoints.JustArrived)
+                {
+                    SayAbout(Line.Arrived, viewpoints.CurrentName, ArrivedSuffix);
+                }
+                else
+                {
+                    SayAbout(Line.AtView, viewpoints.CurrentName, string.Empty);
+                }
+
+                Show(true);
+                return;
+            }
+
+            Show(false);
         }
 
         /// <summary>
@@ -165,6 +204,30 @@ namespace Horizon.Game
             }
         }
 
+        /// <summary>
+        /// Puts up a line built from a place's name, and only when the place has changed.
+        ///
+        /// <para>The name is memoed alongside the rung for the reason <see cref="ShowNearest"/> memoes
+        /// its distance bucket: this is the only other line here that allocates, and a viewpoint is
+        /// stood at for as long as somebody wants to look at it.</para>
+        /// </summary>
+        private void SayAbout(Line line, string place, string suffix)
+        {
+            if (line == shownLine && place == shownName)
+            {
+                return;
+            }
+
+            shownLine = line;
+            shownName = place;
+            shownBucket = -1;
+
+            if (label != null)
+            {
+                label.text = place + suffix;
+            }
+        }
+
         private bool Resolve()
         {
             if (vehicle == null)
@@ -177,6 +240,11 @@ namespace Horizon.Game
             if (stations == null)
             {
                 stations = FindFirstObjectByType<FillingStations>();
+            }
+
+            if (viewpoints == null)
+            {
+                viewpoints = FindFirstObjectByType<Viewpoints>();
             }
 
             return tank != null;

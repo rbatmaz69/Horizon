@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace Horizon.Game
@@ -68,6 +69,41 @@ namespace Horizon.Game
         private const string NameKey = "Horizon.Name";
 
         /// <summary>
+        /// The viewpoints this player has stood at, one name per line.
+        ///
+        /// <para><b>Names and not a bitmask, and the deviation is deliberate.</b> A mask indexed by
+        /// position in the baked viewpoint list is four bytes and breaks the first time anybody inserts
+        /// a viewpoint into the middle of a course — every one after it shifts, and a player who had
+        /// stood at twelve places would find a different twelve marked after an update, silently. That
+        /// is the same hazard this file already records against <see cref="WeatherPreset"/>, where the
+        /// answer was "appended, never inserted"; a discipline that works for four enum values does not
+        /// survive twenty places spread over fourteen courses that are edited for other reasons.</para>
+        ///
+        /// <para>A name is the identity the player already sees — it is what the map prints and what
+        /// the notice says — and it costs a few hundred bytes. Newline-separated because a viewpoint
+        /// name cannot contain one, where it can and does contain commas, spaces and non-ASCII.</para>
+        /// </summary>
+        private const string VisitedKey = "Horizon.Visited";
+
+        /// <summary>
+        /// Prefix for a circuit's best lap, in seconds, one key per circuit.
+        ///
+        /// <para>Per circuit rather than one number, because there are two of them and a single best
+        /// would mean the Bahçe Ring's five kilometres competing with the Weissjochring's fifteen. Keyed
+        /// by the circuit's own name for the reason above: a circuit added later must not renumber the
+        /// one that was there first.</para>
+        /// </summary>
+        private const string BestLapPrefix = "Horizon.Best.";
+
+        /// <summary>
+        /// Where a viewpoint's name is stored, and the one thing that has to survive a launch here.
+        ///
+        /// <para>A set rather than a list, because the only two questions asked of it are "has this one
+        /// been stood at" and "add this one" — and a viewpoint is visited or it is not.</para>
+        /// </summary>
+        private static readonly HashSet<string> visited = new HashSet<string>();
+
+        /// <summary>
         /// The hour the world starts at when nothing is saved.
         ///
         /// <para>17.6 rather than a round number, because that is what <c>TimeOfDayController</c> has
@@ -108,6 +144,98 @@ namespace Horizon.Game
         /// what the player typed and what their friends read are the same string.</para>
         /// </summary>
         public static string Name { get; set; } = string.Empty;
+
+        /// <summary>How many viewpoints this player has stood at. For the map's key and the log.</summary>
+        public static int VisitedCount => visited.Count;
+
+        /// <summary>Whether this viewpoint has been stood at. Called per marker while the map draws.</summary>
+        public static bool HasVisited(string viewpoint)
+        {
+            return !string.IsNullOrEmpty(viewpoint) && visited.Contains(viewpoint);
+        }
+
+        /// <summary>
+        /// Records a viewpoint as stood at, and writes it out immediately.
+        ///
+        /// <para>Written on the spot rather than at the next <see cref="Save"/>, because the whole of
+        /// this is a thing the player did once and would have to do again if the app were killed before
+        /// the next pause. It returns whether it was new, so a caller can put a line on the screen for a
+        /// place that has just been reached and stay quiet about one being passed for the tenth
+        /// time.</para>
+        /// </summary>
+        public static bool MarkVisited(string viewpoint)
+        {
+            if (string.IsNullOrEmpty(viewpoint) || !visited.Add(viewpoint))
+            {
+                return false;
+            }
+
+            PlayerPrefs.SetString(VisitedKey, string.Join("\n", visited));
+            PlayerPrefs.Save();
+            return true;
+        }
+
+        /// <summary>
+        /// Marks a viewpoint visited in memory and writes nothing.
+        ///
+        /// <para><b>For the preview tools, and for nothing else.</b> A viewpoint drawn filled is a
+        /// state no picture this project takes could otherwise reach: the map preview runs at edit
+        /// time, where <see cref="Load"/> has never been called, so every mark comes out hollow and the
+        /// other half of the feature is never photographed — which is the failure the boost gauge's
+        /// notes are about. <c>MapPreviewRenderer</c> seeds the set, takes a second frame and clears
+        /// it.</para>
+        ///
+        /// <para>It does not persist, deliberately: a tool that wrote a developer's registry to take a
+        /// picture would be the working-tree hazard this project documents against materials, moved
+        /// somewhere git cannot see it. The running game always goes through
+        /// <see cref="MarkVisited"/>.</para>
+        /// </summary>
+        public static void SeedVisited(string viewpoint)
+        {
+            if (!string.IsNullOrEmpty(viewpoint))
+            {
+                visited.Add(viewpoint);
+            }
+        }
+
+        /// <summary>Empties the in-memory set. The other half of <see cref="SeedVisited"/>.</summary>
+        public static void ClearVisited()
+        {
+            visited.Clear();
+        }
+
+        /// <summary>The best lap on this circuit, seconds, or zero where none has been driven.</summary>
+        public static float BestLap(string circuit)
+        {
+            return string.IsNullOrEmpty(circuit)
+                ? 0f
+                : PlayerPrefs.GetFloat(BestLapPrefix + circuit, 0f);
+        }
+
+        /// <summary>
+        /// Records a best lap, and only when it is one.
+        ///
+        /// <para>The comparison is here rather than at the caller so that there is one place that
+        /// decides what "better" means — <c>LapTiming</c> already holds a session best and would
+        /// otherwise be the second opinion.</para>
+        /// </summary>
+        public static void SetBestLap(string circuit, float seconds)
+        {
+            if (string.IsNullOrEmpty(circuit) || seconds <= 0f)
+            {
+                return;
+            }
+
+            float existing = BestLap(circuit);
+
+            if (existing > 0f && existing <= seconds)
+            {
+                return;
+            }
+
+            PlayerPrefs.SetFloat(BestLapPrefix + circuit, seconds);
+            PlayerPrefs.Save();
+        }
 
         /// <summary>Sixteen bytes of UTF-8 is what the roster row holds, so this is where it is cut.</summary>
         public const int MaxNameLength = 16;
@@ -160,11 +288,32 @@ namespace Horizon.Game
                 (int)QualityPreset.Low, (int)QualityPreset.High);
 
             Name = PlayerPrefs.GetString(NameKey, string.Empty);
+
+            visited.Clear();
+            string stored = PlayerPrefs.GetString(VisitedKey, string.Empty);
+
+            if (!string.IsNullOrEmpty(stored))
+            {
+                string[] names = stored.Split('\n');
+
+                for (int i = 0; i < names.Length; i++)
+                {
+                    if (names[i].Length > 0)
+                    {
+                        visited.Add(names[i]);
+                    }
+                }
+            }
         }
 
         /// <summary>
         /// Writes everything back. Called when the player drives off, and after each change made from
         /// the pause menu, so quitting from a paused game does not lose the last thing they did.
+        ///
+        /// <para>The visited set and the lap times are deliberately not here: both are written the
+        /// moment they change, because both are things the player earned rather than chose, and a
+        /// choice that is lost costs one tap where an earned thing lost costs the drive that earned
+        /// it.</para>
         /// </summary>
         public static void Save()
         {

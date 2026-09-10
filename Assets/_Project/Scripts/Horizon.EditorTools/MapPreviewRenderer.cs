@@ -42,8 +42,30 @@ namespace Horizon.EditorTools
             Vector2 size = map.PlanSize;
             float fit = Mathf.Max(size.x / WideSize, size.y / WideSize) * 1.04f;
 
+            PlayerChoices.ClearVisited();
+
             Capture(map, WideSize, WideSize, map.PlanCentre, fit, 0f, true,
                 Path.Combine(directory, "MapPreview_World.png"));
+
+            Capture(map, WideSize, WideSize, map.PlanCentre, fit, 0f, true,
+                Path.Combine(directory, "MapPreview_World.png"));
+
+            // And the same frame with every view stood at, because a filled mark is a state no picture
+            // this project takes could otherwise reach — see PlayerChoices.SeedVisited. Without it the
+            // half of this feature that a player earns would ship unphotographed, which is exactly what
+            // the boost gauge's notes are about.
+            for (int i = 0; i < map.MarkerCount; i++)
+            {
+                if (map.MarkerKindOf(i) == MapMarkerKind.Viewpoint)
+                {
+                    PlayerChoices.SeedVisited(map.MarkerNameOf(i));
+                }
+            }
+
+            Capture(map, WideSize, WideSize, map.PlanCentre, fit, 0f, true,
+                Path.Combine(directory, "MapPreview_World_Visited.png"));
+
+            PlayerChoices.ClearVisited();
 
             // Each town, at a zoom where its streets are drawn. Named from the map itself rather than
             // from a list here, so a town added later photographs itself.
@@ -73,7 +95,54 @@ namespace Horizon.EditorTools
             Capture(map, CropSize, CropSize, motorway, 340f / 300f, 0f, false,
                 Path.Combine(directory, "MapPreview_Motorway.png"));
 
+            // A viewpoint, hollow and then filled.
+            //
+            // <b>Not the world frame, and the first version was.</b> EmitMarkers drops every mark but a
+            // start place past `markerZoomLimit`, so at a zoom that holds sixteen kilometres there is no
+            // viewpoint on the map to be hollow or filled — the two pictures came back pixel-identical,
+            // which reads exactly like a feature that does nothing. Cropped to the minimap's own zoom
+            // they differ, which is also the size the mark is actually read at.
+            //
+            // Both frames matter and the second one more: filled is the half a player earns, and at edit
+            // time PlayerChoices.Load has never run, so without seeding it is a state no picture this
+            // project takes could ever reach. That is the failure the boost gauge's notes are about.
+            if (TryFirstViewpoint(map, out Vector2 view, out string viewName))
+            {
+                Capture(map, CropSize, CropSize, view, 340f / 300f, 0f, true,
+                    Path.Combine(directory, "MapPreview_Viewpoint.png"));
+
+                PlayerChoices.SeedVisited(viewName);
+
+                Capture(map, CropSize, CropSize, view, 340f / 300f, 0f, true,
+                    Path.Combine(directory, "MapPreview_Viewpoint_Visited.png"));
+
+                PlayerChoices.ClearVisited();
+            }
+            else
+            {
+                Debug.LogWarning("[Horizon] No viewpoint marker on the map, so the pair of frames that "
+                                 + "says whether a visited one is drawn differently was not taken.");
+            }
+
             Debug.Log($"[Horizon] Map preview written to {directory}/MapPreview_*.png");
+        }
+
+        /// <summary>The first viewpoint on the map, for the pair of frames that photographs its two states.</summary>
+        private static bool TryFirstViewpoint(WorldMap map, out Vector2 at, out string name)
+        {
+            for (int i = 0; i < map.MarkerCount; i++)
+            {
+                if (map.MarkerKindOf(i) == MapMarkerKind.Viewpoint)
+                {
+                    at = map.MarkerAt(i);
+                    name = map.MarkerNameOf(i);
+                    return true;
+                }
+            }
+
+            at = Vector2.zero;
+            name = null;
+            return false;
         }
 
         /// <summary>A point some way along the first line of a kind, for a crop that is not the origin.</summary>

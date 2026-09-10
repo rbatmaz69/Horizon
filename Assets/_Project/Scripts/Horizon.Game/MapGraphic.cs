@@ -512,7 +512,7 @@ namespace Horizon.Game
                     continue;
                 }
 
-                AddMarker(vh, ToLocal(at), map.MarkerKindOf(i));
+                AddMarker(vh, ToLocal(at), map.MarkerKindOf(i), map.MarkerNameOf(i));
             }
         }
 
@@ -753,7 +753,7 @@ namespace Horizon.Game
         /// bare ground by turns, and a flat silhouette disappears against whichever is under it — the
         /// same reason the car marker has a rim.</para>
         /// </summary>
-        private void AddMarker(VertexHelper vh, Vector2 at, MapMarkerKind kind)
+        private void AddMarker(VertexHelper vh, Vector2 at, MapMarkerKind kind, string name)
         {
             AddNgon(vh, at, markerRadius * 1.5f, 8, 22.5f, markerBackingColour);
 
@@ -775,7 +775,23 @@ namespace Horizon.Game
                     break;
 
                 case MapMarkerKind.Viewpoint:
+                    // Hollow until it has been stood at, and the hole is the whole of the progression
+                    // this world has. No new MapMarkerKind and no new MapLineKind: adding a kind is
+                    // what once made the entire map draw nothing, and there is nothing to add here
+                    // anyway — a viewpoint visited and a viewpoint not are the same thing in two
+                    // states, which is exactly what a hole in a shape says.
+                    //
+                    // Filled reads as "collected" and hollow as "there", which is the same grammar
+                    // MapMarkerKind.Place already uses one case above for somewhere you go to. That it
+                    // is the *opposite* way round there is not an inconsistency: a start place is never
+                    // collected, so its hole means something a viewpoint's does not.
                     AddNgon(vh, at, markerRadius * 1.12f, 3, 0f, colour);
+
+                    if (!PlayerChoices.HasVisited(name))
+                    {
+                        AddNgon(vh, at, markerRadius * 0.52f, 3, 0f, markerBackingColour);
+                    }
+
                     break;
 
                 default:

@@ -5218,9 +5218,31 @@ namespace Horizon.EditorTools
                     + "course measured against a road it is not on.");
             }
 
+            // Counted apart from the rest, because the viewpoints are the one kind of marker that two
+            // things now read: the map draws them hollow until they are stood at, and `Viewpoints` walks
+            // the same array to decide where the car may stop. A map with none in it builds, validates
+            // and draws perfectly, and the only symptom is that nothing in the world can ever be
+            // reached — which is indistinguishable from a player who has not been anywhere.
+            int views = 0;
+            for (int i = 0; i < map.MarkerCount; i++)
+            {
+                if (map.MarkerKindOf(i) == MapMarkerKind.Viewpoint)
+                {
+                    views++;
+                }
+            }
+
             Debug.Log(
                 $"[Horizon] Map check: {segments} segments ({wide} outside the towns), "
-                + $"{map.MarkerCount} markers, {adrift} adrift.");
+                + $"{map.MarkerCount} markers of which {views} are viewpoints, {adrift} adrift.");
+
+            if (views == 0)
+            {
+                Debug.LogError("[Horizon] No viewpoint markers on the map. Viewpoints reads this array "
+                               + "to know where the car may stop, so nothing in the world would be "
+                               + "reachable — and a map with none looks exactly like a player who has "
+                               + "not been anywhere yet.");
+            }
         }
 
         /// <summary>Distance from a point to the nearest map line, through the map's own grid.</summary>

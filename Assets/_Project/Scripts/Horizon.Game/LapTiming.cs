@@ -100,8 +100,23 @@ namespace Horizon.Game
         /// <summary>The lap just finished, seconds. Zero until one has been.</summary>
         public float Last { get; private set; }
 
-        /// <summary>Best of the session, seconds. Zero until a lap has been completed.</summary>
+        /// <summary>
+        /// Best on this circuit, seconds. Zero until a lap has been completed.
+        ///
+        /// <para><b>Best ever, not best of the session, and the difference arrived with persistence.</b>
+        /// It used to be forgotten at every launch, which made it a number that could only ever go down
+        /// and never mean anything — a lap driven a week ago was worth exactly as much as no lap at
+        /// all. It is read back from <c>PlayerChoices</c> on the first frame and written the moment it
+        /// improves.</para>
+        ///
+        /// <para>The comparison lives in <c>PlayerChoices.SetBestLap</c> rather than here, so there is
+        /// one place that decides what "better" means. This class keeps a copy only because the readout
+        /// asks it sixty times a second and PlayerPrefs is a file.</para>
+        /// </summary>
         public float Best { get; private set; }
+
+        /// <summary>Whether <see cref="Best"/> has been read back off disk yet.</summary>
+        private bool loadedBest;
 
         /// <summary>Completed laps this session.</summary>
         public int Laps { get; private set; }
@@ -169,6 +184,16 @@ namespace Horizon.Game
 
         private void Update()
         {
+            // On the first frame rather than in Awake, because the circuit's name is baked into this
+            // component by the setup tool and the key is built from it — and a component read before
+            // the scene it lives in has finished deserialising would look up "Horizon.Best." and find
+            // nothing, for ever.
+            if (!loadedBest)
+            {
+                loadedBest = true;
+                Best = PlayerChoices.BestLap(circuitName);
+            }
+
             if (vehicle == null)
             {
                 // Retried rather than resolved once: this component is in the world scene and so is the
@@ -239,6 +264,7 @@ namespace Horizon.Game
                         if (Best <= 0f || Current < Best)
                         {
                             Best = Current;
+                            PlayerChoices.SetBestLap(circuitName, Best);
                         }
                     }
 
