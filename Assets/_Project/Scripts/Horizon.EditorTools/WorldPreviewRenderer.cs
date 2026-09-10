@@ -3203,6 +3203,20 @@ namespace Horizon.EditorTools
             // picture. The count in the log was four throughout, and was never the thing that was wrong.
             FirstBore(passCourse, pass, out float boreEnd);
             FromRoad(pass, boreEnd + 90f, 0f, 2.4f, -0.01f, 180f, "6_PortalBoard");
+
+            // 7. A wayside cross, if the pass has one.
+            //
+            // Twenty-eight over seventy-five kilometres is sparse by design, and sparse enough that no
+            // frame this project already takes contains one — three were opened looking for it. The
+            // station comes from VegetationContext's own walk rather than from a distance written down
+            // here, so the camera cannot drift off the thing it is pointed at.
+            Vector2[] crosses = VegetationContext.WaysideStations(new IRoadPath[] { pass });
+
+            if (crosses.Length > 0)
+            {
+                float at = NearestAlong(pass, crosses[0]);
+                FromRoad(pass, at, 32f, 2.2f, -0.02f, 0f, "7_WaysideCross");
+            }
         }
 
         /// <summary>
@@ -3224,6 +3238,27 @@ namespace Horizon.EditorTools
             }
 
             return Mathf.Min(after, road.Length);
+        }
+
+        /// <summary>How far along a road a plan position lies, by walking it. For aiming a camera.</summary>
+        private static float NearestAlong(RoadPath road, Vector2 at)
+        {
+            float best = 0f;
+            float nearest = float.MaxValue;
+
+            for (float along = 0f; along <= road.Length; along += 4f)
+            {
+                Vector3 on = road.GetPositionAtDistance(along);
+                float distance = (on.x - at.x) * (on.x - at.x) + (on.z - at.y) * (on.z - at.y);
+
+                if (distance < nearest)
+                {
+                    nearest = distance;
+                    best = along;
+                }
+            }
+
+            return best;
         }
 
         /// <summary>Where a road first goes underground, for the frame that photographs a portal board.</summary>

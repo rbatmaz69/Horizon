@@ -2910,7 +2910,19 @@ namespace Horizon.EditorTools
                     bahceRegion, bahceApproach,
                 },
                 ebental, ebentalPath,
-                ForecourtCentres(fuelStations));
+                ForecourtCentres(fuelStations),
+
+                // Which roads carry a power line is authored here rather than read off a region, for the
+                // reason VegetationBuilder.PoleStations gives: a line follows a road for kilometres and
+                // a region would put poles on the half of it inside the region and nothing on the half
+                // outside, which is a line that stops in a field. The four country roads — and
+                // deliberately not the pass, the motorway or the mountain: a switchback stack has
+                // nowhere to put a line, and a motorway carries pylons rather than creosoted timber.
+                new IRoadPath[] { ebentalPath, stadtfeldPath, coastPath, yalikoyPath },
+
+                // And the two roads with bends tight enough that somebody would have put a cross up at
+                // one. Both are mountain roads; a cross on a country road is a cross in a field.
+                new IRoadPath[] { path, weissjochPath });
             ValidateLandmarks(field, course, path, talheim.Plan);
             MarkTownLandmarks(worldRoot.transform, talheim.Network, talheim.Plan);
             Phase(clock, "terrain, vegetation and buildings");
@@ -8102,7 +8114,9 @@ namespace Horizon.EditorTools
             IReadOnlyList<LandRegion> regions,
             LandRegion avenueRegion,
             IRoadPath avenueRoad,
-            IReadOnlyList<Vector3> forecourts)
+            IReadOnlyList<Vector3> forecourts,
+            IReadOnlyList<IRoadPath> poleRoads,
+            IReadOnlyList<IRoadPath> waysideRoads)
         {
             // One region per settlement rather than one big box round the lot: the corridor is widened
             // where a town is, and a rectangle spanning both would drag in every tile of open country
@@ -8145,7 +8159,7 @@ namespace Horizon.EditorTools
             // clear of trees or they are lay-bys with a hedge in front of them.
             var vegetationContext = new VegetationContext(
                 path, course, vegetationShape, settlements, otherRoads,
-                avenueRegion != null ? avenueRoad : null, forecourts);
+                avenueRegion != null ? avenueRoad : null, forecourts, poleRoads, waysideRoads);
             var vegetationTotal = new VegetationStats();
             int heaviestTile = 0;
             string heaviestTileName = "none";
@@ -10498,6 +10512,33 @@ namespace Horizon.EditorTools
                       + $"{stats.Shrubs} shrubs, {stats.Tufts} grass tufts, {stats.Boulders} boulders, "
                       + $"{stats.Snags} snags — {stats.Triangles} triangles, heaviest tile "
                       + $"{heaviestTileName} at {heaviestTile}. Tree line around {treeLine:0} m.");
+
+            // The roadside furniture, on a line of its own and warned about at zero.
+            //
+            // Two counts for the power line because they fail apart: a run of poles with no wire on it
+            // is scaffolding rather than a line, and that is exactly the thing this was built to be. The
+            // spans should come to a little under the poles — one short per road, plus wherever a pole
+            // was refused for water, a town or a carriageway.
+            Debug.Log($"[Horizon] Roadside: {stats.Poles} utility poles carrying {stats.WireSpans} spans "
+                      + $"of wire, {stats.Crosses} wayside crosses.");
+
+            if (stats.Poles == 0 || stats.WireSpans == 0)
+            {
+                Debug.LogWarning("[Horizon] Roadside: no power line was built. Either no road was handed "
+                                 + "to VegetationContext's poleRoads, or every pole on every one of them "
+                                 + "was refused — see VegetationBuilder.PoleStands, which rejects water, "
+                                 + "a town keep-out, a slope over about 52 degrees and anything inside "
+                                 + "UtilityMeshes.MinimumRoadClearance of a carriageway. A world with no "
+                                 + "line in it builds and drives exactly like one that has one.");
+            }
+
+            if (stats.Crosses == 0)
+            {
+                Debug.LogWarning("[Horizon] Roadside: no wayside cross was built. EbentalMeshes."
+                                 + "AddWaysideCross was dead code for the life of the project before "
+                                 + "this, so a count of zero here reads exactly like the state it was "
+                                 + "in — which is why it is warned about rather than left to the eye.");
+            }
 
             // The wind, counted, because it is the one thing here a picture genuinely cannot check: a
             // still frame of a swaying wood and a still frame of a dead one are the same photograph.

@@ -3,6 +3,27 @@ using UnityEngine;
 
 namespace Horizon.World
 {
+    /// <summary>
+    /// One utility pole and the one after it, in plan.
+    ///
+    /// <para>The successor travels with the pole so that the tile holding the near end draws the whole
+    /// span. A wire is the one thing in this scatter that is not a point, and splitting it between two
+    /// tiles would mean each drawing half of a sag it has to agree with the other about.</para>
+    /// </summary>
+    public readonly struct PowerPole
+    {
+        public readonly Vector2 At;
+        public readonly Vector2 Next;
+        public readonly bool HasNext;
+
+        public PowerPole(Vector2 at, Vector2 next, bool hasNext)
+        {
+            At = at;
+            Next = next;
+            HasNext = hasNext;
+        }
+    }
+
     /// <summary>What a vegetation pass produced. Used for the build log and for the clearance check.</summary>
     public sealed class VegetationStats
     {
@@ -39,6 +60,21 @@ namespace Horizon.World
         public int FruitTrees;
         public int HayBales;
         public int WallRuns;
+
+        /// <summary>
+        /// Utility poles, and the spans of wire between them.
+        ///
+        /// <para>Two numbers rather than one, because they fail apart. A pole whose neighbour was
+        /// refused for water or a town keep-out stands on its own with nothing leaving it, and a run of
+        /// poles with no wire on it is scaffolding rather than a power line — which is exactly the thing
+        /// this feature exists to be. One count covering both would hide it.</para>
+        /// </summary>
+        public int Poles;
+
+        public int WireSpans;
+
+        /// <summary>Wayside crosses at the pass's bends.</summary>
+        public int Crosses;
         public int Triangles;
 
         /// <summary>Vertices carrying a wind mask. See VegetationMeshBuffer.SwayingVertices.</summary>
@@ -94,6 +130,14 @@ namespace Horizon.World
             FruitTrees += other.FruitTrees;
             HayBales += other.HayBales;
             WallRuns += other.WallRuns;
+
+            // These three went in without a line here and the build reported "0 utility poles carrying
+            // 0 spans of wire, 0 wayside crosses" over a world that had built all of them — which is
+            // the exact failure the paragraph above records against Cypresses, one feature later. The
+            // warning beside that log line fired correctly and pointed at the placer, which was fine.
+            Poles += other.Poles;
+            WireSpans += other.WireSpans;
+            Crosses += other.Crosses;
             Triangles += other.Triangles;
             SwayingVertices += other.SwayingVertices;
             Flips += other.Flips;
@@ -143,6 +187,19 @@ namespace Horizon.World
         /// twenty stations inside it, six hundred and thirty-three times over.</para>
         /// </summary>
         private readonly Vector2[] avenue;
+
+        /// <summary>
+        /// Where the utility poles stand, in plan, each with the one after it.
+        ///
+        /// <para>Worked out once here rather than per tile, exactly as the avenue is. The successor
+        /// travels with the pole because a wire is a span rather than a point: the tile holding the
+        /// near pole draws the whole span, so a line crossing a tile seam is drawn once and by the side
+        /// that knows where it is going.</para>
+        /// </summary>
+        private readonly PowerPole[] powerLine;
+
+        /// <summary>Where the wayside crosses stand, in plan.</summary>
+        private readonly Vector2[] waysides;
         private readonly float blockerRadius;
         private readonly float viewpointRadius;
         private readonly float padRadius;
@@ -256,7 +313,9 @@ namespace Horizon.World
             IReadOnlyList<TownSource> settlements = null,
             IReadOnlyList<MountainField.FieldRoad> others = null,
             IRoadPath avenueRoad = null,
-            IReadOnlyList<Vector3> forecourts = null)
+            IReadOnlyList<Vector3> forecourts = null,
+            IReadOnlyList<IRoadPath> poleRoads = null,
+            IReadOnlyList<IRoadPath> waysideRoads = null)
         {
             blockerRadius = shape.TunnelExclusion;
             viewpointRadius = shape.ViewpointClearing;
@@ -370,6 +429,8 @@ namespace Horizon.World
             // bushes came up through the far third of the concrete. It took a photograph to see.
             pads = forecourts != null ? new List<Vector3>(forecourts).ToArray() : new Vector3[0];
             avenue = AvenueStations(avenueRoad);
+            powerLine = PoleStations(poleRoads);
+            waysides = WaysideStations(waysideRoads);
 
             LowestElevation = course != null ? course.LowestElevation : 0f;
             SummitElevation = course != null ? course.Summit.y : LowestElevation + 1f;
@@ -461,6 +522,10 @@ namespace Horizon.World
         /// <summary>The avenue's stations. Empty where no road was handed in.</summary>
         public IReadOnlyList<Vector2> Avenue => avenue;
 
+        public IReadOnlyList<PowerPole> PowerLine => powerLine;
+
+        public IReadOnlyList<Vector2> Waysides => waysides;
+
         /// <summary>Spacing of the avenue along the road, metres.</summary>
         private const float AvenueSpacing = 18f;
 
@@ -490,6 +555,144 @@ namespace Horizon.World
         /// those are questions about a place rather than about the road, and the tile that owns the
         /// station is the one holding the height field when it draws it.</para>
         /// </summary>
+        /// <summary>
+        /// Where the utility poles stand on the roads that carry a line.
+        ///
+        /// <para><b>Which roads is an authored decision and not a region's.</b> Everything else the
+        /// scatter does is decided per tile by what the ground is, and that is right for plants — but a
+        /// power line follows a road for kilometres and either a road has one or it does not. Reading it
+        /// off <c>LandRegion</c> would put poles on the half of a road inside a region and nothing on
+        /// the half outside it, which is a line that stops in a field. It is a list at the call site,
+        /// the way <c>avenueRoad</c> already is.</para>
+        ///
+        /// <para>One side, held for the whole road. A real line crosses over only where it has to, and
+        /// alternating would read as two lines that keep swapping.</para>
+        /// </summary>
+        private static PowerPole[] PoleStations(IReadOnlyList<IRoadPath> roads)
+        {
+            if (roads == null)
+            {
+                return System.Array.Empty<PowerPole>();
+            }
+
+            var poles = new List<PowerPole>(2048);
+
+            for (int r = 0; r < roads.Count; r++)
+            {
+                IRoadPath road = roads[r];
+
+                if (road == null || road.Length < PoleSpacing * 3f)
+                {
+                    continue;
+                }
+
+                int first = poles.Count;
+
+                for (float at = PoleSpacing; at < road.Length - PoleSpacing; at += PoleSpacing)
+                {
+                    Vector3 centre = road.GetPositionAtDistance(at);
+                    Vector3 on = centre + road.GetRightAtDistance(at) * PoleOffset;
+
+                    poles.Add(new PowerPole(new Vector2(on.x, on.z), Vector2.zero, false));
+                }
+
+                // Linked afterwards rather than as they are made, because the last pole on a road has no
+                // successor and the first pole of the *next* road is somewhere else entirely. A wire
+                // strung between two roads is the one failure this arrangement can have.
+                for (int i = first; i < poles.Count - 1; i++)
+                {
+                    poles[i] = new PowerPole(poles[i].At, poles[i + 1].At, true);
+                }
+            }
+
+            return poles.ToArray();
+        }
+
+        /// <summary>
+        /// Where the wayside crosses stand: on the outside of the pass's tighter bends, sparsely.
+        ///
+        /// <para><b>Sparsely is the whole design.</b> A cross at every hairpin is a theme park; one
+        /// every few hundred metres of mountain road is what the Alps actually look like, and the reason
+        /// it belongs at a bend at all is that a bend is where one was put up. <c>MinimumApart</c> is
+        /// measured along the road rather than in plan, because a switchback stack folds two kilometres
+        /// of road into four hundred metres of hillside and a plan-distance rule would allow one per
+        /// hairpin.</para>
+        /// </summary>
+        /// <remarks>
+        /// Public for one caller. <c>WorldPreviewRenderer</c> has to stand a camera at a cross, and
+        /// twenty-eight of them over seventy-five kilometres is sparse enough that no frame this project
+        /// already takes contains one — so the tool asks this where they are rather than carrying a copy
+        /// of the rule. That is the argument <c>Minimap.ForwardBias</c> and the gauges' <c>LayOutFace</c>
+        /// already make: a second copy agrees until the first retune and then photographs bare verge.
+        /// </remarks>
+        public static Vector2[] WaysideStations(IReadOnlyList<IRoadPath> roads)
+        {
+            if (roads == null)
+            {
+                return System.Array.Empty<Vector2>();
+            }
+
+            var stations = new List<Vector2>(64);
+
+            for (int r = 0; r < roads.Count; r++)
+            {
+                IRoadPath road = roads[r];
+
+                if (road == null || road.Length < WaysideApart)
+                {
+                    continue;
+                }
+
+                // Reset per road, so the spacing rule is about one road's bends rather than about where
+                // the previous road happened to stop.
+                float last = float.MinValue;
+
+                for (float at = 0f; at <= road.Length; at += 10f)
+                {
+                    if (at - last < WaysideApart || road.GetRadiusAtDistance(at, 10f) > WaysideRadius)
+                    {
+                        continue;
+                    }
+
+                    // The outside of the bend, where there is room. Positive curvature turns towards the
+                    // right, so the outside is the left — the same reading AvenueStations makes.
+                    float curvature = road.GetSignedCurvatureAtDistance(at, 10f);
+                    float side = curvature > 0f ? -1f : 1f;
+
+                    Vector3 on = road.GetPositionAtDistance(at)
+                                 + road.GetRightAtDistance(at) * (WaysideOffset * side);
+
+                    stations.Add(new Vector2(on.x, on.z));
+                    last = at;
+                }
+            }
+
+            return stations.ToArray();
+        }
+
+        /// <summary>Spacing of the poles along a road, metres. Real distribution spacing.</summary>
+        private const float PoleSpacing = 44f;
+
+        /// <summary>
+        /// How far the line stands off the centreline, metres.
+        ///
+        /// <para>Sixteen and not sixty. A line that keeps well clear of the road is a line nobody in a
+        /// car ever sees, and the whole value of this thing is that it is in the middle distance
+        /// *beside* you. It is still comfortably past <c>UtilityMeshes.MinimumRoadClearance</c>, which
+        /// is what the placer checks against the real distance to every road rather than trusting
+        /// this.</para>
+        /// </summary>
+        private const float PoleOffset = 16f;
+
+        /// <summary>How far apart the wayside crosses stand, measured along the road, metres.</summary>
+        private const float WaysideApart = 420f;
+
+        /// <summary>Corner radius at or below which a bend may carry one, metres.</summary>
+        private const float WaysideRadius = 40f;
+
+        /// <summary>How far a cross stands off the centreline, metres.</summary>
+        private const float WaysideOffset = 13f;
+
         private static Vector2[] AvenueStations(IRoadPath road)
         {
             if (road == null || road.Length < AvenueSpacing)
@@ -749,6 +952,16 @@ namespace Horizon.World
         private const int PoplarSpecies = 7;
 
         /// <summary>
+        /// The wayside crosses' own stream.
+        ///
+        /// <para>Appended, like every other one here. Each of these numbers seeds an independent
+        /// <c>PlantRandom</c> rather than drawing from a shared sequence, so a new species moves nothing
+        /// that was already placed — which is the failure the Bahçe's blossom branch is recorded
+        /// against, avoided by construction.</para>
+        /// </summary>
+        private const int WaysideSpecies = 8;
+
+        /// <summary>
         /// How far above a water surface a plant still counts as standing in it, metres.
         ///
         /// <para>Half a metre, so the bank is planted right up to the shore and nothing stands with its
@@ -828,6 +1041,11 @@ namespace Horizon.World
             // stretch of avenue standing beside it. That is one of the two obstacles to a woodlot here
             // and it is now gone. The other one is in the note below.
             PlantAvenue(buffer, field, terrainShape, context, originX, originZ, tileSize, stats);
+
+            // Beside the avenue and for the same reason: both are walked off a road rather than decided
+            // by the ground, so neither belongs inside the farmland gate above.
+            PlantPowerLine(buffer, field, terrainShape, context, originX, originZ, tileSize, stats);
+            PlantWaysides(buffer, field, terrainShape, context, originX, originZ, tileSize, stats);
 
             stats.Triangles = buffer.TriangleCount;
             stats.SwayingVertices = buffer.SwayingVertices;
@@ -1163,6 +1381,156 @@ namespace Horizon.World
                 PlantMeshes.AddPoplar(buffer, placement);
                 buffer.ApplySway(mark, PlantMeshes.TreeSway);
                 stats.Poplars++;
+                Record(stats, field.DistanceToRoad(at.x, at.y), context, at.x, at.y);
+            }
+        }
+
+        /// <summary>
+        /// The poles, and the wire between each and the next.
+        ///
+        /// <para><b>The span is drawn only when both ends stand.</b> A pole refused for water, a town
+        /// keep-out or being too near a carriageway leaves its neighbour with nothing to string to — and
+        /// a wire that carries on to where a pole would have been is a line hanging in the air, which is
+        /// worse in a picture than a gap. So both ends are tested here, which costs one extra surface
+        /// sample per span and is the only way the two counts in the log can be trusted to mean what
+        /// they say.</para>
+        /// </summary>
+        private static void PlantPowerLine(
+            VegetationMeshBuffer buffer,
+            MountainField field,
+            in TerrainShape terrainShape,
+            VegetationContext context,
+            float originX,
+            float originZ,
+            float tileSize,
+            VegetationStats stats)
+        {
+            IReadOnlyList<PowerPole> poles = context.PowerLine;
+
+            for (int i = 0; i < poles.Count; i++)
+            {
+                PowerPole pole = poles[i];
+
+                if (pole.At.x < originX || pole.At.x >= originX + tileSize
+                    || pole.At.y < originZ || pole.At.y >= originZ + tileSize)
+                {
+                    continue;
+                }
+
+                if (!PoleStands(field, terrainShape, context, pole.At, out Vector3 foot))
+                {
+                    continue;
+                }
+
+                Vector3 along = pole.HasNext
+                    ? new Vector3(pole.Next.x - pole.At.x, 0f, pole.Next.y - pole.At.y).normalized
+                    : Vector3.forward;
+
+                UtilityMeshes.AddPole(buffer, foot, along);
+                stats.Poles++;
+                Record(stats, field.DistanceToRoad(pole.At.x, pole.At.y), context, pole.At.x, pole.At.y);
+
+                if (pole.HasNext
+                    && PoleStands(field, terrainShape, context, pole.Next, out Vector3 nextFoot))
+                {
+                    UtilityMeshes.AddSpan(buffer, foot, nextFoot, along);
+                    stats.WireSpans++;
+                }
+            }
+        }
+
+        /// <summary>Whether a pole may stand here, and where its foot would be.</summary>
+        private static bool PoleStands(
+            MountainField field,
+            in TerrainShape terrainShape,
+            VegetationContext context,
+            Vector2 at,
+            out Vector3 foot)
+        {
+            foot = Vector3.zero;
+
+            // Measured against every road the field knows rather than against the one this pole was
+            // walked off, because a line running beside the Ebental crosses the Stadtfeld leg's corridor
+            // and a pole in a carriageway is the one fault this can have.
+            if (field.DistanceToRoad(at.x, at.y) < UtilityMeshes.MinimumRoadClearance)
+            {
+                return false;
+            }
+
+            if (context.IsBlocked(at.x, at.y, true) || context.PavedMargin(at.x, at.y) < 4f)
+            {
+                return false;
+            }
+
+            TerrainTileBuilder.SampleSurface(field, terrainShape, at.x, at.y,
+                out Vector3 point, out Vector3 normal);
+
+            // A pole is driven into the ground and stands upright whatever the ground does, so the slope
+            // test is about whether there *is* ground rather than about how it lies. Steeper than this
+            // and the butt comes out of the hillside below it.
+            if (field.IsUnderWater(at.x, at.y, point.y, WaterFreeboard) || normal.y < 0.62f)
+            {
+                return false;
+            }
+
+            foot = point;
+            return true;
+        }
+
+        /// <summary>
+        /// A cross on the outside of a bend, which is the one piece of furniture this world had already
+        /// built and never once placed.
+        ///
+        /// <para><c>EbentalMeshes.AddWaysideCross</c> has been dead code since it was written. It is
+        /// three blocks — a plinth, a shaft and an arm — and what it buys is that a mountain road stops
+        /// being scenery and starts being somewhere people go.</para>
+        /// </summary>
+        private static void PlantWaysides(
+            VegetationMeshBuffer buffer,
+            MountainField field,
+            in TerrainShape terrainShape,
+            VegetationContext context,
+            float originX,
+            float originZ,
+            float tileSize,
+            VegetationStats stats)
+        {
+            IReadOnlyList<Vector2> stations = context.Waysides;
+
+            for (int i = 0; i < stations.Count; i++)
+            {
+                Vector2 at = stations[i];
+
+                if (at.x < originX || at.x >= originX + tileSize
+                    || at.y < originZ || at.y >= originZ + tileSize)
+                {
+                    continue;
+                }
+
+                if (context.IsBlocked(at.x, at.y, true)
+                    || field.DistanceToRoad(at.x, at.y) < 11.5f)
+                {
+                    continue;
+                }
+
+                TerrainTileBuilder.SampleSurface(field, terrainShape, at.x, at.y,
+                    out Vector3 point, out Vector3 normal);
+
+                if (field.IsUnderWater(at.x, at.y, point.y, WaterFreeboard) || normal.y < 0.72f)
+                {
+                    continue;
+                }
+
+                var random = new PlantRandom(Hash(i, 0, WaysideSpecies));
+
+                // Upright rather than laid into the slope, which is the argument the avenue's poplars
+                // make: the thing is a vertical line and one tipped with the ground is a fallen one.
+                var placement = new PlantPlacement(
+                    point, Vector3.up, random.Range(0f, Mathf.PI * 2f), random.Range(0.92f, 1.06f),
+                    random.NextSeed());
+
+                EbentalMeshes.AddWaysideCross(buffer, placement);
+                stats.Crosses++;
                 Record(stats, field.DistanceToRoad(at.x, at.y), context, at.x, at.y);
             }
         }

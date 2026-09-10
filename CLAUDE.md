@@ -2672,6 +2672,71 @@ The corners the other frames stand at are *found* by walking the path for `BakeR
 `public` for that caller: a camera aimed at a hand-typed distance goes on photographing the same piece
 of tarmac after the road under it has moved.
 
+## What stands between the towns
+
+Benches, hedges, fences, market stalls, parked cars, fountains and bollards were all built and every
+one of them stood inside one of the four towns. On sixty kilometres of country road there was
+vegetation and nothing else — no object of known size at a known spacing anywhere in the middle
+distance, which is the specific reason a valley here read as a wall of hillside forty metres away
+rather than as a valley.
+
+**A utility pole is thirty triangles and is the strongest sense of distance anything in this project
+can buy.** The delineator posts already make this argument for the near field and their own remarks
+record what the world was like without them; this is the same argument at ten times the range, where
+a post is already a blur. What a line does that a row of posts cannot is that the **wire** turns two
+objects into one structure crossing ground, and the eye reads the sag as depth without being told. It
+costs four quads a span.
+
+**Which roads carry a line is authored, and it is the one thing here a region must not decide.**
+Everything else the scatter does is settled per tile by what the ground is, which is right for plants
+— but a line follows a road for kilometres, and a region would put poles on the half of a road inside
+it and nothing on the half outside, which is a line that stops in a field. It is a list at the call
+site, the way `avenueRoad` already is: the four country roads, and deliberately not the pass, the
+motorway or the mountain. A switchback stack has nowhere to put a line, and a motorway carries pylons
+rather than creosoted timber.
+
+**The successor travels with the pole**, because a wire is a span rather than a point: the tile
+holding the near end draws the whole thing, so a line crossing a tile seam is drawn once and by the
+side that knows where it is going. And **the span is drawn only when both ends stand** — a pole
+refused for water, a town keep-out or a carriageway leaves its neighbour with nothing to string to,
+and a wire carrying on to where a pole would have been is a line hanging in the air. That costs one
+extra surface sample per span and is what makes the two counts in the log mean what they say.
+
+**`EbentalMeshes.AddWaysideCross` had been dead code since the day it was written.** Three blocks — a
+plinth, a shaft, an arm — never once called. It stands on the outside of the pass's and the
+Weissjoch's tighter bends now, one per 420 m of road *measured along the road* rather than in plan,
+because a switchback stack folds two kilometres into four hundred metres of hillside and a plan rule
+would allow one per hairpin. Twenty-eight of them in the world, which is sparse on purpose: a cross at
+every hairpin is a theme park.
+
+**Three counters went in without a line in `VegetationStats.Add`, and the build reported nought over a
+world that had built all of them.** That method's own comment predicts this exactly — *"Every field on
+this class has to be listed here, and forgetting one is silent"* — recorded after Cypresses did the
+same thing. The warning beside the new log line fired correctly and pointed at the placer, which was
+fine. **A comment that names a trap does not stop anybody walking into it; the counter that fires is
+what does.**
+
+**And the flip counter earned its keep twice in one feature.** It has read nought for the life of the
+project. The first build with poles in it reported **8538 faces wound backwards**: a quarter of them
+were the wire, whose first version mixed the across and up offsets inside a single quad — which is not
+a face at all but a twisted saddle. Fixing that left **3370**, and 3370 is exactly 337 poles times the
+ten triangles of one taper. `VegetationMeshBuffer.AddBox`'s winding assumes its two lateral axes are
+handed so that forward × outward points up, which is what every other caller passes it — a road
+direction and a road right — and the pole's shaft was passing them the other way round. **Neither
+fault would have appeared in any picture**, because `AddQuadFacing` turns a backwards face round and
+draws it correctly. The geometry was right both times and the code that wrote it was not.
+
+**What it cost:** 14.009 M vegetation triangles to 14.044 M, the heaviest tile unchanged at
+`Terrain_-16_-6` 26 284, and the draw calls unchanged at 873 over 100 chunks — everything lands in
+`PlantMeshes.BarkSubmesh`, which is merged into the tile's one tinted material. Creosoted timber is
+close enough to bark that a slot of its own would be a draw call for a colour.
+
+**Wood stacks, alpine huts and bus shelters are not done**, and they are the rest of what the plan
+asked for here. Each needs a keep-out story of its own against the plot and street machinery, which
+the poles and crosses avoid by hanging off a road. `WorldPreview_Stadtfeld_2_Leaving` is the frame
+that carries what *is* done: the same stretch of open country that was an empty ribbon a build ago
+now has a line of poles marching into the fog beside it.
+
 ## Houses that are not the same house
 
 Three wall colours and three roof colours is nine houses, and a street has more than nine. The
