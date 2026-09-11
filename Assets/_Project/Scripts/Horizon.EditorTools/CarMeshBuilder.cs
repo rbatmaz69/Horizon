@@ -807,8 +807,8 @@ namespace Horizon.EditorTools
         /// The silhouette, tail to nose, measured against a 1967 Mustang fastback.
         ///
         /// <para><b>Every Y in this table is quoted below as a height above the ground</b>, which sits at
-        /// -0.74: the wheel centre hangs at <c>-SuspensionRestLength</c> = -0.30 and the tyre radius is
-        /// 0.44. That is the only frame in which these numbers can be argued with, because it is the one
+        /// -0.78: the wheel centre hangs at <c>-SuspensionRestLength</c> = -0.45 and the tyre radius is
+        /// 0.33, a '67's own. That is the only frame in which these numbers can be argued with, because it is the one
         /// a photograph of a car is taken in — and measuring the body from its own floor instead is how
         /// the shape ended up 1.60 m tall while every ratio inside it looked correct.</para>
         ///
@@ -948,7 +948,7 @@ namespace Horizon.EditorTools
             // rest, and the four centimetres of extra suspension travel that pay for it also lift the
             // whole car to 0.19 m of ground clearance. A '67 fastback is low; it is not slammed.
             rim: RimStyle.FiveSpoke, rimFraction: 0.58f, archGap: 0.09f,
-            suspensionRestLength: 0.34f);
+            wheelRadius: 0.33f, suspensionRestLength: 0.45f);
         /// <summary>
         /// An estate: the fastback's face and cabin, with the roof carried level to a raked tailgate.
         ///
@@ -1055,9 +1055,9 @@ namespace Horizon.EditorTools
         /// wheelbase, forty centimetres taller, and a bonnet standing where a hatchback's roof does.</para>
         ///
         /// <para>Every Y here is quoted above the ground, which sits at -0.84: the wheel centre hangs at
-        /// -0.36 and the tyre radius is 0.48. The tyre is still this body's old one, deliberately — the
-        /// reference wheel (0.84 m across) arrives with every other car's, with the rest length raised by
-        /// exactly as much, so this frame and every number in it survive that change unmoved.</para>
+        /// -0.42 and the tyre radius is 0.42 — the truck's own 0.84 m tyre. It arrived after this table,
+        /// with every other car's and with the rest length raised by exactly as much as the radius fell,
+        /// so this frame and every number in it survived the change unmoved.</para>
         ///
         /// <code>
         ///                       was    now    F-150 SuperCrew 5.5'
@@ -1069,7 +1069,7 @@ namespace Horizon.EditorTools
         ///   bonnet, leading     1.21   1.32   1.30
         ///   beltline, cab       1.10   1.40   1.40
         ///   bed rail            1.35   1.44   1.45
-        ///   bed floor           1.04   1.07   0.91   (see the profile's bed note)
+        ///   bed floor           1.04   0.95   0.91
         ///   bed opening         1.64   1.71   1.70
         ///   rocker              0.25   0.46   0.47
         /// </code>
@@ -1147,8 +1147,8 @@ namespace Horizon.EditorTools
         {
             //           z       halfW  belt   top    topHalf sill
             //
-            // Sills 4 cm higher than the table this grew from, because the wheel came down: on a 0.40 m
-            // tyre this car rides 0.69 m rather than 0.74, and the old floor would have left it with
+            // Sills 4 cm higher than the table this grew from, because the wheel came down: this car
+            // rides 0.73 m rather than the fastback's 0.78, and the old floor would have left it with
             // ten centimetres of ground clearance and the stance of a slammed shopping trolley.
             new Station(-2.10f, 0.84f, 0.22f, 0.42f, 0.62f, -0.44f),
             new Station(-2.04f, 0.90f, 0.24f, 0.54f, 0.66f, -0.49f),
@@ -1194,7 +1194,7 @@ namespace Horizon.EditorTools
             tailGlassHalfWidth: 0.55f, tailGlassBottom: 0.30f, tailGlassTop: 0.48f,
             tyreWidth: 0.32f, flareWidth: 0.07f,
             archGap: 0.10f, rim: RimStyle.Turbine, rimFraction: 0.56f,
-            suspensionRestLength: 0.34f);
+            wheelRadius: 0.315f, suspensionRestLength: 0.465f);
         public static readonly CarProfile Van = new CarProfile(
             "Van", VanStations, new[] { -2.40f, 1.30f, 1.62f },
             wheelbase: 2.93f, // a short-wheelbase panel van
@@ -1212,7 +1212,7 @@ namespace Horizon.EditorTools
             headLamps: HeadLampStyle.Stacked, grilleSpan: 0.40f,
             exhaustCount: 1, exhaustRadius: 0.050f, exhaustSideExit: 0.58f,
             tailGlassHalfWidth: 0.52f, tailGlassBottom: 0.66f, tailGlassTop: 0.94f,
-            wheelRadius: 0.46f, suspensionRestLength: 0.33f, flareWidth: 0.08f,
+            wheelRadius: 0.35f, suspensionRestLength: 0.44f, flareWidth: 0.08f,
             // A steel wheel on a fat sidewall, and a hand of arch gap: this thing carries loads and
             // sits high on its springs when it is not carrying one.
             archGap: 0.12f, rim: RimStyle.Steel, rimFraction: 0.54f);
@@ -1228,13 +1228,14 @@ namespace Horizon.EditorTools
             cabin: new[] { -1.20f, -0.46f, -0.32f, 0.47f },
             noseZ: 2.75f, tailZ: -3.14f,
 
-            // The load bay, 1.71 m of it, with its floor at 0.23 — five centimetres under the arch humps,
-            // which is shallower than the truck's. AddBed rides the floor up over the arch across the
-            // whole width of the bed, where a real one has its wheel housings as boxes at the walls; at
-            // 0.12 that made one mound filling most of the bay, and from the chase camera, which looks
-            // straight into it, the mound was the bed. When the wheels shrink to the reference tyre the
-            // arch drops by 12 cm and the floor can follow it down.
-            bedFrom: -3.07f, bedTo: -1.36f, bedFloorY: 0.23f,
+            // The load bay, 1.71 m of it, with its floor at 0.11 — five centimetres under the arch humps.
+            // AddBed rides the floor up over the arch across the whole width of the bed, where a real one
+            // has its wheel housings as boxes at the walls, so the floor has to stay close under the arch
+            // or the humps become one mound filling most of the bay — and from the chase camera, which
+            // looks straight into it, that mound was the bed. On the old 0.96 m tyre the arch stood 12 cm
+            // higher and the floor had to sit at 0.23; the truck's own tyre let it come down to 0.49 under
+            // the rail.
+            bedFrom: -3.07f, bedTo: -1.36f, bedFloorY: 0.11f,
 
             // Tall and narrow in the corners of the tailgate, reaching up towards the rail, as the
             // F-150's are: the drop is negative because LampHeight's hand below the belt puts a lamp this
@@ -1244,7 +1245,7 @@ namespace Horizon.EditorTools
             tailLampHalfHeight: 0.22f, tailLampDrop: -0.08f,
             headLamps: HeadLampStyle.FullGrille, grilleSpan: 0.62f, grilleFrame: true, lowerIntake: 0.40f,
             exhaustCount: 1, exhaustRadius: 0.075f, exhaustSideExit: 0.60f,
-            wheelRadius: 0.48f, suspensionRestLength: 0.36f,
+            wheelRadius: 0.42f, suspensionRestLength: 0.42f,
             tyreWidth: 0.38f, flareWidth: 0.12f,
             archGap: 0.13f, rim: RimStyle.MultiSpoke, rimFraction: 0.66f);
         public static readonly CarProfile Hatchback = new CarProfile(
@@ -1260,7 +1261,7 @@ namespace Horizon.EditorTools
             headLamps: HeadLampStyle.Stacked, grilleSpan: 0.38f,
             exhaustCount: 1, exhaustRadius: 0.045f, exhaustSpread: 0.34f,
             tailGlassHalfWidth: 0.56f, tailGlassBottom: 0.26f, tailGlassTop: 0.40f,
-            wheelRadius: 0.40f, suspensionRestLength: 0.33f,
+            wheelRadius: 0.31f, suspensionRestLength: 0.42f,
             tyreWidth: 0.28f, flareWidth: 0.06f,
             archGap: 0.10f, rim: RimStyle.FiveSpoke, rimFraction: 0.62f);
         /// <summary>
@@ -1502,7 +1503,7 @@ namespace Horizon.EditorTools
         ///   rocker height       0.40   0.40   ~0.45
         ///   bonnet height       1.25   1.25   ~1.25
         ///   beltline            1.31   1.32   ~1.33
-        ///   wheel diameter      0.96   0.96   0.79   (arrives with every other car's)
+        ///   wheel diameter      0.96   0.80   0.79
         ///   gap over the tyre   0.15   0.15   ~0.14
         /// </code>
         ///
@@ -1533,9 +1534,9 @@ namespace Horizon.EditorTools
         {
             //           z       halfW  belt   top    topHalf sill
             //
-            // Quoted against a ground plane at -0.82: this car rides on a 0.48 m tyre over 0.34 m of
-            // travel, which is 8 cm more than everything else in the garage. Every height below is that
-            // much further off the road than the same number on a fastback.
+            // Quoted against a ground plane at -0.82: this car rides on a 0.40 m tyre over 0.42 m of
+            // travel, which is 4 cm more than the fastback and second only to the pickup. Every height
+            // below is that much further off the road than the same number on a fastback.
             new Station(-2.48f, 0.92f, 0.46f, 1.09f, 0.86f, -0.34f),
             new Station(-2.43f, 0.97f, 0.49f, 1.14f, 0.92f, -0.38f),
             new Station(-2.37f, 0.99f, 0.50f, 1.15f, 0.94f, -0.42f),
@@ -1593,7 +1594,7 @@ namespace Horizon.EditorTools
             // Level with the roof, which is where a homologation wing sits: the deck is at 0.36 and the
             // roof at 0.58, so 0.26 of stalk puts the blade a couple of centimetres proud of it.
             wingHalfSpan: 0.80f, wingZ: -2.02f, wingHeight: 0.26f,
-            suspensionRestLength: 0.30f, tyreWidth: 0.38f, flareWidth: 0.11f,
+            wheelRadius: 0.325f, suspensionRestLength: 0.415f, tyreWidth: 0.38f, flareWidth: 0.11f,
             // Ten thin spokes on a 0.74 rim. Low profile is most of what makes a wheel read as
             // expensive, and this is the car in the garage that should.
             // Five centimetres, not the nine the road cars got. This one is allowed to look lowered —
@@ -1618,7 +1619,7 @@ namespace Horizon.EditorTools
             // Above the roofline rather than level with it — deck 0.30 plus 0.34 puts the blade at 0.64
             // over a roof of 0.49.
             wingHalfSpan: 0.82f, wingZ: -1.98f, wingHeight: 0.34f,
-            suspensionRestLength: 0.31f, tyreWidth: 0.38f, flareWidth: 0.11f,
+            wheelRadius: 0.32f, suspensionRestLength: 0.43f, tyreWidth: 0.38f, flareWidth: 0.11f,
             archGap: 0.05f, rim: RimStyle.SixSpoke, rimFraction: 0.68f);
         public static readonly CarProfile Saloon = new CarProfile(
             "Saloon", SaloonStations, new[] { -2.10f, -1.55f, 0.25f, 0.85f },
@@ -1635,7 +1636,7 @@ namespace Horizon.EditorTools
             tailLampHalfHeight: 0.13f, tailLampDrop: 0.02f,
             headLamps: HeadLampStyle.Stacked, grilleSpan: 0.36f, grilleFrame: true, lowerIntake: 0.45f,
             exhaustCount: 1, exhaustRadius: 0.055f, exhaustSpread: 0.36f,
-            wheelRadius: 0.42f, suspensionRestLength: 0.32f,
+            wheelRadius: 0.305f, suspensionRestLength: 0.435f,
             tyreWidth: 0.30f, flareWidth: 0.05f,
             archGap: 0.08f, rim: RimStyle.Disc, rimFraction: 0.63f);
         public static readonly CarProfile Notchback = new CarProfile(
@@ -1657,7 +1658,7 @@ namespace Horizon.EditorTools
 
             // Twin pipes almost touching under the centre of the bumper.
             exhaustCount: 2, exhaustRadius: 0.050f, exhaustSpread: 0.13f,
-            wheelRadius: 0.42f, suspensionRestLength: 0.32f,
+            wheelRadius: 0.305f, suspensionRestLength: 0.435f,
             tyreWidth: 0.30f, flareWidth: 0.05f,
             archGap: 0.08f, rim: RimStyle.Mesh, rimFraction: 0.66f);
         public static readonly CarProfile Offroader = new CarProfile(
@@ -1691,8 +1692,8 @@ namespace Horizon.EditorTools
 
             // A real upright rear window, which is the whole reason tailGlass exists.
             tailGlassHalfWidth: 0.74f, tailGlassBottom: 0.74f, tailGlassTop: 1.06f,
-            spareWheelRadius: 0.42f, indicatorTurrets: true,
-            wheelRadius: 0.48f, suspensionRestLength: 0.34f,
+            spareWheelRadius: 0.40f, indicatorTurrets: true,
+            wheelRadius: 0.40f, suspensionRestLength: 0.42f,
             tyreWidth: 0.42f, flareWidth: 0.15f,
             // Fifteen centimetres of daylight over the tyre, which is six times the fastback's and is
             // the whole difference between a vehicle with suspension travel and a lowered one. On a

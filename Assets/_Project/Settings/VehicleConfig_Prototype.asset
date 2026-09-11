@@ -12,21 +12,21 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 2e6c54b425c874741ae73be512ddf6a2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Horizon.Vehicle::Horizon.Vehicle.VehicleConfig
-  Version: 25
+  Version: 26
   Mass: 1250
   CenterOfMass: {x: 0, y: -0.46, z: 0.05}
   LinearDamping: 0
   AngularDamping: 0.05
   RollDamping: 2.5
   PitchDamping: 1
-  WheelRadius: 0.506
-  SuspensionRestLength: 0.391
+  WheelRadius: 0.3795
+  SuspensionRestLength: 0.5175
   TrackFront: 2.475
   TrackRear: 2.475
   Wheelbase: 3.425
   SuspensionStiffness: 42000
   SuspensionDamping: 3800
-  AntiRollStiffness: 20800
+  AntiRollStiffness: 27530
   DrivenAxle: 1
   MaxTorqueNm: 570
   TorqueByRpm:
@@ -118,7 +118,7 @@ MonoBehaviour:
   - 1.28
   - 1
   ReverseRatio: 2.9
-  FinalDrive: 4.7
+  FinalDrive: 3.525
   DrivetrainEfficiency: 0.9
   UpshiftRpm: 5400
   DownshiftRpm: 2100
@@ -170,7 +170,7 @@ MonoBehaviour:
   PeakSlipRatio: 0.12
   GripPastPeak: 0.89
   RelaxationLength: 0.5
-  WheelInertia: 1.2
+  WheelInertia: 0.675
   DriftRearGrip: 0.55
   PowerOversteer: 0
   HandbrakeForceN: 9000

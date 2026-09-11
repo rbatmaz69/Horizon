@@ -35,8 +35,14 @@ namespace Horizon.EditorTools
     /// car was tuned with. (<c>LateralGrip</c> used to hang off that key too and no longer does — it is
     /// keyed on wheel load now — so this trap is half the size it was, and still a trap.) <b>Multiply FinalDrive by the same factor the
     /// radius moved by</b> and all of it stays exactly where it was: only the picture changes. Every
-    /// FinalDrive below that is not 0.44 m's carries the pre-scale number in its comment, so the two can
-    /// be checked against each other.</para>
+    /// FinalDrive below carries the number it replaced in its comment, so the two can be checked against
+    /// each other.</para>
+    ///
+    /// <para><b>And changing a radius means changing WheelInertia with it, by the square.</b>
+    /// <c>SolveTyre</c> turns tyre force into wheel spin through radius² over inertia, so a smaller wheel
+    /// on the same inertia behaves at the road like a heavier one — wheelspin and lock-up change and
+    /// nothing says so. This one was not written down until every tyre came down to its reference car's
+    /// at once; each case below carries its <c>1.2 × (r′ / r)²</c>.</para>
     ///
     /// <para><b>What actually makes them feel different.</b> Three fields do nearly all of it.
     /// <c>DrivenAxle</c> is, by its own tooltip, the single largest number in the config for how a car
@@ -138,11 +144,13 @@ namespace Horizon.EditorTools
                     config.CenterOfMass = new Vector3(0f, -0.42f, 0.02f);
                     config.RollDamping = 2.7f;
                     config.PitchDamping = 1.1f;
-                    config.AntiRollStiffness = 22150f;
+                    config.AntiRollStiffness = 30290f;
                     config.MaxTorqueNm = 470f;
                     config.RedlineRpm = 5400f;
                     config.UpshiftRpm = 5000f;
-                    config.FinalDrive = 4.95f;
+                    // 4.95 on the 0.44 m tyre, × 0.315 / 0.44 for a 245's own.
+                    config.FinalDrive = 3.544f;
+                    config.WheelInertia = 0.615f; // 1.2 × (0.315 / 0.44)²
                     config.LateralGrip = Grip(3.27f, 2.84f, 2.36f);
                     // The fastback's tyre a size narrower and a load in the back.
                     config.PeakSlipAngle = 7.0f;
@@ -171,7 +179,7 @@ namespace Horizon.EditorTools
                     config.CenterOfMass = new Vector3(0f, -0.34f, 0.10f);
                     config.RollDamping = 3.4f;
                     config.PitchDamping = 1.5f;
-                    config.AntiRollStiffness = 25650f;
+                    config.AntiRollStiffness = 34200f;
                     config.DrivenAxle = DrivenAxle.Front;
                     config.MaxTorqueNm = 420f;
                     config.IdleRpm = 700f;
@@ -189,9 +197,10 @@ namespace Horizon.EditorTools
                     config.GearRatios = new[] { 4.35f, 3.05f, 2.20f, 1.62f, 1.18f, 0.86f };
                     config.PartThrottleUpshiftRpm = 2100f;
                     config.PartThrottleDownshiftRpm = 1050f;
-                    // 4.90 at the old 0.44 m wheel, scaled by 0.46 / 0.44. Same top speed, same shift
-                    // points, taller tyre.
-                    config.FinalDrive = 5.89f;
+                    // 5.89 on the 0.46 m tyre, × 0.35 / 0.46 for a panel van's own. Same top speed, same
+                    // shift points, smaller tyre.
+                    config.FinalDrive = 4.482f;
+                    config.WheelInertia = 0.695f; // 1.2 × (0.35 / 0.46)²
                     config.LateralGrip = Grip(2.88f, 2.50f, 2.07f);
                     // Nothing about this is sporting and the tyre says so first.
                     config.PeakSlipAngle = 9.0f;
@@ -235,7 +244,7 @@ namespace Horizon.EditorTools
                     config.CenterOfMass = new Vector3(0f, -0.43f, -0.05f);
                     config.RollDamping = 3.0f;
                     config.PitchDamping = 1.3f;
-                    config.AntiRollStiffness = 21950f;
+                    config.AntiRollStiffness = 25610f;
                     config.MaxTorqueNm = 520f;
                     config.RedlineRpm = 4600f;
                     config.UpshiftRpm = 4300f;
@@ -250,8 +259,9 @@ namespace Horizon.EditorTools
                         new Keyframe(0.65f, 1f),
                         new Keyframe(1f, 0.70f));
 
-                    // 4.60 × 0.48 / 0.44.
-                    config.FinalDrive = 5.77f;
+                    // 5.77 on the 0.48 m tyre, × 0.42 / 0.48 for the F-150's own.
+                    config.FinalDrive = 5.049f;
+                    config.WheelInertia = 0.919f; // 1.2 × (0.42 / 0.48)²
                     config.LateralGrip = Grip(3.12f, 2.71f, 2.25f);
                     // Under 1 on purpose: the loose tail is the whole character, and it is the only car here that gets it.
                     config.PeakSlipAngle = 8.5f;
@@ -283,7 +293,7 @@ namespace Horizon.EditorTools
                     config.CenterOfMass = new Vector3(0f, -0.40f, 0.04f);
                     config.RollDamping = 2.2f;
                     config.PitchDamping = 0.9f;
-                    config.AntiRollStiffness = 21400f;
+                    config.AntiRollStiffness = 27240f;
                     config.DrivenAxle = DrivenAxle.Front;
                     config.MaxTorqueNm = 260f;
                     config.IdleRpm = 850f;
@@ -308,9 +318,9 @@ namespace Horizon.EditorTools
                     config.PartThrottleUpshiftRpm = 3300f;
                     config.PartThrottleDownshiftRpm = 1700f;
 
-                    // 6.40, and it looks absurd until you remember every car here is on the fastback's
-                    // 0.44 m wheels. A real hatchback rolls on about 0.30 m, and FinalDrive is coupled
-                    // to the radius exactly — scale both and nothing changes — so a car wearing wheels
+                    // This was 6.40 once, and looked absurd until you remembered every car here wore the
+                    // fastback's 0.44 m wheels. A real hatchback rolls on about 0.30 m, and FinalDrive is
+                    // coupled to the radius exactly — scale both and nothing changes — so a car wearing wheels
                     // 1.47× too big needs a final drive 1.47× taller to gear the same. 4.35 × 1.47 is
                     // this number.
                     //
@@ -320,9 +330,9 @@ namespace Horizon.EditorTools
                     // looked up on it. The car would have spent its whole life below 0.3 of its own
                     // scale, permanently at the most steerable end of that curve, feeling nothing like
                     // the thing it is meant to be.
-                    // 6.40 × 0.40 / 0.44 — the one car that gets a shorter final drive out of this,
-                    // because it is the one on a smaller wheel.
-                    config.FinalDrive = 6.69f;
+                    // 6.69 on the 0.40 m tyre, × 0.31 / 0.40 now it rolls on a supermini's own.
+                    config.FinalDrive = 5.185f;
+                    config.WheelInertia = 0.721f; // 1.2 × (0.31 / 0.40)²
                     config.LateralGrip = Grip(3.46f, 3.00f, 2.49f);
                     // Sharp for its class, but front-driven — a big rear bias on a car whose fronts do everything would only add understeer it does not need.
                     config.PeakSlipAngle = 6.5f;
@@ -359,7 +369,7 @@ namespace Horizon.EditorTools
                     config.CenterOfMass = new Vector3(0f, -0.42f, 0.02f);
                     config.RollDamping = 2.4f;
                     config.PitchDamping = 1.0f;
-                    config.AntiRollStiffness = 26950f;
+                    config.AntiRollStiffness = 37280f;
                     config.DrivenAxle = DrivenAxle.All;
                     config.MaxTorqueNm = 520f;
                     config.IdleRpm = 800f;
@@ -378,11 +388,13 @@ namespace Horizon.EditorTools
                     config.PartThrottleUpshiftRpm = 4000f;
                     config.PartThrottleDownshiftRpm = 2000f;
 
-                    // 5.05 rather than the 4.87 the real 3.545 scales to on 0.44 m wheels. Deliberately
+                    // 5.81 on the 0.44 m tyre, × 0.325 / 0.44 for an R34's own — and that 5.81 was 5.05
+                    // rather than the 4.87 the real 3.545 scaled to on 0.44 m wheels. Deliberately
                     // short: this is the car that gets out of a corner, and the liftback below is the
                     // one that arrives at the end of the straight first. Two cars with the same power
                     // and the same top speed are one car.
-                    config.FinalDrive = 5.81f;
+                    config.FinalDrive = 4.291f;
+                    config.WheelInertia = 0.655f; // 1.2 × (0.325 / 0.44)²
                     config.LateralGrip = Grip(3.76f, 3.26f, 2.70f);
                     // The track tyre and the widest rear axle in the fleet. This is the car the whole change is aimed at.
                     config.PeakSlipAngle = 5.0f;
@@ -423,7 +435,7 @@ namespace Horizon.EditorTools
                     config.CenterOfMass = new Vector3(0f, -0.42f, 0f);
                     config.RollDamping = 2.3f;
                     config.PitchDamping = 1.0f;
-                    config.AntiRollStiffness = 27650f;
+                    config.AntiRollStiffness = 38350f;
                     config.MaxTorqueNm = 560f;
                     config.IdleRpm = 780f;
                     config.RedlineRpm = 6800f;
@@ -441,7 +453,9 @@ namespace Horizon.EditorTools
                     config.GearRatios = new[] { 3.30f, 2.05f, 1.50f, 1.22f, 1.09f, 1.00f };
                     config.PartThrottleUpshiftRpm = 3200f;
                     config.PartThrottleDownshiftRpm = 1600f;
-                    config.FinalDrive = 4.83f;
+                    // 4.83 on the 0.44 m tyre, × 0.32 / 0.44 for a Supra's own.
+                    config.FinalDrive = 3.513f;
+                    config.WheelInertia = 0.635f; // 1.2 × (0.32 / 0.44)²
                     config.LateralGrip = Grip(3.64f, 3.16f, 2.62f);
                     // The most rear bias of any of them, because it has the coupé's power through two wheels and is the one car that cannot put down what it has.
                     config.PeakSlipAngle = 5.5f;
@@ -489,7 +503,7 @@ namespace Horizon.EditorTools
                     config.CenterOfMass = new Vector3(0f, -0.41f, 0.03f);
                     config.RollDamping = 2.6f;
                     config.PitchDamping = 1.1f;
-                    config.AntiRollStiffness = 21700f;
+                    config.AntiRollStiffness = 29500f;
                     config.MaxTorqueNm = 300f;
                     config.IdleRpm = 820f;
                     config.RedlineRpm = 6000f;
@@ -506,8 +520,9 @@ namespace Horizon.EditorTools
                     config.GearRatios = new[] { 3.91f, 2.32f, 1.60f, 1.25f, 1.00f };
                     config.PartThrottleUpshiftRpm = 2900f;
                     config.PartThrottleDownshiftRpm = 1450f;
-                    // 4.64 × 0.42 / 0.44.
-                    config.FinalDrive = 5.09f;
+                    // 5.09 on the 0.42 m tyre, × 0.305 / 0.42 for a 190E's own.
+                    config.FinalDrive = 3.696f;
+                    config.WheelInertia = 0.633f; // 1.2 × (0.305 / 0.42)²
                     config.LateralGrip = Grip(3.49f, 3.03f, 2.51f);
                     // The honest baseline, one step softer than the fastback.
                     config.PeakSlipAngle = 6.5f;
@@ -537,7 +552,7 @@ namespace Horizon.EditorTools
                     config.CenterOfMass = new Vector3(0f, -0.41f, -0.02f);
                     config.RollDamping = 2.3f;
                     config.PitchDamping = 1.0f;
-                    config.AntiRollStiffness = 21600f;
+                    config.AntiRollStiffness = 29360f;
                     config.MaxTorqueNm = 330f;
                     config.IdleRpm = 800f;
                     config.RedlineRpm = 6500f;
@@ -554,8 +569,9 @@ namespace Horizon.EditorTools
                     config.GearRatios = new[] { 3.83f, 2.35f, 1.65f, 1.28f, 1.00f };
                     config.PartThrottleUpshiftRpm = 3100f;
                     config.PartThrottleDownshiftRpm = 1550f;
-                    // 5.47 × 0.42 / 0.44.
-                    config.FinalDrive = 6.00f;
+                    // 6.00 on the 0.42 m tyre, × 0.305 / 0.42 for an E30's own.
+                    config.FinalDrive = 4.357f;
+                    config.WheelInertia = 0.633f; // 1.2 × (0.305 / 0.42)²
                     config.LateralGrip = Grip(3.48f, 3.02f, 2.50f);
                     // Sharp and deliberately less planted than the saloon — where that one understeers politely, this one rotates.
                     config.PeakSlipAngle = 6.0f;
@@ -601,7 +617,7 @@ namespace Horizon.EditorTools
                     config.CenterOfMass = new Vector3(0f, -0.37f, 0.04f);
                     config.RollDamping = 3.8f;
                     config.PitchDamping = 1.7f;
-                    config.AntiRollStiffness = 28450f;
+                    config.AntiRollStiffness = 35140f;
                     config.SuspensionStiffness = 58000f;
                     config.SuspensionDamping = 5200f;
                     config.DrivenAxle = DrivenAxle.All;
@@ -623,9 +639,11 @@ namespace Horizon.EditorTools
                     config.GearRatios = new[] { 4.75f, 3.10f, 2.10f, 1.55f, 1.20f, 1.00f };
                     config.PartThrottleUpshiftRpm = 2000f;
                     config.PartThrottleDownshiftRpm = 1000f;
-                    // 4.89 × 0.48 / 0.44. The biggest correction in the file, and the one that matters
+                    // 6.13 on the 0.48 m tyre, × 0.40 / 0.48 for the W463A's own. That 6.13 was the
+                    // biggest correction in the file when the wheels grew, and the one that mattered
                     // most: 2400 kg geared 9% too long is a car that will not pull away from a junction.
-                    config.FinalDrive = 6.13f;
+                    config.FinalDrive = 5.108f;
+                    config.WheelInertia = 0.833f; // 1.2 × (0.40 / 0.48)²
                     config.LateralGrip = Grip(2.84f, 2.46f, 2.04f);
                     // Tall, heavy and on tyres meant for mud.
                     config.PeakSlipAngle = 9.5f;

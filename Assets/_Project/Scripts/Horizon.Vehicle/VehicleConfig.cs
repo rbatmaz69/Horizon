@@ -42,6 +42,13 @@ namespace Horizon.Vehicle
         /// stamped below this is stale and gets rewritten from the code defaults — see
         /// <c>VehicleConfigReset</c>.
         ///
+        /// <para><b>26: every car stands on its reference tyre</b> — 0.61 to 0.84 m across, where they
+        /// were 0.80 to 0.96 — with the rest length raised by exactly as much as each radius fell, so the
+        /// ride height every station table is quoted against did not move. Three numbers are coupled to
+        /// those two and moved with them, or the handling would have changed with nobody touching it:
+        /// <see cref="FinalDrive"/> by the radius ratio, <see cref="AntiRollStiffness"/> by the travel
+        /// ratio, and <see cref="WheelInertia"/> by the square of the radius ratio.</para>
+        ///
         /// <para><b>25: the off-roader was re-measured against the W463A</b>, whose wheelbase is 2.89 m
         /// against the old body's 2.85.</para>
         ///
@@ -163,7 +170,7 @@ namespace Horizon.Vehicle
         /// bump the assets keep the short travel and the soft bar together, which is the one combination
         /// that rolls.</para>
         /// </summary>
-        public const int CurrentVersion = 25;
+        public const int CurrentVersion = 26;
 
         /// <summary>
         /// Which set of meanings this asset's numbers were chosen under.
@@ -255,13 +262,14 @@ namespace Horizon.Vehicle
         /// against. Edit them on the profile and re-run the presets; editing them on the asset gives a
         /// car whose wheels no longer fit its own bodywork.</para>
         /// </summary>
-        public float WheelRadius = 0.506f;
+        public float WheelRadius = 0.3795f;
 
         [Tooltip("Suspension travel in metres, and with the wheel radius the car's ride height.\n\n"
-               + "0.30 is the fastback's: static compression is only 7 cm, so 30 cm of travel is ample. "
+               + "0.5175 is the fastback's: the 0.391 it had plus the 0.1265 its tyre lost when it came "
+               + "down to a Mustang's own, so the ride height did not move. "
                + "Like the radius this is the body's number rather than a tuning value — see the note on "
                + "WheelRadius.")]
-        public float SuspensionRestLength = 0.391f;
+        public float SuspensionRestLength = 0.5175f;
 
         [Tooltip("Front track, rear track and wheelbase, built metres. Written from the body by "
                + "VehicleConfigPresets, not tuned here: the wheel anchors are placed from these, and the "
@@ -296,9 +304,9 @@ namespace Horizon.Vehicle
         [Tooltip("Resists body roll by transferring load across an axle. Without this the car "
                + "flips on the first hairpin.\n\n"
                + "Works on compression as a fraction of the travel, so it has to be rescaled whenever "
-               + "SuspensionRestLength moves — see the note on VehicleConfigPresets. 15900 is 14000 "
-               + "against the 0.30 m of travel this car used to have.")]
-        public float AntiRollStiffness = 20800f;
+               + "SuspensionRestLength moves — see the note on VehicleConfigPresets. 27530 is the 20800 "
+               + "this car was tuned at over 0.391 m of travel, scaled to 0.5175.")]
+        public float AntiRollStiffness = 27530f;
 
         [Header("Drivetrain")]
         [Tooltip("Which wheels get drive.\n\n"
@@ -559,13 +567,14 @@ namespace Horizon.Vehicle
         /// The radius enters three separate formulas: top speed scales with it, tractive force scales
         /// with its inverse, and engine rpm for a given road speed scales with its inverse. All three
         /// cancel exactly if this ratio is scaled by the same factor, which is why the two numbers move
-        /// together. 4.09 is 3.31 × 0.42/0.34, from the wheels growing from 0.34 m to 0.42 m — so that
-        /// change was purely visual and acceleration, top speed (~225 km/h) and the shift points are
-        /// arithmetically unchanged.
+        /// together. 3.525 is the 4.70 the fastback was geared at on a 0.506 m tyre, × 0.3795 / 0.506 when
+        /// the tyre came down to a Mustang's own — so that change was purely visual, and acceleration, top
+        /// speed and the shift points are arithmetically unchanged. It has gone the other way before, when
+        /// the wheels grew.
         ///
         /// Change the radius on its own and you silently retune the whole car.
         /// </summary>
-        public float FinalDrive = 4.70f;
+        public float FinalDrive = 3.525f;
 
         [Range(0.5f, 1f)] public float DrivetrainEfficiency = 0.9f;
 
@@ -758,9 +767,12 @@ namespace Horizon.Vehicle
         public float RelaxationLength = 0.5f;
 
         [Tooltip("Rotational inertia of one wheel and tyre, kg·m².\n\n"
-               + "1.2 is about a 20 kg wheel at this radius. Larger blunts wheelspin and lock-up and "
-               + "makes the car feel heavier to get going; smaller makes both snappier.")]
-        public float WheelInertia = 1.2f;
+               + "Larger blunts wheelspin and lock-up and makes the car feel heavier to get going; smaller "
+               + "makes both snappier.\n\n"
+               + "Coupled to WheelRadius by the square. SolveTyre turns tyre force into spin through "
+               + "radius² over this, so a smaller wheel on the same inertia behaves at the road like a "
+               + "heavier one. 0.675 is the 1.2 tuned on a 0.506 m wheel, × (0.3795 / 0.506)².")]
+        public float WheelInertia = 0.675f;
 
         /// <summary>
         /// Stiffness factor of the tyre curve, derived so that the peak lands exactly at a normalised
