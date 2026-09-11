@@ -1950,6 +1950,19 @@ namespace Horizon.EditorTools
         private static readonly HashSet<int> TopKeySegments = new HashSet<int> { 6, 7, 8, 9 };
 
         /// <summary>
+        /// The top segments a <b>rear</b> window may use: the middle two, never the outer two.
+        ///
+        /// <para>Segments 6 and 9 are the steep outer faces of the crown, running from the roof rail down
+        /// to the crown's shoulder, and they face sideways as much as up. As glass at 0.92 smoothness they
+        /// mirrored the bright horizon at a grazing angle and came out as two silver strips either side of
+        /// the backlight, running from the roof to the deck — the most visible fault left in the frame the
+        /// game is played from, since that frame is taken from behind. They are the sail panels, which
+        /// <see cref="ResolveSubmesh"/>'s own remarks already said were bodywork. The windscreen keeps all
+        /// four: an A-pillar is narrow, and it is not in the chase camera anyway.</para>
+        /// </summary>
+        private static readonly HashSet<int> RearWindowKeySegments = new HashSet<int> { 7, 8 };
+
+        /// <summary>
         /// Ring segments forming the side-window band, between the beltline and the roof rail.
         /// Segments 5 and 10 are the rails themselves and stay body colour — including them let the
         /// glass climb over the edge of the roof.
@@ -2705,7 +2718,8 @@ namespace Horizon.EditorTools
             bool windscreen = z > profile.WindscreenFrom && z < profile.WindscreenTo;
             bool rearWindow = z > profile.RearWindowFrom && z < profile.RearWindowTo;
 
-            if (TopKeySegments.Contains(keySegment) && (windscreen || rearWindow))
+            if ((windscreen && TopKeySegments.Contains(keySegment))
+                || (rearWindow && RearWindowKeySegments.Contains(keySegment)))
             {
                 return GlassSubmesh;
             }
