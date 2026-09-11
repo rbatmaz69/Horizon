@@ -17,9 +17,9 @@ namespace Horizon.Vehicle
     ///
     /// <para>What differs per body is the mesh, the collider box, the lamps, the wheel and the handling
     /// asset — and the engine note, which the handling asset carries rather than being a sixth. Track
-    /// and wheelbase are shared by construction; see the note on <c>CarMeshBuilder.CarProfile</c> for
-    /// why the anchors are in the same place on every one of them and the tyre hanging off them is
-    /// not.</para>
+    /// and wheelbase differ per body too, and they travel on the handling asset: the four pivots are
+    /// seated by <c>VehicleConfig.WheelAnchorLocal</c>, the same formula the controller places its
+    /// anchors by, so a swap cannot leave a car standing on the previous car's footprint.</para>
     ///
     /// <para><b>The wheel is the one of those that is not parented to the body.</b> The four pivots
     /// belong to the chassis — the controller writes their position and spin every physics step — so

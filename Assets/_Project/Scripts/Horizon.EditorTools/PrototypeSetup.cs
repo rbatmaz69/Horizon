@@ -2124,6 +2124,47 @@ namespace Horizon.EditorTools
                     + $"{fastback.size}, against the {wasCenter} / {wasSize} it carried as literals. "
                     + "That is correct if the station table changed and a bug if it did not.");
             }
+
+            // The short relief octave has to sit between the fleet's widest twice-track and its shortest
+            // twice-wheelbase, or some car rides it as a standing wave. One shared footprint made that a
+            // sentence in SurfaceRelief's remarks; a wheelbase per car makes it a check.
+            float widestTwoTrack = 0f;
+            float shortestTwoBase = float.MaxValue;
+            string widestCar = null;
+            string shortestCar = null;
+
+            for (int i = 0; i < profiles.Length; i++)
+            {
+                float twoTrack = 4f * Mathf.Max(profiles[i].TrackHalfFront, profiles[i].TrackHalfRear);
+                float twoBase = 4f * profiles[i].WheelBaseHalf;
+
+                if (twoTrack > widestTwoTrack)
+                {
+                    widestTwoTrack = twoTrack;
+                    widestCar = profiles[i].Name;
+                }
+
+                if (twoBase < shortestTwoBase)
+                {
+                    shortestTwoBase = twoBase;
+                    shortestCar = profiles[i].Name;
+                }
+            }
+
+            float octave = Horizon.Core.SurfaceRelief.ShortWavelength;
+            Debug.Log($"[Horizon] Relief octave {octave:0.00} m against the fleet: widest 2 x track "
+                      + $"{widestTwoTrack:0.00} m ({widestCar}, {100f * (octave / widestTwoTrack - 1f):0} % clear), "
+                      + $"shortest 2 x wheelbase {shortestTwoBase:0.00} m ({shortestCar}, "
+                      + $"{100f * (1f - octave / shortestTwoBase):0.0} % clear).");
+
+            if (octave <= widestTwoTrack || octave >= shortestTwoBase)
+            {
+                Debug.LogError(
+                    $"[Horizon] The {octave:0.00} m relief octave no longer fits between the fleet's widest "
+                    + $"twice-track ({widestCar}) and shortest twice-wheelbase ({shortestCar}), so that car rides "
+                    + "the road as a standing wave. Move SurfaceRelief.ShortWavelength, not a wheelbase: the "
+                    + "wavelength is a taste-free number and the car is a measurement of a real vehicle.");
+            }
         }
 
         private static List<SpawnPoint> BuildWorldScene(GameObject vehiclePrefab)
@@ -3790,11 +3831,6 @@ namespace Horizon.EditorTools
         /// </summary>
         private static void ValidateSurfaceRelief(IRoadPath path, string name)
         {
-            // One car's track and wheelbase stand for the fleet only while every car shares them; this is
-            // restated against the fleet's range when they are set per car.
-            CarMeshBuilder.CarProfile reference = CarMeshBuilder.PlayerProfiles[0];
-            float Track = reference.TrackHalfFront + reference.TrackHalfRear;
-            float Wheelbase = reference.WheelBaseHalf * 2f;
             const float Step = 1f / 50f;
 
             if (!TryWorstCar(out string worstCar, out float mass, out float damping, out float topSpeed))
@@ -3803,6 +3839,12 @@ namespace Horizon.EditorTools
                                + "load figures are unmeasured.");
                 return;
             }
+
+            // The car walked is the worst car, on its own footprint. The fleet's window against the short
+            // octave is checked once, in ReportBodies, since it is about the cars rather than the road.
+            CarMeshBuilder.CarProfile walked = CarMeshBuilder.ProfileByName(worstCar);
+            float Track = walked.TrackHalfFront + walked.TrackHalfRear;
+            float Wheelbase = walked.WheelBaseHalf * 2f;
 
             float quarterMass = mass * 0.25f;
             float staticLoad = quarterMass * 9.81f;

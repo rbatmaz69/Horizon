@@ -2001,10 +2001,13 @@ to use Unity's: they bake a mesh once, so a changed implementation would move th
 else. Here the function runs at 50 Hz on the device and its *derivative* is spent as a damper force,
 so a quintic fade being C2 — continuous in the second derivative — is load-bearing rather than tidy.
 
-**The short octave is 5.8 m, and it is chosen against the car rather than against taste.** All ten
-cars share a 3.375 m wheelbase and a 2.475 m track. 4 m is what the load budget alone would have
-picked, and it sits between the wheelbase and twice the track, which locks the wheels into a fixed
-pattern. 5.8 clears twice the track by 17 % and stays under twice the wheelbase by 14 %.
+**The short octave is 5.8 m, and it is chosen against the car rather than against taste.** It has
+to sit between the fleet's widest twice-track and its shortest twice-wheelbase, or some car rides it as
+a standing wave. Argued when all ten shared a 3.375 m wheelbase and a 2.475 m track, it cleared them by
+17 % and 14 %; with each car on its own wheelbase the short end is the hatchback's, and it clears that
+by about 6 %. That narrowing is why it is now a check rather than a sentence — `ReportBodies` prints
+the window every build and names the car at each end — and if a car ever falls outside it, the number
+to move is the octave, never a wheelbase.
 
 **The per-surface gain is eased, never read raw.** `GainOf` is a step function in space, and a step in
 a height field is a step in the distance a wheel measures — which is exactly the kerb

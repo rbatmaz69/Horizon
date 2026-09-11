@@ -54,14 +54,17 @@ namespace Horizon.Core
         /// <summary>
         /// The fine octave, and its wavelength is chosen against the car rather than against taste.
         ///
-        /// <para>All ten cars share one wheelbase (3.375 m) and one track (2.475 m). Value noise
-        /// decorrelates in about a lattice cell, so an octave within roughly half a factor of either
-        /// spacing — or of twice it — locks the wheels into a fixed pattern and the car sits in a
-        /// standing wave, heaving or pitching in place instead of being unsettled. 4 m would have been
-        /// the load budget's answer and it sits between the wheelbase and twice the track. 5.8 m clears
-        /// twice the track by 17 % and stays under twice the wheelbase by 14 %, which is the widest gap
-        /// available above the sampling floor: at 50 Hz and top speed the car advances 1.2 m a step, so
-        /// anything under about 2.5 m is being aliased rather than driven over.</para>
+        /// <para>Value noise decorrelates in about a lattice cell, so an octave within roughly half a
+        /// factor of a car's wheel spacing — or of twice it — locks the wheels into a fixed pattern and
+        /// the car sits in a standing wave, heaving or pitching in place instead of being unsettled. So
+        /// this has to sit between the fleet's widest twice-track and its shortest twice-wheelbase. It was
+        /// argued when all ten shared one 3.375 m wheelbase and one 2.475 m track, and cleared them by
+        /// 17 % and 14 %. Each car has its own wheelbase now, and the short end is the hatchback's: 5.8 m
+        /// still clears it, by about 6 %. <c>PrototypeSetup.ReportBodies</c> checks the window every build
+        /// and names the car that sets each end. 4 m would have been the load budget's answer; the floor is
+        /// sampling — at 50 Hz and top speed the car advances 1.2 m a step, so anything under about 2.5 m
+        /// is being aliased rather than driven over. If a car ever falls outside, move this number, not
+        /// a wheelbase: this is a taste-free choice and the car is a measurement of a real vehicle.</para>
         /// </summary>
         public const float ShortWavelength = 5.8f;
 

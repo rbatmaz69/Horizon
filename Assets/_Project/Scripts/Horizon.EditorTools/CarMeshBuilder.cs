@@ -20,12 +20,14 @@ namespace Horizon.EditorTools
     /// player may drive and a shape they meet coming the other way, and each is measured against a real
     /// vehicle whose dimensions are quoted in its own doc comment.</para>
     ///
-    /// <para>All ten share a wheelbase and a track, which is what keeps the wheel seating one problem
-    /// rather than ten. They do <b>not</b> share a wheel: the tyre, the suspension travel and therefore
-    /// the ride height are per profile, because an off-roader standing at a fastback's height on a
-    /// fastback's tyre is not an off-roader. Everything that used to be arithmetic off those two shared
-    /// numbers — the arch top, and the ground plane a station table is quoted against — is now derived
-    /// per profile from <see cref="CarProfile.RideHeight"/> and <see cref="CarProfile.ArchTop"/>.</para>
+    /// <para>Each carries its own wheelbase, and its own track, as well as its own wheel. For a long
+    /// time all ten shared the first two, which kept the wheel seating one problem rather than ten; it
+    /// still is one problem, because every seat — the arches, the flares, the anchors, the exhaust side
+    /// exit — is derived per profile from <see cref="CarProfile.WheelBaseHalf"/> and
+    /// <see cref="CarProfile.TrackHalfFront"/> rather than typed. The tyre, the suspension travel and
+    /// therefore the ride height were per profile first, because an off-roader standing at a fastback's
+    /// height on a fastback's tyre is not an off-roader, and everything a wheel decides is derived from
+    /// <see cref="CarProfile.RideHeight"/> and <see cref="CarProfile.ArchTop"/>.</para>
     ///
     /// <para>The player's car is built at full detail (<see cref="BuildBody"/>); traffic runs the same
     /// loft at a fifth of the ring density with the grille, plates and exhausts left off
@@ -815,7 +817,7 @@ namespace Horizon.EditorTools
         ///   length              4.88   4.74   4.66
         ///   width               2.08   2.08   1.80   (locked by the shared track — see below)
         ///   height              1.60   1.43   1.30
-        ///   wheelbase           2.70   2.70   2.74
+        ///   wheelbase           2.70   2.74   2.74
         ///   front overhang      1.17   0.91   0.83
         ///   rear overhang       1.01   1.13   1.10
         ///   ground clearance    0.20   0.15   0.13
@@ -928,6 +930,7 @@ namespace Horizon.EditorTools
         /// </summary>
         public static readonly CarProfile Fastback = new CarProfile(
             "Fastback", KeyStations, CreaseZ,
+            wheelbase: 2.74f, // '67 Mustang fastback
             windscreenFrom: 0.25f, windscreenTo: 0.85f,
             rearWindowFrom: -1.55f, rearWindowTo: -0.45f,
 
@@ -1098,12 +1101,13 @@ namespace Horizon.EditorTools
         };
 
         /// <summary>
-        /// A small hatchback: 4.12 m against everyone else's 4.7-4.9, on the same wheelbase.
+        /// A small hatchback: 4.12 m against everyone else's 4.7-4.9, on a supermini's 2.48 m wheelbase.
         ///
-        /// <para>All of the 0.6 m comes off the overhangs, because the wheelbase is shared by every
-        /// profile — which is what a small car actually is, and it is why this one works despite the
-        /// constraint. Short overhangs on a fixed wheelbase read as a small car; a shortened wheelbase
-        /// would read the same and would cost the arches, the flares and the wheel seating.</para>
+        /// <para>This comment used to defend putting all of the 0.6 m into the overhangs, because the
+        /// wheelbase was shared by every profile and short overhangs on a fixed wheelbase do read as a
+        /// small car. It was a good defence of a constraint that has since been lifted: a real supermini
+        /// is short in both, and the arches, the flares and the wheel seating all follow the profile's own
+        /// axles now rather than costing anything.</para>
         ///
         /// <para>The flanks stay wide at the axles (0.99) even though the car is narrow elsewhere: the
         /// wheels are at the track like everything else, and a body that pulled in to
@@ -1147,6 +1151,7 @@ namespace Horizon.EditorTools
         /// </summary>
         public static readonly CarProfile Estate = new CarProfile(
             "Estate", EstateStations, new[] { -2.24f, 0.25f, 0.85f },
+            wheelbase: 2.64f, // Volvo 245
             windscreenFrom: 0.25f, windscreenTo: 0.85f,
             rearWindowFrom: -2.42f, rearWindowTo: -2.22f,
             cabin: new[] { -2.12f, -1.66f, -1.48f, -0.80f, -0.62f, 0.27f },
@@ -1162,6 +1167,7 @@ namespace Horizon.EditorTools
             suspensionRestLength: 0.34f);
         public static readonly CarProfile Van = new CarProfile(
             "Van", VanStations, new[] { -2.40f, 1.30f, 1.62f },
+            wheelbase: 2.93f, // a short-wheelbase panel van
             windscreenFrom: 1.28f, windscreenTo: 1.64f,
 
             // No backlight along the roofline — the roof runs level to the very back of this one, so
@@ -1182,6 +1188,7 @@ namespace Horizon.EditorTools
             archGap: 0.12f, rim: RimStyle.Steel, rimFraction: 0.54f);
         public static readonly CarProfile Pickup = new CarProfile(
             "Pickup", PickupStations, new[] { -2.42f, -0.78f, -0.72f, 0.25f, 0.85f },
+            wheelbase: 2.70f, // the old shared figure, until this body becomes the F-150's
             windscreenFrom: 0.25f, windscreenTo: 0.85f,
             rearWindowFrom: -0.75f, rearWindowTo: -0.69f,
             cabin: new[] { -0.70f, 0.27f },
@@ -1202,6 +1209,7 @@ namespace Horizon.EditorTools
             archGap: 0.13f, rim: RimStyle.MultiSpoke, rimFraction: 0.66f);
         public static readonly CarProfile Hatchback = new CarProfile(
             "Hatchback", HatchbackStations, new[] { -1.95f, 0.25f, 0.80f },
+            wheelbase: 2.48f, // a supermini
             windscreenFrom: 0.25f, windscreenTo: 0.82f,
             rearWindowFrom: -2.06f, rearWindowTo: -1.93f,
             cabin: new[] { -1.60f, -0.73f, -0.55f, 0.27f },
@@ -1228,7 +1236,7 @@ namespace Horizon.EditorTools
         ///                    built   R34 GT-R
         ///   length            4.62   4.60
         ///   height            1.37   1.36
-        ///   wheelbase         2.70   2.665  (locked, see CarProfile)
+        ///   wheelbase         2.665  2.665
         ///   front overhang    0.97   0.97
         ///   rear overhang     0.97   0.94
         ///   beltline          0.95   0.95
@@ -1375,12 +1383,13 @@ namespace Horizon.EditorTools
         /// A compact eighties coupé, measured against a BMW E30.
         ///
         /// <para><b>This profile exists next to <see cref="Saloon"/> and has to earn it.</b> Two
-        /// three-box saloons on one wheelbase is how a garage ends up with a row that looks like a
+        /// three-box saloons of one size is how a garage ends up with a row that looks like a
         /// duplicate, so the differences are deliberate and all three are visible in silhouette:</para>
         ///
         /// <list type="number">
-        /// <item>13 cm shorter, all of it out of the overhangs, which is the only place a shared
-        /// wheelbase leaves.</item>
+        /// <item>13 cm shorter, ten of them out of the wheelbase: the E30's own 2.565 m against the
+        /// 190E's 2.665, as the real pair differ. This used to say all of it came out of the overhangs,
+        /// "the only place a shared wheelbase leaves".</item>
         /// <item><b>The shark nose.</b> TopY falls from 0.30 at the cowl to 0.15 at the cap — 15 cm of
         /// forward droop where the saloon holds level to within two. The beltline drops with it. This
         /// one line is the whole car, and it is why the profile is worth having.</item>
@@ -1441,7 +1450,7 @@ namespace Horizon.EditorTools
         ///   length              4.66   4.68   4.66
         ///   width               2.08   2.10   1.76   (locked by the shared track)
         ///   height              1.91   1.91   1.93
-        ///   wheelbase           2.70   2.70   2.85   (locked)
+        ///   wheelbase           2.70   2.85   2.85
         ///   rocker height       0.24   0.40   0.45
         ///   bonnet height       1.36   1.25   1.15
         ///   beltline            1.22   1.31   1.34
@@ -1513,6 +1522,7 @@ namespace Horizon.EditorTools
 
         public static readonly CarProfile Coupe = new CarProfile(
             "Coupe", CoupeStations, new[] { -2.20f, -1.60f, 0.30f, 0.90f },
+            wheelbase: 2.665f, // Skyline R34 GT-R
             windscreenFrom: 0.30f, windscreenTo: 0.90f,
             rearWindowFrom: -1.60f, rearWindowTo: -1.00f,
             cabin: new[] { -1.10f, -0.58f, -0.42f, 0.32f },
@@ -1539,6 +1549,7 @@ namespace Horizon.EditorTools
             archGap: 0.05f, rim: RimStyle.MultiSpoke, rimFraction: 0.70f);
         public static readonly CarProfile Liftback = new CarProfile(
             "Liftback", LiftbackStations, new[] { -2.10f, 0.80f },
+            wheelbase: 2.55f, // Supra A80
             windscreenFrom: 0.30f, windscreenTo: 0.80f,
             rearWindowFrom: -2.05f, rearWindowTo: -1.10f,
             cabin: new[] { -1.15f, -0.56f, -0.40f, 0.32f },
@@ -1559,6 +1570,7 @@ namespace Horizon.EditorTools
             archGap: 0.05f, rim: RimStyle.SixSpoke, rimFraction: 0.68f);
         public static readonly CarProfile Saloon = new CarProfile(
             "Saloon", SaloonStations, new[] { -2.10f, -1.55f, 0.25f, 0.85f },
+            wheelbase: 2.665f, // 190E W201
             windscreenFrom: 0.25f, windscreenTo: 0.85f,
             rearWindowFrom: -1.55f, rearWindowTo: -1.30f,
             cabin: new[] { -1.30f, -0.50f, -0.32f, 0.27f },
@@ -1576,6 +1588,7 @@ namespace Horizon.EditorTools
             archGap: 0.08f, rim: RimStyle.Disc, rimFraction: 0.63f);
         public static readonly CarProfile Notchback = new CarProfile(
             "Notchback", NotchbackStations, new[] { -2.04f, -1.50f, 0.22f, 0.80f },
+            wheelbase: 2.565f, // E30 M3
             windscreenFrom: 0.22f, windscreenTo: 0.80f,
             rearWindowFrom: -1.50f, rearWindowTo: -0.85f,
             cabin: new[] { -1.18f, -0.46f, -0.28f, 0.24f },
@@ -1597,6 +1610,7 @@ namespace Horizon.EditorTools
             archGap: 0.08f, rim: RimStyle.Mesh, rimFraction: 0.66f);
         public static readonly CarProfile Offroader = new CarProfile(
             "Offroader", OffroaderStations, new[] { -2.22f, 0.86f, 1.10f, 2.22f },
+            wheelbase: 2.85f, // the W463 its table quotes; the W463A's 2.89 arrives with that body
             windscreenFrom: 0.86f, windscreenTo: 1.10f,
 
             // No roofline backlight. The tailgate stands 22° off vertical, so the band the top surface

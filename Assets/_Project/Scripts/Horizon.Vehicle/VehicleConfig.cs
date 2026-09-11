@@ -42,6 +42,13 @@ namespace Horizon.Vehicle
         /// stamped below this is stale and gets rewritten from the code defaults — see
         /// <c>VehicleConfigReset</c>.
         ///
+        /// <para><b>23: every car stands on its own wheelbase.</b> <see cref="Wheelbase"/> arrived without
+        /// a bump, carrying the fastback's 3.375 m in every asset, which was right only while all ten shared
+        /// it. It is written from each body's profile now, and an asset that kept the old number would place
+        /// its wheel anchors on the fastback's axles under a body whose arches were cut somewhere else — the
+        /// wheels standing in the doors, and nothing in the build complaining. Checked before bumping: the
+        /// working tree held no Play-mode tuning in any of the ten assets.</para>
+        ///
         /// <para><b>6: the exhaust resonances were wrong and the engine had no bottom end.</b>
         /// <c>ExhaustRing</c> was a damping in samples, which meant the pipe resonance died after
         /// <i>0.36 of one of its own cycles</i> — it never oscillated at all, so what came out was a
@@ -149,7 +156,7 @@ namespace Horizon.Vehicle
         /// bump the assets keep the short travel and the soft bar together, which is the one combination
         /// that rolls.</para>
         /// </summary>
-        public const int CurrentVersion = 22;
+        public const int CurrentVersion = 23;
 
         /// <summary>
         /// Which set of meanings this asset's numbers were chosen under.
@@ -168,7 +175,7 @@ namespace Horizon.Vehicle
         [Tooltip("Local centre of mass. Keep it low — this is the main defence against rolling over, "
                + "and with an arcade car it is a hard constraint rather than a preference.\n\n"
                + "A car tips when its lateral acceleration passes track / (2 × centre-of-mass height). "
-               + "The track is 1.98 m and the wheel anchors sit at this transform's own height, so that "
+               + "The track is TrackFront and TrackRear, and the wheel anchors sit at this transform's own height, so that "
                + "height is SuspensionRestLength + WheelRadius − static sag + this number. At −0.30 "
                + "that put the fastback's tipping point at 2.4 g — below the 2.7 g of grip it is now "
                + "asked to have, which is a car that lifts its inside wheels in the first fast corner "
@@ -637,7 +644,7 @@ namespace Horizon.Vehicle
 
         [Header("Steering")]
         [Tooltip("Steering angle at full lock, degrees.\n\n"
-               + "40° against a 2.70 m wheelbase is a 3.2 m turning radius — a hairpin or a U-turn taken "
+               + "40° is a turning radius of Wheelbase / tan 40° — about 4 m on the fastback, a little under on the hatchback — so a hairpin or a U-turn is taken "
                + "in one go rather than in three.\n\n"
                + "Worth knowing where it stops mattering: with LateralGrip as it stands, the friction "
                + "circle becomes the tighter of the two limits at about 27 km/h, and above that the car "
