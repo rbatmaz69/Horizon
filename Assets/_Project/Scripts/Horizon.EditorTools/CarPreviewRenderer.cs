@@ -552,7 +552,7 @@ namespace Horizon.EditorTools
         }
 
         /// <summary>
-        /// The player car's five slots, in <c>CarMeshBuilder</c>'s constant order. Loaded by path
+        /// The player car's seven slots, in <c>CarMeshBuilder</c>'s constant order. Loaded by path
         /// because <c>PrototypeMaterials</c> is private to the setup tool; missing assets give an
         /// untextured but still readable silhouette. See <see cref="TrafficMaterials"/> for why the two
         /// sets are not interchangeable.
@@ -567,6 +567,12 @@ namespace Horizon.EditorTools
             Material rear = AssetDatabase.LoadAssetAtPath<Material>($"{folder}/M_LightRear.mat");
             Material rim = AssetDatabase.LoadAssetAtPath<Material>($"{folder}/M_CarRim.mat");
 
+            // The plate falls back to the headlight's off-white rather than failing the whole set. The
+            // thumbnails are rendered before PrototypeMaterials has run on a rebuild, so on the first one
+            // after the plate slot arrived this asset does not exist yet — and returning null here would
+            // have drawn all ten garage thumbnails untextured for want of one panel.
+            Material plate = AssetDatabase.LoadAssetAtPath<Material>($"{folder}/M_CarPlate.mat");
+
             if (body == null || glass == null || front == null || rear == null || rim == null)
             {
                 Debug.LogWarning("[Horizon] Car thumbnails: the car materials are missing, so the bodies "
@@ -574,7 +580,7 @@ namespace Horizon.EditorTools
                 return null;
             }
 
-            return new[] { body, glass, front, rear, rim, front };
+            return new[] { body, glass, front, rear, rim, front, plate != null ? plate : front };
         }
 
         /// <summary>

@@ -42,14 +42,14 @@ namespace Horizon.EditorTools
         public const int ChromeSubmesh = 4;
 
         /// <summary>
-        /// The reversing lamps, inboard of the tail cluster.
+        /// The reversing lenses, carved out of each tail-light unit — see <see cref="AddRearDetails"/>
+        /// for which piece of which unit.
         ///
         /// <para><b>A slot of its own rather than a colour change on the tail lamps, and the difference
         /// is what a reversing light <i>is</i>.</b> The cheap version — turning the whole tail panel
-        /// white while the car backs up — reads as the lamps having failed, because a real car's
-        /// reversing light is a small white square beside a large red one and it is the contrast that
-        /// says which is which. Two panels 8 cm across cost twelve triangles and one material slot on
-        /// the player's car; nothing else in the world carries them.</para>
+        /// white while the car backs up — reads as the lamps having failed, because it is white beside or
+        /// inside red that says which is which. They used to be two free-standing squares inboard of the
+        /// clusters, and switched off those read as two lamps missing from the tail.</para>
         ///
         /// <para>Player bodies only. Traffic bodies go through the compacted path and there are up to
         /// ninety-six of them — a slot each for a lamp nobody can see them reverse with would be
@@ -57,7 +57,19 @@ namespace Horizon.EditorTools
         /// </summary>
         public const int ReverseSubmesh = 5;
 
-        public const int BodySubmeshCount = 6;
+        /// <summary>
+        /// The number plates, front and rear.
+        ///
+        /// <para><b>Appended, so every literal lamp index stays where it is</b> — <c>VehicleLights</c>
+        /// keeps 2, 3 and 5. Its own slot because a plate cannot ride on any that exists: the headlight
+        /// slot is driven to 2.4 at night and would give every car a glowing plate, the glass is nearly
+        /// black, and the chrome is the rim material, which with matte paint is the brightest thing on the
+        /// car and would read as trim. Player bodies only, inside the detail pass, so a traffic body never
+        /// has one and the compacted pool loses nothing.</para>
+        /// </summary>
+        public const int PlateSubmesh = 6;
+
+        public const int BodySubmeshCount = 7;
 
         public const int TyreSubmesh = 0;
         public const int RimSubmesh = 1;
@@ -1945,7 +1957,7 @@ namespace Horizon.EditorTools
         private static readonly HashSet<int> FlankKeySegments = new HashSet<int> { 3, 4, 11, 12 };
 
         /// <summary>
-        /// Builds a player car body at full detail. Five submeshes — see the Submesh constants for the
+        /// Builds a player car body at full detail. Seven submeshes — see the Submesh constants for the
         /// order.
         ///
         /// <para><b>Never pass <c>usedSubmeshes</c> from here.</b> Leaving it null is what keeps the five
@@ -2114,6 +2126,9 @@ namespace Horizon.EditorTools
                 AddWing(profile, vertices, submeshTriangles);
                 AddSpareWheel(profile, vertices, submeshTriangles);
                 AddIndicatorTurrets(profile, vertices, submeshTriangles);
+                AddPlates(profile, vertices, submeshTriangles);
+                AddMirrors(profile, vertices, submeshTriangles);
+                AddDoorHandles(profile, vertices, submeshTriangles);
 
                 // Long enough to run back under the tail rather than poke out of it like a peg.
                 Vector3[] outlets = ExhaustOutletsFor(profile);
@@ -3004,12 +3019,12 @@ namespace Horizon.EditorTools
         /// </summary>
         private static void AddFrame(
             List<Vector3> vertices, List<int> triangles, float z,
-            float x0, float x1, float y0, float y1, float thickness)
+            float x0, float x1, float y0, float y1, float thickness, bool facingForward = true)
         {
-            AddPanel(vertices, triangles, z, x0 - thickness, x1 + thickness, y1, y1 + thickness, true);
-            AddPanel(vertices, triangles, z, x0 - thickness, x1 + thickness, y0 - thickness, y0, true);
-            AddPanel(vertices, triangles, z, x0 - thickness, x0, y0, y1, true);
-            AddPanel(vertices, triangles, z, x1, x1 + thickness, y0, y1, true);
+            AddPanel(vertices, triangles, z, x0 - thickness, x1 + thickness, y1, y1 + thickness, facingForward);
+            AddPanel(vertices, triangles, z, x0 - thickness, x1 + thickness, y0 - thickness, y0, facingForward);
+            AddPanel(vertices, triangles, z, x0 - thickness, x0, y0, y1, facingForward);
+            AddPanel(vertices, triangles, z, x1, x1 + thickness, y0, y1, facingForward);
         }
 
         /// <summary>A forward-facing panel and its mirror image across the centre line.</summary>
@@ -3301,6 +3316,141 @@ namespace Horizon.EditorTools
         /// <para><see cref="AddPanel"/> cannot do it and the difference matters — four round lenses is
         /// the whole tail of one of these cars, and four rounded-off rectangles is a different car.</para>
         /// </summary>
+        /// <summary>
+        /// Number plates, front and rear: a pale panel in a thin dark surround.
+        ///
+        /// <para>A car with no plate reads as a model, and from the chase camera the rear one is dead
+        /// centre of every frame the game is played in. EU size, 520 × 112 mm through the same two scales
+        /// as everything else, because the world is signposted in German and Turkish. The class remarks
+        /// have claimed "plates" for a long time; this is the first time there were any.</para>
+        ///
+        /// <para><b>As low on the bumper as the face allows, and it warns when that still lands on a
+        /// lamp.</b> A fastback's tail lamps span most of its tail, and a plate drawn over a lamp hides the
+        /// one thing a player following the car looks at for minutes at a time.</para>
+        /// </summary>
+        private static void AddPlates(
+            in CarProfile profile, List<Vector3> vertices, List<int>[] submeshTriangles)
+        {
+            float halfW = 0.26f * PlanScale;
+            float halfH = 0.056f * HeightScale;
+            const float surroundWidth = 0.012f;
+
+            List<int> plate = submeshTriangles[PlateSubmesh];
+            List<int> surround = submeshTriangles[GlassSubmesh];
+
+            // Front: 22 mm proud of the nose, in front of the grille, its frame and the intake, on the
+            // bumper five centimetres above where the face ends.
+            float zF = profile.NoseZ + 0.022f;
+            float bottomF = Mathf.Min(SillAt(profile, profile.NoseZ), BeltAt(profile, profile.NoseZ) - 0.08f);
+            float yF = bottomF + 0.05f + halfH;
+
+            AddPanel(vertices, plate, zF, -halfW, halfW, yF - halfH, yF + halfH, true);
+            AddFrame(vertices, surround, zF - 0.001f, -halfW, halfW, yF - halfH, yF + halfH, surroundWidth);
+
+            // Rear: just under the tail lamps if there is room, and never lower than the face goes.
+            float zR = profile.TailZ - 0.022f;
+            float bottomR = Mathf.Min(SillAt(profile, profile.TailZ), BeltAt(profile, profile.TailZ) - 0.08f);
+            float lampBottom = LampHeight(profile, profile.TailZ) - profile.TailLampDrop - profile.TailLampHalfHeight;
+            float yR = Mathf.Max(lampBottom - 0.04f - halfH, bottomR + 0.03f + halfH);
+
+            AddPanel(vertices, plate, zR, -halfW, halfW, yR - halfH, yR + halfH, false);
+            AddFrame(vertices, surround, zR + 0.001f, -halfW, halfW, yR - halfH, yR + halfH, surroundWidth, false);
+
+            float lampInner = profile.TailLampInner * HalfWidthAt(profile, profile.TailZ);
+            if (yR + halfH > lampBottom && halfW > lampInner)
+            {
+                Debug.LogWarning(
+                    $"[Horizon] {profile.Name}'s rear plate has no room under its tail lamps and overlaps them "
+                    + $"by {(yR + halfH - lampBottom) * 100f:0} cm. Raise the lamps with TailLampDrop, or pull "
+                    + "TailLampInner out so the plate fits between the clusters.");
+            }
+        }
+
+        /// <summary>
+        /// Door mirrors, at the base of the A-pillar: a housing on a short stalk, with its glass on the face
+        /// that looks back down the car.
+        ///
+        /// <para><b>The single cheapest thing on a car that says "car" rather than "shape".</b> They break the
+        /// roofline's silhouette at exactly the distance the chase camera sits at, and none of the ten had
+        /// any. Sized from how tall the flank is, so the F-150's and the G63's come out large and square and
+        /// the Supra's and the R34's small, as in the photographs, without a field per car.</para>
+        /// </summary>
+        private static void AddMirrors(
+            in CarProfile profile, List<Vector3> vertices, List<int>[] submeshTriangles)
+        {
+            float[] cabin = profile.Cabin;
+            if (cabin == null || cabin.Length < 2)
+            {
+                return;
+            }
+
+            // The front edge of the front side window, which every profile keeps a station at so its
+            // pillar survives StationStep.
+            float front = cabin[0];
+            for (int i = 1; i < cabin.Length; i++)
+            {
+                front = Mathf.Max(front, cabin[i]);
+            }
+
+            float z = front - 0.05f;
+            float belt = BeltAt(profile, z);
+            float flank = HalfWidthAt(profile, z) + FlareAt(profile, z);
+            float scale = Mathf.Clamp((belt - SillAt(profile, z)) / 0.55f, 0.9f, 1.45f);
+
+            Vector3 housing = new Vector3(0.16f, 0.10f, 0.08f) * scale;
+            float stalk = 0.05f * scale;
+            float y = belt + housing.y * 0.5f + 0.02f;
+
+            for (int side = -1; side <= 1; side += 2)
+            {
+                float xStalk = side * (flank + stalk * 0.5f);
+                float xHousing = side * (flank + stalk + housing.x * 0.5f);
+
+                AddBox(vertices, submeshTriangles[BodySubmesh],
+                    new Vector3(xStalk, y - housing.y * 0.25f, z), new Vector3(stalk + 0.01f, 0.03f * scale, 0.05f * scale));
+                AddBox(vertices, submeshTriangles[BodySubmesh], new Vector3(xHousing, y, z), housing);
+
+                float inset = 0.012f;
+                AddPanel(vertices, submeshTriangles[GlassSubmesh], z - housing.z * 0.5f - 0.002f,
+                    xHousing - housing.x * 0.5f + inset, xHousing + housing.x * 0.5f - inset,
+                    y - housing.y * 0.5f + inset, y + housing.y * 0.5f - inset, false);
+            }
+        }
+
+        /// <summary>
+        /// A door handle towards the rear edge of each side window band, in chrome, just under the
+        /// beltline — which is where a real one is, since a door ends at the pillar behind its window.
+        /// One per band, so the fastback gets one a side and the off-roader three, from the same
+        /// <see cref="CarProfile.Cabin"/> array that already decides where the pillars are.
+        /// </summary>
+        private static void AddDoorHandles(
+            in CarProfile profile, List<Vector3> vertices, List<int>[] submeshTriangles)
+        {
+            float[] cabin = profile.Cabin;
+            if (cabin == null)
+            {
+                return;
+            }
+
+            for (int i = 0; i + 1 < cabin.Length; i += 2)
+            {
+                float z = cabin[i] + 0.14f;
+                if (z >= cabin[i + 1])
+                {
+                    continue;
+                }
+
+                float y = BeltAt(profile, z) - 0.07f;
+                float x = HalfWidthAt(profile, z) + FlareAt(profile, z);
+
+                for (int side = -1; side <= 1; side += 2)
+                {
+                    AddBox(vertices, submeshTriangles[ChromeSubmesh],
+                        new Vector3(side * (x + 0.008f), y, z), new Vector3(0.022f, 0.028f, 0.13f));
+                }
+            }
+        }
+
         private static void AddDiscPanel(
             List<Vector3> vertices,
             List<int> triangles,

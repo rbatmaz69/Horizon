@@ -314,6 +314,14 @@ namespace Horizon.EditorTools
             public readonly Material LightRear;
 
             /// <summary>
+            /// The number plate: a matt off-white panel, lit like the paintwork and never touched by
+            /// <c>VehicleLights</c> — which is why it is a material and a slot of its own rather than a
+            /// ride on the headlight's, which is driven to 2.4 at night and would give every car a
+            /// glowing plate.
+            /// </summary>
+            public readonly Material CarPlate;
+
+            /// <summary>
             /// A headlamp lens that is on, as a whole material.
             ///
             /// <para>The player's own car has no need of this — <c>VehicleLights</c> drives
@@ -620,6 +628,8 @@ namespace Horizon.EditorTools
                     MaterialsFolder + "/M_CarGlass.mat", "M_CarGlass", new Color(0.10f, 0.13f, 0.17f), 0.92f);
                 CarRim = HorizonAssetUtility.LoadOrCreateMaterial(
                     MaterialsFolder + "/M_CarRim.mat", "M_CarRim", new Color(0.62f, 0.64f, 0.67f), 0.78f, 0.85f);
+                CarPlate = HorizonAssetUtility.LoadOrCreateMaterial(
+                    MaterialsFolder + "/M_CarPlate.mat", "M_CarPlate", new Color(0.86f, 0.86f, 0.82f), 0.15f);
                 // Unlit, not emissive Lit. A lamp lens should be drawn at its own brightness whatever
                 // the scene lighting is doing, and VehicleLights animates _BaseColor through a property
                 // block — no shader keyword involved, which is what made the emissive version fail
@@ -1299,6 +1309,7 @@ namespace Horizon.EditorTools
             var bodyTriangles = new int[profiles.Length];
             var reverseArea = new float[profiles.Length];
             var reverseGap = new float[profiles.Length];
+            var plateTriangles = new int[profiles.Length];
             var bodyWheels = new Mesh[profiles.Length];
 
             for (int i = 0; i < profiles.Length; i++)
@@ -1316,9 +1327,12 @@ namespace Horizon.EditorTools
                 bodyVertices[i] = mesh.vertexCount;
                 bodyTriangles[i] = mesh.triangles.Length / 3;
                 MeasureReversingLens(mesh, out reverseArea[i], out reverseGap[i]);
+                plateTriangles[i] = mesh.subMeshCount > CarMeshBuilder.PlateSubmesh
+                    ? mesh.GetTriangles(CarMeshBuilder.PlateSubmesh).Length / 3
+                    : 0;
 
                 // Material order must match the Submesh constants in CarMeshBuilder. Slot 0 is the paint
-                // and is the one VehicleBodySet rewrites; the other four are the same on every car.
+                // and is the one VehicleBodySet rewrites; the rest are the same on every car.
                 bodyObjects[i] = CreateMeshObject(
                     bodiesRoot.transform,
                     $"Body_{profile.Name}",
@@ -1336,6 +1350,9 @@ namespace Horizon.EditorTools
                         // is a property block like the other two, so the material is only ever the
                         // unlit state.
                         materials.LightFront,
+
+                        // The number plates. Appended, so every literal lamp index stays where it was.
+                        materials.CarPlate,
                     },
                     addCollider: false,
                     markStatic: false);
@@ -1635,7 +1652,7 @@ namespace Horizon.EditorTools
             HorizonAssetUtility.AssertReferenceAssigned(prefab.GetComponent<VehicleBodySet>(), "hull");
 
             ReportBodies(profiles, configs, bodyBounds, bodyVertices, bodyTriangles, reverseArea, reverseGap,
-                materials.CarPaints.Length);
+                plateTriangles, materials.CarPaints.Length);
             return prefab;
         }
 
@@ -1742,6 +1759,10 @@ namespace Horizon.EditorTools
                             // materials array shorter than the mesh's submesh count draws the rest in
                             // Unity's magenta.
                             materials.LightFront,
+
+                            // The number plates — the same seventh slot as the player's body, for the
+                            // same reason the reversing lens above needs its sixth.
+                            materials.CarPlate,
                         },
                         addCollider: false,
                         markStatic: false);
@@ -1956,6 +1977,7 @@ namespace Horizon.EditorTools
             int[] triangles,
             float[] reverseArea,
             float[] reverseGap,
+            int[] plateTriangles,
             int paintCount)
         {
             var report = new System.Text.StringBuilder();
@@ -1991,7 +2013,14 @@ namespace Horizon.EditorTools
                               + $"{profile.TailLamps} tail, {profile.HeadLamps} face, "
                               + $"{profile.ExhaustCount}x{profile.ExhaustRadius * 2f:0.00} m pipe, "
                               + $"reversing lens {reverseArea[i] * 10000f:0} cm² "
-                              + $"{reverseGap[i] * 100f:0.0} cm from the red");
+                              + $"{reverseGap[i] * 100f:0.0} cm from the red, plates {plateTriangles[i]} t");
+
+                // A car with no plate builds, validates and drives exactly like one that has them, which
+                // is the argument the snow line makes for being counted.
+                if (plateTriangles[i] == 0)
+                {
+                    Debug.LogWarning($"[Horizon] {profile.Name} has no number plates: its plate submesh is empty.");
+                }
 
                 if (reverseArea[i] < 0.0001f || reverseGap[i] > 0.01f)
                 {
