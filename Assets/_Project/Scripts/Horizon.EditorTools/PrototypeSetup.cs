@@ -1297,6 +1297,8 @@ namespace Horizon.EditorTools
             var bodyBounds = new Bounds[profiles.Length];
             var bodyVertices = new int[profiles.Length];
             var bodyTriangles = new int[profiles.Length];
+            var reverseArea = new float[profiles.Length];
+            var reverseGap = new float[profiles.Length];
             var bodyWheels = new Mesh[profiles.Length];
 
             for (int i = 0; i < profiles.Length; i++)
@@ -1313,6 +1315,7 @@ namespace Horizon.EditorTools
                 // that must not move a triangle had nothing that could say whether it had.
                 bodyVertices[i] = mesh.vertexCount;
                 bodyTriangles[i] = mesh.triangles.Length / 3;
+                MeasureReversingLens(mesh, out reverseArea[i], out reverseGap[i]);
 
                 // Material order must match the Submesh constants in CarMeshBuilder. Slot 0 is the paint
                 // and is the one VehicleBodySet rewrites; the other four are the same on every car.
@@ -1631,7 +1634,8 @@ namespace Horizon.EditorTools
             HorizonAssetUtility.AssertReferenceAssigned(prefab.GetComponent<VehicleController>(), "config");
             HorizonAssetUtility.AssertReferenceAssigned(prefab.GetComponent<VehicleBodySet>(), "hull");
 
-            ReportBodies(profiles, configs, bodyBounds, bodyVertices, bodyTriangles, materials.CarPaints.Length);
+            ReportBodies(profiles, configs, bodyBounds, bodyVertices, bodyTriangles, reverseArea, reverseGap,
+                materials.CarPaints.Length);
             return prefab;
         }
 
@@ -1874,6 +1878,70 @@ namespace Horizon.EditorTools
         }
 
         /// <summary>
+        /// How big the reversing lens is, and how far it stands from the red one on the same side.
+        ///
+        /// <para><b>The gap is the number, and a bounding box would have been the wrong one.</b> The two
+        /// tail clusters are mirrored, so the red lenses together span the tail from one side to the
+        /// other, and a test of "is the white inside the red's bounds" passes for a lens anywhere
+        /// between them — including the two free-standing squares this measurement exists to rule out.
+        /// Taken on one side of the car only, those stood three centimetres clear of the red; carved out
+        /// of the cluster, the white touches it.</para>
+        /// </summary>
+        private static void MeasureReversingLens(Mesh mesh, out float area, out float gap)
+        {
+            area = 0f;
+            gap = float.PositiveInfinity;
+
+            if (mesh.subMeshCount <= CarMeshBuilder.ReverseSubmesh)
+            {
+                return;
+            }
+
+            Vector3[] positions = mesh.vertices;
+            int[] white = mesh.GetTriangles(CarMeshBuilder.ReverseSubmesh);
+            int[] red = mesh.GetTriangles(CarMeshBuilder.TaillightSubmesh);
+
+            for (int t = 0; t + 2 < white.Length; t += 3)
+            {
+                Vector3 a = positions[white[t]];
+                area += Vector3.Cross(positions[white[t + 1]] - a, positions[white[t + 2]] - a).magnitude * 0.5f;
+            }
+
+            if (!SideBounds(positions, white, out Rect w) || !SideBounds(positions, red, out Rect r))
+            {
+                return;
+            }
+
+            float dx = Mathf.Max(0f, Mathf.Max(r.xMin - w.xMax, w.xMin - r.xMax));
+            float dy = Mathf.Max(0f, Mathf.Max(r.yMin - w.yMax, w.yMin - r.yMax));
+            gap = Mathf.Sqrt(dx * dx + dy * dy);
+        }
+
+        /// <summary>The XY extent of a submesh's vertices on the car's +X side.</summary>
+        private static bool SideBounds(Vector3[] positions, int[] triangles, out Rect rect)
+        {
+            float xMin = float.PositiveInfinity, xMax = float.NegativeInfinity;
+            float yMin = float.PositiveInfinity, yMax = float.NegativeInfinity;
+
+            for (int i = 0; i < triangles.Length; i++)
+            {
+                Vector3 p = positions[triangles[i]];
+                if (p.x <= 0.001f)
+                {
+                    continue;
+                }
+
+                xMin = Mathf.Min(xMin, p.x);
+                xMax = Mathf.Max(xMax, p.x);
+                yMin = Mathf.Min(yMin, p.y);
+                yMax = Mathf.Max(yMax, p.y);
+            }
+
+            rect = Rect.MinMaxRect(xMin, yMin, xMax, yMax);
+            return xMin <= xMax;
+        }
+
+        /// <summary>
         /// The tallest kerb <c>TownStreetBuilder</c> builds, metres. Restated here because the check it
         /// feeds is about the car rather than about the street, and a car that cannot mount a kerb is a
         /// bug in the vehicle whichever file the number lives in.
@@ -1886,6 +1954,8 @@ namespace Horizon.EditorTools
             Bounds[] bounds,
             int[] vertices,
             int[] triangles,
+            float[] reverseArea,
+            float[] reverseGap,
             int paintCount)
         {
             var report = new System.Text.StringBuilder();
@@ -1919,7 +1989,18 @@ namespace Horizon.EditorTools
                               + $"of {profile.ArchGap:0.00} asked, "
                               + $"roof {bounds[i].max.y + profile.RideHeight:0.00} m up, "
                               + $"{profile.TailLamps} tail, {profile.HeadLamps} face, "
-                              + $"{profile.ExhaustCount}x{profile.ExhaustRadius * 2f:0.00} m pipe");
+                              + $"{profile.ExhaustCount}x{profile.ExhaustRadius * 2f:0.00} m pipe, "
+                              + $"reversing lens {reverseArea[i] * 10000f:0} cm² "
+                              + $"{reverseGap[i] * 100f:0.0} cm from the red");
+
+                if (reverseArea[i] < 0.0001f || reverseGap[i] > 0.01f)
+                {
+                    Debug.LogWarning(
+                        $"[Horizon] {profile.Name}'s reversing lens is {reverseArea[i] * 10000f:0} cm² and "
+                        + $"stands {reverseGap[i] * 100f:0.0} cm from the nearest red lens on its side. It "
+                        + "belongs inside the tail-light unit — see AddRearDetails — and a lens standing "
+                        + "apart from it reads, switched off, as a lamp missing from the tail.");
+                }
 
                 // What the bumper clears once the springs have taken the car's weight, which is the
                 // number that decides whether it can drive up a kerb. Quoted rather than the box's own

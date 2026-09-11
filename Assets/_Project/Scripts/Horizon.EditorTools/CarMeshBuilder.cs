@@ -2728,11 +2728,27 @@ namespace Horizon.EditorTools
             float half = profile.TailLampHalfHeight;
 
             List<int> lamps = submeshTriangles[TaillightSubmesh];
+            List<int> reverse = submeshTriangles[ReverseSubmesh];
 
             float inner = profile.TailLampInner * face;
             float outer = profile.TailLampOuter * face;
             int count = Mathf.Max(1, profile.TailLampCount);
 
+            // The reversing lens is carved out of each cluster rather than drawn beside it, and which
+            // piece of the cluster it is depends on the cluster, so it lives inside every case.
+            //
+            // <b>This used to be two white squares emitted after the switch</b>, 3 cm inboard of every
+            // style, on the argument that "every real car puts one in the same place regardless of what
+            // the red lenses look like". Real cars do not: the reversing lens is a segment of the
+            // tail-light unit — the white centre of an R34's inner ring, the inboard end of an E30's
+            // block, a band across an F-150's upright lamp. Off, the squares were grey, and from the
+            // chase camera they read as two lamps missing from the middle of the tail. The half of the
+            // old argument that survives is the contrast one: white beside or inside red, and never the
+            // whole cluster turned white, which reads as the lamps having failed.
+            //
+            // Still its own submesh, so VehicleLights lights it on IsReversing and nothing else, and
+            // rectangles are split rather than overlapped — red and white as adjacent panels, never
+            // two coplanar ones fighting over the same depth.
             switch (profile.TailLamps)
             {
                 case TailLampStyle.Round:
@@ -2740,6 +2756,9 @@ namespace Horizon.EditorTools
                     // Round lenses in a row, the way a nineties Japanese coupé wears them. Sized from the
                     // gap they have to share rather than given a radius, so a pair and a quartet both
                     // fill the cluster instead of one of them rattling around in it.
+                    //
+                    // The reversing lens is a white disc in the middle of the innermost ring, three
+                    // millimetres proud of it — which is the R34's and the Supra's own signature.
                     float pitch = (outer - inner) / count;
                     float radius = Mathf.Min(pitch * 0.42f, half);
 
@@ -2750,6 +2769,9 @@ namespace Horizon.EditorTools
                         AddDiscPanel(vertices, lamps, z, -centre, lamp, radius, 10, false);
                     }
 
+                    float first = inner + pitch * 0.5f;
+                    AddDiscPanel(vertices, reverse, z - 0.003f, first, lamp, radius * 0.48f, 10, false);
+                    AddDiscPanel(vertices, reverse, z - 0.003f, -first, lamp, radius * 0.48f, 10, false);
                     break;
                 }
 
@@ -2758,16 +2780,37 @@ namespace Horizon.EditorTools
                     // One tall lamp standing in the corner of the tailgate. An estate and a van both do
                     // this and for the same reason a real one does: the glass wants the middle of the
                     // panel, so the lamps go up the sides of it.
-                    AddPanel(vertices, lamps, z, inner, outer, lamp - half, lamp + half, false);
-                    AddPanel(vertices, lamps, z, -outer, -inner, lamp - half, lamp + half, false);
+                    //
+                    // A white band across the middle of it, red above and below — the F-150's upright
+                    // lamp, and most estates' and vans'.
+                    float band = half * 0.22f;
+
+                    for (int side = -1; side <= 1; side += 2)
+                    {
+                        float a = side > 0 ? inner : -outer;
+                        float b = side > 0 ? outer : -inner;
+
+                        AddPanel(vertices, lamps, z, a, b, lamp + band, lamp + half, false);
+                        AddPanel(vertices, reverse, z, a, b, lamp - band, lamp + band, false);
+                        AddPanel(vertices, lamps, z, a, b, lamp - half, lamp - band, false);
+                    }
+
                     break;
                 }
 
                 case TailLampStyle.Strip:
                 {
                     // One band straight across, through the centre line — the tail of a car that wants
-                    // to look wide.
-                    AddPanel(vertices, lamps, z, -outer, outer, lamp - half, lamp + half, false);
+                    // to look wide. The reversing lenses are a short segment of it either side of the
+                    // middle, where the band passes inboard of where a separate cluster would stand.
+                    float r0 = Mathf.Max(inner, 0.12f * face);
+                    float r1 = Mathf.Min(outer, r0 + 0.14f * face);
+
+                    AddPanel(vertices, lamps, z, -outer, -r1, lamp - half, lamp + half, false);
+                    AddPanel(vertices, reverse, z, -r1, -r0, lamp - half, lamp + half, false);
+                    AddPanel(vertices, lamps, z, -r0, r0, lamp - half, lamp + half, false);
+                    AddPanel(vertices, reverse, z, r0, r1, lamp - half, lamp + half, false);
+                    AddPanel(vertices, lamps, z, r1, outer, lamp - half, lamp + half, false);
                     break;
                 }
 
@@ -2775,15 +2818,31 @@ namespace Horizon.EditorTools
                 {
                     // Wide horizontal blocks, stacked if there is more than one. An eighties three-box
                     // carries a single deep unit; two stacked reads as the ribbed lens of one.
+                    //
+                    // The inboard end of the lowest block is the reversing lens — the 190E's, the
+                    // E30's, and the G-Klasse's bumper-corner lamp.
                     float pitch = half * 2f / count;
+                    float split = inner + (outer - inner) * 0.28f;
 
                     for (int i = 0; i < count; i++)
                     {
                         float centre = lamp + half - pitch * (i + 0.5f);
                         float blockHalf = pitch * 0.40f;
+                        float y0 = centre - blockHalf;
+                        float y1 = centre + blockHalf;
 
-                        AddPanel(vertices, lamps, z, inner, outer, centre - blockHalf, centre + blockHalf, false);
-                        AddPanel(vertices, lamps, z, -outer, -inner, centre - blockHalf, centre + blockHalf, false);
+                        if (i == count - 1)
+                        {
+                            AddPanel(vertices, reverse, z, inner, split, y0, y1, false);
+                            AddPanel(vertices, lamps, z, split, outer, y0, y1, false);
+                            AddPanel(vertices, reverse, z, -split, -inner, y0, y1, false);
+                            AddPanel(vertices, lamps, z, -outer, -split, y0, y1, false);
+                        }
+                        else
+                        {
+                            AddPanel(vertices, lamps, z, inner, outer, y0, y1, false);
+                            AddPanel(vertices, lamps, z, -outer, -inner, y0, y1, false);
+                        }
                     }
 
                     break;
@@ -2798,42 +2857,30 @@ namespace Horizon.EditorTools
                     // the face, 0.1667 wide.
                     float barWidth = pitch * 0.824f;
 
+                    // The lower third of the innermost bar is the reversing lens.
+                    float cut = lamp - half + half * 2f / 3f;
+
                     for (int i = 0; i < count; i++)
                     {
                         float x0 = inner + pitch * i;
                         float x1 = x0 + barWidth;
 
-                        AddPanel(vertices, lamps, z, x0, x1, lamp - half, lamp + half, false);
-                        AddPanel(vertices, lamps, z, -x1, -x0, lamp - half, lamp + half, false);
+                        if (i == 0)
+                        {
+                            AddPanel(vertices, lamps, z, x0, x1, cut, lamp + half, false);
+                            AddPanel(vertices, reverse, z, x0, x1, lamp - half, cut, false);
+                            AddPanel(vertices, lamps, z, -x1, -x0, cut, lamp + half, false);
+                            AddPanel(vertices, reverse, z, -x1, -x0, lamp - half, cut, false);
+                        }
+                        else
+                        {
+                            AddPanel(vertices, lamps, z, x0, x1, lamp - half, lamp + half, false);
+                            AddPanel(vertices, lamps, z, -x1, -x0, lamp - half, lamp + half, false);
+                        }
                     }
 
                     break;
                 }
-            }
-
-            // The reversing lamps, inboard of whichever of the five clusters the profile wears.
-            //
-            // <b>Outside the switch, because a reversing lamp is not part of the tail-light style.</b>
-            // Every real car puts one in the same place regardless of what the red lenses look like —
-            // small, white, and nearer the middle — and five copies of that inside five cases would be
-            // five places for it to drift.
-            //
-            // Its own submesh and not a colour change on the tail lamps: the cheap version turns the
-            // whole cluster white while the car backs up, which reads as the lamps having failed. What
-            // says "reverse" is a small white square beside a large red one, so it is the contrast that
-            // carries it and not the colour.
-            float reverseHalf = Mathf.Min(0.075f, half * 0.6f);
-            float reverseOuter = inner - 0.03f;
-            float reverseInner = Mathf.Max(0.05f, reverseOuter - reverseHalf * 2.2f);
-
-            if (reverseOuter > reverseInner)
-            {
-                List<int> reverse = submeshTriangles[ReverseSubmesh];
-
-                AddPanel(vertices, reverse, z, reverseInner, reverseOuter,
-                    lamp - reverseHalf, lamp + reverseHalf, false);
-                AddPanel(vertices, reverse, z, -reverseOuter, -reverseInner,
-                    lamp - reverseHalf, lamp + reverseHalf, false);
             }
         }
 

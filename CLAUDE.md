@@ -2156,13 +2156,22 @@ driving code.
 the traffic used to light up a full minute of game time before the player's car did, which is a road
 that looks like it knows something you do not.
 
-**The player's car has a reversing light now, and it is a lamp of its own rather than a colour.** The
+**The player's car has a reversing light, and it is a lens of its own rather than a colour.** The
 cheap version — turning the tail cluster white while the car backs up — reads as the lamps having
-failed, because what says "reverse" is a small white square *beside* a large red one and the contrast
-is the whole signal. `CarMeshBuilder.ReverseSubmesh` is two 8 cm panels inboard of whichever of the
-five tail-lamp styles a profile wears, emitted outside that switch: every real car puts the lamp in
-the same place regardless of what the red lenses look like, and five copies inside five cases would be
-five places for it to drift.
+failed, because what says "reverse" is white *beside or inside* red and the contrast is the whole
+signal. `CarMeshBuilder.ReverseSubmesh` is carved out of each tail-light unit, and which piece of it
+depends on the unit: the white centre of the innermost ring on a round cluster (the R34's and the
+Supra's), the inboard end of the lowest block (the 190E's, the E30's, the G-Klasse's), a band across
+an upright lamp (the F-150's), the lower third of the innermost bar on the fastback.
+
+**It used to be two free-standing white squares emitted after the style switch**, on the argument
+that every real car puts the lamp in the same place whatever the red lenses look like. They do not —
+a reversing lens is part of the tail-light unit — and switched off, which is how the player sees it
+nearly all the time, the squares were grey and read from the chase camera as two lamps missing from
+the middle of the tail. It was reported from the car. `ReportBodies` now prints each body's lens area
+and **its distance from the red lens on the same side**, and warns past a centimetre. Not a bounding
+box: the two clusters are mirrored, so the red together spans the whole tail, and "is the white inside
+the red's bounds" passes for a lens anywhere between them — the old squares included.
 
 **Driven off `VehicleController.IsReversing` and never off the pedal**, which is the fault recorded a
 few lines above about the brake lamps waiting in the same place: the brake pedal doubles as reverse
@@ -2175,9 +2184,12 @@ backing up, and a lamp guessing would be a lamp that lies.** It needs the slot a
 materials array shorter than a mesh's submesh count draws the remainder in Unity's magenta — which is
 also why both of `CarPreviewRenderer`'s two tables gained a sixth entry.
 
-`CarPreview_Rear` is what says it landed: two pale squares between the red bars, on the tail, not
-magenta. **What no frame here can show is the lamp lit** — that needs the car in reverse, which needs
-Play mode. Same limit as the photo mode's shutter, and said for the same reason.
+**And the lamp can be photographed lit now, which it could not before.** `VehicleLights` lights it off
+`IsReversing`, which needs Play mode, so every picture of it was of the lamp off. `CarPreviewRenderer`
+takes `CarPreview_Tail_<body>_Reverse.png` with the two lamp slots swapped to `M_TailNight` and
+`M_HeadLampLit` for one frame — the materials the game itself swaps to — close and nearly straight
+behind, because the subject is a lens a few centimetres across. A lamp that can only be judged unlit is
+judged wrong.
 
 Indicators are still nowhere.
 

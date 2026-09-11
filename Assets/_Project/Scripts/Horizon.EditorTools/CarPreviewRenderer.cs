@@ -79,8 +79,9 @@ namespace Horizon.EditorTools
                 RenderEndViews(camera, car, directory);
 
                 Debug.Log($"[Horizon] Car preview written to {directory}/CarPreview_Front.png, _Rear.png, "
-                          + "_Side.png, a _Side_<body>.png, _Front_<body>.png and _Rear_<body>.png per "
-                          + "player body, and a _Traffic_<body>.png per ambient body.");
+                          + "_Side.png, a _Side_<body>.png, _Front_<body>.png, _Rear_<body>.png and "
+                          + "_Tail_<body>_Reverse.png per player body, and a _Traffic_<body>.png per "
+                          + "ambient body.");
             }
             finally
             {
@@ -308,6 +309,9 @@ namespace Horizon.EditorTools
                             Path.Combine(directory, $"CarPreview_Rear_{profile.Name}.png"));
                         RenderFrom(camera, stand.transform, new Vector3(4.6f, 1.9f, 9.4f),
                             Path.Combine(directory, $"CarPreview_Front_{profile.Name}.png"));
+
+                        RenderReversing(camera, stand.transform, standRenderer, shared, directory,
+                            profile.Name);
                     }
                     finally
                     {
@@ -320,6 +324,52 @@ namespace Horizon.EditorTools
             finally
             {
                 car.SetActive(true);
+            }
+        }
+
+        /// <summary>
+        /// The tail with the reversing lens lit, which no frame in this project could show before.
+        ///
+        /// <para><see cref="VehicleLights"/> lights that lens off <c>IsReversing</c>, which needs a car
+        /// in Play mode going backwards — so every picture taken of it was of the lamp switched off, and
+        /// a lamp that can only ever be judged unlit is judged wrong. This swaps the two lamp slots to the
+        /// lit materials the game itself swaps to, <c>M_TailNight</c> and <c>M_HeadLampLit</c>, for one
+        /// frame: what a driver behind the car sees when it backs out at dusk. No new material, and the
+        /// renderer's own array is put back before the stand is torn down.</para>
+        ///
+        /// <para>Close and nearly straight behind, because the subject is a lens a few centimetres
+        /// across inside a cluster. From the three-quarter rear station it is a handful of pixels, and a
+        /// frame that cannot resolve its subject looks exactly like an answer.</para>
+        /// </summary>
+        private static void RenderReversing(
+            Camera camera, Transform stand, MeshRenderer renderer, Material[] shared, string directory,
+            string name)
+        {
+            const string folder = "Assets/_Project/Art/Materials";
+
+            Material tailLit = AssetDatabase.LoadAssetAtPath<Material>($"{folder}/M_TailNight.mat");
+            Material reverseLit = AssetDatabase.LoadAssetAtPath<Material>($"{folder}/M_HeadLampLit.mat");
+
+            if (shared == null || tailLit == null || reverseLit == null
+                || shared.Length <= CarMeshBuilder.ReverseSubmesh)
+            {
+                return;
+            }
+
+            var lit = (Material[])shared.Clone();
+            lit[CarMeshBuilder.TaillightSubmesh] = tailLit;
+            lit[CarMeshBuilder.ReverseSubmesh] = reverseLit;
+
+            renderer.sharedMaterials = lit;
+
+            try
+            {
+                RenderFrom(camera, stand, new Vector3(1.4f, 0.9f, -6.8f),
+                    Path.Combine(directory, $"CarPreview_Tail_{name}_Reverse.png"));
+            }
+            finally
+            {
+                renderer.sharedMaterials = shared;
             }
         }
 
