@@ -1953,12 +1953,17 @@ namespace Horizon.EditorTools
         /// The top segments a <b>rear</b> window may use: the middle two, never the outer two.
         ///
         /// <para>Segments 6 and 9 are the steep outer faces of the crown, running from the roof rail down
-        /// to the crown's shoulder, and they face sideways as much as up. As glass at 0.92 smoothness they
-        /// mirrored the bright horizon at a grazing angle and came out as two silver strips either side of
-        /// the backlight, running from the roof to the deck — the most visible fault left in the frame the
-        /// game is played from, since that frame is taken from behind. They are the sail panels, which
-        /// <see cref="ResolveSubmesh"/>'s own remarks already said were bodywork. The windscreen keeps all
-        /// four: an A-pillar is narrow, and it is not in the chase camera anyway.</para>
+        /// to the crown's shoulder — on a fastback the sail panels either side of the backlight, which
+        /// <see cref="ResolveSubmesh"/>'s own remarks already called bodywork, and on a three-box car the
+        /// C-pillars. So a rear window sits between painted pillars, as a real one does. The windscreen
+        /// keeps all four: an A-pillar is narrow.</para>
+        ///
+        /// <para><b>This was written to remove two silver strips either side of the rear window in the
+        /// chase camera, and it did not.</b> They survived it unchanged. Painting every glass facet flat
+        /// green in that frame showed what they were: the side windows, seen nearly edge-on from behind,
+        /// mirroring the horizon at <c>M_CarGlass</c>'s old 0.92 smoothness — fixed where the glass is made,
+        /// in <c>PrototypeSetup</c>. The change here stands on its own reason and not on that one; it is
+        /// recorded so nobody reads this and believes the strips were ever these facets.</para>
         /// </summary>
         private static readonly HashSet<int> RearWindowKeySegments = new HashSet<int> { 7, 8 };
 

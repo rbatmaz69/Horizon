@@ -624,8 +624,23 @@ namespace Horizon.EditorTools
 
                 // Glass is dark and smooth rather than transparent: an opaque tint costs nothing on
                 // mobile and reads perfectly well at this level of stylisation.
+                //
+                // Smooth, but not a mirror. At 0.92, with no reflection probe anywhere in the world and the
+                // skybox therefore the only thing it can reflect, a side window seen nearly edge-on from
+                // the chase camera mirrored the bright horizon and came out as a silver blade either side
+                // of the rear window — the fault that outlived every other change to the cars, and one that
+                // was first blamed on the wrong facets. What settled it was painting the glass flat green
+                // in the frame the game is played from. 0.55 keeps a sheen and reads as tinted glass.
+                //
+                // Written onto the existing asset on every rebuild, because LoadOrCreateMaterial returns an
+                // existing asset untouched and the literal would otherwise never be read again — the trap
+                // CarPaintPalette records.
+                const float glassSmoothness = 0.55f;
                 CarGlass = HorizonAssetUtility.LoadOrCreateMaterial(
-                    MaterialsFolder + "/M_CarGlass.mat", "M_CarGlass", new Color(0.10f, 0.13f, 0.17f), 0.92f);
+                    MaterialsFolder + "/M_CarGlass.mat", "M_CarGlass", new Color(0.10f, 0.13f, 0.17f),
+                    glassSmoothness);
+                CarGlass.SetFloat("_Smoothness", glassSmoothness);
+                EditorUtility.SetDirty(CarGlass);
                 CarRim = HorizonAssetUtility.LoadOrCreateMaterial(
                     MaterialsFolder + "/M_CarRim.mat", "M_CarRim", new Color(0.62f, 0.64f, 0.67f), 0.78f, 0.85f);
                 CarPlate = HorizonAssetUtility.LoadOrCreateMaterial(
@@ -5886,11 +5901,15 @@ namespace Horizon.EditorTools
             // rebuilt as the clock moves rather than once at load, so its cost is per second instead of
             // once.
             //
-            // The binding surface is M_CarGlass at smoothness 0.92, which samples the top mip, and 64
-            // is enough for it only because of what is being reflected: this sky is a gradient with
-            // soft-edged cloud on it and carries no detail a higher resolution could resolve. That is
-            // the argument, and it is worth stating rather than the arithmetic about the wet road at
-            // 0.46 being three mips down — the road is not what sets this number.
+            // The binding surface is M_CarRim at smoothness 0.78 and metallic 0.85, which samples close
+            // to the top mip, and 64 is enough for it only because of what is being reflected: this sky
+            // is a gradient with soft-edged cloud on it and carries no detail a higher resolution could
+            // resolve. That is the argument, and it is worth stating rather than the arithmetic about the
+            // wet road at 0.46 being three mips down — the road is not what sets this number.
+            //
+            // It was M_CarGlass at 0.92 until the glass came down to 0.55, because at 0.92 a side window
+            // seen edge-on from the chase camera mirrored the horizon as a silver blade. The argument did
+            // not change, only which surface it binds on.
             RenderSettings.defaultReflectionResolution = 64;
 
             // After the scene switch, never before it. See LoadWorldMap.
