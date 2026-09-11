@@ -4931,7 +4931,8 @@ namespace Horizon.EditorTools
         {
             var buffer = new VegetationMeshBuffer(CircuitMeshes.CircuitSubmeshCount);
 
-            CircuitMeshes.Append(path, shape, circuit.LineDistance, circuit.PaddockSide, buffer);
+            CircuitMeshes.Append(path, shape, circuit.LineDistance, circuit.PaddockSide,
+                CarMeshBuilder.LongestBodyLength(), buffer);
             buffer.MergeTinted(CircuitMeshes.SurfaceTints());
 
             var used = new List<int>(CircuitMeshes.CircuitSubmeshCount);
@@ -8967,6 +8968,13 @@ namespace Horizon.EditorTools
                 // From the mesh builder, so reshaping the body cannot leave the traffic riding at a
                 // height nothing else believes in.
                 serialized.FindProperty("rideHeight").floatValue = CarMeshBuilder.TrafficRideHeight;
+
+                // Both are a car length and a clearance. The clearances are what the two literals left
+                // over the 5.93 m fastback they were sized against; the length is the longest car there
+                // is, which the literals stopped being the day the pickup became an F-150.
+                float longest = CarMeshBuilder.LongestBodyLength();
+                serialized.FindProperty("stopGap").floatValue = longest + 2.17f;
+                serialized.FindProperty("boxLength").floatValue = longest + 1.07f;
             });
 
             HorizonAssetUtility.AssertReferenceAssigned(director, "network");

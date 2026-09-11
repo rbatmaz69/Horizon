@@ -128,10 +128,17 @@ namespace Horizon.Game
         [SerializeField] private float lookAhead = 22f;
 
         [Tooltip("Stops this far short of whatever is in front of it.\n\n"
-               + "Scaled with the cars when they grew a quarter longer. It is a gap between positions, "
-               + "so on a 4.74 m car 6.5 m was already close; on a 5.93 m one it would have been "
-               + "bumper to bumper.")]
-        [SerializeField] private float stopGap = 8.1f;
+               + "It is a gap between positions, so it is a car length plus a clearance, and it has been "
+               + "outgrown by the cars twice: 6.5 m was close on a 4.74 m car, and the 8.1 that replaced "
+               + "it left 74 cm in front of a 7.36 m pickup. Written by the setup tool as the longest "
+               + "body there is plus the 2.17 m of bumper gap 8.1 left behind the fastback.")]
+        [SerializeField] private float stopGap = 9.53f;
+
+        [Tooltip("How much room a car needs on the far side of a junction before it enters, metres — "
+               + "measured to the position of the nearest car already there, so it is a car length plus a "
+               + "margin. Written by the setup tool as the longest body plus the 1.07 m the literal 7 "
+               + "left over the fastback.")]
+        [SerializeField] private float boxLength = 8.43f;
 
         [Tooltip("How far off an agent's own path something can be and still count as being in the way. "
                + "Half a carriageway: wide enough to catch a car merging out of a junction, narrow "
@@ -724,7 +731,7 @@ namespace Horizon.Game
             if (!impatient)
             {
                 int onward = network.ExitCount(connector) > 0 ? network.ExitAt(connector, 0) : -1;
-                if (onward >= 0 && LaneHead(onward) < BoxLength)
+                if (onward >= 0 && LaneHead(onward) < boxLength)
                 {
                     return false;
                 }
@@ -732,9 +739,6 @@ namespace Horizon.Game
 
             return true;
         }
-
-        /// <summary>How much room a car needs on the far side of a junction before it enters, metres.</summary>
-        private const float BoxLength = 7f;
 
         private float StoppingDistance(int index)
         {

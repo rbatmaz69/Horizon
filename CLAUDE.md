@@ -1254,8 +1254,10 @@ down the middle of a carriageway, reported as correct by every check that exists
 is why it is read rather than restated now), `TunnelBuilder.MoundHalfWidthFor` (forty metres of massif
 is sized against how far apart a switchback's legs are, and says nothing about the motorway's
 fifty-metre bore), `TrunkForkBuilder.ThroatLength` (`RibbonTrim` is three widths over a sine),
-`CircuitMeshes.GridBoxLength` (a painted box shorter than the car standing in it), and the two spawn
-places that were typed as `4f` where `4` was half of a boulevard half-width.
+the grid box length (a painted box shorter than the car standing in it — it went short again when the
+pickup became a 7.36 m F-150, and is the longest car plus `CircuitMeshes.GridBoxMargin` now, as the
+traffic's stop gap and junction box are), and the two spawn places that were typed as `4f` where `4` was
+half of a boulevard half-width.
 
 **And one check had become narrower than its own subject.** `ValidateDriveableCorridor` sweeps a box
 along every road asking whether anything solid stands in it, and that box *is the car* — 1.3 m of

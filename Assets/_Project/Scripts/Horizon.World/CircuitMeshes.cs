@@ -66,14 +66,16 @@ namespace Horizon.World
         private const float LineWidth = 0.9f;
 
         /// <summary>
-        /// Length of a painted grid box, metres.
+        /// How much longer a painted grid box is than the longest car that can stand in it, metres —
+        /// about half a metre at each end.
         ///
-        /// <para>It has to be longer than the car standing in it, and for a while it was not: 5.5 was
-        /// generous against a 4.74 m fastback and is short of the 5.93 m one it became in 5bd7396. A
-        /// box a car overhangs at both ends is not a box, and nothing measures this — the build counts
-        /// the triangles and they were right.</para>
+        /// <para>A box has to be longer than the car standing in it, and twice it was not: 5.5 was
+        /// generous against a 4.74 m fastback and short of the 5.93 m one it became in 5bd7396, and the
+        /// 6.9 that replaced it was short of the 7.36 m F-150. A box a car overhangs at both ends is not a
+        /// box, and nothing measures this — the build counts the triangles and they were right. So the
+        /// length is handed in by whoever knows the cars, and this is the part that is the box's.</para>
         /// </summary>
-        private const float GridBoxLength = 6.9f;
+        private const float GridBoxMargin = 0.975f;
 
         private const float GridBoxWidth = 0.16f;
 
@@ -153,11 +155,16 @@ namespace Horizon.World
         /// rather than worked out, because which side of a circuit is the infield is a fact about the
         /// course's plan and not about any one point on it.
         /// </param>
+        /// <param name="longestCar">
+        /// The longest car that may be put on the grid, metres. Horizon.World knows no cars, so the
+        /// caller does.
+        /// </param>
         public static void Append(
             IRoadPath path,
             in RoadShape shape,
             float lineAt,
             float inside,
+            float longestCar,
             VegetationMeshBuffer into)
         {
             if (path == null || into == null)
@@ -172,7 +179,7 @@ namespace Horizon.World
             AppendGantry(at, forward, right, shape, into);
             AppendPits(path, shape, lineAt, inside, into);
             AppendStand(path, shape, lineAt, -inside, into);
-            AppendPaint(path, shape, lineAt, into);
+            AppendPaint(path, shape, lineAt, longestCar + GridBoxMargin, into);
         }
 
         /// <summary>
@@ -307,7 +314,7 @@ namespace Horizon.World
 
         /// <summary>The start/finish line and the grid boxes, laid on the carriageway.</summary>
         private static void AppendPaint(
-            IRoadPath path, in RoadShape shape, float lineAt, VegetationMeshBuffer into)
+            IRoadPath path, in RoadShape shape, float lineAt, float boxLength, VegetationMeshBuffer into)
         {
             AddStripe(path, shape, lineAt, LineWidth, -shape.HalfWidth, shape.HalfWidth, into);
 
@@ -315,7 +322,7 @@ namespace Horizon.World
             {
                 GridSlot(i, lineAt, shape, out float behind, out float centre);
 
-                AddStripe(path, shape, behind, GridBoxLength, centre - 1.5f, centre + 1.5f, into,
+                AddStripe(path, shape, behind, boxLength, centre - 1.5f, centre + 1.5f, into,
                     hollow: true);
             }
         }

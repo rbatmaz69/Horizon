@@ -1046,58 +1046,88 @@ namespace Horizon.EditorTools
         };
 
         /// <summary>
-        /// A pickup: the fastback's nose and a two-seat cab, then a genuinely open bed to the tail.
+        /// A crew-cab pickup, measured against a Ford F-150 SuperCrew with the 5.5 ft bed.
         ///
-        /// <para>The step down from the cab roof at 0.64 to the bed rail at 0.50 happens over six
-        /// centimetres, which is a vertical panel and needs a crease at both of its edges or the normals
-        /// smear the back of the cab into the load bed and the whole thing reads as a melted estate.</para>
+        /// <para><b>This body used to have no reference at all.</b> Its comment called it "the fastback's
+        /// nose and a two-seat cab", and that is exactly what it was: 4.83 m on the fastback's 2.70 m
+        /// wheelbase, a cab roof 1.54 m off the ground and a bonnet at a saloon's height. An F-150 is a
+        /// different kind of vehicle and the difference is mostly scale — a metre longer, a metre more
+        /// wheelbase, forty centimetres taller, and a bonnet standing where a hatchback's roof does.</para>
         ///
-        /// <para><b>The rails stand 0.50 against the 0.36 they used to.</b> That is not styling either.
-        /// The bed is a trough sunk into this table, its floor has to clear the rear wheel arch, and the
-        /// arch on this car reaches 0.26 — so a rail at 0.36 leaves ten centimetres of bed, which is a
-        /// tray rather than a load bay. At 0.50 it is 0.39 m deep between the arches and 0.23 m over
-        /// them, and the humps that difference makes are the most recognisable thing in a pickup's
-        /// bed.</para>
+        /// <para>Every Y here is quoted above the ground, which sits at -0.84: the wheel centre hangs at
+        /// -0.36 and the tyre radius is 0.48. The tyre is still this body's old one, deliberately — the
+        /// reference wheel (0.84 m across) arrives with every other car's, with the rest length raised by
+        /// exactly as much, so this frame and every number in it survive that change unmoved.</para>
         ///
-        /// <para>The stations at -2.42 and -0.78 are the ends of the opening. See
+        /// <code>
+        ///                       was    now    F-150 SuperCrew 5.5'
+        ///   length              4.83   5.89   5.89
+        ///   height              1.54   1.94   1.96
+        ///   wheelbase           2.70   3.68   3.68
+        ///   front overhang      0.92   0.91   0.90
+        ///   rear overhang       1.21   1.30   1.31
+        ///   bonnet, leading     1.21   1.32   1.30
+        ///   beltline, cab       1.10   1.40   1.40
+        ///   bed rail            1.35   1.44   1.45
+        ///   bed floor           1.04   1.07   0.91   (see the profile's bed note)
+        ///   bed opening         1.64   1.71   1.70
+        ///   rocker              0.25   0.46   0.47
+        /// </code>
+        ///
+        /// <para><b>Width is not in that table, and it is the one number this body already had
+        /// nearly right</b>: 2.06 at the flanks against the truck's 2.03. The others wait on their own
+        /// tracks; this one is the car the shared 1.98 m track was least wrong for.</para>
+        ///
+        /// <para><b>The rocker stands at 0.46 where it used to reach 0.25.</b> A body skirted down to a
+        /// quarter of a metre over a 0.96 m wheel is what made the old one read as an estate with a step
+        /// in its roof: a truck's bodywork stops at the height of its wheel centres, and the dark band
+        /// under the doors is most of how it reads as tall rather than merely big.</para>
+        ///
+        /// <para>The step from the cab roof down to the bed rail is 0.50 m over six centimetres — the
+        /// back of the cab, glazed across its width. It needs a crease at both edges or the normals smear
+        /// the cab into the load bay. The stations at -3.07 and -1.36 are the ends of the opening; see
         /// <see cref="CarProfile.BedFrom"/> for why they have to be stations and not just numbers.</para>
         /// </summary>
         private static readonly Station[] PickupStations =
         {
             //           z       halfW  belt   top    topHalf sill
-            // The tailgate, outside: it climbs from the tail cap to the rail line over 13 cm, and the
-            // station at -2.42 is where the opening behind it starts.
-            new Station(-2.55f, 0.92f, 0.28f, 0.33f, 0.86f, -0.48f),
-            new Station(-2.48f, 0.98f, 0.30f, 0.40f, 0.90f, -0.53f),
-            new Station(-2.42f, 1.00f, 0.31f, 0.48f, 0.92f, -0.55f),
+            // The tailgate, outside: flush with the bed rails and square in plan, over a bumper whose
+            // underside is 0.58 off the road — a truck's departure angle is most of what its tail looks
+            // like. The first version rounded it in, three centimetres at each corner and eight off the
+            // top, the way a car's tail domes; the picture came back as a tub rather than a tailgate.
+            new Station(-3.13f, 0.99f, 0.40f, 0.57f, 0.93f, -0.26f),
+            new Station(-3.10f, 1.01f, 0.40f, 0.59f, 0.95f, -0.28f),
+            new Station(-3.07f, 1.02f, 0.40f, 0.60f, 0.96f, -0.30f),
 
-            // The bed. TopHalfWidth runs close to HalfWidth along here on purpose: a load bed is flat
-            // to its rails, unlike a roof, which tucks in — and here the rails are all that is left of
-            // the top surface, because AddBed cuts the rest of it away.
-            new Station(-2.35f, 1.02f, 0.32f, 0.50f, 0.94f, -0.57f),
-            new Station(-1.90f, 1.04f, 0.33f, 0.51f, 0.96f, -0.59f),
-            new Station(-1.35f, 1.05f, 0.34f, 0.52f, 0.97f, -0.59f),
-            new Station(-0.90f, 1.03f, 0.33f, 0.51f, 0.95f, -0.59f),
-            new Station(-0.78f, 1.01f, 0.32f, 0.50f, 0.92f, -0.59f),
+            // The bed. TopHalfWidth runs close to HalfWidth along here on purpose: a load bed is flat to
+            // its rails, unlike a roof, which tucks in — and here the rails are all that is left of the
+            // top surface, because AddBed cuts the rest of it away. The belt is the character line along
+            // the bed side, and it stands 0.40 because BuildRing caps every arch at belt - 0.08 and the
+            // rear arch reaches 0.25.
+            new Station(-2.95f, 1.02f, 0.40f, 0.59f, 0.96f, -0.33f),
+            new Station(-2.45f, 1.03f, 0.40f, 0.60f, 0.97f, -0.37f),
+            new Station(-1.84f, 1.03f, 0.40f, 0.60f, 0.97f, -0.38f),
+            new Station(-1.46f, 1.03f, 0.40f, 0.60f, 0.96f, -0.38f),
+            new Station(-1.36f, 1.02f, 0.40f, 0.59f, 0.95f, -0.38f),
 
-            // The back of the cab.
-            new Station(-0.72f, 0.99f, 0.28f, 0.64f, 0.60f, -0.59f),
-            new Station(-0.45f, 0.98f, 0.26f, 0.70f, 0.60f, -0.59f),
-            new Station(0.25f, 0.97f, 0.25f, 0.70f, 0.60f, -0.59f),
+            // The crew cab: back wall, roof, and a screen raked 57° off vertical — 0.52 m of rise over
+            // 0.80 of run, which is a modern truck's rather than a van's.
+            new Station(-1.30f, 1.00f, 0.54f, 1.02f, 0.78f, -0.38f),
+            new Station(-1.15f, 1.01f, 0.56f, 1.08f, 0.81f, -0.38f),
+            new Station(-0.40f, 1.02f, 0.56f, 1.10f, 0.83f, -0.38f),
+            new Station(0.45f, 1.02f, 0.56f, 1.09f, 0.82f, -0.38f),
+            new Station(1.25f, 1.03f, 0.52f, 0.57f, 0.87f, -0.38f),
 
-            // A front wing 6 cm above the fastback's, and a bonnet to match. Not styling: the arch has
-            // to clear a 0.96 m wheel with a hand of travel over it, BuildRing caps every opening at
-            // belt - 0.08, and BuildRing also refuses a top less than 0.05 above its own belt. So a
-            // visible gap over the tyre buys itself a high wing and a high bonnet, which on a pickup is
-            // what the real thing looks like anyway.
-            new Station(0.85f, 0.98f, 0.30f, 0.36f, 0.78f, -0.59f),
-            new Station(1.15f, 1.01f, 0.34f, 0.40f, 0.80f, -0.59f),
-            new Station(1.40f, 1.04f, 0.35f, 0.40f, 0.81f, -0.59f),
-            new Station(1.70f, 1.02f, 0.34f, 0.39f, 0.81f, -0.59f),
-            new Station(1.95f, 1.00f, 0.31f, 0.38f, 0.79f, -0.58f),
-            new Station(2.10f, 0.99f, 0.29f, 0.37f, 0.78f, -0.57f),
-            new Station(2.20f, 0.96f, 0.26f, 0.34f, 0.75f, -0.55f),
-            new Station(2.26f, 0.90f, 0.22f, 0.30f, 0.69f, -0.51f),
+            // The bonnet: flat, nearly as wide as the truck, falling 8 cm from the cowl to its leading
+            // edge, and ending in a face that is close to vertical. Nothing on an F-150 is more
+            // recognisable than how high and blunt that face is.
+            new Station(1.55f, 1.03f, 0.47f, 0.55f, 0.88f, -0.38f),
+            new Station(1.84f, 1.04f, 0.46f, 0.53f, 0.89f, -0.38f),
+            new Station(2.20f, 1.03f, 0.45f, 0.51f, 0.88f, -0.38f),
+            new Station(2.50f, 1.02f, 0.43f, 0.49f, 0.87f, -0.40f),
+            new Station(2.64f, 1.00f, 0.41f, 0.48f, 0.85f, -0.42f),
+            new Station(2.70f, 0.97f, 0.39f, 0.46f, 0.82f, -0.41f),
+            new Station(2.74f, 0.91f, 0.36f, 0.43f, 0.76f, -0.37f),
         };
 
         /// <summary>
@@ -1187,21 +1217,31 @@ namespace Horizon.EditorTools
             // sits high on its springs when it is not carrying one.
             archGap: 0.12f, rim: RimStyle.Steel, rimFraction: 0.54f);
         public static readonly CarProfile Pickup = new CarProfile(
-            "Pickup", PickupStations, new[] { -2.42f, -0.78f, -0.72f, 0.25f, 0.85f },
-            wheelbase: 2.70f, // the old shared figure, until this body becomes the F-150's
-            windscreenFrom: 0.25f, windscreenTo: 0.85f,
-            rearWindowFrom: -0.75f, rearWindowTo: -0.69f,
-            cabin: new[] { -0.70f, 0.27f },
-            noseZ: 2.27f, tailZ: -2.56f,
+            "Pickup", PickupStations, new[] { -3.07f, -1.36f, -1.30f, 0.45f, 1.25f },
+            wheelbase: 3.68f, // F-150 SuperCrew, 145 in
+            windscreenFrom: 0.45f, windscreenTo: 1.25f,
 
-            // The load bay, 1.64 m of it. Floor at 0.20, which is 0.29 m under the rail — and only six
-            // centimetres under the arch humps, which is the whole reason it is not lower. At 0.10 the
-            // bed was 0.39 m deep between the arches and 0.23 over them, so it read as two wells with a
-            // lump between them rather than as one load bay.
-            bedFrom: -2.42f, bedTo: -0.78f, bedFloorY: 0.20f,
+            // The back of the cab, which is the band between the bed's front wall and the cab roof.
+            rearWindowFrom: -1.35f, rearWindowTo: -1.29f,
+
+            // A crew cab: two rows of doors, so two side windows with a pillar between them.
+            cabin: new[] { -1.20f, -0.46f, -0.32f, 0.47f },
+            noseZ: 2.75f, tailZ: -3.14f,
+
+            // The load bay, 1.71 m of it, with its floor at 0.23 — five centimetres under the arch humps,
+            // which is shallower than the truck's. AddBed rides the floor up over the arch across the
+            // whole width of the bed, where a real one has its wheel housings as boxes at the walls; at
+            // 0.12 that made one mound filling most of the bay, and from the chase camera, which looks
+            // straight into it, the mound was the bed. When the wheels shrink to the reference tyre the
+            // arch drops by 12 cm and the floor can follow it down.
+            bedFrom: -3.07f, bedTo: -1.36f, bedFloorY: 0.23f,
+
+            // Tall and narrow in the corners of the tailgate, reaching up towards the rail, as the
+            // F-150's are: the drop is negative because LampHeight's hand below the belt puts a lamp this
+            // tall halfway down the bumper.
             tailLamps: TailLampStyle.Stack, tailLampCount: 1,
-            tailLampInner: 0.60f, tailLampOuter: 0.92f,
-            tailLampHalfHeight: 0.14f, tailLampDrop: 0.02f,
+            tailLampInner: 0.76f, tailLampOuter: 0.96f,
+            tailLampHalfHeight: 0.22f, tailLampDrop: -0.08f,
             headLamps: HeadLampStyle.FullGrille, grilleSpan: 0.62f, grilleFrame: true, lowerIntake: 0.40f,
             exhaustCount: 1, exhaustRadius: 0.075f, exhaustSideExit: 0.60f,
             wheelRadius: 0.48f, suspensionRestLength: 0.36f,
@@ -1683,6 +1723,27 @@ namespace Horizon.EditorTools
         /// gearing, the spring solve), and holding them in two places is holding them in one place and a
         /// copy of it.</para>
         /// </summary>
+        /// <summary>
+        /// The longest body there is, nose to tail, in built metres — and so the longest car in the
+        /// traffic too, since the two lists are one.
+        ///
+        /// <para>Three things elsewhere are a car length with a margin on it: the gap traffic stops short
+        /// of the car in front, the room it wants beyond a junction before it will enter, and a painted
+        /// grid box. All three were literals sized against the 5.93 m fastback, and the F-150 is 7.36 m —
+        /// on the old numbers one would stop 74 cm off the next car's bumper and overhang a grid box at
+        /// both ends. They are derived from this now, each keeping the clearance it had.</para>
+        /// </summary>
+        public static float LongestBodyLength()
+        {
+            float longest = 0f;
+            for (int i = 0; i < PlayerProfiles.Length; i++)
+            {
+                longest = Mathf.Max(longest, PlayerProfiles[i].NoseZ - PlayerProfiles[i].TailZ);
+            }
+
+            return longest;
+        }
+
         public static CarProfile ProfileByName(string name)
         {
             for (int i = 0; i < PlayerProfiles.Length; i++)
