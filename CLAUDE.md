@@ -250,6 +250,17 @@ renamed `Rigidbody.velocity` → `linearVelocity` and `drag`/`angularDrag` →
 Anti-roll bars and speed-dependent downforce are **not optional** — without them the car flips
 on the first hairpin.
 
+**Every car stands on its reference car's track, and the centre of mass came down with it.** A car
+tips at `track / (2 × CoM height)`, and each one here is held at about 80 % of that by its grip, so
+narrowing a track on its own would have put the fast cars past it. Each `CenterOfMass.y` was scaled by
+the track's own ratio instead, which keeps the tipping point and the lateral load transfer — and so
+every grip figure — exactly where they were; the build's `tips at` lines and the bench's Rollover table
+both say so. Roll stiffness goes as track squared, so each `AntiRollStiffness` came up to
+`travel × ((k/2 + K/travel) / r − k/2)` to hold the lean. **What does change is left to be driven
+rather than tuned away:** fore-and-aft load transfer goes as height over a wheelbase that did not move,
+so braking and power shift less weight than they did, and a narrower hull turns and rolls with less
+inertia.
+
 ## The rev counter
 
 `InstrumentCluster` draws the dial in the top-right corner — the only screen corner nothing else
@@ -1302,6 +1313,12 @@ against 25 % in plan. Dash and gap lengths: a dash is read against the speed it 
 speed changed — only the line *widths* moved, because a line is read against the road under it. Corner
 radii, grades and course lengths: nothing about a centreline moved, so the world footprint, the terrain
 tile list and the per-tile triangle counts are exactly what they were.
+
+**The cars have since come back in, and the roads were left where they are.** Each car is its reference
+car's width now — 1.68 to 2.03 m, where one shared track had held them all at 2.06 to 2.10 — so the
+argument above runs the other way. The roads stay: a road width is a decision rather than a measurement,
+and a narrower car on the same road is room rather than a fault. `DriverBoxHalfWidth` is measured off the
+widest car every build instead of being written down, which it had been twice.
 
 ## Where roads meet
 

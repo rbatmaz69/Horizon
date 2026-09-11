@@ -185,10 +185,9 @@ namespace Horizon.EditorTools
         /// <summary>
         /// How far apart the headlight beams sit either side of the centre line.
         ///
-        /// <para>Shared rather than per profile, and that is not laziness: every one of these bodies is
-        /// built around the same track, so their faces all land within a few centimetres of each other,
-        /// and what the player sees of a beam is the pool of light on the road rather than its
-        /// source.</para>
+        /// <para>Shared rather than per profile, and that is not laziness. The faces are their own cars'
+        /// widths now, 1.68 to 2.03 m, but what the player sees of a beam is the pool of light on the road
+        /// rather than its source — and this sits inside the narrowest of them.</para>
         /// </summary>
         private const float HeadlightHalfSpacing = 0.47f * PlanScale;
 
@@ -255,8 +254,9 @@ namespace Horizon.EditorTools
         /// They were global, on the argument that track is suspension geometry, that this project tunes
         /// feel before beauty, and that a wheelbase varying per profile "would buy variety no player can
         /// see from thirty metres through fog". That last clause is about traffic; the player's own car is
-        /// in every frame at three metres, and one shared 1.98 m track is why every body came out 2.06 to
-        /// 2.10 m wide against references of 1.68 to 1.81 — a body has to cover its wheels. They arrive
+        /// in every frame at three metres, and one shared 1.98 m track was why every body came out 2.06 to
+        /// 2.10 m wide against references of 1.68 to 1.81 — a body has to cover its wheels. Each stands on
+        /// its reference's track now, and is its reference's width. They arrive
         /// through the same gate as everything else, in the reference car's own metres; see
         /// <see cref="TrackHalfFront"/>. The wheel itself is here for the older reason, because a G-Klasse
         /// on a Mustang's tyre is not a G-Klasse — and everything a wheel decides is derived from it
@@ -815,7 +815,7 @@ namespace Horizon.EditorTools
         /// <code>
         ///                       was    now    Mustang '67 fastback
         ///   length              4.88   4.74   4.66
-        ///   width               2.08   2.08   1.80   (locked by the shared track — see below)
+        ///   width               2.08   1.80   1.80
         ///   height              1.60   1.43   1.30
         ///   wheelbase           2.70   2.74   2.74
         ///   front overhang      1.17   0.91   0.83
@@ -834,11 +834,11 @@ namespace Horizon.EditorTools
         /// leaning forward. It carried <b>0.20 m of ground clearance</b>. And the arch openings stood ten
         /// centimetres clear of their own tyres.</para>
         ///
-        /// <para><b>Width is not in that list and cannot be.</b> 2.08 m against a real 1.80 is the one
-        /// dimension this table does not own: the body has to cover the wheels, and the wheels are at
-        /// the track, which is suspension geometry. Narrowing the car means narrowing
-        /// the track, which changes weight transfer and roll — and this project tunes feel before beauty.
-        /// So the car stays a wide reading of a Mustang, and everything else moves to meet it.</para>
+        /// <para><b>Width used to be missing from that list because it could not be in it.</b> 2.08 m
+        /// against a real 1.80 was the one dimension this table did not own while every car stood on one
+        /// 1.98 m track: the body has to cover the wheels. Each car has its own track now, a Mustang's
+        /// 1.47 m here, and the width came down with it — which changes roll and weight transfer, and is
+        /// why the centre of mass and the anti-roll bar moved in the same change.</para>
         ///
         /// <para>The shape it now describes: a dead-flat hood 1.25 m long at a constant 0.30, an upright
         /// face, a windscreen raked 58° from vertical, 0.70 m of flat roof, and then a single unbroken
@@ -857,10 +857,10 @@ namespace Horizon.EditorTools
             // centimetre lip. A '67 has barely any; the old table had 0.07 of upturn and it read as a
             // bolt-on spoiler on a car that should not have one.
             //           z       halfW  belt   top    topHalf sill
-            new Station(-2.48f, 0.84f, 0.18f, 0.23f, 0.58f, -0.47f),
-            new Station(-2.42f, 0.88f, 0.20f, 0.27f, 0.64f, -0.52f),
-            new Station(-2.32f, 0.92f, 0.22f, 0.30f, 0.68f, -0.55f),
-            new Station(-2.15f, 0.97f, 0.24f, 0.26f, 0.70f, -0.59f),
+            new Station(-2.48f, 0.669f, 0.18f, 0.23f, 0.462f, -0.47f),
+            new Station(-2.42f, 0.701f, 0.20f, 0.27f, 0.51f, -0.52f),
+            new Station(-2.32f, 0.733f, 0.22f, 0.30f, 0.542f, -0.55f),
+            new Station(-2.15f, 0.773f, 0.24f, 0.26f, 0.558f, -0.59f),
 
             // --- The fastback slope and the rear haunch.
             //
@@ -868,11 +868,11 @@ namespace Horizon.EditorTools
             // in the middle. BeltY rises to 0.31 over the rear axle and drops to 0.24 at the doors,
             // which is the haunch — and it is structural as well as styling, because BuildRing caps the
             // arch at belt - 0.08 and the belt is therefore what decides how large an opening can be.
-            new Station(-1.90f, 1.00f, 0.27f, 0.33f, 0.70f, -0.59f),
-            new Station(-1.60f, 1.02f, 0.30f, 0.42f, 0.68f, -0.59f),
-            new Station(-1.35f, 1.04f, 0.31f, 0.49f, 0.66f, -0.59f),
-            new Station(-1.15f, 1.02f, 0.29f, 0.55f, 0.64f, -0.59f),
-            new Station(-0.90f, 0.99f, 0.26f, 0.61f, 0.62f, -0.59f),
+            new Station(-1.90f, 0.796f, 0.27f, 0.33f, 0.558f, -0.59f),
+            new Station(-1.60f, 0.812f, 0.30f, 0.42f, 0.542f, -0.59f),
+            new Station(-1.35f, 0.828f, 0.31f, 0.49f, 0.526f, -0.59f),
+            new Station(-1.15f, 0.812f, 0.29f, 0.55f, 0.51f, -0.59f),
+            new Station(-0.90f, 0.788f, 0.26f, 0.61f, 0.494f, -0.59f),
 
             // --- The cabin. Roof flat from -0.45 to 0.25, which is 0.70 m of it.
             //
@@ -880,10 +880,10 @@ namespace Horizon.EditorTools
             // unchanged from before: seen from the chase camera, which looks down from behind, a shallow
             // greenhouse reads as a body pressed flat from above, and that view foreshortens height but
             // not width. What changed is that the whole cabin came down 0.22 m rather than the glass
-            // getting thinner. TopHalfWidth 0.60 against a 0.97 body tucks the glasshouse in by well
+            // getting thinner. TopHalfWidth 0.48 against a 0.77 body tucks the glasshouse in by well
             // over a third — a wide flat roof reads as flat however high it sits.
-            new Station(-0.45f, 0.97f, 0.24f, 0.66f, 0.60f, -0.59f),
-            new Station(0.25f, 0.97f, 0.24f, 0.66f, 0.60f, -0.59f),
+            new Station(-0.45f, 0.773f, 0.24f, 0.66f, 0.478f, -0.59f),
+            new Station(0.25f, 0.773f, 0.24f, 0.66f, 0.478f, -0.59f),
 
             // --- The hood. Dead flat at 0.30 for 1.25 m, which is 1.04 m above the ground.
             //
@@ -891,10 +891,10 @@ namespace Horizon.EditorTools
             // the previous table let TopY drift from 0.47 down to 0.19 over the last metre while the
             // sill rose 0.31 to meet it — the two together closed the nose into a snout. The face is
             // near-vertical now and the taper happens in plan, not in elevation.
-            new Station(0.85f, 0.98f, 0.25f, 0.29f, 0.78f, -0.59f),
-            new Station(1.15f, 1.01f, 0.27f, 0.30f, 0.80f, -0.59f),
-            new Station(1.40f, 1.04f, 0.29f, 0.30f, 0.81f, -0.59f),
-            new Station(1.70f, 1.02f, 0.27f, 0.30f, 0.81f, -0.59f),
+            new Station(0.85f, 0.781f, 0.25f, 0.29f, 0.621f, -0.59f),
+            new Station(1.15f, 0.804f, 0.27f, 0.30f, 0.637f, -0.59f),
+            new Station(1.40f, 0.828f, 0.29f, 0.30f, 0.645f, -0.59f),
+            new Station(1.70f, 0.812f, 0.27f, 0.30f, 0.645f, -0.59f),
 
             // --- The nose, at 2.26 rather than 2.52.
             //
@@ -906,10 +906,10 @@ namespace Horizon.EditorTools
             // Still not tapered to a point — a Mustang has a full, square-shouldered face, and a wedge
             // would be the wrong car. The cap is small enough not to read as a plate because the last
             // three stations pull the width in and dome the underside, not because the nose is pointed.
-            new Station(1.95f, 1.00f, 0.25f, 0.30f, 0.79f, -0.58f),
-            new Station(2.10f, 0.99f, 0.24f, 0.30f, 0.78f, -0.57f),
-            new Station(2.20f, 0.96f, 0.22f, 0.29f, 0.75f, -0.55f),
-            new Station(2.26f, 0.90f, 0.19f, 0.27f, 0.69f, -0.51f),
+            new Station(1.95f, 0.796f, 0.25f, 0.30f, 0.629f, -0.58f),
+            new Station(2.10f, 0.788f, 0.24f, 0.30f, 0.621f, -0.57f),
+            new Station(2.20f, 0.765f, 0.22f, 0.29f, 0.597f, -0.55f),
+            new Station(2.26f, 0.717f, 0.19f, 0.27f, 0.55f, -0.51f),
         };
 
         /// <summary>
@@ -931,6 +931,8 @@ namespace Horizon.EditorTools
         public static readonly CarProfile Fastback = new CarProfile(
             "Fastback", KeyStations, CreaseZ,
             wheelbase: 2.74f, // '67 Mustang fastback
+            trackFront: 1.47f, trackRear: 1.47f, // '67 Mustang, the mean of its two
+            flareWidth: 0.072f, tyreWidth: 0.205f, exhaustSpread: 0.335f,
             windscreenFrom: 0.25f, windscreenTo: 0.85f,
             rearWindowFrom: -1.55f, rearWindowTo: -0.45f,
 
@@ -966,9 +968,9 @@ namespace Horizon.EditorTools
         private static readonly Station[] EstateStations =
         {
             //           z       halfW  belt   top    topHalf sill
-            new Station(-2.40f, 0.84f, 0.26f, 0.50f, 0.60f, -0.46f),
-            new Station(-2.34f, 0.92f, 0.28f, 0.66f, 0.66f, -0.52f),
-            new Station(-2.24f, 0.98f, 0.29f, 0.74f, 0.68f, -0.56f),
+            new Station(-2.40f, 0.647f, 0.26f, 0.50f, 0.462f, -0.46f),
+            new Station(-2.34f, 0.709f, 0.28f, 0.66f, 0.508f, -0.52f),
+            new Station(-2.24f, 0.755f, 0.29f, 0.74f, 0.524f, -0.56f),
 
             // Level roof over the load bay, and the haunch still swells over the rear axle — an estate
             // that is a plain box from the door back reads as a delivery van rather than as a car.
@@ -976,27 +978,27 @@ namespace Horizon.EditorTools
             // The stations at -2.12, -1.66, -1.48 and -0.62 are not shape, they are window edges: a
             // traffic body is lofted from key stations only, so a pillar with no station on it is a
             // pillar the reduced car does not have. See CarProfile.Cabin.
-            new Station(-2.12f, 0.99f, 0.29f, 0.74f, 0.68f, -0.57f),
-            new Station(-1.95f, 1.01f, 0.30f, 0.75f, 0.68f, -0.59f),
-            new Station(-1.66f, 1.03f, 0.31f, 0.75f, 0.68f, -0.59f),
-            new Station(-1.60f, 1.03f, 0.31f, 0.75f, 0.68f, -0.59f),
-            new Station(-1.48f, 1.04f, 0.31f, 0.75f, 0.68f, -0.59f),
-            new Station(-1.35f, 1.04f, 0.31f, 0.75f, 0.68f, -0.59f),
-            new Station(-1.10f, 1.02f, 0.29f, 0.75f, 0.67f, -0.59f),
-            new Station(-0.80f, 0.99f, 0.26f, 0.73f, 0.64f, -0.59f),
-            new Station(-0.62f, 0.98f, 0.25f, 0.72f, 0.63f, -0.59f),
+            new Station(-2.12f, 0.763f, 0.29f, 0.74f, 0.524f, -0.57f),
+            new Station(-1.95f, 0.778f, 0.30f, 0.75f, 0.524f, -0.59f),
+            new Station(-1.66f, 0.793f, 0.31f, 0.75f, 0.524f, -0.59f),
+            new Station(-1.60f, 0.793f, 0.31f, 0.75f, 0.524f, -0.59f),
+            new Station(-1.48f, 0.801f, 0.31f, 0.75f, 0.524f, -0.59f),
+            new Station(-1.35f, 0.801f, 0.31f, 0.75f, 0.524f, -0.59f),
+            new Station(-1.10f, 0.786f, 0.29f, 0.75f, 0.516f, -0.59f),
+            new Station(-0.80f, 0.763f, 0.26f, 0.73f, 0.493f, -0.59f),
+            new Station(-0.62f, 0.755f, 0.25f, 0.72f, 0.485f, -0.59f),
 
             // The cabin, and from here forward every number is the fastback's.
-            new Station(-0.45f, 0.97f, 0.24f, 0.70f, 0.61f, -0.59f),
-            new Station(0.25f, 0.97f, 0.24f, 0.68f, 0.60f, -0.59f),
-            new Station(0.85f, 0.98f, 0.25f, 0.29f, 0.78f, -0.59f),
-            new Station(1.15f, 1.01f, 0.27f, 0.30f, 0.80f, -0.59f),
-            new Station(1.40f, 1.04f, 0.29f, 0.30f, 0.81f, -0.59f),
-            new Station(1.70f, 1.02f, 0.27f, 0.30f, 0.81f, -0.59f),
-            new Station(1.95f, 1.00f, 0.25f, 0.30f, 0.79f, -0.58f),
-            new Station(2.10f, 0.99f, 0.24f, 0.30f, 0.78f, -0.57f),
-            new Station(2.20f, 0.96f, 0.22f, 0.29f, 0.75f, -0.55f),
-            new Station(2.26f, 0.90f, 0.19f, 0.27f, 0.69f, -0.51f),
+            new Station(-0.45f, 0.747f, 0.24f, 0.70f, 0.47f, -0.59f),
+            new Station(0.25f, 0.747f, 0.24f, 0.68f, 0.462f, -0.59f),
+            new Station(0.85f, 0.755f, 0.25f, 0.29f, 0.601f, -0.59f),
+            new Station(1.15f, 0.778f, 0.27f, 0.30f, 0.616f, -0.59f),
+            new Station(1.40f, 0.801f, 0.29f, 0.30f, 0.624f, -0.59f),
+            new Station(1.70f, 0.786f, 0.27f, 0.30f, 0.624f, -0.59f),
+            new Station(1.95f, 0.77f, 0.25f, 0.30f, 0.609f, -0.58f),
+            new Station(2.10f, 0.763f, 0.24f, 0.30f, 0.601f, -0.57f),
+            new Station(2.20f, 0.739f, 0.22f, 0.29f, 0.578f, -0.55f),
+            new Station(2.26f, 0.693f, 0.19f, 0.27f, 0.531f, -0.51f),
         };
 
         /// <summary>
@@ -1015,34 +1017,34 @@ namespace Horizon.EditorTools
         private static readonly Station[] VanStations =
         {
             //           z       halfW  belt   top    topHalf sill
-            new Station(-2.55f, 0.94f, 0.58f, 1.10f, 0.80f, -0.46f),
-            new Station(-2.48f, 1.00f, 0.60f, 1.18f, 0.86f, -0.52f),
-            new Station(-2.40f, 1.03f, 0.61f, 1.21f, 0.88f, -0.56f),
+            new Station(-2.55f, 0.812f, 0.58f, 1.10f, 0.691f, -0.46f),
+            new Station(-2.48f, 0.864f, 0.60f, 1.18f, 0.743f, -0.52f),
+            new Station(-2.40f, 0.89f, 0.61f, 1.21f, 0.76f, -0.56f),
 
             // Dead level for two and a half metres. A van is a box and the box is the point; the only
             // relief along here is the flare over the rear wheel, which FlareAt adds without the table
             // having to say anything.
-            new Station(-1.90f, 1.05f, 0.62f, 1.21f, 0.88f, -0.59f),
-            new Station(-1.35f, 1.06f, 0.62f, 1.21f, 0.88f, -0.59f),
-            new Station(-0.60f, 1.05f, 0.62f, 1.21f, 0.88f, -0.59f),
+            new Station(-1.90f, 0.907f, 0.62f, 1.21f, 0.76f, -0.59f),
+            new Station(-1.35f, 0.916f, 0.62f, 1.21f, 0.76f, -0.59f),
+            new Station(-0.60f, 0.907f, 0.62f, 1.21f, 0.76f, -0.59f),
 
             // Window edges. -0.10 to 0.36 is the middle side window and 0.52 to 1.30 the cab door; the
             // panel behind them stays a panel, which is what keeps this a van rather than a minibus.
-            new Station(-0.10f, 1.04f, 0.61f, 1.21f, 0.88f, -0.59f),
-            new Station(0.30f, 1.04f, 0.61f, 1.21f, 0.88f, -0.59f),
-            new Station(0.36f, 1.04f, 0.61f, 1.21f, 0.88f, -0.59f),
-            new Station(0.52f, 1.04f, 0.61f, 1.21f, 0.88f, -0.59f),
-            new Station(1.05f, 1.03f, 0.60f, 1.21f, 0.87f, -0.59f),
+            new Station(-0.10f, 0.899f, 0.61f, 1.21f, 0.76f, -0.59f),
+            new Station(0.30f, 0.899f, 0.61f, 1.21f, 0.76f, -0.59f),
+            new Station(0.36f, 0.899f, 0.61f, 1.21f, 0.76f, -0.59f),
+            new Station(0.52f, 0.899f, 0.61f, 1.21f, 0.76f, -0.59f),
+            new Station(1.05f, 0.89f, 0.60f, 1.21f, 0.752f, -0.59f),
 
             // Screen and stub bonnet. The screen falls 0.49 m over 0.32, which is 33° off vertical —
             // upright, as a cab-forward van's is. Rake it like the fastback's 58° and the whole nose has
             // to grow a metre to put it anywhere.
-            new Station(1.30f, 1.02f, 0.59f, 1.21f, 0.85f, -0.59f),
-            new Station(1.62f, 1.01f, 0.56f, 0.72f, 0.82f, -0.59f),
-            new Station(1.85f, 1.02f, 0.52f, 0.50f, 0.82f, -0.59f),
-            new Station(2.08f, 1.00f, 0.44f, 0.48f, 0.80f, -0.57f),
-            new Station(2.22f, 0.96f, 0.36f, 0.45f, 0.76f, -0.54f),
-            new Station(2.30f, 0.90f, 0.28f, 0.40f, 0.70f, -0.50f),
+            new Station(1.30f, 0.881f, 0.59f, 1.21f, 0.734f, -0.59f),
+            new Station(1.62f, 0.873f, 0.56f, 0.72f, 0.709f, -0.59f),
+            new Station(1.85f, 0.881f, 0.52f, 0.50f, 0.709f, -0.59f),
+            new Station(2.08f, 0.864f, 0.44f, 0.48f, 0.691f, -0.57f),
+            new Station(2.22f, 0.829f, 0.36f, 0.45f, 0.657f, -0.54f),
+            new Station(2.30f, 0.778f, 0.28f, 0.40f, 0.605f, -0.50f),
         };
 
         /// <summary>
@@ -1095,39 +1097,39 @@ namespace Horizon.EditorTools
             // underside is 0.58 off the road — a truck's departure angle is most of what its tail looks
             // like. The first version rounded it in, three centimetres at each corner and eight off the
             // top, the way a car's tail domes; the picture came back as a tub rather than a tailgate.
-            new Station(-3.13f, 0.99f, 0.40f, 0.57f, 0.93f, -0.26f),
-            new Station(-3.10f, 1.01f, 0.40f, 0.59f, 0.95f, -0.28f),
-            new Station(-3.07f, 1.02f, 0.40f, 0.60f, 0.96f, -0.30f),
+            new Station(-3.13f, 0.866f, 0.40f, 0.57f, 0.814f, -0.26f),
+            new Station(-3.10f, 0.884f, 0.40f, 0.59f, 0.831f, -0.28f),
+            new Station(-3.07f, 0.892f, 0.40f, 0.60f, 0.84f, -0.30f),
 
             // The bed. TopHalfWidth runs close to HalfWidth along here on purpose: a load bed is flat to
             // its rails, unlike a roof, which tucks in — and here the rails are all that is left of the
             // top surface, because AddBed cuts the rest of it away. The belt is the character line along
             // the bed side, and it stands 0.40 because BuildRing caps every arch at belt - 0.08 and the
             // rear arch reaches 0.25.
-            new Station(-2.95f, 1.02f, 0.40f, 0.59f, 0.96f, -0.33f),
-            new Station(-2.45f, 1.03f, 0.40f, 0.60f, 0.97f, -0.37f),
-            new Station(-1.84f, 1.03f, 0.40f, 0.60f, 0.97f, -0.38f),
-            new Station(-1.46f, 1.03f, 0.40f, 0.60f, 0.96f, -0.38f),
-            new Station(-1.36f, 1.02f, 0.40f, 0.59f, 0.95f, -0.38f),
+            new Station(-2.95f, 0.892f, 0.40f, 0.59f, 0.84f, -0.33f),
+            new Station(-2.45f, 0.901f, 0.40f, 0.60f, 0.849f, -0.37f),
+            new Station(-1.84f, 0.901f, 0.40f, 0.60f, 0.849f, -0.38f),
+            new Station(-1.46f, 0.901f, 0.40f, 0.60f, 0.84f, -0.38f),
+            new Station(-1.36f, 0.892f, 0.40f, 0.59f, 0.831f, -0.38f),
 
             // The crew cab: back wall, roof, and a screen raked 57° off vertical — 0.52 m of rise over
             // 0.80 of run, which is a modern truck's rather than a van's.
-            new Station(-1.30f, 1.00f, 0.54f, 1.02f, 0.78f, -0.38f),
-            new Station(-1.15f, 1.01f, 0.56f, 1.08f, 0.81f, -0.38f),
-            new Station(-0.40f, 1.02f, 0.56f, 1.10f, 0.83f, -0.38f),
-            new Station(0.45f, 1.02f, 0.56f, 1.09f, 0.82f, -0.38f),
-            new Station(1.25f, 1.03f, 0.52f, 0.57f, 0.87f, -0.38f),
+            new Station(-1.30f, 0.875f, 0.54f, 1.02f, 0.682f, -0.38f),
+            new Station(-1.15f, 0.884f, 0.56f, 1.08f, 0.709f, -0.38f),
+            new Station(-0.40f, 0.892f, 0.56f, 1.10f, 0.726f, -0.38f),
+            new Station(0.45f, 0.892f, 0.56f, 1.09f, 0.717f, -0.38f),
+            new Station(1.25f, 0.901f, 0.52f, 0.57f, 0.761f, -0.38f),
 
             // The bonnet: flat, nearly as wide as the truck, falling 8 cm from the cowl to its leading
             // edge, and ending in a face that is close to vertical. Nothing on an F-150 is more
             // recognisable than how high and blunt that face is.
-            new Station(1.55f, 1.03f, 0.47f, 0.55f, 0.88f, -0.38f),
-            new Station(1.84f, 1.04f, 0.46f, 0.53f, 0.89f, -0.38f),
-            new Station(2.20f, 1.03f, 0.45f, 0.51f, 0.88f, -0.38f),
-            new Station(2.50f, 1.02f, 0.43f, 0.49f, 0.87f, -0.40f),
-            new Station(2.64f, 1.00f, 0.41f, 0.48f, 0.85f, -0.42f),
-            new Station(2.70f, 0.97f, 0.39f, 0.46f, 0.82f, -0.41f),
-            new Station(2.74f, 0.91f, 0.36f, 0.43f, 0.76f, -0.37f),
+            new Station(1.55f, 0.901f, 0.47f, 0.55f, 0.77f, -0.38f),
+            new Station(1.84f, 0.91f, 0.46f, 0.53f, 0.779f, -0.38f),
+            new Station(2.20f, 0.901f, 0.45f, 0.51f, 0.77f, -0.38f),
+            new Station(2.50f, 0.892f, 0.43f, 0.49f, 0.761f, -0.40f),
+            new Station(2.64f, 0.875f, 0.41f, 0.48f, 0.744f, -0.42f),
+            new Station(2.70f, 0.849f, 0.39f, 0.46f, 0.717f, -0.41f),
+            new Station(2.74f, 0.796f, 0.36f, 0.43f, 0.665f, -0.37f),
         };
 
         /// <summary>
@@ -1139,7 +1141,7 @@ namespace Horizon.EditorTools
         /// is short in both, and the arches, the flares and the wheel seating all follow the profile's own
         /// axles now rather than costing anything.</para>
         ///
-        /// <para>The flanks stay wide at the axles (0.99) even though the car is narrow elsewhere: the
+        /// <para>The flanks stay wide at the axles (0.82) even though the car is narrow elsewhere: the
         /// wheels are at the track like everything else, and a body that pulled in to
         /// match the small car's <i>look</i> would leave the tyres standing outside the arches.</para>
         /// </summary>
@@ -1150,25 +1152,25 @@ namespace Horizon.EditorTools
             // Sills 4 cm higher than the table this grew from, because the wheel came down: this car
             // rides 0.73 m rather than the fastback's 0.78, and the old floor would have left it with
             // ten centimetres of ground clearance and the stance of a slammed shopping trolley.
-            new Station(-2.10f, 0.84f, 0.22f, 0.42f, 0.62f, -0.44f),
-            new Station(-2.04f, 0.90f, 0.24f, 0.54f, 0.66f, -0.49f),
-            new Station(-1.95f, 0.95f, 0.26f, 0.62f, 0.66f, -0.52f),
+            new Station(-2.10f, 0.7f, 0.22f, 0.42f, 0.517f, -0.44f),
+            new Station(-2.04f, 0.75f, 0.24f, 0.54f, 0.55f, -0.49f),
+            new Station(-1.95f, 0.792f, 0.26f, 0.62f, 0.55f, -0.52f),
 
-            new Station(-1.70f, 0.98f, 0.28f, 0.65f, 0.64f, -0.55f),
-            new Station(-1.60f, 0.98f, 0.28f, 0.65f, 0.63f, -0.55f),
-            new Station(-1.35f, 0.99f, 0.29f, 0.66f, 0.62f, -0.55f),
-            new Station(-1.05f, 0.96f, 0.27f, 0.66f, 0.60f, -0.55f),
-            new Station(-0.73f, 0.95f, 0.26f, 0.66f, 0.59f, -0.55f),
-            new Station(-0.55f, 0.94f, 0.25f, 0.66f, 0.59f, -0.55f),
-            new Station(-0.45f, 0.94f, 0.25f, 0.66f, 0.59f, -0.55f),
-            new Station(0.25f, 0.94f, 0.25f, 0.66f, 0.59f, -0.55f),
+            new Station(-1.70f, 0.817f, 0.28f, 0.65f, 0.533f, -0.55f),
+            new Station(-1.60f, 0.817f, 0.28f, 0.65f, 0.525f, -0.55f),
+            new Station(-1.35f, 0.825f, 0.29f, 0.66f, 0.517f, -0.55f),
+            new Station(-1.05f, 0.8f, 0.27f, 0.66f, 0.5f, -0.55f),
+            new Station(-0.73f, 0.792f, 0.26f, 0.66f, 0.492f, -0.55f),
+            new Station(-0.55f, 0.783f, 0.25f, 0.66f, 0.492f, -0.55f),
+            new Station(-0.45f, 0.783f, 0.25f, 0.66f, 0.492f, -0.55f),
+            new Station(0.25f, 0.783f, 0.25f, 0.66f, 0.492f, -0.55f),
 
-            new Station(0.80f, 0.95f, 0.26f, 0.32f, 0.76f, -0.55f),
-            new Station(1.10f, 0.98f, 0.27f, 0.33f, 0.78f, -0.55f),
-            new Station(1.40f, 0.99f, 0.28f, 0.33f, 0.78f, -0.55f),
-            new Station(1.70f, 0.97f, 0.27f, 0.32f, 0.77f, -0.54f),
-            new Station(1.88f, 0.93f, 0.25f, 0.31f, 0.74f, -0.52f),
-            new Station(2.00f, 0.87f, 0.21f, 0.28f, 0.68f, -0.47f),
+            new Station(0.80f, 0.792f, 0.26f, 0.32f, 0.633f, -0.55f),
+            new Station(1.10f, 0.817f, 0.27f, 0.33f, 0.65f, -0.55f),
+            new Station(1.40f, 0.825f, 0.28f, 0.33f, 0.65f, -0.55f),
+            new Station(1.70f, 0.808f, 0.27f, 0.32f, 0.642f, -0.54f),
+            new Station(1.88f, 0.775f, 0.25f, 0.31f, 0.617f, -0.52f),
+            new Station(2.00f, 0.725f, 0.21f, 0.28f, 0.567f, -0.47f),
         };
 
         /// <summary>
@@ -1182,6 +1184,7 @@ namespace Horizon.EditorTools
         public static readonly CarProfile Estate = new CarProfile(
             "Estate", EstateStations, new[] { -2.24f, 0.25f, 0.85f },
             wheelbase: 2.64f, // Volvo 245
+            trackFront: 1.39f, trackRear: 1.39f, // Volvo 245, the mean of its two
             windscreenFrom: 0.25f, windscreenTo: 0.85f,
             rearWindowFrom: -2.42f, rearWindowTo: -2.22f,
             cabin: new[] { -2.12f, -1.66f, -1.48f, -0.80f, -0.62f, 0.27f },
@@ -1190,14 +1193,16 @@ namespace Horizon.EditorTools
             tailLampInner: 0.60f, tailLampOuter: 0.86f,
             tailLampHalfHeight: 0.20f, tailLampDrop: -0.02f,
             headLamps: HeadLampStyle.Stacked, grilleSpan: 0.42f,
-            exhaustCount: 1, exhaustRadius: 0.055f, exhaustSpread: 0.40f,
+            exhaustCount: 1, exhaustRadius: 0.055f, exhaustSpread: 0.308f,
             tailGlassHalfWidth: 0.55f, tailGlassBottom: 0.30f, tailGlassTop: 0.48f,
-            tyreWidth: 0.32f, flareWidth: 0.07f,
+            tyreWidth: 0.185f, flareWidth: 0.054f,
             archGap: 0.10f, rim: RimStyle.Turbine, rimFraction: 0.56f,
             wheelRadius: 0.315f, suspensionRestLength: 0.465f);
         public static readonly CarProfile Van = new CarProfile(
             "Van", VanStations, new[] { -2.40f, 1.30f, 1.62f },
             wheelbase: 2.93f, // a short-wheelbase panel van
+            trackFront: 1.7f, trackRear: 1.7f, // panel van, the mean of its two
+            tyreWidth: 0.215f,
             windscreenFrom: 1.28f, windscreenTo: 1.64f,
 
             // No backlight along the roofline — the roof runs level to the very back of this one, so
@@ -1210,15 +1215,16 @@ namespace Horizon.EditorTools
             tailLampInner: 0.62f, tailLampOuter: 0.90f,
             tailLampHalfHeight: 0.22f, tailLampDrop: 0.16f,
             headLamps: HeadLampStyle.Stacked, grilleSpan: 0.40f,
-            exhaustCount: 1, exhaustRadius: 0.050f, exhaustSideExit: 0.58f,
+            exhaustCount: 1, exhaustRadius: 0.050f, exhaustSideExit: 0.501f,
             tailGlassHalfWidth: 0.52f, tailGlassBottom: 0.66f, tailGlassTop: 0.94f,
-            wheelRadius: 0.35f, suspensionRestLength: 0.44f, flareWidth: 0.08f,
+            wheelRadius: 0.35f, suspensionRestLength: 0.44f, flareWidth: 0.069f,
             // A steel wheel on a fat sidewall, and a hand of arch gap: this thing carries loads and
             // sits high on its springs when it is not carrying one.
             archGap: 0.12f, rim: RimStyle.Steel, rimFraction: 0.54f);
         public static readonly CarProfile Pickup = new CarProfile(
             "Pickup", PickupStations, new[] { -3.07f, -1.36f, -1.30f, 0.45f, 1.25f },
             wheelbase: 3.68f, // F-150 SuperCrew, 145 in
+            trackFront: 1.73f, trackRear: 1.73f, // F-150, the mean of its two
             windscreenFrom: 0.45f, windscreenTo: 1.25f,
 
             // The back of the cab, which is the band between the bed's front wall and the cab roof.
@@ -1244,13 +1250,14 @@ namespace Horizon.EditorTools
             tailLampInner: 0.76f, tailLampOuter: 0.96f,
             tailLampHalfHeight: 0.22f, tailLampDrop: -0.08f,
             headLamps: HeadLampStyle.FullGrille, grilleSpan: 0.62f, grilleFrame: true, lowerIntake: 0.40f,
-            exhaustCount: 1, exhaustRadius: 0.075f, exhaustSideExit: 0.60f,
+            exhaustCount: 1, exhaustRadius: 0.075f, exhaustSideExit: 0.525f,
             wheelRadius: 0.42f, suspensionRestLength: 0.42f,
-            tyreWidth: 0.38f, flareWidth: 0.12f,
+            tyreWidth: 0.275f, flareWidth: 0.105f,
             archGap: 0.13f, rim: RimStyle.MultiSpoke, rimFraction: 0.66f);
         public static readonly CarProfile Hatchback = new CarProfile(
             "Hatchback", HatchbackStations, new[] { -1.95f, 0.25f, 0.80f },
             wheelbase: 2.48f, // a supermini
+            trackFront: 1.5f, trackRear: 1.5f, // supermini, the mean of its two
             windscreenFrom: 0.25f, windscreenTo: 0.82f,
             rearWindowFrom: -2.06f, rearWindowTo: -1.93f,
             cabin: new[] { -1.60f, -0.73f, -0.55f, 0.27f },
@@ -1259,10 +1266,10 @@ namespace Horizon.EditorTools
             tailLampInner: 0.58f, tailLampOuter: 0.93f,
             tailLampHalfHeight: 0.17f, tailLampDrop: -0.02f,
             headLamps: HeadLampStyle.Stacked, grilleSpan: 0.38f,
-            exhaustCount: 1, exhaustRadius: 0.045f, exhaustSpread: 0.34f,
+            exhaustCount: 1, exhaustRadius: 0.045f, exhaustSpread: 0.283f,
             tailGlassHalfWidth: 0.56f, tailGlassBottom: 0.26f, tailGlassTop: 0.40f,
             wheelRadius: 0.31f, suspensionRestLength: 0.42f,
-            tyreWidth: 0.28f, flareWidth: 0.06f,
+            tyreWidth: 0.195f, flareWidth: 0.05f,
             archGap: 0.10f, rim: RimStyle.FiveSpoke, rimFraction: 0.62f);
         /// <summary>
         /// A late-nineties Japanese performance coupé, measured against a Nissan Skyline R34 GT-R.
@@ -1283,7 +1290,7 @@ namespace Horizon.EditorTools
         ///   beltline          0.95   0.95
         /// </code>
         ///
-        /// <para><b>TopHalfWidth 0.72 against the fastback's 0.60.</b> This is the number that stops it
+        /// <para><b>TopHalfWidth 0.55 against the fastback's 0.48.</b> This is the number that stops it
         /// looking like a Mustang with a different roof. A muscle car tucks its glasshouse in hard; a
         /// GT-R's cabin is nearly as wide as its shoulders, and reading that wrong makes every square
         /// Japanese coupé look American.</para>
@@ -1291,32 +1298,32 @@ namespace Horizon.EditorTools
         private static readonly Station[] CoupeStations =
         {
             //           z       halfW  belt   top    topHalf sill
-            new Station(-2.31f, 0.86f, 0.16f, 0.30f, 0.72f, -0.48f),
-            new Station(-2.26f, 0.92f, 0.18f, 0.34f, 0.80f, -0.53f),
-            new Station(-2.20f, 0.97f, 0.20f, 0.37f, 0.86f, -0.56f),
+            new Station(-2.31f, 0.662f, 0.16f, 0.30f, 0.554f, -0.48f),
+            new Station(-2.26f, 0.708f, 0.18f, 0.34f, 0.616f, -0.53f),
+            new Station(-2.20f, 0.746f, 0.20f, 0.37f, 0.662f, -0.56f),
 
             // The deck. Level, and the wing stands on it at -1.95.
-            new Station(-1.95f, 1.01f, 0.23f, 0.36f, 0.90f, -0.59f),
-            new Station(-1.60f, 1.04f, 0.28f, 0.36f, 0.90f, -0.59f),
+            new Station(-1.95f, 0.777f, 0.23f, 0.36f, 0.692f, -0.59f),
+            new Station(-1.60f, 0.8f, 0.28f, 0.36f, 0.692f, -0.59f),
 
             // Backlight, then 1.3 m of flat roof.
-            new Station(-1.35f, 1.05f, 0.29f, 0.48f, 0.82f, -0.59f),
-            new Station(-1.10f, 1.03f, 0.26f, 0.58f, 0.75f, -0.59f),
-            new Station(-1.00f, 1.02f, 0.25f, 0.62f, 0.72f, -0.59f),
-            new Station(-0.58f, 1.01f, 0.23f, 0.63f, 0.72f, -0.59f),
-            new Station(-0.42f, 1.00f, 0.22f, 0.63f, 0.72f, -0.59f),
-            new Station(-0.40f, 1.00f, 0.22f, 0.63f, 0.72f, -0.59f),
-            new Station(0.30f, 1.00f, 0.22f, 0.62f, 0.72f, -0.59f),
+            new Station(-1.35f, 0.808f, 0.29f, 0.48f, 0.631f, -0.59f),
+            new Station(-1.10f, 0.792f, 0.26f, 0.58f, 0.577f, -0.59f),
+            new Station(-1.00f, 0.785f, 0.25f, 0.62f, 0.554f, -0.59f),
+            new Station(-0.58f, 0.777f, 0.23f, 0.63f, 0.554f, -0.59f),
+            new Station(-0.42f, 0.769f, 0.22f, 0.63f, 0.554f, -0.59f),
+            new Station(-0.40f, 0.769f, 0.22f, 0.63f, 0.554f, -0.59f),
+            new Station(0.30f, 0.769f, 0.22f, 0.62f, 0.554f, -0.59f),
 
             // The hood, and a wing crested over the front wheel: belt 0.29 at the axle against 0.26
             // at the cowl. That crest is worth 3 cm of arch opening, which is the whole gap over the
             // tyre on a car this low.
-            new Station(0.90f, 1.02f, 0.26f, 0.32f, 0.84f, -0.59f),
-            new Station(1.35f, 1.05f, 0.29f, 0.35f, 0.86f, -0.59f),
-            new Station(1.75f, 1.04f, 0.27f, 0.33f, 0.86f, -0.59f),
-            new Station(2.05f, 1.01f, 0.24f, 0.31f, 0.83f, -0.57f),
-            new Station(2.20f, 0.97f, 0.21f, 0.29f, 0.79f, -0.54f),
-            new Station(2.31f, 0.90f, 0.18f, 0.27f, 0.71f, -0.49f),
+            new Station(0.90f, 0.785f, 0.26f, 0.32f, 0.646f, -0.59f),
+            new Station(1.35f, 0.808f, 0.29f, 0.35f, 0.662f, -0.59f),
+            new Station(1.75f, 0.8f, 0.27f, 0.33f, 0.662f, -0.59f),
+            new Station(2.05f, 0.777f, 0.24f, 0.31f, 0.639f, -0.57f),
+            new Station(2.20f, 0.746f, 0.21f, 0.29f, 0.608f, -0.54f),
+            new Station(2.31f, 0.692f, 0.18f, 0.27f, 0.546f, -0.49f),
         };
 
         /// <summary>
@@ -1336,12 +1343,12 @@ namespace Horizon.EditorTools
         private static readonly Station[] LiftbackStations =
         {
             //           z       halfW  belt   top    topHalf sill
-            new Station(-2.27f, 0.86f, 0.14f, 0.22f, 0.64f, -0.47f),
-            new Station(-2.20f, 0.92f, 0.16f, 0.28f, 0.70f, -0.52f),
-            new Station(-2.10f, 0.97f, 0.18f, 0.31f, 0.74f, -0.56f),
+            new Station(-2.27f, 0.671f, 0.14f, 0.22f, 0.499f, -0.47f),
+            new Station(-2.20f, 0.718f, 0.16f, 0.28f, 0.546f, -0.52f),
+            new Station(-2.10f, 0.757f, 0.18f, 0.31f, 0.577f, -0.56f),
 
-            new Station(-1.90f, 1.01f, 0.20f, 0.30f, 0.76f, -0.59f),
-            new Station(-1.65f, 1.04f, 0.24f, 0.33f, 0.74f, -0.59f),
+            new Station(-1.90f, 0.788f, 0.20f, 0.30f, 0.593f, -0.59f),
+            new Station(-1.65f, 0.811f, 0.24f, 0.33f, 0.577f, -0.59f),
 
             // The dome. No two adjacent stations share a TopY, on purpose.
             //
@@ -1349,24 +1356,24 @@ namespace Horizon.EditorTools
             // car sits on 0.28 m of suspension travel, so its tyre tops out two centimetres higher than
             // it used to, and BuildRing caps the arch at belt - 0.08. Two centimetres of belt is what
             // buys the arch back.
-            new Station(-1.35f, 1.05f, 0.27f, 0.40f, 0.70f, -0.59f),
-            new Station(-1.15f, 1.04f, 0.24f, 0.44f, 0.67f, -0.59f),
-            new Station(-1.05f, 1.03f, 0.23f, 0.46f, 0.66f, -0.59f),
-            new Station(-0.70f, 1.01f, 0.20f, 0.49f, 0.63f, -0.59f),
-            new Station(-0.56f, 1.00f, 0.19f, 0.49f, 0.63f, -0.59f),
-            new Station(-0.40f, 1.00f, 0.19f, 0.49f, 0.62f, -0.59f),
-            new Station(-0.20f, 0.99f, 0.18f, 0.49f, 0.62f, -0.59f),
-            new Station(0.30f, 0.99f, 0.18f, 0.47f, 0.62f, -0.59f),
+            new Station(-1.35f, 0.819f, 0.27f, 0.40f, 0.546f, -0.59f),
+            new Station(-1.15f, 0.811f, 0.24f, 0.44f, 0.523f, -0.59f),
+            new Station(-1.05f, 0.804f, 0.23f, 0.46f, 0.515f, -0.59f),
+            new Station(-0.70f, 0.788f, 0.20f, 0.49f, 0.492f, -0.59f),
+            new Station(-0.56f, 0.78f, 0.19f, 0.49f, 0.492f, -0.59f),
+            new Station(-0.40f, 0.78f, 0.19f, 0.49f, 0.484f, -0.59f),
+            new Station(-0.20f, 0.772f, 0.18f, 0.49f, 0.484f, -0.59f),
+            new Station(0.30f, 0.772f, 0.18f, 0.47f, 0.484f, -0.59f),
 
             // The front wing, crested over the axle. This car's belt was the lowest in the file and the
             // arch cap follows the belt, so its front tyre was cut *into* the bodywork — a negative gap,
             // which the build report now says out loud.
-            new Station(0.80f, 1.01f, 0.24f, 0.30f, 0.80f, -0.59f),
-            new Station(1.25f, 1.04f, 0.29f, 0.35f, 0.84f, -0.59f),
-            new Station(1.70f, 1.03f, 0.27f, 0.33f, 0.84f, -0.58f),
-            new Station(2.00f, 1.00f, 0.22f, 0.29f, 0.81f, -0.56f),
-            new Station(2.15f, 0.95f, 0.17f, 0.25f, 0.76f, -0.53f),
-            new Station(2.25f, 0.87f, 0.14f, 0.22f, 0.67f, -0.48f),
+            new Station(0.80f, 0.788f, 0.24f, 0.30f, 0.624f, -0.59f),
+            new Station(1.25f, 0.811f, 0.29f, 0.35f, 0.655f, -0.59f),
+            new Station(1.70f, 0.804f, 0.27f, 0.33f, 0.655f, -0.58f),
+            new Station(2.00f, 0.78f, 0.22f, 0.29f, 0.632f, -0.56f),
+            new Station(2.15f, 0.741f, 0.17f, 0.25f, 0.593f, -0.53f),
+            new Station(2.25f, 0.679f, 0.14f, 0.22f, 0.523f, -0.48f),
         };
 
         /// <summary>
@@ -1378,17 +1385,17 @@ namespace Horizon.EditorTools
         /// has a low deck under a wing; a tall short deck is neither, and it is what makes a small
         /// saloon look planted rather than stubby.</para>
         ///
-        /// <para><b>HalfWidth drops to 0.93 along the doors and comes straight back to 1.04 at the rear
-        /// axle.</b> A 190E is 1.68 m wide against this car's enforced 2.06, and pinching the waist is
-        /// the only honest way to say so — but the body still has to cover wheels sitting at
-        /// the track, so the narrowing has to end before the arches do.</para>
+        /// <para><b>HalfWidth drops to 0.73 along the doors and comes straight back to 0.81 at the
+        /// rear axle.</b> The pinch was once the only honest way to say a 190E is narrow, while one shared track
+        /// held this body at 2.06 m; the car is its own 1.70 now, and the waist stays because the real one has
+        /// it. The body still has to cover its wheels, so the narrowing ends before the arches do.</para>
         /// </summary>
         private static readonly Station[] SaloonStations =
         {
             //           z       halfW  belt   top    topHalf sill
-            new Station(-2.23f, 0.85f, 0.20f, 0.30f, 0.70f, -0.46f),
-            new Station(-2.17f, 0.91f, 0.22f, 0.35f, 0.76f, -0.51f),
-            new Station(-2.10f, 0.96f, 0.24f, 0.38f, 0.80f, -0.54f),
+            new Station(-2.23f, 0.663f, 0.20f, 0.30f, 0.546f, -0.46f),
+            new Station(-2.17f, 0.71f, 0.22f, 0.35f, 0.593f, -0.51f),
+            new Station(-2.10f, 0.749f, 0.24f, 0.38f, 0.624f, -0.54f),
 
             // The deck: 1.12 m above the road, against the notchback's 1.07.
             //
@@ -1397,27 +1404,27 @@ namespace Horizon.EditorTools
             // and seen from behind, which is the view a driver following this car has, the deck and the
             // roof read as one slab with a slot cut in it for the backlight. Five centimetres off the
             // deck and five onto the roof is most of the difference.
-            new Station(-1.80f, 0.99f, 0.26f, 0.38f, 0.82f, -0.57f),
-            new Station(-1.55f, 1.02f, 0.28f, 0.38f, 0.82f, -0.57f),
+            new Station(-1.80f, 0.772f, 0.26f, 0.38f, 0.639f, -0.57f),
+            new Station(-1.55f, 0.795f, 0.28f, 0.38f, 0.639f, -0.57f),
 
             // A backlight 42° off vertical over a quarter of a metre. The notchback lays the same
             // glass down to 67° over two and a half times the length — a saloon's rear window stands up
             // and a coupé's lies back, and that is the pair of shapes this table and that one are.
-            new Station(-1.42f, 1.04f, 0.29f, 0.52f, 0.72f, -0.57f),
-            new Station(-1.30f, 1.02f, 0.27f, 0.66f, 0.66f, -0.57f),
+            new Station(-1.42f, 0.811f, 0.29f, 0.52f, 0.561f, -0.57f),
+            new Station(-1.30f, 0.795f, 0.27f, 0.66f, 0.515f, -0.57f),
 
             // The waist, and the long flat roof over it. -0.50 and -0.32 are the B-pillar's edges.
-            new Station(-0.60f, 0.95f, 0.23f, 0.66f, 0.64f, -0.57f),
-            new Station(-0.50f, 0.95f, 0.23f, 0.66f, 0.64f, -0.57f),
-            new Station(-0.32f, 0.94f, 0.23f, 0.66f, 0.64f, -0.57f),
-            new Station(0.25f, 0.93f, 0.22f, 0.66f, 0.64f, -0.57f),
+            new Station(-0.60f, 0.741f, 0.23f, 0.66f, 0.499f, -0.57f),
+            new Station(-0.50f, 0.741f, 0.23f, 0.66f, 0.499f, -0.57f),
+            new Station(-0.32f, 0.733f, 0.23f, 0.66f, 0.499f, -0.57f),
+            new Station(0.25f, 0.725f, 0.22f, 0.66f, 0.499f, -0.57f),
 
-            new Station(0.85f, 0.96f, 0.25f, 0.32f, 0.78f, -0.57f),
-            new Station(1.35f, 1.03f, 0.28f, 0.34f, 0.82f, -0.57f),
-            new Station(1.70f, 1.01f, 0.26f, 0.32f, 0.81f, -0.56f),
-            new Station(1.98f, 0.98f, 0.22f, 0.30f, 0.78f, -0.54f),
-            new Station(2.13f, 0.94f, 0.20f, 0.29f, 0.74f, -0.51f),
-            new Station(2.23f, 0.87f, 0.17f, 0.26f, 0.67f, -0.46f),
+            new Station(0.85f, 0.749f, 0.25f, 0.32f, 0.608f, -0.57f),
+            new Station(1.35f, 0.803f, 0.28f, 0.34f, 0.639f, -0.57f),
+            new Station(1.70f, 0.788f, 0.26f, 0.32f, 0.632f, -0.56f),
+            new Station(1.98f, 0.764f, 0.22f, 0.30f, 0.608f, -0.54f),
+            new Station(2.13f, 0.733f, 0.20f, 0.29f, 0.577f, -0.51f),
+            new Station(2.23f, 0.678f, 0.17f, 0.26f, 0.522f, -0.46f),
         };
 
         /// <summary>
@@ -1449,9 +1456,9 @@ namespace Horizon.EditorTools
         private static readonly Station[] NotchbackStations =
         {
             //           z       halfW  belt   top    topHalf sill
-            new Station(-2.17f, 0.84f, 0.17f, 0.25f, 0.68f, -0.46f),
-            new Station(-2.11f, 0.90f, 0.19f, 0.30f, 0.74f, -0.51f),
-            new Station(-2.04f, 0.95f, 0.21f, 0.33f, 0.78f, -0.54f),
+            new Station(-2.17f, 0.647f, 0.17f, 0.25f, 0.524f, -0.46f),
+            new Station(-2.11f, 0.694f, 0.19f, 0.30f, 0.57f, -0.51f),
+            new Station(-2.04f, 0.732f, 0.21f, 0.33f, 0.601f, -0.54f),
 
             // A low deck, 1.07 m above the road against the saloon's 1.12, and 0.32 under its own roof
             // where it used to be 0.24 — see the saloon's table for why that number matters more than
@@ -1460,27 +1467,27 @@ namespace Horizon.EditorTools
             // The beltline over the rear axle comes up two centimetres with it. That is arch clearance
             // rather than styling: BuildRing caps the opening at belt - 0.08, and this was the one axle
             // in the file where the cap, not the profile, was deciding how much tyre you could see.
-            new Station(-1.75f, 0.99f, 0.25f, 0.33f, 0.80f, -0.57f),
-            new Station(-1.50f, 1.02f, 0.27f, 0.33f, 0.80f, -0.57f),
+            new Station(-1.75f, 0.763f, 0.25f, 0.33f, 0.617f, -0.57f),
+            new Station(-1.50f, 0.786f, 0.27f, 0.33f, 0.617f, -0.57f),
 
             // 0.65 m of backlight, 71° off vertical. Long and lying down, where the saloon's is short
             // and upright — and the roof it lands on is a metre rather than a metre and a half.
-            new Station(-1.20f, 1.04f, 0.28f, 0.48f, 0.72f, -0.57f),
-            new Station(-1.18f, 1.04f, 0.28f, 0.49f, 0.72f, -0.57f),
-            new Station(-0.85f, 1.01f, 0.25f, 0.61f, 0.64f, -0.57f),
-            new Station(-0.46f, 0.97f, 0.22f, 0.64f, 0.63f, -0.57f),
-            new Station(-0.30f, 0.95f, 0.21f, 0.65f, 0.62f, -0.57f),
-            new Station(-0.28f, 0.95f, 0.21f, 0.65f, 0.62f, -0.57f),
-            new Station(0.22f, 0.93f, 0.20f, 0.65f, 0.62f, -0.57f),
+            new Station(-1.20f, 0.801f, 0.28f, 0.48f, 0.555f, -0.57f),
+            new Station(-1.18f, 0.801f, 0.28f, 0.49f, 0.555f, -0.57f),
+            new Station(-0.85f, 0.778f, 0.25f, 0.61f, 0.493f, -0.57f),
+            new Station(-0.46f, 0.748f, 0.22f, 0.64f, 0.486f, -0.57f),
+            new Station(-0.30f, 0.732f, 0.21f, 0.65f, 0.478f, -0.57f),
+            new Station(-0.28f, 0.732f, 0.21f, 0.65f, 0.478f, -0.57f),
+            new Station(0.22f, 0.717f, 0.20f, 0.65f, 0.478f, -0.57f),
 
             // The cowl, and then the nose falls away from it: 0.30 down to 0.15 over 0.9 m, which is
             // the shark nose and the third of the three things separating this from the saloon.
-            new Station(0.80f, 0.96f, 0.24f, 0.33f, 0.78f, -0.57f),
-            new Station(1.25f, 1.02f, 0.28f, 0.34f, 0.82f, -0.57f),
-            new Station(1.60f, 1.01f, 0.26f, 0.31f, 0.81f, -0.56f),
-            new Station(1.90f, 0.97f, 0.21f, 0.26f, 0.77f, -0.54f),
-            new Station(2.06f, 0.93f, 0.17f, 0.19f, 0.72f, -0.51f),
-            new Station(2.16f, 0.86f, 0.14f, 0.15f, 0.65f, -0.45f),
+            new Station(0.80f, 0.74f, 0.24f, 0.33f, 0.601f, -0.57f),
+            new Station(1.25f, 0.786f, 0.28f, 0.34f, 0.632f, -0.57f),
+            new Station(1.60f, 0.778f, 0.26f, 0.31f, 0.624f, -0.56f),
+            new Station(1.90f, 0.748f, 0.21f, 0.26f, 0.593f, -0.54f),
+            new Station(2.06f, 0.717f, 0.17f, 0.19f, 0.555f, -0.51f),
+            new Station(2.16f, 0.663f, 0.14f, 0.15f, 0.501f, -0.45f),
         };
 
         /// <summary>
@@ -1495,7 +1502,7 @@ namespace Horizon.EditorTools
         /// <code>
         ///                       was    now    G-Klasse W463A
         ///   length (no spare)   4.67   4.82   4.82
-        ///   width               2.10   2.10   1.93   (waits on its own track)
+        ///   width               2.10   1.98   1.98   (the G63's, flares and all)
         ///   height              1.91   1.97   1.97
         ///   wheelbase           2.85   2.89   2.89
         ///   front overhang      0.92   0.90   ~0.88
@@ -1520,8 +1527,8 @@ namespace Horizon.EditorTools
         /// glass on a top surface and this vehicle's tailgate has none.</para>
         ///
         /// <para>What separates it from the van, which is the other tall box here, is now five things
-        /// rather than three: no tumblehome at all (TopHalfWidth 0.95 against a HalfWidth of 1.00, where
-        /// the van runs 0.88 against 1.05); an upright screen, 19° off vertical against the van's 33°,
+        /// rather than three: no tumblehome at all (TopHalfWidth 0.81 against a HalfWidth of 0.85, where
+        /// the van runs 0.76 against 0.91); an upright screen, 19° off vertical against the van's 33°,
         /// over a real 1.24 m bonnet where the van has a stub; the raised stance; three separate side
         /// windows; and a spare wheel bolted to the back of it.</para>
         ///
@@ -1537,23 +1544,23 @@ namespace Horizon.EditorTools
             // Quoted against a ground plane at -0.82: this car rides on a 0.40 m tyre over 0.42 m of
             // travel, which is 4 cm more than the fastback and second only to the pickup. Every height
             // below is that much further off the road than the same number on a fastback.
-            new Station(-2.48f, 0.92f, 0.46f, 1.09f, 0.86f, -0.34f),
-            new Station(-2.43f, 0.97f, 0.49f, 1.14f, 0.92f, -0.38f),
-            new Station(-2.37f, 0.99f, 0.50f, 1.15f, 0.94f, -0.42f),
+            new Station(-2.48f, 0.785f, 0.46f, 1.09f, 0.734f, -0.34f),
+            new Station(-2.43f, 0.828f, 0.49f, 1.14f, 0.785f, -0.38f),
+            new Station(-2.37f, 0.845f, 0.50f, 1.15f, 0.802f, -0.42f),
 
             // Dead level and dead vertical for three metres, broken only by the pillars: the stations at
             // -2.30, -1.55, -1.38, -0.70 and -0.52 are window edges rather than shape. Three side
             // windows with real pillars between them is what stops a box this size reading as a minibus,
             // and it is the single biggest thing separating this from the van.
-            new Station(-2.30f, 1.00f, 0.50f, 1.15f, 0.95f, -0.42f),
-            new Station(-1.95f, 1.00f, 0.50f, 1.15f, 0.95f, -0.42f),
-            new Station(-1.55f, 1.00f, 0.50f, 1.15f, 0.95f, -0.42f),
-            new Station(-1.38f, 1.01f, 0.50f, 1.15f, 0.95f, -0.42f),
-            new Station(-0.70f, 1.00f, 0.50f, 1.15f, 0.95f, -0.42f),
-            new Station(-0.52f, 1.00f, 0.50f, 1.15f, 0.95f, -0.42f),
-            new Station(0.10f, 1.00f, 0.50f, 1.15f, 0.95f, -0.42f),
-            new Station(0.62f, 1.00f, 0.50f, 1.15f, 0.95f, -0.42f),
-            new Station(0.86f, 1.00f, 0.49f, 1.15f, 0.95f, -0.42f),
+            new Station(-2.30f, 0.853f, 0.50f, 1.15f, 0.811f, -0.42f),
+            new Station(-1.95f, 0.853f, 0.50f, 1.15f, 0.811f, -0.42f),
+            new Station(-1.55f, 0.853f, 0.50f, 1.15f, 0.811f, -0.42f),
+            new Station(-1.38f, 0.862f, 0.50f, 1.15f, 0.811f, -0.42f),
+            new Station(-0.70f, 0.853f, 0.50f, 1.15f, 0.811f, -0.42f),
+            new Station(-0.52f, 0.853f, 0.50f, 1.15f, 0.811f, -0.42f),
+            new Station(0.10f, 0.853f, 0.50f, 1.15f, 0.811f, -0.42f),
+            new Station(0.62f, 0.853f, 0.50f, 1.15f, 0.811f, -0.42f),
+            new Station(0.86f, 0.853f, 0.49f, 1.15f, 0.811f, -0.42f),
 
             // The screen, and then a metre and a quarter of dead flat bonnet 1.25 m above the road.
             //
@@ -1566,16 +1573,17 @@ namespace Horizon.EditorTools
             // 15 cm of daylight over a tyre needs the arch at 0.29, the belt 0.08 above that, and the
             // bonnet 0.05 above *that*. Wanting a bigger wheel as well is what pushes the nose back to
             // where it started — which is why the wheel is 0.48 and not the 0.52 it briefly was.
-            new Station(1.10f, 1.00f, 0.38f, 0.43f, 0.96f, -0.42f),
-            new Station(1.45f, 1.01f, 0.37f, 0.42f, 0.97f, -0.42f),
-            new Station(1.95f, 1.01f, 0.36f, 0.41f, 0.97f, -0.42f),
-            new Station(2.22f, 0.99f, 0.34f, 0.39f, 0.95f, -0.40f),
-            new Station(2.34f, 0.94f, 0.30f, 0.35f, 0.89f, -0.36f),
+            new Station(1.10f, 0.853f, 0.38f, 0.43f, 0.819f, -0.42f),
+            new Station(1.45f, 0.862f, 0.37f, 0.42f, 0.828f, -0.42f),
+            new Station(1.95f, 0.862f, 0.36f, 0.41f, 0.828f, -0.42f),
+            new Station(2.22f, 0.845f, 0.34f, 0.39f, 0.811f, -0.40f),
+            new Station(2.34f, 0.802f, 0.30f, 0.35f, 0.76f, -0.36f),
         };
 
         public static readonly CarProfile Coupe = new CarProfile(
             "Coupe", CoupeStations, new[] { -2.20f, -1.60f, 0.30f, 0.90f },
             wheelbase: 2.665f, // Skyline R34 GT-R
+            trackFront: 1.47f, trackRear: 1.47f, // R34 GT-R, the mean of its two
             windscreenFrom: 0.30f, windscreenTo: 0.90f,
             rearWindowFrom: -1.60f, rearWindowTo: -1.00f,
             cabin: new[] { -1.10f, -0.58f, -0.42f, 0.32f },
@@ -1589,12 +1597,12 @@ namespace Horizon.EditorTools
 
             // Two fat pipes close in to the centre line. Wide-set pipes read as an American V8; a pair
             // tucked either side of the diffuser is what a Japanese turbo car of this era wears.
-            exhaustCount: 2, exhaustRadius: 0.105f, exhaustSpread: 0.30f, exhaustLength: 0.34f,
+            exhaustCount: 2, exhaustRadius: 0.105f, exhaustSpread: 0.231f, exhaustLength: 0.34f,
 
             // Level with the roof, which is where a homologation wing sits: the deck is at 0.36 and the
             // roof at 0.58, so 0.26 of stalk puts the blade a couple of centimetres proud of it.
-            wingHalfSpan: 0.80f, wingZ: -2.02f, wingHeight: 0.26f,
-            wheelRadius: 0.325f, suspensionRestLength: 0.415f, tyreWidth: 0.38f, flareWidth: 0.11f,
+            wingHalfSpan: 0.616f, wingZ: -2.02f, wingHeight: 0.26f,
+            wheelRadius: 0.325f, suspensionRestLength: 0.415f, tyreWidth: 0.245f, flareWidth: 0.085f,
             // Ten thin spokes on a 0.74 rim. Low profile is most of what makes a wheel read as
             // expensive, and this is the car in the garage that should.
             // Five centimetres, not the nine the road cars got. This one is allowed to look lowered —
@@ -1603,6 +1611,7 @@ namespace Horizon.EditorTools
         public static readonly CarProfile Liftback = new CarProfile(
             "Liftback", LiftbackStations, new[] { -2.10f, 0.80f },
             wheelbase: 2.55f, // Supra A80
+            trackFront: 1.52f, trackRear: 1.52f, // Supra A80, the mean of its two
             windscreenFrom: 0.30f, windscreenTo: 0.80f,
             rearWindowFrom: -2.05f, rearWindowTo: -1.10f,
             cabin: new[] { -1.15f, -0.56f, -0.40f, 0.32f },
@@ -1614,16 +1623,17 @@ namespace Horizon.EditorTools
             // One pipe, and it is enormous: 0.27 m across the mouth. The car this is measured against is
             // remembered for exactly two things and this is the second of them — a single cannon under
             // the left of the bumper, big enough to read as a hole from a hundred metres back.
-            exhaustCount: 1, exhaustRadius: 0.135f, exhaustSpread: 0.30f, exhaustLength: 0.34f,
+            exhaustCount: 1, exhaustRadius: 0.135f, exhaustSpread: 0.234f, exhaustLength: 0.34f,
 
             // Above the roofline rather than level with it — deck 0.30 plus 0.34 puts the blade at 0.64
             // over a roof of 0.49.
-            wingHalfSpan: 0.82f, wingZ: -1.98f, wingHeight: 0.34f,
-            wheelRadius: 0.32f, suspensionRestLength: 0.43f, tyreWidth: 0.38f, flareWidth: 0.11f,
+            wingHalfSpan: 0.64f, wingZ: -1.98f, wingHeight: 0.34f,
+            wheelRadius: 0.32f, suspensionRestLength: 0.43f, tyreWidth: 0.245f, flareWidth: 0.086f,
             archGap: 0.05f, rim: RimStyle.SixSpoke, rimFraction: 0.68f);
         public static readonly CarProfile Saloon = new CarProfile(
             "Saloon", SaloonStations, new[] { -2.10f, -1.55f, 0.25f, 0.85f },
             wheelbase: 2.665f, // 190E W201
+            trackFront: 1.44f, trackRear: 1.44f, // 190E 2.3-16, the mean of its two
             windscreenFrom: 0.25f, windscreenTo: 0.85f,
             rearWindowFrom: -1.55f, rearWindowTo: -1.30f,
             cabin: new[] { -1.30f, -0.50f, -0.32f, 0.27f },
@@ -1635,13 +1645,14 @@ namespace Horizon.EditorTools
             tailLampInner: 0.24f, tailLampOuter: 0.93f,
             tailLampHalfHeight: 0.13f, tailLampDrop: 0.02f,
             headLamps: HeadLampStyle.Stacked, grilleSpan: 0.36f, grilleFrame: true, lowerIntake: 0.45f,
-            exhaustCount: 1, exhaustRadius: 0.055f, exhaustSpread: 0.36f,
+            exhaustCount: 1, exhaustRadius: 0.055f, exhaustSpread: 0.281f,
             wheelRadius: 0.305f, suspensionRestLength: 0.435f,
-            tyreWidth: 0.30f, flareWidth: 0.05f,
+            tyreWidth: 0.205f, flareWidth: 0.039f,
             archGap: 0.08f, rim: RimStyle.Disc, rimFraction: 0.63f);
         public static readonly CarProfile Notchback = new CarProfile(
             "Notchback", NotchbackStations, new[] { -2.04f, -1.50f, 0.22f, 0.80f },
             wheelbase: 2.565f, // E30 M3
+            trackFront: 1.42f, trackRear: 1.42f, // E30 M3, the mean of its two
             windscreenFrom: 0.22f, windscreenTo: 0.80f,
             rearWindowFrom: -1.50f, rearWindowTo: -0.85f,
             cabin: new[] { -1.18f, -0.46f, -0.28f, 0.24f },
@@ -1657,13 +1668,14 @@ namespace Horizon.EditorTools
             headLamps: HeadLampStyle.QuadRound, grilleSpan: 0.13f, lowerIntake: 0.55f,
 
             // Twin pipes almost touching under the centre of the bumper.
-            exhaustCount: 2, exhaustRadius: 0.050f, exhaustSpread: 0.13f,
+            exhaustCount: 2, exhaustRadius: 0.050f, exhaustSpread: 0.1f,
             wheelRadius: 0.305f, suspensionRestLength: 0.435f,
-            tyreWidth: 0.30f, flareWidth: 0.05f,
+            tyreWidth: 0.205f, flareWidth: 0.039f,
             archGap: 0.08f, rim: RimStyle.Mesh, rimFraction: 0.66f);
         public static readonly CarProfile Offroader = new CarProfile(
             "Offroader", OffroaderStations, new[] { -2.37f, 0.86f, 1.10f, 2.22f },
             wheelbase: 2.89f, // G-Klasse W463A
+            trackFront: 1.64f, trackRear: 1.64f, // G63, the mean of its two
             windscreenFrom: 0.86f, windscreenTo: 1.10f,
 
             // No roofline backlight. The tailgate stands 22° off vertical, so the band the top surface
@@ -1688,13 +1700,13 @@ namespace Horizon.EditorTools
             headLamps: HeadLampStyle.Round, grilleSpan: 0.30f, grilleFrame: true, lowerIntake: 0.60f,
 
             // Out of the side, ahead of the rear wheel, where this vehicle's is.
-            exhaustCount: 1, exhaustRadius: 0.075f, exhaustSideExit: 0.62f,
+            exhaustCount: 1, exhaustRadius: 0.075f, exhaustSideExit: 0.529f,
 
             // A real upright rear window, which is the whole reason tailGlass exists.
             tailGlassHalfWidth: 0.74f, tailGlassBottom: 0.74f, tailGlassTop: 1.06f,
             spareWheelRadius: 0.40f, indicatorTurrets: true,
             wheelRadius: 0.40f, suspensionRestLength: 0.42f,
-            tyreWidth: 0.42f, flareWidth: 0.15f,
+            tyreWidth: 0.285f, flareWidth: 0.128f,
             // Fifteen centimetres of daylight over the tyre, which is six times the fastback's and is
             // the whole difference between a vehicle with suspension travel and a lowered one. On a
             // fat-sidewalled 0.50 rim with a locking hub standing proud of it.

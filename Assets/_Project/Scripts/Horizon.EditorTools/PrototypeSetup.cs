@@ -2055,7 +2055,13 @@ namespace Horizon.EditorTools
                         + "there and ripples the cowl. Shorten the arch or move the screen back.");
                 }
 
-                if (Mathf.Min(proudFront, proudRear) < -0.01f)
+                // A real car's tyre sits a few centimetres inside its arch lip — one to seven across the ten
+                // references, and the '67 and the 245 are the seven: a Mustang is 1.80 m wide on a 1.48 m
+                // track and a 245 is 1.71 m on 1.39. This used to warn at one centimetre, set while every car
+                // stood on one oversized track and a tyre that far in meant a body built round the wrong
+                // wheels. Nine is where it means that again. The first threshold after the change was seven,
+                // argued from a range that left those two cars out, and it warned about both of them.
+                if (Mathf.Min(proudFront, proudRear) < -0.09f)
                 {
                     Debug.LogWarning(
                         $"[Horizon] {profile.Name}'s tyres are sunk {-Mathf.Min(proudFront, proudRear) * 100f:0} cm "
@@ -11052,15 +11058,31 @@ namespace Horizon.EditorTools
         /// ignored.</para>
         /// </summary>
         /// <summary>
-        /// Half-width of the box the corridor sweeps with, metres.
+        /// Half-width of the box the corridor sweeps with, metres: the widest car in the garage, hull or
+        /// tyre face, whichever stands further out.
         ///
-        /// <para><b>It is the car, not the road.</b> 1.3 was right while the widest collider was 2.26 m
-        /// across; the cars grew a quarter in plan in 5bd7396 and the widest is 2.92 m now, so a 1.3 m
-        /// box sweeps a corridor narrower than the thing meant to drive down it — and a check that
-        /// cannot reach its subject finds nothing wrong and is indistinguishable from a clean pass.
-        /// 1.5 covers the widest body and the 3.00 m across the offroader's tyres.</para>
+        /// <para><b>It is the car, not the road.</b> It was a literal twice — 1.3 while the widest collider
+        /// was 2.26 m across, 1.5 once the cars grew a quarter in plan — and each time the cars changed
+        /// width it had to be found and moved by hand, because a box narrower than its subject finds
+        /// nothing wrong and is indistinguishable from a clean pass. When the cars came back in to their
+        /// references' widths the 1.5 would have gone on sweeping a corridor wider than anything that
+        /// drives down it. So it is measured now.</para>
         /// </summary>
-        private const float DriverBoxHalfWidth = 1.5f;
+        private static float DriverBoxHalfWidth
+        {
+            get
+            {
+                float widest = 0f;
+                foreach (CarMeshBuilder.CarProfile profile in CarMeshBuilder.PlayerProfiles)
+                {
+                    widest = Mathf.Max(widest, CarMeshBuilder.HullBounds(profile).extents.x);
+                    widest = Mathf.Max(widest,
+                        Mathf.Max(profile.TrackHalfFront, profile.TrackHalfRear) + profile.TyreWidth * 0.5f);
+                }
+
+                return widest;
+            }
+        }
 
         private static void ValidateDriveableCorridor(
             IRoadPath path, string what, float halfWidth, float clearance)

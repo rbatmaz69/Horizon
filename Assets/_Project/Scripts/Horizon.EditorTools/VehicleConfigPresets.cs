@@ -141,10 +141,12 @@ namespace Horizon.EditorTools
                     config.Mass = 1420f;
                     // A wagon carries its tank under a longer floor, so it gets more of one.
                     config.FuelCapacityLitres = 62f;
-                    config.CenterOfMass = new Vector3(0f, -0.42f, 0.02f);
+                    // Height × 0.702, the track's own ratio (1.39 / 1.98): the tipping
+                    // point and the lateral load transfer stay where they were. See VehicleConfig.CenterOfMass.
+                    config.CenterOfMass = new Vector3(0f, -0.537f, 0.02f);
                     config.RollDamping = 2.7f;
                     config.PitchDamping = 1.1f;
-                    config.AntiRollStiffness = 30290f;
+                    config.AntiRollStiffness = 47910f; // was 30290: roll stiffness goes as track²
                     config.MaxTorqueNm = 470f;
                     config.RedlineRpm = 5400f;
                     config.UpshiftRpm = 5000f;
@@ -176,10 +178,12 @@ namespace Horizon.EditorTools
                     config.Mass = 1950f;
                     // A van's range is the point of a van.
                     config.FuelCapacityLitres = 75f;
-                    config.CenterOfMass = new Vector3(0f, -0.34f, 0.10f);
+                    // Height × 0.859, the track's own ratio (1.70 / 1.98): the tipping
+                    // point and the lateral load transfer stay where they were. See VehicleConfig.CenterOfMass.
+                    config.CenterOfMass = new Vector3(0f, -0.404f, 0.10f);
                     config.RollDamping = 3.4f;
                     config.PitchDamping = 1.5f;
-                    config.AntiRollStiffness = 34200f;
+                    config.AntiRollStiffness = 41580f; // was 34200: roll stiffness goes as track²
                     config.DrivenAxle = DrivenAxle.Front;
                     config.MaxTorqueNm = 420f;
                     config.IdleRpm = 700f;
@@ -241,10 +245,12 @@ namespace Horizon.EditorTools
                     config.Mass = 1750f;
                     // Under the bed, and sized for the distances a pickup is bought for.
                     config.FuelCapacityLitres = 78f;
-                    config.CenterOfMass = new Vector3(0f, -0.43f, -0.05f);
+                    // Height × 0.874, the track's own ratio (1.73 / 1.98): the tipping
+                    // point and the lateral load transfer stay where they were. See VehicleConfig.CenterOfMass.
+                    config.CenterOfMass = new Vector3(0f, -0.485f, -0.05f);
                     config.RollDamping = 3.0f;
                     config.PitchDamping = 1.3f;
-                    config.AntiRollStiffness = 25610f;
+                    config.AntiRollStiffness = 30780f; // was 25610: roll stiffness goes as track²
                     config.MaxTorqueNm = 520f;
                     config.RedlineRpm = 4600f;
                     config.UpshiftRpm = 4300f;
@@ -290,10 +296,12 @@ namespace Horizon.EditorTools
                     config.Mass = 980f;
                     // Small car, small tank — and the least thirsty engine here to drink from it.
                     config.FuelCapacityLitres = 45f;
-                    config.CenterOfMass = new Vector3(0f, -0.40f, 0.04f);
+                    // Height × 0.758, the track's own ratio (1.50 / 1.98): the tipping
+                    // point and the lateral load transfer stay where they were. See VehicleConfig.CenterOfMass.
+                    config.CenterOfMass = new Vector3(0f, -0.493f, 0.04f);
                     config.RollDamping = 2.2f;
                     config.PitchDamping = 0.9f;
-                    config.AntiRollStiffness = 27240f;
+                    config.AntiRollStiffness = 39200f; // was 27240: roll stiffness goes as track²
                     config.DrivenAxle = DrivenAxle.Front;
                     config.MaxTorqueNm = 260f;
                     config.IdleRpm = 850f;
@@ -366,10 +374,12 @@ namespace Horizon.EditorTools
                     config.Mass = 1560f;
                     // Enough for the coupe's appetite, which at 8000 rpm is considerable.
                     config.FuelCapacityLitres = 60f;
-                    config.CenterOfMass = new Vector3(0f, -0.42f, 0.02f);
+                    // Height × 0.742, the track's own ratio (1.47 / 1.98): the tipping
+                    // point and the lateral load transfer stay where they were. See VehicleConfig.CenterOfMass.
+                    config.CenterOfMass = new Vector3(0f, -0.508f, 0.02f);
                     config.RollDamping = 2.4f;
                     config.PitchDamping = 1.0f;
-                    config.AntiRollStiffness = 37280f;
+                    config.AntiRollStiffness = 53690f; // was 37280: roll stiffness goes as track²
                     config.DrivenAxle = DrivenAxle.All;
                     config.MaxTorqueNm = 520f;
                     config.IdleRpm = 800f;
@@ -432,10 +442,12 @@ namespace Horizon.EditorTools
                     // and DrivenAxle is nearly the whole of the difference.
                     config.Mass = 1570f;
                     config.FuelCapacityLitres = 58f;
-                    config.CenterOfMass = new Vector3(0f, -0.42f, 0f);
+                    // Height × 0.768, the track's own ratio (1.52 / 1.98): the tipping
+                    // point and the lateral load transfer stay where they were. See VehicleConfig.CenterOfMass.
+                    config.CenterOfMass = new Vector3(0f, -0.502f, 0f);
                     config.RollDamping = 2.3f;
                     config.PitchDamping = 1.0f;
-                    config.AntiRollStiffness = 38350f;
+                    config.AntiRollStiffness = 53100f; // was 38350: roll stiffness goes as track²
                     config.MaxTorqueNm = 560f;
                     config.IdleRpm = 780f;
                     config.RedlineRpm = 6800f;
@@ -500,10 +512,12 @@ namespace Horizon.EditorTools
                     // there is no baseline for the other nine to be interesting against.
                     config.Mass = 1120f;
                     config.FuelCapacityLitres = 52f;
-                    config.CenterOfMass = new Vector3(0f, -0.41f, 0.03f);
+                    // Height × 0.727, the track's own ratio (1.44 / 1.98): the tipping
+                    // point and the lateral load transfer stay where they were. See VehicleConfig.CenterOfMass.
+                    config.CenterOfMass = new Vector3(0f, -0.512f, 0.03f);
                     config.RollDamping = 2.6f;
                     config.PitchDamping = 1.1f;
-                    config.AntiRollStiffness = 29500f;
+                    config.AntiRollStiffness = 44500f; // was 29500: roll stiffness goes as track²
                     config.MaxTorqueNm = 300f;
                     config.IdleRpm = 820f;
                     config.RedlineRpm = 6000f;
@@ -549,10 +563,12 @@ namespace Horizon.EditorTools
                     // does. Where the saloon understeers politely, this one rotates.
                     config.Mass = 1080f;
                     config.FuelCapacityLitres = 50f;
-                    config.CenterOfMass = new Vector3(0f, -0.41f, -0.02f);
+                    // Height × 0.717, the track's own ratio (1.42 / 1.98): the tipping
+                    // point and the lateral load transfer stay where they were. See VehicleConfig.CenterOfMass.
+                    config.CenterOfMass = new Vector3(0f, -0.517f, -0.02f);
                     config.RollDamping = 2.3f;
                     config.PitchDamping = 1.0f;
-                    config.AntiRollStiffness = 29360f;
+                    config.AntiRollStiffness = 45080f; // was 29360: roll stiffness goes as track²
                     config.MaxTorqueNm = 330f;
                     config.IdleRpm = 800f;
                     config.RedlineRpm = 6500f;
@@ -614,10 +630,12 @@ namespace Horizon.EditorTools
                     config.Mass = 2400f;
                     // The biggest tank in the fleet, under the biggest vehicle, feeding the heaviest right foot.
                     config.FuelCapacityLitres = 80f;
-                    config.CenterOfMass = new Vector3(0f, -0.37f, 0.04f);
+                    // Height × 0.828, the track's own ratio (1.64 / 1.98): the tipping
+                    // point and the lateral load transfer stay where they were. See VehicleConfig.CenterOfMass.
+                    config.CenterOfMass = new Vector3(0f, -0.451f, 0.04f);
                     config.RollDamping = 3.8f;
                     config.PitchDamping = 1.7f;
-                    config.AntiRollStiffness = 35140f;
+                    config.AntiRollStiffness = 45330f; // was 35140: roll stiffness goes as track²
                     config.SuspensionStiffness = 58000f;
                     config.SuspensionDamping = 5200f;
                     config.DrivenAxle = DrivenAxle.All;

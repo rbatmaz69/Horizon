@@ -42,6 +42,14 @@ namespace Horizon.Vehicle
         /// stamped below this is stale and gets rewritten from the code defaults — see
         /// <c>VehicleConfigReset</c>.
         ///
+        /// <para><b>27: every car stands on its reference car's track and is its reference car's
+        /// width</b>, where all ten stood on one 1.98 m track and came out 2.06 to 2.10 m wide. The centre of
+        /// mass came down by the same ratio as the track, which keeps the tipping point and the lateral load
+        /// transfer exactly where they were, and the anti-roll bar came up to hold the lean, since roll
+        /// stiffness goes as track squared. Two things did change and are left to be driven: fore-and-aft
+        /// load transfer, which goes as height over a wheelbase that did not move, and the yaw and roll
+        /// inertia of a narrower hull.</para>
+        ///
         /// <para><b>26: every car stands on its reference tyre</b> — 0.61 to 0.84 m across, where they
         /// were 0.80 to 0.96 — with the rest length raised by exactly as much as each radius fell, so the
         /// ride height every station table is quoted against did not move. Three numbers are coupled to
@@ -170,7 +178,7 @@ namespace Horizon.Vehicle
         /// bump the assets keep the short travel and the soft bar together, which is the one combination
         /// that rolls.</para>
         /// </summary>
-        public const int CurrentVersion = 26;
+        public const int CurrentVersion = 27;
 
         /// <summary>
         /// Which set of meanings this asset's numbers were chosen under.
@@ -195,9 +203,12 @@ namespace Horizon.Vehicle
                + "asked to have, which is a car that lifts its inside wheels in the first fast corner "
                + "and falls over. Every road car here is set so the tipping point sits about 20 % above "
                + "its own grip.\n\n"
+               + "When the tracks came down to the reference cars' this came down with them, by the same "
+               + "ratio: height × r keeps track / 2h — and the lateral load transfer — exactly where they "
+               + "were, which is why no car's tipping point moved.\n\n"
                + "The van and the offroader are deliberately left high. That is their character, and "
                + "the price of it is that they are the two vehicles which do not get arcade grip.")]
-        public Vector3 CenterOfMass = new Vector3(0f, -0.46f, 0.05f);
+        public Vector3 CenterOfMass = new Vector3(0f, -0.554f, 0.05f);
 
         /// <summary>
         /// Rigidbody linear damping, and it is <b>zero on purpose</b>.
@@ -329,8 +340,9 @@ namespace Horizon.Vehicle
                + "flips on the first hairpin.\n\n"
                + "Works on compression as a fraction of the travel, so it has to be rescaled whenever "
                + "SuspensionRestLength moves — see the note on VehicleConfigPresets. 27530 is the 20800 "
-               + "this car was tuned at over 0.391 m of travel, scaled to 0.5175.")]
-        public float AntiRollStiffness = 27530f;
+               + "this car was tuned at over 0.391 m of travel, scaled to 0.5175, and 40850 once its "
+               + "track came down to a Mustang's 1.47 m: roll stiffness goes as track squared.")]
+        public float AntiRollStiffness = 40850f;
 
         [Header("Drivetrain")]
         [Tooltip("Which wheels get drive.\n\n"
