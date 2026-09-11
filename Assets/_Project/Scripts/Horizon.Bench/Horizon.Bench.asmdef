@@ -1,0 +1,20 @@
+{
+    "name": "Horizon.Bench",
+    "rootNamespace": "Horizon.EditorTools",
+    "references": [
+        "Horizon.Core",
+        "Horizon.Input",
+        "Horizon.Vehicle"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_EDITOR"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

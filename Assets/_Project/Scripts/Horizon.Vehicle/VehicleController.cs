@@ -1806,8 +1806,11 @@ namespace Horizon.Vehicle
         /// <para><b>And that damping is why there are sub-steps.</b> It behaves as extra rotational
         /// inertia of <c>h·k·r²</c>, which at one step per frame is about a hundred kilograms at the
         /// contact patch against a quarter car's three hundred — measured, it cost 57 % of the braking
-        /// force and grew worse as the car slowed. Eight sub-steps cut it to 12 %, and the remainder is
-        /// absorbed by tuning against the bench. It is cheap: <c>k</c>, the relaxation blend and the
+        /// force and grew worse as the car slowed. Eight sub-steps cut it to 12 %, and the remainder was
+        /// to be absorbed by tuning against the bench — which is a measurement that could not have been
+        /// taken when this was written: the bench's Play-mode runner sat in an Editor-only assembly, where
+        /// Unity will not attach it, until it moved into <c>Horizon.Bench</c>. Its braking distances are
+        /// where that remainder can be checked now. It is cheap: <c>k</c>, the relaxation blend and the
         /// damping factor all depend on the body's speed rather than the wheel's, so they are computed
         /// once and only the curve is evaluated per sub-step.</para>
         ///

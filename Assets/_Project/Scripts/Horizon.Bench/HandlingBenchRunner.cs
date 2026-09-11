@@ -10,14 +10,19 @@ using UnityEngine;
 namespace Horizon.EditorTools
 {
     /// <summary>
-    /// The Play-mode half of <see cref="HandlingBench"/>: builds the plane, fits each car in turn and
+    /// The Play-mode half of <c>HandlingBench</c>: builds the plane, fits each car in turn and
     /// drives it through the tests.
     ///
-    /// <para><b>A MonoBehaviour in an Editor assembly, which is legal and deliberate.</b> Editor
-    /// assemblies are loaded in the editor's own Play mode, so this can be added to a live object; it
-    /// cannot exist in a player build, which is exactly right for a measuring instrument. The
-    /// alternative was a runtime component in <c>Horizon.Game</c>, which would ship a test rig with
-    /// the game.</para>
+    /// <para><b>A MonoBehaviour in <c>Horizon.Bench</c>, a runtime assembly compiled in the editor only
+    /// — and it used to live in <c>Horizon.EditorTools</c>, where it could never run.</b> The reasoning
+    /// then was that editor assemblies are loaded in the editor's own Play mode, so the component could
+    /// be added to a live object. They are loaded, and Unity refuses all the same: <c>AddComponent</c> of
+    /// a MonoBehaviour from an Editor-only assembly leaves an empty GameObject and logs "Can't add
+    /// script behaviour … because it is an editor script". Every run, in the editor or in a batch run,
+    /// entered Play mode, made the object, found nothing on it and waited for a car that was never
+    /// placed, and no report was ever written. The half of the old reasoning that was right survives:
+    /// <c>defineConstraints: ["UNITY_EDITOR"]</c> keeps this out of every player build, so the game still
+    /// ships no test rig. See the module layout in CLAUDE.md.</para>
     ///
     /// <para><b>Every test samples once per physics step, not once per frame.</b> The clock is turned
     /// up twentyfold to keep the whole run near two minutes, which means a rendered frame covers a
@@ -164,7 +169,7 @@ namespace Horizon.EditorTools
         /// <summary>
         /// Puts the clock back and ends the run.
         ///
-        /// <para>In an editor session that means leaving Play mode, and <see cref="HandlingBench"/>
+        /// <para>In an editor session that means leaving Play mode, and <c>HandlingBench</c>
         /// reopens whatever scene was showing before. In a batch run there is no session to hand back
         /// to, so the process is ended outright — Unity's batch mode is deliberately started without
         /// <c>-quit</c> for this, because the play loop has to keep turning until the last car has

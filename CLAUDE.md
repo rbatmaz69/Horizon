@@ -65,12 +65,31 @@ Horizon.Atmosphere     -> Horizon.Core
 Horizon.Updates        no dependencies (GitHub release feed)
 Horizon.Game           -> everything (leaf assembly: scene wiring, debug overlay)
 Horizon.EditorTools    -> everything (Editor platform only)
+Horizon.Bench          -> Horizon.Core, Horizon.Input, Horizon.Vehicle (compiled in the editor only)
 ```
 
 Optional package integrations get their own assembly with a `defineConstraints` entry, so the
 assembly is skipped entirely when the package is absent rather than erroring on an unresolvable
 reference. `Horizon.World.Splines` is the pattern — copy it for any future optional dependency.
 Never add an optional package's assembly to a core module's `references`.
+
+**`Horizon.Bench` is the one runtime assembly that never ships, and the reason it exists is that the
+handling bench had never once run.** It holds `HandlingBenchRunner`, the Play-mode half of `Tools >
+Horizon > Measure Handling`. That runner used to live in `Horizon.EditorTools`, and Unity will not
+attach a MonoBehaviour from an Editor-only assembly in Play mode: `AddComponent` leaves an empty
+GameObject behind and logs *"Can't add script behaviour … because it is an editor script"*. In the
+editor and in a batch run alike, the bench entered Play mode, made its object, found nothing on it, and
+waited for a car that was never placed — the batch run spinning at seven thousand frames a second with
+the clock never turned up. No report was ever written, which is why none was ever committed. The
+history is unambiguous about it: `Horizon.EditorTools` has been Editor-only since its first commit on
+2026-08-08, and the runner went straight into it the day the bench was written, 2026-09-02, and never
+left. So any claim of tuning *against* the bench describes a measurement that could not have been taken
+— `VehicleController`'s tyre-relaxation note says exactly that, and was written twenty-three minutes
+after the bench. The fix is the same `defineConstraints` shape as the optional packages above, pointed
+at `UNITY_EDITOR` rather than at a package: a runtime assembly Unity is willing to attach, compiled out
+of every player. It was proved on a throwaway behaviour first — attached in batch Play mode, `Start`
+ran, `FixedUpdate` ticked at 50 Hz — before the runner was moved. Put any future Play-mode rig that
+must not ship here.
 
 Never add a reference that points back down this list. If a lower module needs something from a
 higher one, that is a signal to introduce an interface in the lower module and wire the

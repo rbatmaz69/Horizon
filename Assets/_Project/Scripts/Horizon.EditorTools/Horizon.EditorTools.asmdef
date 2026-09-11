@@ -10,6 +10,7 @@
         "Horizon.Game",
         "Horizon.Updates",
         "Horizon.Net",
+        "Horizon.Bench",
         "UnityEngine.UI",
         "Unity.InputSystem",
         "Unity.RenderPipelines.Universal.Runtime",
