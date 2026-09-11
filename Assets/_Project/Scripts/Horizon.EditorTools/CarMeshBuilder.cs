@@ -3462,7 +3462,9 @@ namespace Horizon.EditorTools
         /// the whole tail of one of these cars, and four rounded-off rectangles is a different car.</para>
         /// </summary>
         /// <summary>
-        /// Number plates, front and rear: a pale panel in a thin dark surround.
+        /// Number plates, front and rear: a pale panel, the front one in a thin dark surround. The rear's
+        /// surround came off after it was driven — seen from the chase camera, which looks at this panel
+        /// more than any other, it read as a frame bolted on rather than as a plate.
         ///
         /// <para>A car with no plate reads as a model, and from the chase camera the rear one is dead
         /// centre of every frame the game is played in. EU size, 520 × 112 mm through the same two scales
@@ -3499,7 +3501,6 @@ namespace Horizon.EditorTools
             float yR = Mathf.Max(lampBottom - 0.04f - halfH, bottomR + 0.03f + halfH);
 
             AddPanel(vertices, plate, zR, -halfW, halfW, yR - halfH, yR + halfH, false);
-            AddFrame(vertices, surround, zR + 0.001f, -halfW, halfW, yR - halfH, yR + halfH, surroundWidth, false);
 
             float lampInner = profile.TailLampInner * HalfWidthAt(profile, profile.TailZ);
             if (yR + halfH > lampBottom && halfW > lampInner)
