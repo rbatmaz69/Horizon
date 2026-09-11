@@ -3720,6 +3720,13 @@ namespace Horizon.EditorTools
                 // Layer 0 (Default) carries the terrain, so the camera pulls in instead of clipping
                 // into the mountain on an uphill hairpin.
                 serialized.FindProperty("obstacleMask").intValue = 1;
+
+                // The framing above was tuned on the default car. Every other body is framed as that
+                // car is, scaled by its height about its own tail and roof — see ChaseCamera.SetBodyExtent.
+                Bounds reference = CarMeshBuilder.HullBounds(CarMeshBuilder.PlayerProfiles[0]);
+                serialized.FindProperty("referenceRear").floatValue = -reference.min.z;
+                serialized.FindProperty("referenceRoof").floatValue = reference.max.y;
+                serialized.FindProperty("referenceHeight").floatValue = reference.size.y;
             });
 
             // The rig is wired explicitly and the vehicle is left empty, which is the split

@@ -108,6 +108,12 @@ namespace Horizon.EditorTools
                     // saved scene, so that path throws. Nothing it does affects a still frame.
                     bodies.SelectAppearance(i, 0);
 
+                    // The rig frames each body by its own tail and roof, and StartScreen tells it which
+                    // body after every swap. A preview that skipped this would photograph all ten at the
+                    // default car's framing, which is the one the game no longer uses for nine of them.
+                    Bounds hull = bodies.ActiveHull;
+                    chase.SetBodyExtent(-hull.min.z, hull.max.y, hull.size.y);
+
                     // Asked of the rig rather than worked out here, and asked again per body: a taller
                     // car rests the camera higher, so a pose taken once and reused would frame nine of
                     // the ten wrong.
@@ -127,6 +133,12 @@ namespace Horizon.EditorTools
                 if (bodies != null && bodyWas >= 0)
                 {
                     bodies.SelectAppearance(bodyWas, Mathf.Max(paintWas, 0));
+
+                    if (chase != null)
+                    {
+                        Bounds hull = bodies.ActiveHull;
+                        chase.SetBodyExtent(-hull.min.z, hull.max.y, hull.size.y);
+                    }
                 }
 
                 Object.DestroyImmediate(cameraObject);

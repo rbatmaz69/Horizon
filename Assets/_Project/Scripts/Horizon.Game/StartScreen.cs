@@ -274,6 +274,10 @@ namespace Horizon.Game
                 PlayerChoices.CarIn(bodySet.BodyCount),
                 PlayerChoices.PaintIn(bodySet.PaintCount));
 
+            // Before ApplyPlace, which snaps the rig to the new framing rather than gliding into it.
+            Bounds hull = bodySet.ActiveHull;
+            chaseCamera?.SetBodyExtent(-hull.min.z, hull.max.y, hull.size.y);
+
             // Put the car back down properly after a body swap: Select has just changed the collider,
             // the mass and the centre of mass, and a taller shell would otherwise start the next
             // physics step with its sills inside the road.

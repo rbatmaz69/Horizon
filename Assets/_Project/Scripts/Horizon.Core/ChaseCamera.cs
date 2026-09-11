@@ -26,6 +26,17 @@ namespace Horizon.Core
         [Tooltip("Height above the target that the camera aims at.")]
         [SerializeField] private float lookHeight = 1.1f;
 
+        [Tooltip("How far behind the target's origin the tail of the body this framing was tuned on "
+               + "stands, metres. Written by the setup tool from the default car's hull; see "
+               + "SetBodyExtent.")]
+        [SerializeField] private float referenceRear = 3.105f;
+
+        [Tooltip("How far above the target's origin the roof of that body stands, metres.")]
+        [SerializeField] private float referenceRoof = 0.805f;
+
+        [Tooltip("How tall that body's hull is, metres. Every other body is framed in proportion to it.")]
+        [SerializeField] private float referenceHeight = 1.31f;
+
         [Tooltip("Seconds of velocity the camera looks ahead into. Leads the car into corners.")]
         [SerializeField] private float lookAheadTime = 0.35f;
 
@@ -224,6 +235,54 @@ namespace Horizon.Core
 
         /// <summary>Where in the ring's own noise this impact started, so two hits do not line up.</summary>
         private float impactSeed;
+
+        /// <summary>
+        /// The followed body's tail and roof, and how tall it is against the reference — see
+        /// <see cref="SetBodyExtent"/>. Until that has been called the rig frames the reference body.
+        /// </summary>
+        private bool hasBodyExtent;
+
+        private float bodyRear;
+
+        private float bodyRoof;
+
+        private float bodyScale = 1f;
+
+        /// <summary>
+        /// Tells the rig how big the car it follows is: how far its tail stands behind the target's origin,
+        /// how far its roof stands above it, and how tall its hull is, metres.
+        ///
+        /// <para><b>The framing was tuned on one body and measured from the middle of it.</b> The
+        /// distance, the height and the aim all hang off the target's origin, which is mid-wheelbase, so
+        /// they are right for exactly the car they were set against. A 7.36 m pickup's tail stood a metre
+        /// nearer the lens than the fastback's and its tail lamps were off the bottom of the frame; a van
+        /// filled the view of the road ahead.</para>
+        ///
+        /// <para><b>So the reference framing is scaled about the corner where the body's tail meets its
+        /// roof, by how much taller the body is.</b> Camera and aim both move, by the same similarity, so
+        /// the pitch is unchanged and the back of a van comes out the same size in the frame as the back
+        /// of the fastback — standing further off and higher, which is also what puts the road ahead back
+        /// over its roof. For the reference body the scale is one and every term reduces to the plain
+        /// distance, height and aim.</para>
+        ///
+        /// <para><b>The first version translated instead</b>: the reference offset from the tail and the
+        /// roof, with the aim raised by the roof's difference. The pickup's lamps stayed on the bottom
+        /// edge and the van and the off-roader went off it, because raising the aim lifts the whole view
+        /// and a taller body then hangs out of the bottom of it. A translation cannot keep a picture when
+        /// the thing in it is a different size; only a scale can.</para>
+        ///
+        /// <para>Pushed in rather than read, for the reason <see cref="Shake"/> is: this assembly has no
+        /// references and follows a bare <see cref="Transform"/>. Call <see cref="SnapToTarget"/> after it
+        /// when the swap should not be seen as a glide. A hull with no height — no body selected — leaves
+        /// the reference framing in place rather than collapsing the rig onto the car.</para>
+        /// </summary>
+        public void SetBodyExtent(float rearBehindOrigin, float roofAboveOrigin, float hullHeight)
+        {
+            hasBodyExtent = hullHeight > 0.01f;
+            bodyRear = rearBehindOrigin;
+            bodyRoof = roofAboveOrigin;
+            bodyScale = hasBodyExtent ? hullHeight / Mathf.Max(0.01f, referenceHeight) : 1f;
+        }
 
         /// <summary>Assigns the follow target. Called by the scene bootstrap.</summary>
         public void SetTarget(Transform newTarget, Rigidbody newTargetBody = null)
@@ -577,17 +636,26 @@ namespace Horizon.Core
             // point: the road is the thing whose motion is being read.
             float heightDrop = heightDropAtSpeed * ShapedSpeedFraction();
 
-            Vector3 pivot = target.position + Vector3.up * (lookHeight - heightDrop);
+            // The reference framing, scaled about the followed body's tail-top corner — see SetBodyExtent.
+            // The aim is scaled with the camera, so for a longer body it sits a little ahead of the origin.
+            float rear = hasBodyExtent ? bodyRear : referenceRear;
+            float roof = hasBodyExtent ? bodyRoof : referenceRoof;
+            float scale = hasBodyExtent ? bodyScale : 1f;
+            float aimAhead = scale * referenceRear - rear;
+            float aimHeight = roof + scale * (lookHeight - referenceRoof);
+
+            Vector3 pivot = target.position - smoothedBackward * aimAhead
+                          + Vector3.up * (aimHeight - heightDrop);
             aimPoint = pivot + flatVelocity * lookAheadTime;
 
             // Under power the rig falls back and the car pulls away from the camera; braking draws it
             // in. Half the travel on the braking side, because the frame closing is the more noticeable
             // of the two directions.
             float acceleration01 = AccelerationFraction();
-            float rigDistance = distance + accelerationDistanceGain
+            float rigDistance = rear + scale * (distance - referenceRear) + accelerationDistanceGain
                 * (acceleration01 > 0f ? acceleration01 : acceleration01 * 0.5f);
 
-            float rigHeight = height - heightDrop;
+            float rigHeight = roof + scale * (height - referenceRoof) - heightDrop;
 
             // The rig swings towards the outside of the corner. The aim point is deliberately left
             // where it is, so this changes where the camera is standing and not what it is looking at —

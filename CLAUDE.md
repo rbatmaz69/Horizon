@@ -2066,6 +2066,22 @@ because a landing and a knock are the same thing happening to the rig.
 One wheel may still be down and the car still count as flying — a car leaving a crest lifts its nose
 first and trails a rear wheel for a good part of the jump, which is the half the driver is looking at.
 
+**And now it knows how big the car is.** Distance, height and aim were tuned on the fastback and all hang
+off the target's origin, which is mid-wheelbase — so they were right for that one car. When the pickup
+became a 7.36 m F-150 its tail stood a metre nearer the lens and its lamps were off the bottom of the
+frame, and the van's roof had always hidden the road ahead; `CarPreview_Drive_<body>` showed both and
+nothing else could have. `ChaseCamera.SetBodyExtent` scales the default car's framing — camera and aim
+together — about each body's tail-top corner by how much taller its hull is, so the back of any car comes
+out the size the fastback's does, the pitch does not move, and the fastback's frame is the same numbers.
+The reference is written by the setup tool from that car's hull, and the push comes from `StartScreen`
+after every swap and from the drive preview, which would otherwise photograph a framing the game no
+longer uses.
+
+**The first version translated rather than scaled, and the pictures said so at once.** It kept the
+reference offset from the tail and the roof and raised the aim with the roof — which lifts the whole view,
+so the pickup's lamps stayed on the bottom edge and the van and the off-roader went off it. A translation
+cannot hold a picture when the thing in it is a different size.
+
 ## What the phone feels
 
 This is played on a phone and the phone was never used as an output: no `Handheld.Vibrate`, no gamepad

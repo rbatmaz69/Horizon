@@ -135,6 +135,19 @@ namespace Horizon.Vehicle
         public VehicleConfig ActiveConfig =>
             ActiveBody >= 0 && ActiveBody < BodyCount ? bodies[ActiveBody].Config : null;
 
+        /// <summary>
+        /// The collider box of the body currently shown, in the car's own space, or an empty box before
+        /// a body has been selected.
+        ///
+        /// <para>Read by whatever frames the car — the chase camera wants to know where the tail and the
+        /// roof are. Taken from the baked data rather than from the live <c>BoxCollider</c>, so it answers
+        /// after <see cref="SelectAppearance"/> as well, which is the call a preview tool can make.</para>
+        /// </summary>
+        public Bounds ActiveHull =>
+            ActiveBody >= 0 && ActiveBody < BodyCount
+                ? new Bounds(bodies[ActiveBody].ColliderCenter, bodies[ActiveBody].ColliderSize)
+                : default;
+
         /// <summary>The menu label for a body, or an empty string if the index is not one.</summary>
         public string NameOf(int bodyIndex)
         {
