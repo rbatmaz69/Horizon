@@ -151,10 +151,14 @@ in Play mode and the changes persist — that is the intended tuning loop.
   working-tree hazard this file keeps naming. It is configured *after* opaques from the depth copy,
   which is the one arrangement whose cost does not scale with geometry: the depth-normals prepass the
   PC renderer uses is a second pass over every triangle in the frame, and geometry is what this budget
-  is short of. **It also ran at half resolution with the cheapest normal reconstruction, and the car
-  was reported pixelated on High in the editor** — which plays through this asset, because Android's
-  default quality level is Mobile. Half-resolution occlusion from normals rebuilt out of a 0.8-scaled
-  depth buffer draws blocks across large flat facets a metre from the lens. It is full resolution, high
+  is short of. **It also ran at half resolution with the cheapest normal reconstruction**, and a throwaway
+  probe through this asset showed what that does: half-resolution occlusion from normals rebuilt out
+  of a 0.8-scaled depth buffer draws dotted, blocky shading along every crease of a car a metre from
+  the lens. **It was changed for the wrong reason and kept for the right one.** The car had been
+  reported pixelated on High in the editor, and the change was made on the belief that the editor
+  plays through this asset because Android's default quality level is Mobile. It does not: the editor
+  runs `PC_RPAsset`, and the build log's own pipeline line says so. The report was about something
+  else, and the probe is what the change stands on — this is what the phone draws on High. It is full resolution, high
   reconstruction and the high blur now; all three are per-pixel costs, and none of them scales with
   triangles. **Its cost is the only number in this area that has not
   been measured**, because no picture this project takes goes through the mobile renderer. It needs a

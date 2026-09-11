@@ -3462,9 +3462,12 @@ namespace Horizon.EditorTools
         /// the whole tail of one of these cars, and four rounded-off rectangles is a different car.</para>
         /// </summary>
         /// <summary>
-        /// Number plates, front and rear: a pale panel, the front one in a thin dark surround. The rear's
-        /// surround came off after it was driven — seen from the chase camera, which looks at this panel
-        /// more than any other, it read as a frame bolted on rather than as a plate.
+        /// A number plate at the front: a pale panel in a thin dark surround.
+        ///
+        /// <para><b>There is no rear plate, and there was one.</b> With no lettering on it — there is no
+        /// world-space text in this project — a pale rectangle on the tail reads as an empty plate
+        /// holder, and the chase camera looks at the tail more than at any other panel on the car. Its
+        /// dark surround went first and the panel still read as a holder, so the panel went too.</para>
         ///
         /// <para>A car with no plate reads as a model, and from the chase camera the rear one is dead
         /// centre of every frame the game is played in. EU size, 520 × 112 mm through the same two scales
@@ -3494,22 +3497,7 @@ namespace Horizon.EditorTools
             AddPanel(vertices, plate, zF, -halfW, halfW, yF - halfH, yF + halfH, true);
             AddFrame(vertices, surround, zF - 0.001f, -halfW, halfW, yF - halfH, yF + halfH, surroundWidth);
 
-            // Rear: just under the tail lamps if there is room, and never lower than the face goes.
-            float zR = profile.TailZ - 0.022f;
-            float bottomR = Mathf.Min(SillAt(profile, profile.TailZ), BeltAt(profile, profile.TailZ) - 0.08f);
-            float lampBottom = LampHeight(profile, profile.TailZ) - profile.TailLampDrop - profile.TailLampHalfHeight;
-            float yR = Mathf.Max(lampBottom - 0.04f - halfH, bottomR + 0.03f + halfH);
-
-            AddPanel(vertices, plate, zR, -halfW, halfW, yR - halfH, yR + halfH, false);
-
-            float lampInner = profile.TailLampInner * HalfWidthAt(profile, profile.TailZ);
-            if (yR + halfH > lampBottom && halfW > lampInner)
-            {
-                Debug.LogWarning(
-                    $"[Horizon] {profile.Name}'s rear plate has no room under its tail lamps and overlaps them "
-                    + $"by {(yR + halfH - lampBottom) * 100f:0} cm. Raise the lamps with TailLampDrop, or pull "
-                    + "TailLampInner out so the plate fits between the clusters.");
-            }
+            // No rear plate. See the summary.
         }
 
         /// <summary>
