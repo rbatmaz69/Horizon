@@ -4,11 +4,16 @@ using UnityEngine;
 namespace Horizon.Vehicle
 {
     /// <summary>
-    /// Drives a tailpipe smoke emitter from throttle and speed.
+    /// The tailpipe: fires the exhaust flame on a hard shift and on overrun, and drives the smoke plume
+    /// from throttle and speed — which is switched off.
     ///
-    /// Puffs harder on throttle, thins out at speed — at a standstill the smoke lingers behind the
-    /// car, which is most of what makes it read as exhaust rather than fog. The particle system itself
-    /// is configured by the setup tool; this only modulates it.
+    /// <para><b>There is no plume, and there was one.</b> Seven small puffs a second at every pipe, even
+    /// parked, fading in and out in a fifth of a second and drifting up into the tail lamps. Driven, it
+    /// read as something fizzing on the back of the car rather than as exhaust — the billboards cut into
+    /// the bumper as they rose and flickered at the cut — and it was only there on the settings that
+    /// draw exhaust particles, which is why it looked like the High setting was broken. None of the cars
+    /// in the garage visibly smokes. The rates are zero rather than the emitter removed, so it is one
+    /// number to bring back; the flame is untouched.</para>
     /// </summary>
     [RequireComponent(typeof(ParticleSystem))]
     public sealed class ExhaustSmoke : MonoBehaviour
@@ -31,11 +36,11 @@ namespace Horizon.Vehicle
         [Tooltip("...and in an overrun crackle, which is a spit rather than a gout.")]
         [SerializeField] private int crackleParticles = 5;
 
-        [Tooltip("Particles per second while idling.")]
-        [SerializeField] private float idleRate = 7f;
+        [Tooltip("Particles per second while idling. Zero: see the class remarks.")]
+        [SerializeField] private float idleRate = 0f;
 
-        [Tooltip("Particles per second at full throttle.")]
-        [SerializeField] private float throttleRate = 30f;
+        [Tooltip("Particles per second at full throttle. Zero: see the class remarks.")]
+        [SerializeField] private float throttleRate = 0f;
 
         [Tooltip("Emission fades out above this fraction of top speed — at speed the plume would "
                + "just be a smear behind the car.")]
@@ -119,7 +124,6 @@ namespace Horizon.Vehicle
             {
                 float speedFade = 1f - Mathf.Clamp01(vehicle.SpeedNormalized / Mathf.Max(0.01f, fadeOutSpeed));
 
-                // Never quite off: a cold idle plume is part of the look.
                 rate *= Mathf.Lerp(0.25f, 1f, speedFade);
             }
 

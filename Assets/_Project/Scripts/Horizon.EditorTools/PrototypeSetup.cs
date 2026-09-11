@@ -7737,7 +7737,7 @@ namespace Horizon.EditorTools
                 main.simulationSpace = ParticleSystemSimulationSpace.World;
 
                 ParticleSystem.EmissionModule emission = particles.emission;
-                emission.rateOverTime = 8f;
+                emission.rateOverTime = 0f;
 
                 ParticleSystem.ShapeModule shape = particles.shape;
                 shape.shapeType = ParticleSystemShapeType.Cone;
