@@ -192,13 +192,46 @@ namespace Horizon.EditorTools
         private const float HeadlightHalfSpacing = 0.47f * PlanScale;
 
         /// <summary>
-        /// Half-length of an arch opening along Z. Roughly the wheel radius plus a margin.
+        /// Half-length of an arch opening along Z: the tyre's own radius plus 18 %.
         ///
-        /// 0.50 exactly, because <c>WheelBaseHalf - 0.50 = 0.85</c> lands on the cowl crease, where the
-        /// arch contributes nothing anyway — so the front opening cannot ripple the base of the
-        /// windscreen.
+        /// <para><b>It was one constant, <c>0.50 × PlanScale</c>, for ten wheels that are not one size</b>,
+        /// argued for from a coincidence about one car — <c>WheelBaseHalf - 0.50 = 0.85</c> landing on
+        /// the fastback's cowl crease. Against that car's 0.506 m tyre the opening ran 11.9 cm past the
+        /// rubber fore and aft while the gap over the top was 2.3 cm: the daylight anybody could see was
+        /// longitudinal, and five times the vertical. Every reference photograph shows the opposite — a
+        /// tyre filling its arch.</para>
+        ///
+        /// <para>The hazard the old number was protecting is real and is now measured instead of
+        /// assumed: see <see cref="CowlMargin"/>.</para>
         /// </summary>
-        private const float ArchHalfLength = 0.50f * PlanScale;
+        public static float ArchHalfLengthOf(in CarProfile profile) => profile.WheelRadius * 1.18f;
+
+        /// <summary>
+        /// How far the front arch's raised underside stays below the beltline cap at the base of the
+        /// windscreen, metres. Zero or less is the fault the old constant's comment was about:
+        /// <see cref="BuildRing"/> caps every section's underside at <c>belt - 0.08</c>, and an arch still
+        /// climbing where the screen begins pinches the section there and ripples the cowl.
+        ///
+        /// <para>Measured as the pinch rather than as "the arch must end before the screen", because that
+        /// second rule is true of a fastback and false of an off-roader, whose screen stands a metre
+        /// above an arch that does overlap it along Z and harms nothing.</para>
+        /// </summary>
+        public static float CowlMargin(in CarProfile profile)
+        {
+            float z = profile.WindscreenFrom;
+            return BeltAt(profile, z) - 0.08f - BottomAt(profile, z, SillAt(profile, z));
+        }
+
+        /// <summary>
+        /// How far the tyre's outer face stands proud of the widest bodywork at one axle, metres —
+        /// negative when the tyre is sunk inside the flank. <see cref="TrackHalfWidth"/>'s own comment
+        /// asserts the tyre stands a few centimetres proud; nothing had ever measured it.
+        /// </summary>
+        public static float TyreProud(in CarProfile profile, bool front)
+        {
+            float z = front ? WheelBaseHalf : -WheelBaseHalf;
+            return TrackHalfWidth + profile.TyreWidth * 0.5f - (HalfWidthAt(profile, z) + FlareAt(profile, z));
+        }
 
         /// <summary>
         /// One car's silhouette and its furniture, as a value.
@@ -647,7 +680,7 @@ namespace Horizon.EditorTools
         }
 
         /// <summary>
-        /// The five wheels. A wheel is the one part of a car that is drawn four times and sits at eye
+        /// The wheels. A wheel is the one part of a car that is drawn four times and sits at eye
         /// level in the chase camera, so it is worth more per triangle than anything else on the body —
         /// and until this existed every car in the garage wore the fastback's five-spoke.
         /// </summary>
@@ -667,6 +700,18 @@ namespace Horizon.EditorTools
 
             /// <summary>Many shallow angled slats, an eighties alloy.</summary>
             Turbine,
+
+            /// <summary>Six slender spokes — the Supra A80's wheel in the reference photograph.</summary>
+            SixSpoke,
+
+            /// <summary>
+            /// A flat disc with fifteen small holes near its edge — the 190E 2.3-16's, the wheel German
+            /// speaks of as a drain cover.
+            /// </summary>
+            Disc,
+
+            /// <summary>Two layers of thin skewed spokes crossing into a lattice — the E30 M3's cross-spoke.</summary>
+            Mesh,
         }
 
         /// <summary>
@@ -1120,7 +1165,7 @@ namespace Horizon.EditorTools
             exhaustCount: 1, exhaustRadius: 0.075f, exhaustSideExit: 0.60f,
             wheelRadius: 0.48f, suspensionRestLength: 0.36f,
             tyreWidth: 0.38f, flareWidth: 0.12f,
-            archGap: 0.13f, rim: RimStyle.Steel, rimFraction: 0.52f);
+            archGap: 0.13f, rim: RimStyle.MultiSpoke, rimFraction: 0.66f);
         public static readonly CarProfile Hatchback = new CarProfile(
             "Hatchback", HatchbackStations, new[] { -1.95f, 0.25f, 0.80f },
             windscreenFrom: 0.25f, windscreenTo: 0.82f,
@@ -1135,7 +1180,7 @@ namespace Horizon.EditorTools
             tailGlassHalfWidth: 0.56f, tailGlassBottom: 0.26f, tailGlassTop: 0.40f,
             wheelRadius: 0.40f, suspensionRestLength: 0.33f,
             tyreWidth: 0.28f, flareWidth: 0.06f,
-            archGap: 0.10f, rim: RimStyle.FiveSpoke, rimFraction: 0.54f);
+            archGap: 0.10f, rim: RimStyle.FiveSpoke, rimFraction: 0.62f);
         /// <summary>
         /// A late-nineties Japanese performance coupé, measured against a Nissan Skyline R34 GT-R.
         ///
@@ -1457,7 +1502,7 @@ namespace Horizon.EditorTools
             // expensive, and this is the car in the garage that should.
             // Five centimetres, not the nine the road cars got. This one is allowed to look lowered —
             // it and the liftback are the only bodies in the garage that should.
-            archGap: 0.05f, rim: RimStyle.MultiSpoke, rimFraction: 0.74f);
+            archGap: 0.05f, rim: RimStyle.MultiSpoke, rimFraction: 0.70f);
         public static readonly CarProfile Liftback = new CarProfile(
             "Liftback", LiftbackStations, new[] { -2.10f, 0.80f },
             windscreenFrom: 0.30f, windscreenTo: 0.80f,
@@ -1477,7 +1522,7 @@ namespace Horizon.EditorTools
             // over a roof of 0.49.
             wingHalfSpan: 0.82f, wingZ: -1.98f, wingHeight: 0.34f,
             suspensionRestLength: 0.31f, tyreWidth: 0.38f, flareWidth: 0.11f,
-            archGap: 0.05f, rim: RimStyle.MultiSpoke, rimFraction: 0.72f);
+            archGap: 0.05f, rim: RimStyle.SixSpoke, rimFraction: 0.68f);
         public static readonly CarProfile Saloon = new CarProfile(
             "Saloon", SaloonStations, new[] { -2.10f, -1.55f, 0.25f, 0.85f },
             windscreenFrom: 0.25f, windscreenTo: 0.85f,
@@ -1494,7 +1539,7 @@ namespace Horizon.EditorTools
             exhaustCount: 1, exhaustRadius: 0.055f, exhaustSpread: 0.36f,
             wheelRadius: 0.42f, suspensionRestLength: 0.32f,
             tyreWidth: 0.30f, flareWidth: 0.05f,
-            archGap: 0.08f, rim: RimStyle.Turbine, rimFraction: 0.58f);
+            archGap: 0.08f, rim: RimStyle.Disc, rimFraction: 0.63f);
         public static readonly CarProfile Notchback = new CarProfile(
             "Notchback", NotchbackStations, new[] { -2.04f, -1.50f, 0.22f, 0.80f },
             windscreenFrom: 0.22f, windscreenTo: 0.80f,
@@ -1515,7 +1560,7 @@ namespace Horizon.EditorTools
             exhaustCount: 2, exhaustRadius: 0.050f, exhaustSpread: 0.13f,
             wheelRadius: 0.42f, suspensionRestLength: 0.32f,
             tyreWidth: 0.30f, flareWidth: 0.05f,
-            archGap: 0.08f, rim: RimStyle.Turbine, rimFraction: 0.60f);
+            archGap: 0.08f, rim: RimStyle.Mesh, rimFraction: 0.66f);
         public static readonly CarProfile Offroader = new CarProfile(
             "Offroader", OffroaderStations, new[] { -2.22f, 0.86f, 1.10f, 2.22f },
             windscreenFrom: 0.86f, windscreenTo: 1.10f,
@@ -1550,7 +1595,7 @@ namespace Horizon.EditorTools
             // Fifteen centimetres of daylight over the tyre, which is six times the fastback's and is
             // the whole difference between a vehicle with suspension travel and a lowered one. On a
             // fat-sidewalled 0.50 rim with a locking hub standing proud of it.
-            archGap: 0.15f, rim: RimStyle.OffRoad, rimFraction: 0.50f);
+            archGap: 0.15f, rim: RimStyle.MultiSpoke, rimFraction: 0.70f);
         /// <summary>
         /// The shapes ambient traffic is built from.
         ///
@@ -2228,7 +2273,7 @@ namespace Horizon.EditorTools
 
             for (int side = -1; side <= 1; side += 2)
             {
-                float distance = Mathf.Abs(z - side * WheelBaseHalf) / ArchHalfLength;
+                float distance = Mathf.Abs(z - side * WheelBaseHalf) / ArchHalfLengthOf(profile);
                 if (distance >= 1f)
                 {
                     continue;
@@ -3610,8 +3655,9 @@ namespace Horizon.EditorTools
                     AddTriangleOutward(vertices, rimTriangles, rimInner0, rimInner1, rimOuter1, inward);
 
                     // Brake disc, set deeper and dark, so the gaps between the spokes read as openings
-                    // rather than as holes through the car.
-                    float brakeX = x + sign * 0.055f;
+                    // rather than as holes through the car. 75 mm and not the 55 it was: at 55 the disc
+                    // was close enough behind a flat spoke plane that the two read as one grey face.
+                    float brakeX = x + sign * 0.075f;
                     Vector3 brakeCenter = new Vector3(brakeX, 0f, 0f);
                     Vector3 brake0 = new Vector3(brakeX, d0.y * lipInner, d0.x * lipInner);
                     Vector3 brake1 = new Vector3(brakeX, d1.y * lipInner, d1.x * lipInner);
@@ -3652,13 +3698,38 @@ namespace Horizon.EditorTools
             for (int side = 0; side < 2; side++)
             {
                 float sign = side == 0 ? -1f : 1f;
-                float x = (side == 0 ? halfWidth : -halfWidth) + sign * 0.022f;
+
+                // Three depths where there was one. Every flat face sits at the lip plane, the spokes cone
+                // forward from it towards the hub, and the brake disc in BuildWheel sits well behind it —
+                // a flat star over a flat disc reads, under a single sun, as a grey coin.
+                float x = (side == 0 ? halfWidth : -halfWidth) + sign * 0.018f;
+                const float cone = 0.010f;
                 Vector3 inward = new Vector3(sign, 0f, 0f);
+                bool spoked = true;
 
                 switch (style)
                 {
                     case RimStyle.MultiSpoke:
-                        AddRimSpokes(vertices, triangles, x, inward, lipInner, hubRadius, 10, 0.13f, 0.75f);
+                        AddRimSpokes(vertices, triangles, x, inward, lipInner, hubRadius, 10, 0.13f, 0.75f, cone);
+                        break;
+
+                    case RimStyle.SixSpoke:
+                        AddRimSpokes(vertices, triangles, x, inward, lipInner, hubRadius, 6, 0.22f, 0.60f, cone);
+                        break;
+
+                    case RimStyle.Disc:
+                        // Fifteen small holes near the edge of an otherwise solid face.
+                        AddRimDish(vertices, triangles, x, inward, lipInner, hubRadius, 15, 0.11f);
+                        spoked = false;
+                        break;
+
+                    case RimStyle.Mesh:
+                        // Two layers skewed opposite ways, the second four millimetres behind the first
+                        // so the crossings are two surfaces rather than one fighting itself.
+                        AddRimSpokes(vertices, triangles, x, inward, lipInner, hubRadius, 10, 0.045f, 1f,
+                            cone, 0f, 0.30f);
+                        AddRimSpokes(vertices, triangles, x + inward.x * 0.004f, inward, lipInner, hubRadius,
+                            10, 0.045f, 1f, cone, 0f, -0.30f);
                         break;
 
                     case RimStyle.Turbine:
@@ -3666,6 +3737,7 @@ namespace Horizon.EditorTools
                         // reads as turned rather than as spokes. The taper runs the other way from a
                         // spoke's: wide at the hub, narrow at the lip.
                         AddRimSlats(vertices, triangles, x, inward, lipInner, hubRadius, 12, 0.18f);
+                        spoked = false;
                         break;
 
                     case RimStyle.Steel:
@@ -3674,18 +3746,22 @@ namespace Horizon.EditorTools
                         // shape is — and a steel wheel is the one wheel here whose character is how
                         // little of it is open.
                         AddRimDish(vertices, triangles, x, inward, lipInner, hubRadius, 5, 0.30f);
+                        spoked = false;
                         break;
 
                     case RimStyle.OffRoad:
-                        AddRimSpokes(vertices, triangles, x, inward, lipInner, hubRadius, 6, 0.34f, 0.80f);
+                        AddRimSpokes(vertices, triangles, x, inward, lipInner, hubRadius, 6, 0.34f, 0.80f, cone);
                         break;
 
                     default:
-                        AddRimSpokes(vertices, triangles, x, inward, lipInner, hubRadius, 5, 0.30f, 0.55f);
+                        AddRimSpokes(vertices, triangles, x, inward, lipInner, hubRadius, 5, 0.30f, 0.55f, cone);
                         break;
                 }
 
-                AddRimHub(vertices, triangles, x, inward, hubRadius, style == RimStyle.OffRoad ? 0.03f : 0f);
+                // On a spoked wheel the hub sits where the spokes' cone brings them; on a flat face it sits
+                // on the face, or it would hover ten millimetres in front of it with nothing holding it.
+                float hubX = spoked ? x - inward.x * cone : x;
+                AddRimHub(vertices, triangles, hubX, inward, hubRadius, style == RimStyle.OffRoad ? 0.03f : 0f);
             }
         }
 
@@ -3702,13 +3778,22 @@ namespace Horizon.EditorTools
             float hubRadius,
             int count,
             float halfAngle,
-            float hubTaper)
+            float hubTaper,
+            float cone = 0f,
+            float phase = 0f,
+            float skew = 0f)
         {
+            // The hub ends of the spokes stand forward of the lip by the cone, so a spoke is a shallow
+            // cone from rim to hub rather than a flat star; a skew turns each spoke off the radius, and two
+            // layers skewed opposite ways are the cross-spoke lattice.
+            float hubX = x - inward.x * cone;
+
             for (int i = 0; i < count; i++)
             {
-                float centreAngle = i / (float)count * Mathf.PI * 2f;
-                float a0 = centreAngle - halfAngle;
-                float a1 = centreAngle + halfAngle;
+                float centreAngle = i / (float)count * Mathf.PI * 2f + phase;
+                float outerCentre = centreAngle + skew;
+                float a0 = outerCentre - halfAngle;
+                float a1 = outerCentre + halfAngle;
 
                 float hubSpread = halfAngle * hubTaper;
                 float h0 = centreAngle - hubSpread;
@@ -3716,8 +3801,8 @@ namespace Horizon.EditorTools
 
                 Vector3 outerA = new Vector3(x, Mathf.Sin(a0) * lipInner, Mathf.Cos(a0) * lipInner);
                 Vector3 outerB = new Vector3(x, Mathf.Sin(a1) * lipInner, Mathf.Cos(a1) * lipInner);
-                Vector3 innerA = new Vector3(x, Mathf.Sin(h0) * hubRadius, Mathf.Cos(h0) * hubRadius);
-                Vector3 innerB = new Vector3(x, Mathf.Sin(h1) * hubRadius, Mathf.Cos(h1) * hubRadius);
+                Vector3 innerA = new Vector3(hubX, Mathf.Sin(h0) * hubRadius, Mathf.Cos(h0) * hubRadius);
+                Vector3 innerB = new Vector3(hubX, Mathf.Sin(h1) * hubRadius, Mathf.Cos(h1) * hubRadius);
 
                 AddTriangleOutward(vertices, triangles, innerA, outerA, outerB, inward);
                 AddTriangleOutward(vertices, triangles, innerA, outerB, innerB, inward);
@@ -3774,7 +3859,10 @@ namespace Horizon.EditorTools
             int holeCount,
             float holeHalfAngle)
         {
-            const int segments = 20;
+            // A multiple of the hole count, or a hole falling between two segment midpoints is never
+            // drawn at all: fifteen holes 24° apart over twenty 18° segments loses some of them. Twenty is
+            // kept wherever it was already enough, so the steel wheel does not move by a triangle.
+            int segments = Mathf.Max(20, holeCount * 4);
             float holeInner = Mathf.Lerp(hubRadius, lipInner, 0.28f);
             float holeOuter = Mathf.Lerp(hubRadius, lipInner, 0.80f);
 

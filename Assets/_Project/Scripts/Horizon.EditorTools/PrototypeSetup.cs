@@ -2002,6 +2002,37 @@ namespace Horizon.EditorTools
                         + "apart from it reads, switched off, as a lamp missing from the tail.");
                 }
 
+                // The wheel in its arch — what every reference photograph is recognisable by, and what the
+                // old shared ArchHalfLength got wrong by a factor of five, lengthways. The cowl margin is
+                // the hazard that constant's comment was really about; the tyre figure is what
+                // TrackHalfWidth's comment asserts and nothing had measured. See the CarMeshBuilder
+                // methods of the same names.
+                float arch = CarMeshBuilder.ArchHalfLengthOf(profile);
+                float cowl = CarMeshBuilder.CowlMargin(profile);
+                float proudFront = CarMeshBuilder.TyreProud(profile, true);
+                float proudRear = CarMeshBuilder.TyreProud(profile, false);
+
+                report.Append($"\n  {string.Empty,-10} arch {arch:0.00} m half over a {profile.WheelRadius:0.00} m "
+                              + $"tyre, {(arch - profile.WheelRadius) * 100f:0} cm of daylight fore and aft, "
+                              + $"cowl margin {cowl * 100f:0} cm, tyre {proudFront * 100f:0} / "
+                              + $"{proudRear * 100f:0} cm proud of the bodywork front / rear");
+
+                if (cowl <= 0f)
+                {
+                    Debug.LogWarning(
+                        $"[Horizon] {profile.Name}'s front arch is still climbing at the base of the "
+                        + $"windscreen ({cowl * 100f:0} cm under the beltline cap), which pinches the section "
+                        + "there and ripples the cowl. Shorten the arch or move the screen back.");
+                }
+
+                if (Mathf.Min(proudFront, proudRear) < -0.01f)
+                {
+                    Debug.LogWarning(
+                        $"[Horizon] {profile.Name}'s tyres are sunk {-Mathf.Min(proudFront, proudRear) * 100f:0} cm "
+                        + "inside the bodywork at one axle, so from behind the car has no wheels. Narrow the "
+                        + "flank or the flare over that axle.");
+                }
+
                 // What the bumper clears once the springs have taken the car's weight, which is the
                 // number that decides whether it can drive up a kerb. Quoted rather than the box's own
                 // corner because the box is measured at full droop and the car never is.
