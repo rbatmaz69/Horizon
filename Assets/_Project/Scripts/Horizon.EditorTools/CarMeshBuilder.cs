@@ -304,7 +304,7 @@ namespace Horizon.EditorTools
 
             // --- The face.
 
-            /// <summary>Which of the four front-end layouts this car wears.</summary>
+            /// <summary>Which front-end layout this car wears.</summary>
             public readonly HeadLampStyle HeadLamps;
 
             /// <summary>
@@ -312,6 +312,24 @@ namespace Horizon.EditorTools
             /// 0.689 is the default because it is the number this was before it was a field.
             /// </summary>
             public readonly float GrilleSpan;
+
+            /// <summary>
+            /// Half-width of a dark mouth in the bumper, under whatever the layout drew, as a fraction of
+            /// the nose's half-width. Zero for none.
+            ///
+            /// <para>Every one of the reference photographs except the three oldest cars has one, and on
+            /// the R34, the E30 M3 and the G63 it is as much of the face as the lamps are. It is a field
+            /// rather than part of a layout because it is independent of the lamps: an R34 and a Mustang
+            /// wear different lamps and only one of them has a bumper intake. Split by a body-coloured bar,
+            /// which is what turns a dark hole into a bumper.</para>
+            /// </summary>
+            public readonly float LowerIntake;
+
+            /// <summary>
+            /// Whether the grille wears a chrome surround — and, on the round-lamp face, the upright bars
+            /// the G-Klasse is identified by. On the existing rim material, so it costs no slot.
+            /// </summary>
+            public readonly bool GrilleFrame;
 
             // --- The exhaust.
 
@@ -517,6 +535,8 @@ namespace Horizon.EditorTools
                 float tailLampDrop = 0.06f,
                 HeadLampStyle headLamps = HeadLampStyle.GrilleBar,
                 float grilleSpan = 0.689f,
+                float lowerIntake = 0f,
+                bool grilleFrame = false,
                 int exhaustCount = 2,
                 float exhaustRadius = 0.075f,
                 float exhaustSpread = 0.42f,
@@ -563,6 +583,8 @@ namespace Horizon.EditorTools
                 TailLampInner = tailLampInner;
                 TailLampOuter = tailLampOuter;
                 GrilleSpan = grilleSpan;
+                LowerIntake = lowerIntake;
+                GrilleFrame = grilleFrame;
                 TailGlassHalfWidth = tailGlassHalfWidth;
                 RimFraction = rimFraction;
 
@@ -647,7 +669,10 @@ namespace Horizon.EditorTools
             Turbine,
         }
 
-        /// <summary>The four front ends, and the same argument as <see cref="TailLampStyle"/>.</summary>
+        /// <summary>
+        /// The front ends, and the same argument as <see cref="TailLampStyle"/>. Appended to, never
+        /// inserted into — the order is the one every profile below was written against.
+        /// </summary>
         public enum HeadLampStyle
         {
             /// <summary>Full-width grille with rectangular lamps set into its outer ends.</summary>
@@ -661,6 +686,15 @@ namespace Horizon.EditorTools
 
             /// <summary>Square lamps stacked over an upright grille — an eighties three-box.</summary>
             Stacked,
+
+            /// <summary>Four round lamps in a dark band with a twin kidney between them — the E30.</summary>
+            QuadRound,
+
+            /// <summary>Two lenses in an oval pod each side over a big low mouth — the Supra A80.</summary>
+            Oval,
+
+            /// <summary>A chrome-framed grille over most of the face, C-shaped lamps outboard — the F-150.</summary>
+            FullGrille,
         }
 
         public readonly struct Station
@@ -1082,7 +1116,7 @@ namespace Horizon.EditorTools
             tailLamps: TailLampStyle.Stack, tailLampCount: 1,
             tailLampInner: 0.60f, tailLampOuter: 0.92f,
             tailLampHalfHeight: 0.14f, tailLampDrop: 0.02f,
-            headLamps: HeadLampStyle.GrilleBar, grilleSpan: 0.62f,
+            headLamps: HeadLampStyle.FullGrille, grilleSpan: 0.62f, grilleFrame: true, lowerIntake: 0.40f,
             exhaustCount: 1, exhaustRadius: 0.075f, exhaustSideExit: 0.60f,
             wheelRadius: 0.48f, suspensionRestLength: 0.36f,
             tyreWidth: 0.38f, flareWidth: 0.12f,
@@ -1409,7 +1443,7 @@ namespace Horizon.EditorTools
             // on a car this shape it is the single detail that names it.
             tailLamps: TailLampStyle.Round, tailLampCount: 2,
             tailLampInner: 0.30f, tailLampOuter: 0.92f, tailLampHalfHeight: 0.13f,
-            headLamps: HeadLampStyle.Slim, grilleSpan: 0.60f,
+            headLamps: HeadLampStyle.Slim, grilleSpan: 0.60f, lowerIntake: 0.70f,
 
             // Two fat pipes close in to the centre line. Wide-set pipes read as an American V8; a pair
             // tucked either side of the diffuser is what a Japanese turbo car of this era wears.
@@ -1432,7 +1466,7 @@ namespace Horizon.EditorTools
             noseZ: 2.26f, tailZ: -2.28f,
             tailLamps: TailLampStyle.Round, tailLampCount: 2,
             tailLampInner: 0.26f, tailLampOuter: 0.90f, tailLampHalfHeight: 0.12f,
-            headLamps: HeadLampStyle.Slim, grilleSpan: 0.58f,
+            headLamps: HeadLampStyle.Oval, grilleSpan: 0.62f,
 
             // One pipe, and it is enormous: 0.27 m across the mouth. The car this is measured against is
             // remembered for exactly two things and this is the second of them — a single cannon under
@@ -1456,7 +1490,7 @@ namespace Horizon.EditorTools
             tailLamps: TailLampStyle.Blocks, tailLampCount: 2,
             tailLampInner: 0.24f, tailLampOuter: 0.93f,
             tailLampHalfHeight: 0.13f, tailLampDrop: 0.02f,
-            headLamps: HeadLampStyle.Stacked, grilleSpan: 0.36f,
+            headLamps: HeadLampStyle.Stacked, grilleSpan: 0.36f, grilleFrame: true, lowerIntake: 0.45f,
             exhaustCount: 1, exhaustRadius: 0.055f, exhaustSpread: 0.36f,
             wheelRadius: 0.42f, suspensionRestLength: 0.32f,
             tyreWidth: 0.30f, flareWidth: 0.05f,
@@ -1475,7 +1509,7 @@ namespace Horizon.EditorTools
             tailLamps: TailLampStyle.Blocks, tailLampCount: 1,
             tailLampInner: 0.22f, tailLampOuter: 0.94f,
             tailLampHalfHeight: 0.115f, tailLampDrop: 0.02f,
-            headLamps: HeadLampStyle.Round, grilleSpan: 0.26f,
+            headLamps: HeadLampStyle.QuadRound, grilleSpan: 0.13f, lowerIntake: 0.55f,
 
             // Twin pipes almost touching under the centre of the bumper.
             exhaustCount: 2, exhaustRadius: 0.050f, exhaustSpread: 0.13f,
@@ -1503,7 +1537,7 @@ namespace Horizon.EditorTools
             tailLamps: TailLampStyle.Blocks, tailLampCount: 1,
             tailLampInner: 0.78f, tailLampOuter: 0.94f,
             tailLampHalfHeight: 0.15f, tailLampDrop: -0.42f,
-            headLamps: HeadLampStyle.Round, grilleSpan: 0.30f,
+            headLamps: HeadLampStyle.Round, grilleSpan: 0.30f, grilleFrame: true, lowerIntake: 0.60f,
 
             // Out of the side, ahead of the rear wheel, where this vehicle's is.
             exhaustCount: 1, exhaustRadius: 0.075f, exhaustSideExit: 0.62f,
@@ -2305,6 +2339,34 @@ namespace Horizon.EditorTools
         /// every opening to <c>belt - 0.08</c>, so on a car with a low waist the beltline, not
         /// <see cref="CarProfile.ArchGap"/>, is what decides how much of the tyre you can see.
         /// </summary>
+        /// <summary>
+        /// The sill height at a given Z, interpolated between stations the way <see cref="BeltAt"/> is.
+        /// Needed by the face, which must know where the bodywork ends below it.
+        /// </summary>
+        private static float SillAt(in CarProfile profile, float z)
+        {
+            Station[] stations = profile.Stations;
+
+            if (z <= stations[0].Z)
+            {
+                return stations[0].SillY;
+            }
+
+            for (int i = 1; i < stations.Length; i++)
+            {
+                if (z > stations[i].Z)
+                {
+                    continue;
+                }
+
+                float span = stations[i].Z - stations[i - 1].Z;
+                float t = span > 0.0001f ? (z - stations[i - 1].Z) / span : 0f;
+                return Mathf.Lerp(stations[i - 1].SillY, stations[i].SillY, t);
+            }
+
+            return stations[stations.Length - 1].SillY;
+        }
+
         private static float BeltAt(in CarProfile profile, float z)
         {
             Station[] stations = profile.Stations;
@@ -2616,7 +2678,8 @@ namespace Horizon.EditorTools
         }
 
         /// <summary>
-        /// The front end, in whichever of the four layouts the profile asked for.
+        /// The front end, in whichever layout the profile asked for, and the two things a face can
+        /// carry independently of its lamps — a lower intake and a chrome grille surround.
         ///
         /// <para>Sits just <i>in front of</i> the nose cap, not at the widest station. A panel placed
         /// back where the body is widest ends up inside the shell and renders nothing.</para>
@@ -2642,9 +2705,24 @@ namespace Horizon.EditorTools
             // top of the grille rather than sitting on the beltline.
             float lamp = LampHeight(profile, profile.NoseZ) - 0.10f;
 
+            // The lowest point of the face the ring actually builds here: the sill, capped below the
+            // beltline exactly as BuildRing caps it. Anything drawn under this hangs in the air below
+            // the bumper.
+            float faceBottom = Mathf.Min(SillAt(profile, profile.NoseZ), BeltAt(profile, profile.NoseZ) - 0.08f);
+
             List<int> grille = submeshTriangles[GlassSubmesh];
             List<int> lamps = submeshTriangles[HeadlightSubmesh];
+            List<int> chrome = submeshTriangles[ChromeSubmesh];
             float span = profile.GrilleSpan;
+
+            // What each layout drew as its grille, for GrilleFrame to surround, and the lowest thing it
+            // drew, for LowerIntake to stay under.
+            float gx = span * face;
+            float gy0 = lamp - 0.14f;
+            float gy1 = lamp + 0.14f;
+            float used = gy0;
+            int verticalSlats = 0;
+            int horizontalSlats = 0;
 
             switch (profile.HeadLamps)
             {
@@ -2652,13 +2730,20 @@ namespace Horizon.EditorTools
                 {
                     // A narrow upright grille between two round lamps standing outboard of it — the
                     // off-roader's face, and the one arrangement that cannot be mistaken for a car's.
-                    AddPanel(vertices, grille, z, -span * face, span * face, lamp - 0.17f, lamp + 0.17f, true);
+                    gy0 = lamp - 0.17f;
+                    gy1 = lamp + 0.17f;
+                    AddPanel(vertices, grille, z, -gx, gx, gy0, gy1, true);
 
                     float radius = face * 0.155f;
                     float centre = (span + 0.155f + 0.06f) * face;
 
                     AddDiscPanel(vertices, lamps, z + 0.02f, centre, lamp + 0.02f, radius, 10, true);
                     AddDiscPanel(vertices, lamps, z + 0.02f, -centre, lamp + 0.02f, radius, 10, true);
+
+                    used = Mathf.Min(gy0, lamp + 0.02f - radius);
+
+                    // Framed, the G-Klasse's grille is a set of upright bars, and that is most of it.
+                    verticalSlats = 5;
                     break;
                 }
 
@@ -2667,10 +2752,14 @@ namespace Horizon.EditorTools
                     // A low wide mouth under a pair of slim lenses, which is every fast car of the
                     // nineties. The lamps are above the opening rather than set into it — that gap is
                     // what stops the face reading as one dark bar the width of the car.
-                    AddPanel(vertices, grille, z, -span * face, span * face, lamp - 0.20f, lamp - 0.03f, true);
+                    gy0 = lamp - 0.20f;
+                    gy1 = lamp - 0.03f;
+                    AddPanel(vertices, grille, z, -gx, gx, gy0, gy1, true);
 
-                    AddPanel(vertices, lamps, z + 0.02f, 0.20f * face, span * face, lamp + 0.05f, lamp + 0.13f, true);
-                    AddPanel(vertices, lamps, z + 0.02f, -span * face, -0.20f * face, lamp + 0.05f, lamp + 0.13f, true);
+                    AddPanel(vertices, lamps, z + 0.02f, 0.20f * face, gx, lamp + 0.05f, lamp + 0.13f, true);
+                    AddPanel(vertices, lamps, z + 0.02f, -gx, -0.20f * face, lamp + 0.05f, lamp + 0.13f, true);
+
+                    used = gy0;
                     break;
                 }
 
@@ -2678,12 +2767,100 @@ namespace Horizon.EditorTools
                 {
                     // An upright grille with a square lamp bolted either side of it. An eighties saloon
                     // wears its face high and narrow, where a muscle car wears one wide and low.
-                    AddPanel(vertices, grille, z, -span * face, span * face, lamp - 0.11f, lamp + 0.13f, true);
+                    gy0 = lamp - 0.11f;
+                    gy1 = lamp + 0.13f;
+                    AddPanel(vertices, grille, z, -gx, gx, gy0, gy1, true);
 
                     AddPanel(vertices, lamps, z + 0.02f,
                         (span + 0.04f) * face, 0.88f * face, lamp - 0.09f, lamp + 0.11f, true);
                     AddPanel(vertices, lamps, z + 0.02f,
                         -0.88f * face, -(span + 0.04f) * face, lamp - 0.09f, lamp + 0.11f, true);
+
+                    used = Mathf.Min(gy0, lamp - 0.09f);
+                    break;
+                }
+
+                case HeadLampStyle.QuadRound:
+                {
+                    // Four round lamps in a dark band that runs the width of the face, and a twin kidney
+                    // framed in chrome between the inner pair — the E30. The band is what makes four
+                    // lamps read as a set rather than as four holes; the kidney is what makes it that car.
+                    float radius = Mathf.Min(face * 0.10f, 0.11f);
+                    float outerCentre = 0.84f * face - radius;
+                    float innerCentre = outerCentre - 2f * radius - 0.025f;
+                    float kidneyInner = 0.025f * face;
+                    float kidneyOuter = Mathf.Min(gx, innerCentre - radius - 0.03f);
+
+                    gy0 = lamp - radius - 0.02f;
+                    gy1 = lamp + radius + 0.02f;
+                    AddPanel(vertices, grille, z, -0.88f * face, 0.88f * face, gy0, gy1, true);
+
+                    for (int side = -1; side <= 1; side += 2)
+                    {
+                        AddDiscPanel(vertices, lamps, z + 0.02f, side * outerCentre, lamp, radius, 10, true);
+                        AddDiscPanel(vertices, lamps, z + 0.02f, side * innerCentre, lamp, radius, 10, true);
+                    }
+
+                    if (kidneyOuter > kidneyInner + 0.02f)
+                    {
+                        // The kidney stands a little taller than the band, as the real one does, so its
+                        // top is filled dark where the band is not.
+                        float top = gy1 + 0.03f;
+                        AddMirroredPanel(vertices, grille, z, kidneyInner, kidneyOuter, gy1, top);
+                        AddFrame(vertices, chrome, z + 0.005f, kidneyInner, kidneyOuter, gy0 + 0.01f, top, 0.018f);
+                        AddFrame(vertices, chrome, z + 0.005f, -kidneyOuter, -kidneyInner, gy0 + 0.01f, top, 0.018f);
+                    }
+
+                    gx = Mathf.Max(kidneyOuter, kidneyInner);
+                    used = gy0;
+                    break;
+                }
+
+                case HeadLampStyle.Oval:
+                {
+                    // Two projector lenses in a dark oval pod each side, no upper grille at all, and a
+                    // big low mouth — the Supra A80. Its face is the pods and the mouth and nothing else.
+                    float podX = 0.56f * face;
+                    float podRx = 0.26f * face;
+                    float podRy = 0.085f;
+                    float podY = lamp + 0.06f;
+
+                    gy0 = lamp - 0.26f;
+                    gy1 = lamp - 0.08f;
+                    AddPanel(vertices, grille, z, -gx, gx, gy0, gy1, true);
+
+                    for (int side = -1; side <= 1; side += 2)
+                    {
+                        AddEllipsePanel(vertices, grille, z + 0.01f, side * podX, podY, podRx, podRy, 14, true);
+                        AddDiscPanel(vertices, lamps, z + 0.02f,
+                            side * (podX - podRx * 0.42f), podY, podRy * 0.62f, 10, true);
+                        AddDiscPanel(vertices, lamps, z + 0.02f,
+                            side * (podX + podRx * 0.30f), podY, podRy * 0.55f, 10, true);
+                    }
+
+                    used = gy0;
+                    break;
+                }
+
+                case HeadLampStyle.FullGrille:
+                {
+                    // A grille across most of the face, framed and barred in chrome, with the lamps as a
+                    // C at each outer end — the F-150. On a truck the grille is the face, and the lamps
+                    // are what is left over at the corners.
+                    gy0 = lamp - 0.30f;
+                    gy1 = lamp + 0.16f;
+                    AddPanel(vertices, grille, z, -gx, gx, gy0, gy1, true);
+
+                    float c0 = gx + 0.04f * face;
+                    float c1 = c0 + 0.06f * face;
+                    float c2 = Mathf.Min(0.90f * face, c1 + 0.16f * face);
+
+                    AddMirroredPanel(vertices, lamps, z + 0.02f, c0, c1, lamp - 0.12f, lamp + 0.16f);
+                    AddMirroredPanel(vertices, lamps, z + 0.02f, c1, c2, lamp + 0.10f, lamp + 0.16f);
+                    AddMirroredPanel(vertices, lamps, z + 0.02f, c1, c2, lamp - 0.12f, lamp - 0.06f);
+
+                    horizontalSlats = 2;
+                    used = gy0;
                     break;
                 }
 
@@ -2695,15 +2872,107 @@ namespace Horizon.EditorTools
                     const float lampInner = 0.378f;
                     const float lampOuter = 0.622f;
 
-                    AddPanel(vertices, grille, z, -span * face, span * face, lamp - 0.14f, lamp + 0.14f, true);
+                    AddPanel(vertices, grille, z, -gx, gx, gy0, gy1, true);
 
                     AddPanel(vertices, lamps, z + 0.02f,
                         lampInner * face, lampOuter * face, lamp - 0.10f, lamp + 0.10f, true);
                     AddPanel(vertices, lamps, z + 0.02f,
                         -lampOuter * face, -lampInner * face, lamp - 0.10f, lamp + 0.10f, true);
+
+                    used = gy0;
                     break;
                 }
             }
+
+            if (profile.GrilleFrame)
+            {
+                AddGrilleFrame(vertices, chrome, z + 0.005f, gx, gy0, gy1, verticalSlats, horizontalSlats);
+            }
+
+            if (profile.LowerIntake > 0f)
+            {
+                AddLowerIntake(profile, vertices, grille, z, face, faceBottom, used);
+            }
+        }
+
+        /// <summary>
+        /// A dark mouth in the bumper, under everything the layout drew, split by a body-coloured bar.
+        ///
+        /// <para><b>It warns rather than hanging in the air.</b> The face ends at the sill, and a low
+        /// sports car's lamps and grille can already reach it; an intake placed below that would be a
+        /// dark panel floating under the bumper, and one silently left out would be a profile asking for
+        /// something the build never gave it. Either is the failure this project keeps naming, so the
+        /// room is measured and a shortfall is said out loud.</para>
+        /// </summary>
+        private static void AddLowerIntake(
+            in CarProfile profile, List<Vector3> vertices, List<int> grille, float z, float face,
+            float faceBottom, float used)
+        {
+            float top = used - 0.05f;
+            float bottom = faceBottom + 0.05f;
+
+            if (top - bottom < 0.06f)
+            {
+                Debug.LogWarning(
+                    $"[Horizon] {profile.Name} asks for a lower intake and its face has "
+                    + $"{Mathf.Max(0f, top - bottom) * 100f:0} cm between the grille and the sill to put one "
+                    + "in. Raise the lamps, lower the sill at the nose, or drop LowerIntake.");
+                return;
+            }
+
+            float half = profile.LowerIntake * face;
+
+            if (top - bottom < 0.10f)
+            {
+                AddPanel(vertices, grille, z, -half, half, bottom, top, true);
+                return;
+            }
+
+            float mid = (top + bottom) * 0.5f;
+            AddPanel(vertices, grille, z, -half, half, mid + 0.015f, top, true);
+            AddPanel(vertices, grille, z, -half, half, bottom, mid - 0.015f, true);
+        }
+
+        /// <summary>A chrome surround for a grille, and the bars across it that some faces are made of.</summary>
+        private static void AddGrilleFrame(
+            List<Vector3> vertices, List<int> chrome, float z, float gx, float gy0, float gy1,
+            int verticalSlats, int horizontalSlats)
+        {
+            AddFrame(vertices, chrome, z, -gx, gx, gy0, gy1, 0.03f);
+
+            for (int i = 1; i <= verticalSlats; i++)
+            {
+                float x = -gx + 2f * gx * i / (verticalSlats + 1);
+                AddPanel(vertices, chrome, z, x - 0.008f, x + 0.008f, gy0, gy1, true);
+            }
+
+            for (int i = 1; i <= horizontalSlats; i++)
+            {
+                float y = gy0 + (gy1 - gy0) * i / (horizontalSlats + 1);
+                AddPanel(vertices, chrome, z, -gx, gx, y - 0.012f, y + 0.012f, true);
+            }
+        }
+
+        /// <summary>
+        /// Four thin panels around a rectangle, <i>outside</i> it, so a frame never lies on the panel it
+        /// frames and nothing fights for the same depth.
+        /// </summary>
+        private static void AddFrame(
+            List<Vector3> vertices, List<int> triangles, float z,
+            float x0, float x1, float y0, float y1, float thickness)
+        {
+            AddPanel(vertices, triangles, z, x0 - thickness, x1 + thickness, y1, y1 + thickness, true);
+            AddPanel(vertices, triangles, z, x0 - thickness, x1 + thickness, y0 - thickness, y0, true);
+            AddPanel(vertices, triangles, z, x0 - thickness, x0, y0, y1, true);
+            AddPanel(vertices, triangles, z, x1, x1 + thickness, y0, y1, true);
+        }
+
+        /// <summary>A forward-facing panel and its mirror image across the centre line.</summary>
+        private static void AddMirroredPanel(
+            List<Vector3> vertices, List<int> triangles, float z, float x0, float x1, float y0, float y1)
+        {
+            AddPanel(vertices, triangles, z, x0, x1, y0, y1, true);
+            AddPanel(vertices, triangles, z, -x1, -x0, y0, y1, true);
         }
 
         /// <summary>
@@ -2997,6 +3266,24 @@ namespace Horizon.EditorTools
             int sides,
             bool facingForward)
         {
+            AddEllipsePanel(vertices, triangles, z, centreX, centreY, radius, radius, sides, facingForward);
+        }
+
+        /// <summary>
+        /// A flat ellipse facing along Z — the disc panel with two radii, for a lamp pod that is wider
+        /// than it is tall.
+        /// </summary>
+        private static void AddEllipsePanel(
+            List<Vector3> vertices,
+            List<int> triangles,
+            float z,
+            float centreX,
+            float centreY,
+            float radiusX,
+            float radiusY,
+            int sides,
+            bool facingForward)
+        {
             var centre = new Vector3(centreX, centreY, z);
 
             // Same trick AddPanel uses: a reference point behind the disc, so AddTriangleOutward settles
@@ -3008,8 +3295,8 @@ namespace Horizon.EditorTools
                 float a0 = i / (float)sides * Mathf.PI * 2f;
                 float a1 = (i + 1) / (float)sides * Mathf.PI * 2f;
 
-                var p0 = new Vector3(centreX + Mathf.Cos(a0) * radius, centreY + Mathf.Sin(a0) * radius, z);
-                var p1 = new Vector3(centreX + Mathf.Cos(a1) * radius, centreY + Mathf.Sin(a1) * radius, z);
+                var p0 = new Vector3(centreX + Mathf.Cos(a0) * radiusX, centreY + Mathf.Sin(a0) * radiusY, z);
+                var p1 = new Vector3(centreX + Mathf.Cos(a1) * radiusX, centreY + Mathf.Sin(a1) * radiusY, z);
 
                 AddTriangleOutward(vertices, triangles, centre, p0, p1, inward);
             }
