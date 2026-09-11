@@ -148,7 +148,7 @@ namespace Horizon.EditorTools
                         / Mathf.Max(1f, config.SuspensionStiffness);
 
             float height = config.WheelRadius + config.SuspensionRestLength - sag + config.CenterOfMass.y;
-            float track = 2f * CarMeshBuilder.TrackHalfWidth;
+            float track = 0.5f * (config.TrackFront + config.TrackRear);
 
             return height > 0.01f ? track / (2f * height) : 0f;
         }

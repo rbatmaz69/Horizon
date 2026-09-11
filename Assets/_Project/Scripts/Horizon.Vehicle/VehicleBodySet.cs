@@ -243,6 +243,23 @@ namespace Horizon.Vehicle
                 }
             }
 
+            // Where each wheel stands, from the body's own config. At run time the controller moves the
+            // pivots every step anyway; this is what puts a remote car and an edit-time preview on the
+            // right footprint. The filters are in the controller's order.
+            if (body.Config != null)
+            {
+                float drop = body.Config.SuspensionRestLength;
+
+                for (int i = 0; i < wheelFilters.Length && i < 4; i++)
+                {
+                    if (wheelFilters[i] != null)
+                    {
+                        wheelFilters[i].transform.localPosition =
+                            body.Config.WheelAnchorLocal(i) - new Vector3(0f, drop, 0f);
+                    }
+                }
+            }
+
             if (lights != null)
             {
                 lights.SetBody(body.Renderer, body.Headlights);

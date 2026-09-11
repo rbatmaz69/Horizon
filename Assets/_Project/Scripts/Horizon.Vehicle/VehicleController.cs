@@ -684,19 +684,44 @@ namespace Horizon.Vehicle
                 };
             }
 
+            PlaceAnchors();
             CacheWheelbase();
             ApplyConfigToBody();
         }
 
         /// <summary>
+        /// Puts the four wheel anchors where the config says this car's wheels are.
+        ///
+        /// <para>Before <see cref="CacheWheelbase"/>, always: that measures the anchors, and measured
+        /// before they moved it would hand every car the previous car's turn-in assist until the next
+        /// swap. The anchors are read live every physics step, so this is the only cached distance there
+        /// is to get wrong.</para>
+        /// </summary>
+        private void PlaceAnchors()
+        {
+            if (config == null || wheelAnchors == null)
+            {
+                return;
+            }
+
+            for (int i = 0; i < WheelCount && i < wheelAnchors.Length; i++)
+            {
+                if (wheelAnchors[i] != null)
+                {
+                    wheelAnchors[i].localPosition = config.WheelAnchorLocal(i);
+                }
+            }
+        }
+
+        /// <summary>
         /// Measures the wheelbase off the anchors once, because <see cref="ApplyTurnInAssist"/> needs it
         /// every physics step and reading two transforms in there would be a needless dependency on the
-        /// anchors still being where they were. Falls back to the prototype's 2.70 m if the anchors are
+        /// anchors still being where they were. Falls back to the config's own wheelbase if the anchors are
         /// not wired, which is a bad prefab rather than a bad number.
         /// </summary>
         private void CacheWheelbase()
         {
-            wheelbase = 2.7f;
+            wheelbase = config != null ? config.Wheelbase : 2.7f;
 
             if (wheelAnchors == null
                 || wheelAnchors.Length < WheelCount
@@ -773,6 +798,7 @@ namespace Horizon.Vehicle
                 wheels[i].Compression01 = 0f;
             }
 
+            PlaceAnchors();
             CacheWheelbase();
             ApplyConfigToBody();
         }

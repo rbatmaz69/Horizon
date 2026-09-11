@@ -249,6 +249,30 @@ namespace Horizon.Vehicle
                + "WheelRadius.")]
         public float SuspensionRestLength = 0.391f;
 
+        [Tooltip("Front track, rear track and wheelbase, built metres. Written from the body by "
+               + "VehicleConfigPresets, not tuned here: the wheel anchors are placed from these, and the "
+               + "arches were cut around them.")]
+        public float TrackFront = 2.475f;
+
+        public float TrackRear = 2.475f;
+
+        public float Wheelbase = 3.375f;
+
+        /// <summary>
+        /// Where one wheel's anchor sits on the chassis, in the controller's order — front left, front
+        /// right, rear left, rear right.
+        ///
+        /// <para>The one runtime expression of the car's footprint. The controller places its anchors
+        /// from it, the body set seats its pivots from it and the setup tool builds the prefab from it,
+        /// so a garage swap cannot leave a car standing on the previous car's wheels.</para>
+        /// </summary>
+        public Vector3 WheelAnchorLocal(int wheel)
+        {
+            bool front = wheel < 2;
+            float half = (front ? TrackFront : TrackRear) * 0.5f;
+            return new Vector3((wheel & 1) == 0 ? -half : half, 0f, (front ? Wheelbase : -Wheelbase) * 0.5f);
+        }
+
         [Tooltip("Spring rate in N per metre of compression.")]
         public float SuspensionStiffness = 42000f;
 

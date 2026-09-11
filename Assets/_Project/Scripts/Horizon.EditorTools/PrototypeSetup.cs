@@ -1527,18 +1527,15 @@ namespace Horizon.EditorTools
                 serialized.FindProperty("cover").objectReferenceValue = root.GetComponent<VehicleCover>();
             });
 
-            // Anchors sit at the top of the suspension travel; wheels hang below by spring length.
-            // Track and wheelbase come from the mesh builder so the wheels always land in the arches
-            // it carved — changing one without the other is how you get wheels inside the bodywork.
-            const float trackX = CarMeshBuilder.TrackHalfWidth;
-            const float baseZ = CarMeshBuilder.WheelBaseHalf;
-
+            // Anchors sit at the top of the suspension travel; wheels hang below by spring length. Where
+            // they sit is the default body's config — written from its profile, the numbers its arches
+            // were cut around — through the one formula the controller also places them by.
             var anchorPositions = new[]
             {
-                new Vector3(-trackX, 0f, baseZ),
-                new Vector3(trackX, 0f, baseZ),
-                new Vector3(-trackX, 0f, -baseZ),
-                new Vector3(trackX, 0f, -baseZ),
+                config.WheelAnchorLocal(0),
+                config.WheelAnchorLocal(1),
+                config.WheelAnchorLocal(2),
+                config.WheelAnchorLocal(3),
             };
             var anchorNames = new[] { "Anchor_FL", "Anchor_FR", "Anchor_RL", "Anchor_RR" };
 
@@ -1727,16 +1724,6 @@ namespace Horizon.EditorTools
                 }
             }
 
-            const float trackX = CarMeshBuilder.TrackHalfWidth;
-            const float baseZ = CarMeshBuilder.WheelBaseHalf;
-
-            var anchors = new[]
-            {
-                new Vector3(-trackX, 0f, baseZ),
-                new Vector3(trackX, 0f, baseZ),
-                new Vector3(-trackX, 0f, -baseZ),
-                new Vector3(trackX, 0f, -baseZ),
-            };
             var wheelNames = new[] { "Wheel_FL", "Wheel_FR", "Wheel_RL", "Wheel_RR" };
 
             var poolObject = new GameObject("RemoteCars");
@@ -1793,7 +1780,7 @@ namespace Horizon.EditorTools
                     var pivot = new GameObject(wheelNames[i]);
                     pivot.transform.SetParent(carObject.transform, false);
                     pivot.transform.localPosition =
-                        anchors[i] - new Vector3(0f, configs[0].SuspensionRestLength, 0f);
+                        configs[0].WheelAnchorLocal(i) - new Vector3(0f, configs[0].SuspensionRestLength, 0f);
                     pivots[i] = pivot.transform;
 
                     MeshFilter filter = pivot.AddComponent<MeshFilter>();
@@ -1833,7 +1820,6 @@ namespace Horizon.EditorTools
                 car.SetParts(
                     bodySet,
                     pivots,
-                    anchors,
                     materials.HeadLampLit,
                     materials.LightFront,
                     materials.LightRear,
@@ -2017,8 +2003,8 @@ namespace Horizon.EditorTools
                 // nobody notices until they look at the thing side-on.
                 // The arch gap is printed as what was asked for and what the beltline cap allowed,
                 // because those two differ and only the second one is what the player sees.
-                float frontGap = CarMeshBuilder.ArchClearanceAt(profile, CarMeshBuilder.WheelBaseHalf);
-                float rearGap = CarMeshBuilder.ArchClearanceAt(profile, -CarMeshBuilder.WheelBaseHalf);
+                float frontGap = CarMeshBuilder.ArchClearanceAt(profile, profile.WheelBaseHalf);
+                float rearGap = CarMeshBuilder.ArchClearanceAt(profile, -profile.WheelBaseHalf);
 
                 report.Append($"\n  {string.Empty,-10} rides {profile.RideHeight:0.00} m on a "
                               + $"{profile.WheelRadius * 2f:0.00} m {profile.Rim} wheel "
@@ -3804,8 +3790,11 @@ namespace Horizon.EditorTools
         /// </summary>
         private static void ValidateSurfaceRelief(IRoadPath path, string name)
         {
-            const float Track = CarMeshBuilder.TrackHalfWidth * 2f;
-            const float Wheelbase = CarMeshBuilder.WheelBaseHalf * 2f;
+            // One car's track and wheelbase stand for the fleet only while every car shares them; this is
+            // restated against the fleet's range when they are set per car.
+            CarMeshBuilder.CarProfile reference = CarMeshBuilder.PlayerProfiles[0];
+            float Track = reference.TrackHalfFront + reference.TrackHalfRear;
+            float Wheelbase = reference.WheelBaseHalf * 2f;
             const float Step = 1f / 50f;
 
             if (!TryWorstCar(out string worstCar, out float mass, out float damping, out float topSpeed))

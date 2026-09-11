@@ -141,16 +141,6 @@ namespace Horizon.EditorTools
         }
 
         /// <summary>
-        /// Half the distance between the wheel centres. Must match the prefab's anchors. Set so the
-        /// tyre stands a few centimetres proud of the fender — flush wheels read as recessed.
-        ///
-        /// <para>Scaled with the bodies rather than independently: the body is what covers the wheel, so
-        /// widening one without the other either leaves the tyres standing outside the arches or sinks
-        /// them into the flare until the car has no wheels at all.</para>
-        /// </summary>
-        public const float TrackHalfWidth = 0.99f * PlanScale;
-
-        /// <summary>
         /// How far above the road the collider's underside sits, metres — <b>not</b> how far the
         /// bodywork does.
         ///
@@ -174,9 +164,6 @@ namespace Horizon.EditorTools
 
         /// <summary>How far either side of a wheel centre the flare fades back to nothing, metres.</summary>
         private const float FlareReach = 0.75f * PlanScale;
-
-        /// <summary>Distance of the wheel centres from the car's middle, along Z.</summary>
-        public const float WheelBaseHalf = 1.35f * PlanScale;
 
         /// <summary>
         /// The one height the whole traffic pool is lifted by, metres.
@@ -236,13 +223,13 @@ namespace Horizon.EditorTools
 
         /// <summary>
         /// How far the tyre's outer face stands proud of the widest bodywork at one axle, metres —
-        /// negative when the tyre is sunk inside the flank. <see cref="TrackHalfWidth"/>'s own comment
+        /// negative when the tyre is sunk inside the flank. The track's own comment
         /// asserts the tyre stands a few centimetres proud; nothing had ever measured it.
         /// </summary>
         public static float TyreProud(in CarProfile profile, bool front)
         {
-            float z = front ? WheelBaseHalf : -WheelBaseHalf;
-            return TrackHalfWidth + profile.TyreWidth * 0.5f - (HalfWidthAt(profile, z) + FlareAt(profile, z));
+            float z = profile.AxleZ(front);
+            return profile.TrackHalf(front) + profile.TyreWidth * 0.5f - (HalfWidthAt(profile, z) + FlareAt(profile, z));
         }
 
         /// <summary>
@@ -262,11 +249,15 @@ namespace Horizon.EditorTools
         /// work of telling them apart, and a silhouette is the one thing a player cannot see when they
         /// are following a car rather than passing it.</para>
         ///
-        /// <para>Note what is <i>not</i> here. <see cref="TrackHalfWidth"/> and
-        /// <see cref="WheelBaseHalf"/> stay global: track is suspension geometry, this project tunes
-        /// feel before beauty, and a wheelbase that varied per profile would buy variety no player can
-        /// see from thirty metres through fog. The wheel itself <i>is</i> here, because a G-Klasse on a
-        /// Mustang's tyre is not a G-Klasse — and everything a wheel decides is derived from it
+        /// <para><b>Track and wheelbase are here too, and for a long time they deliberately were not.</b>
+        /// They were global, on the argument that track is suspension geometry, that this project tunes
+        /// feel before beauty, and that a wheelbase varying per profile "would buy variety no player can
+        /// see from thirty metres through fog". That last clause is about traffic; the player's own car is
+        /// in every frame at three metres, and one shared 1.98 m track is why every body came out 2.06 to
+        /// 2.10 m wide against references of 1.68 to 1.81 — a body has to cover its wheels. They arrive
+        /// through the same gate as everything else, in the reference car's own metres; see
+        /// <see cref="TrackHalfFront"/>. The wheel itself is here for the older reason, because a G-Klasse
+        /// on a Mustang's tyre is not a G-Klasse — and everything a wheel decides is derived from it
         /// (<see cref="RideHeight"/>, <see cref="ArchTop"/>) rather than restated beside it.</para>
         /// </summary>
         public readonly struct CarProfile
@@ -537,6 +528,28 @@ namespace Horizon.EditorTools
             public readonly float RimFraction;
 
             /// <summary>
+            /// Half the front track, in built metres — through the <see cref="PlanScale"/> gate from the
+            /// reference car's own figure, like everything else on this struct. See the class note for why
+            /// these used to be two constants shared by all ten cars.
+            /// </summary>
+            public readonly float TrackHalfFront;
+
+            /// <summary>Half the rear track, built metres. Most references quote two.</summary>
+            public readonly float TrackHalfRear;
+
+            /// <summary>
+            /// Half the wheelbase, built metres. The axles stand at plus and minus this, centred on the
+            /// table's origin, so <c>CenterOfMass.z</c> keeps meaning an offset from mid-wheelbase.
+            /// </summary>
+            public readonly float WheelBaseHalf;
+
+            /// <summary>Half-track at one axle.</summary>
+            public float TrackHalf(bool front) => front ? TrackHalfFront : TrackHalfRear;
+
+            /// <summary>Z of one axle.</summary>
+            public float AxleZ(bool front) => front ? WheelBaseHalf : -WheelBaseHalf;
+
+            /// <summary>
             /// How far the body's local origin sits above the ground: the wheel centre hangs at
             /// <c>-SuspensionRestLength</c> and the tyre reaches a radius below that.
             ///
@@ -605,7 +618,10 @@ namespace Horizon.EditorTools
                 float flareWidth = 0.09f,
                 float archGap = 0.02f,
                 RimStyle rim = RimStyle.FiveSpoke,
-                float rimFraction = 0.58f)
+                float rimFraction = 0.58f,
+                float trackFront = 1.98f,
+                float trackRear = 1.98f,
+                float wheelbase = 2.70f)
             {
                 // Every dimension arrives here in the metres it was authored in — measured against a
                 // real car, argued about in a comment — and leaves scaled. This is the one gate all ten
@@ -632,6 +648,12 @@ namespace Horizon.EditorTools
                 GrilleFrame = grilleFrame;
                 TailGlassHalfWidth = tailGlassHalfWidth;
                 RimFraction = rimFraction;
+
+                // Halving is exact in binary, so 1.98 x 0.5 x PlanScale is bit for bit the
+                // 0.99 x PlanScale this was as a shared constant, and 2.70 likewise the 1.35.
+                TrackHalfFront = trackFront * 0.5f * PlanScale;
+                TrackHalfRear = trackRear * 0.5f * PlanScale;
+                WheelBaseHalf = wheelbase * 0.5f * PlanScale;
 
                 TailLampHalfHeight = tailLampHalfHeight * HeightScale;
                 TailLampDrop = tailLampDrop * HeightScale;
@@ -791,7 +813,7 @@ namespace Horizon.EditorTools
         /// <code>
         ///                       was    now    Mustang '67 fastback
         ///   length              4.88   4.74   4.66
-        ///   width               2.08   2.08   1.80   (locked by TrackHalfWidth — see below)
+        ///   width               2.08   2.08   1.80   (locked by the shared track — see below)
         ///   height              1.60   1.43   1.30
         ///   wheelbase           2.70   2.70   2.74
         ///   front overhang      1.17   0.91   0.83
@@ -812,7 +834,7 @@ namespace Horizon.EditorTools
         ///
         /// <para><b>Width is not in that list and cannot be.</b> 2.08 m against a real 1.80 is the one
         /// dimension this table does not own: the body has to cover the wheels, and the wheels are at
-        /// <see cref="TrackHalfWidth"/>, which is suspension geometry. Narrowing the car means narrowing
+        /// the track, which is suspension geometry. Narrowing the car means narrowing
         /// the track, which changes weight transfer and roll — and this project tunes feel before beauty.
         /// So the car stays a wide reading of a Mustang, and everything else moves to meet it.</para>
         ///
@@ -1084,7 +1106,7 @@ namespace Horizon.EditorTools
         /// would read the same and would cost the arches, the flares and the wheel seating.</para>
         ///
         /// <para>The flanks stay wide at the axles (0.99) even though the car is narrow elsewhere: the
-        /// wheels are at <see cref="TrackHalfWidth"/> like everything else, and a body that pulled in to
+        /// wheels are at the track like everything else, and a body that pulled in to
         /// match the small car's <i>look</i> would leave the tyres standing outside the arches.</para>
         /// </summary>
         private static readonly Station[] HatchbackStations =
@@ -1310,7 +1332,7 @@ namespace Horizon.EditorTools
         /// <para><b>HalfWidth drops to 0.93 along the doors and comes straight back to 1.04 at the rear
         /// axle.</b> A 190E is 1.68 m wide against this car's enforced 2.06, and pinching the waist is
         /// the only honest way to say so — but the body still has to cover wheels sitting at
-        /// <see cref="TrackHalfWidth"/>, so the narrowing has to end before the arches do.</para>
+        /// the track, so the narrowing has to end before the arches do.</para>
         /// </summary>
         private static readonly Station[] SaloonStations =
         {
@@ -1417,7 +1439,7 @@ namespace Horizon.EditorTools
         /// <code>
         ///                       was    now    G-Klasse W463
         ///   length              4.66   4.68   4.66
-        ///   width               2.08   2.10   1.76   (locked by TrackHalfWidth)
+        ///   width               2.08   2.10   1.76   (locked by the shared track)
         ///   height              1.91   1.91   1.93
         ///   wheelbase           2.70   2.70   2.85   (locked)
         ///   rocker height       0.24   0.40   0.45
@@ -1770,7 +1792,7 @@ namespace Horizon.EditorTools
                 // the sill line is inside the bodywork at that Z, which is a tailpipe nobody can see.
                 return new[]
                 {
-                    new Vector3(-profile.ExhaustSideExit, sill - 0.03f, -WheelBaseHalf + 0.62f),
+                    new Vector3(-profile.ExhaustSideExit, sill - 0.03f, -profile.WheelBaseHalf + 0.62f),
                 };
             }
 
@@ -2284,7 +2306,7 @@ namespace Horizon.EditorTools
 
             for (int side = -1; side <= 1; side += 2)
             {
-                float distance = Mathf.Abs(z - side * WheelBaseHalf) / FlareReach;
+                float distance = Mathf.Abs(z - side * profile.WheelBaseHalf) / FlareReach;
                 if (distance >= 1f)
                 {
                     continue;
@@ -2306,7 +2328,7 @@ namespace Horizon.EditorTools
 
             for (int side = -1; side <= 1; side += 2)
             {
-                float distance = Mathf.Abs(z - side * WheelBaseHalf) / ArchHalfLengthOf(profile);
+                float distance = Mathf.Abs(z - side * profile.WheelBaseHalf) / ArchHalfLengthOf(profile);
                 if (distance >= 1f)
                 {
                     continue;
@@ -2378,13 +2400,15 @@ namespace Horizon.EditorTools
             float radius = profile.WheelRadius;
             float centreY = -profile.RideHeight + radius;
 
-            // At TrackHalfWidth, not inboard of it. That constant is set so a tyre stands proud of the
+            // At the profile's own track, not inboard of it. That track is set so a tyre stands proud of the
             // widebody flare — put the wheel a hand's width further in, as this first did, and the
             // bodywork swallows it and the car has no wheels at all.
             for (int i = 0; i < 4; i++)
             {
-                float x = (i & 1) == 0 ? -TrackHalfWidth : TrackHalfWidth;
-                float z = (i & 2) == 0 ? -WheelBaseHalf : WheelBaseHalf;
+                // (i & 2) == 0 is the rear axle in this loop; the controller's order is not this one.
+                bool frontAxle = (i & 2) != 0;
+                float x = (i & 1) == 0 ? -profile.TrackHalf(frontAxle) : profile.TrackHalf(frontAxle);
+                float z = profile.AxleZ(frontAxle);
 
                 AddTrafficWheel(vertices, submeshTriangles[ChromeSubmesh],
                     new Vector3(x, centreY, z), radius, profile.TyreWidth * 0.38f, 8);

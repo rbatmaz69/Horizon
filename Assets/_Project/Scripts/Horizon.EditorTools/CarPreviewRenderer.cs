@@ -523,8 +523,10 @@ namespace Horizon.EditorTools
 
             for (int i = 0; i < 4; i++)
             {
-                float x = (i & 1) == 0 ? -CarMeshBuilder.TrackHalfWidth : CarMeshBuilder.TrackHalfWidth;
-                float z = (i & 2) == 0 ? -CarMeshBuilder.WheelBaseHalf : CarMeshBuilder.WheelBaseHalf;
+                // (i & 2) == 0 is the rear axle here, as in CarMeshBuilder's traffic wheels.
+                bool frontAxle = (i & 2) != 0;
+                float x = (i & 1) == 0 ? -profile.TrackHalf(frontAxle) : profile.TrackHalf(frontAxle);
+                float z = profile.AxleZ(frontAxle);
 
                 var wheel = new GameObject($"Wheel{i}");
                 wheel.transform.SetParent(parent, false);

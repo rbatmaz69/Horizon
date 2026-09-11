@@ -65,11 +65,6 @@ namespace Horizon.Game
                + "left, rear right. Only the first two steer.")]
         [SerializeField] private Transform[] wheelPivots = new Transform[0];
 
-        [Tooltip("Where each wheel pivot hangs from, in chassis space, before the spring is subtracted. "
-               + "The drop itself comes from the body, because an off-roader sits higher than a "
-               + "hatchback and the pivots here are shared between all ten.")]
-        [SerializeField] private Vector3[] wheelAnchorLocal = new Vector3[0];
-
         [Tooltip("Lamp material for a taillight that is merely lit at night.")]
         [SerializeField] private Material taillightNight;
 
@@ -317,18 +312,22 @@ namespace Horizon.Game
         /// </summary>
         private void SeatWheels()
         {
-            if (wheelPivots == null || wheelAnchorLocal == null || bodySet == null)
+            // From the active body's config, through the same formula the player's car uses. This used to
+            // be one set of anchors baked into the pool for all ten bodies, which is right only while all
+            // ten share a track and a wheelbase.
+            VehicleConfig config = bodySet != null ? bodySet.ActiveConfig : null;
+            if (wheelPivots == null || config == null)
             {
                 return;
             }
 
-            float drop = bodySet.ActiveConfig != null ? bodySet.ActiveConfig.SuspensionRestLength : 0.35f;
+            float drop = config.SuspensionRestLength;
 
-            for (int i = 0; i < wheelPivots.Length && i < wheelAnchorLocal.Length; i++)
+            for (int i = 0; i < wheelPivots.Length && i < 4; i++)
             {
                 if (wheelPivots[i] != null)
                 {
-                    wheelPivots[i].localPosition = wheelAnchorLocal[i] - new Vector3(0f, drop, 0f);
+                    wheelPivots[i].localPosition = config.WheelAnchorLocal(i) - new Vector3(0f, drop, 0f);
                 }
             }
         }
@@ -575,7 +574,6 @@ namespace Horizon.Game
         public void SetParts(
             VehicleBodySet bodies,
             Transform[] pivots,
-            Vector3[] anchors,
             Material headOn,
             Material headOff,
             Material tailDay,
@@ -584,7 +582,6 @@ namespace Horizon.Game
         {
             bodySet = bodies;
             wheelPivots = pivots;
-            wheelAnchorLocal = anchors;
             headlightOn = headOn;
             headlightOff = headOff;
             taillightDay = tailDay;

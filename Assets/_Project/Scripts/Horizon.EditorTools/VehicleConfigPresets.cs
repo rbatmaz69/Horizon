@@ -119,6 +119,9 @@ namespace Horizon.EditorTools
             CarMeshBuilder.CarProfile shape = CarMeshBuilder.ProfileByName(profile);
             config.WheelRadius = shape.WheelRadius;
             config.SuspensionRestLength = shape.SuspensionRestLength;
+            config.TrackFront = shape.TrackHalfFront * 2f;
+            config.TrackRear = shape.TrackHalfRear * 2f;
+            config.Wheelbase = shape.WheelBaseHalf * 2f;
 
             switch (profile)
             {
