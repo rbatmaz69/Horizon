@@ -23,7 +23,7 @@ namespace Horizon.Vehicle
         [Tooltip("Submesh index of the headlight panels on the body mesh.")]
         [SerializeField] private int headlightMaterialIndex = 2;
 
-        [Tooltip("Submesh index of the reversing lamps, inboard of the tail cluster.")]
+        [Tooltip("Submesh index of the reversing lenses, which are carved out of the tail clusters.")]
         [SerializeField] private int reverseMaterialIndex = 5;
 
         [Tooltip("What a reversing lamp looks like lit. White, because it is the one lamp on this car "
@@ -31,11 +31,14 @@ namespace Horizon.Vehicle
                + "together were put in for.")]
         [SerializeField] private Color reverseColor = new Color(1f, 0.97f, 0.90f);
 
-        [Tooltip("Its brightness lit and unlit. Off is well under 1: an unlit reversing lens is dead "
-               + "plastic and reads as part of the tail panel, which is what it should.")]
+        [Tooltip("Its brightness lit and unlit. Off is under 1 and deliberately not dark: the lens sits "
+               + "inside the red tail-light unit now, and an unlit reversing lens there is clear glass in "
+               + "front of a reflector. At 0.22 — the value it had while it stood on the tail panel by "
+               + "itself, where reading as the panel was the point — it came out darker than the red "
+               + "beside it and read as a dead segment of the lamp.")]
         [SerializeField] private float reverseGlow = 2.6f;
 
-        [SerializeField] private float reverseOffGlow = 0.22f;
+        [SerializeField] private float reverseOffGlow = 0.55f;
 
         [Tooltip("Submesh index of the tail light panels.")]
         [SerializeField] private int taillightMaterialIndex = 3;
