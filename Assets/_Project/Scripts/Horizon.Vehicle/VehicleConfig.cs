@@ -42,6 +42,9 @@ namespace Horizon.Vehicle
         /// stamped below this is stale and gets rewritten from the code defaults — see
         /// <c>VehicleConfigReset</c>.
         ///
+        /// <para><b>25: the off-roader was re-measured against the W463A</b>, whose wheelbase is 2.89 m
+        /// against the old body's 2.85.</para>
+        ///
         /// <para><b>24: the pickup became an F-150 SuperCrew</b>, on that truck's 3.68 m wheelbase where
         /// it had the 2.70 every car used to share. Its asset carries the old figure until rewritten, and
         /// would place the anchors half a metre inside each arch.</para>
@@ -160,7 +163,7 @@ namespace Horizon.Vehicle
         /// bump the assets keep the short travel and the soft bar together, which is the one combination
         /// that rolls.</para>
         /// </summary>
-        public const int CurrentVersion = 24;
+        public const int CurrentVersion = 25;
 
         /// <summary>
         /// Which set of meanings this asset's numbers were chosen under.

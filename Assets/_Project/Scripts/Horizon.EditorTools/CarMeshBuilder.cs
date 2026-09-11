@@ -1483,20 +1483,32 @@ namespace Horizon.EditorTools
         };
 
         /// <summary>
-        /// A boxy off-roader, measured against a Mercedes G-Klasse (W463).
+        /// A boxy off-roader, measured against a Mercedes G-Klasse W463A — the 2018 body, which is
+        /// the one in the reference photograph.
+        ///
+        /// <para>This table used to quote the W463 before it, and the two are not the same vehicle to
+        /// measure: the W463A is 15 cm longer, 6 cm taller, 4 cm longer in the wheelbase and nearly as
+        /// wide as this body already was — its 1.93 m is the old one's 1.76 plus the width the rest of the
+        /// garage has had to wait for.</para>
         ///
         /// <code>
-        ///                       was    now    G-Klasse W463
-        ///   length              4.66   4.68   4.66
-        ///   width               2.08   2.10   1.76   (locked by the shared track)
-        ///   height              1.91   1.91   1.93
-        ///   wheelbase           2.70   2.85   2.85
-        ///   rocker height       0.24   0.40   0.45
-        ///   bonnet height       1.36   1.25   1.15
-        ///   beltline            1.22   1.31   1.34
-        ///   wheel diameter      0.88   0.96   0.78
-        ///   gap over the tyre   0.02   0.15   ~0.14
+        ///                       was    now    G-Klasse W463A
+        ///   length (no spare)   4.67   4.82   4.82
+        ///   width               2.10   2.10   1.93   (waits on its own track)
+        ///   height              1.91   1.97   1.97
+        ///   wheelbase           2.85   2.89   2.89
+        ///   front overhang      0.92   0.90   ~0.88
+        ///   rear overhang       0.91   1.03   ~1.05
+        ///   rocker height       0.40   0.40   ~0.45
+        ///   bonnet height       1.25   1.25   ~1.25
+        ///   beltline            1.31   1.32   ~1.33
+        ///   wheel diameter      0.96   0.96   0.79   (arrives with every other car's)
+        ///   gap over the tyre   0.15   0.15   ~0.14
         /// </code>
+        ///
+        /// <para>All of the length went behind the rear door, which is where the W463A carries it: its
+        /// rear quarter window is the longest of the three, and a G-Klasse whose last window is the
+        /// shortest reads as the short-wheelbase one.</para>
         ///
         /// <para><b>Four things were wrong with the shape this replaces and none of them was the
         /// roofline.</b> It stood on the fastback's tyre at the fastback's ride height, so it had a car's
@@ -1524,23 +1536,23 @@ namespace Horizon.EditorTools
             // Quoted against a ground plane at -0.82: this car rides on a 0.48 m tyre over 0.34 m of
             // travel, which is 8 cm more than everything else in the garage. Every height below is that
             // much further off the road than the same number on a fastback.
-            new Station(-2.33f, 0.92f, 0.45f, 1.03f, 0.86f, -0.34f),
-            new Station(-2.28f, 0.97f, 0.48f, 1.08f, 0.92f, -0.38f),
-            new Station(-2.22f, 0.99f, 0.49f, 1.09f, 0.94f, -0.42f),
+            new Station(-2.48f, 0.92f, 0.46f, 1.09f, 0.86f, -0.34f),
+            new Station(-2.43f, 0.97f, 0.49f, 1.14f, 0.92f, -0.38f),
+            new Station(-2.37f, 0.99f, 0.50f, 1.15f, 0.94f, -0.42f),
 
             // Dead level and dead vertical for three metres, broken only by the pillars: the stations at
-            // -2.15, -1.55, -1.38, -0.70 and -0.52 are window edges rather than shape. Three side
+            // -2.30, -1.55, -1.38, -0.70 and -0.52 are window edges rather than shape. Three side
             // windows with real pillars between them is what stops a box this size reading as a minibus,
             // and it is the single biggest thing separating this from the van.
-            new Station(-2.15f, 1.00f, 0.49f, 1.09f, 0.95f, -0.42f),
-            new Station(-1.85f, 1.00f, 0.49f, 1.09f, 0.95f, -0.42f),
-            new Station(-1.55f, 1.00f, 0.49f, 1.09f, 0.95f, -0.42f),
-            new Station(-1.38f, 1.01f, 0.49f, 1.09f, 0.95f, -0.42f),
-            new Station(-0.70f, 1.00f, 0.49f, 1.09f, 0.95f, -0.42f),
-            new Station(-0.52f, 1.00f, 0.49f, 1.09f, 0.95f, -0.42f),
-            new Station(0.10f, 1.00f, 0.49f, 1.09f, 0.95f, -0.42f),
-            new Station(0.62f, 1.00f, 0.49f, 1.09f, 0.95f, -0.42f),
-            new Station(0.86f, 1.00f, 0.48f, 1.09f, 0.95f, -0.42f),
+            new Station(-2.30f, 1.00f, 0.50f, 1.15f, 0.95f, -0.42f),
+            new Station(-1.95f, 1.00f, 0.50f, 1.15f, 0.95f, -0.42f),
+            new Station(-1.55f, 1.00f, 0.50f, 1.15f, 0.95f, -0.42f),
+            new Station(-1.38f, 1.01f, 0.50f, 1.15f, 0.95f, -0.42f),
+            new Station(-0.70f, 1.00f, 0.50f, 1.15f, 0.95f, -0.42f),
+            new Station(-0.52f, 1.00f, 0.50f, 1.15f, 0.95f, -0.42f),
+            new Station(0.10f, 1.00f, 0.50f, 1.15f, 0.95f, -0.42f),
+            new Station(0.62f, 1.00f, 0.50f, 1.15f, 0.95f, -0.42f),
+            new Station(0.86f, 1.00f, 0.49f, 1.15f, 0.95f, -0.42f),
 
             // The screen, and then a metre and a quarter of dead flat bonnet 1.25 m above the road.
             //
@@ -1649,8 +1661,8 @@ namespace Horizon.EditorTools
             tyreWidth: 0.30f, flareWidth: 0.05f,
             archGap: 0.08f, rim: RimStyle.Mesh, rimFraction: 0.66f);
         public static readonly CarProfile Offroader = new CarProfile(
-            "Offroader", OffroaderStations, new[] { -2.22f, 0.86f, 1.10f, 2.22f },
-            wheelbase: 2.85f, // the W463 its table quotes; the W463A's 2.89 arrives with that body
+            "Offroader", OffroaderStations, new[] { -2.37f, 0.86f, 1.10f, 2.22f },
+            wheelbase: 2.89f, // G-Klasse W463A
             windscreenFrom: 0.86f, windscreenTo: 1.10f,
 
             // No roofline backlight. The tailgate stands 22° off vertical, so the band the top surface
@@ -1662,21 +1674,23 @@ namespace Horizon.EditorTools
             // Three windows and three pillars. The old single band ran 3.05 m from the D-pillar to the
             // windscreen without a break in it, and that one number is why the shape read as a minibus
             // however correct its roofline was.
-            cabin: new[] { -2.15f, -1.55f, -1.38f, -0.70f, -0.52f, 0.62f },
-            noseZ: 2.34f, tailZ: -2.34f,
+            cabin: new[] { -2.30f, -1.55f, -1.38f, -0.70f, -0.52f, 0.62f },
+            noseZ: 2.34f, tailZ: -2.49f,
 
-            // Square lamps hung high in the corners of the tailgate, clear of both the window and the
-            // spare wheel — which between them own the middle of that panel.
+            // Upright lamps in the corners of the body, below the window line and beside the spare wheel,
+            // as the W463A's are. They used to hang up by the rear window, which is where the room was
+            // rather than where the vehicle carries them — from the chase camera, which sees this panel
+            // more than any other, that read as a different car.
             tailLamps: TailLampStyle.Blocks, tailLampCount: 1,
             tailLampInner: 0.78f, tailLampOuter: 0.94f,
-            tailLampHalfHeight: 0.15f, tailLampDrop: -0.42f,
+            tailLampHalfHeight: 0.16f, tailLampDrop: 0.03f,
             headLamps: HeadLampStyle.Round, grilleSpan: 0.30f, grilleFrame: true, lowerIntake: 0.60f,
 
             // Out of the side, ahead of the rear wheel, where this vehicle's is.
             exhaustCount: 1, exhaustRadius: 0.075f, exhaustSideExit: 0.62f,
 
             // A real upright rear window, which is the whole reason tailGlass exists.
-            tailGlassHalfWidth: 0.74f, tailGlassBottom: 0.72f, tailGlassTop: 1.00f,
+            tailGlassHalfWidth: 0.74f, tailGlassBottom: 0.74f, tailGlassTop: 1.06f,
             spareWheelRadius: 0.42f, indicatorTurrets: true,
             wheelRadius: 0.48f, suspensionRestLength: 0.34f,
             tyreWidth: 0.42f, flareWidth: 0.15f,
