@@ -99,6 +99,23 @@ namespace Horizon.EditorTools
             /// brake both held. Zero is the pass.
             /// </summary>
             public float StuckPedalReverseKmh;
+
+            /// <summary>The static tipping point, g — <c>VehicleConfig.StaticTippingPointG</c>.</summary>
+            public float TipG;
+
+            /// <summary>
+            /// The least any wheel's spring was compressed on the settled skidpad circle, as a share of
+            /// its compression parked. Zero means a wheel left the road.
+            /// </summary>
+            public float SkidInsidePercent;
+
+            public int SkidWheelOffSteps;
+            public int SlalomWheelOffSteps;
+
+            public float HairpinRollDegrees;
+            public float HairpinInsidePercent;
+            public int HairpinWheelOffSteps;
+            public bool HairpinTipped;
         }
 
         private readonly BenchInput input = new BenchInput();
@@ -109,6 +126,9 @@ namespace Horizon.EditorTools
         private FuelTank fuel;
         private Rigidbody body;
         private Vector3 previousVelocity;
+
+        /// <summary>Each wheel's spring compression parked, taken at the end of every <see cref="Reset"/>.</summary>
+        private readonly float[] parkedCompression = new float[4];
 
         private void Start()
         {
@@ -149,6 +169,7 @@ namespace Horizon.EditorTools
             {
                 bodies.Select(i, 0);
                 results[i].Name = bodies.NameOf(i);
+                results[i].TipG = vehicle.Config != null ? vehicle.Config.StaticTippingPointG() : float.NaN;
 
                 // A log line rather than a progress bar: EditorUtility's is modal, and a modal window
                 // held open across a Play-mode run is a good way to stop the run it is reporting on.
@@ -159,6 +180,7 @@ namespace Horizon.EditorTools
                 yield return CoastDown(results, i);
                 yield return Skidpad(results, i);
                 yield return Slalom(results, i);
+                yield return Hairpin(results, i);
                 yield return Reverse(results, i);
             }
 
@@ -248,6 +270,37 @@ namespace Horizon.EditorTools
             }
 
             previousVelocity = body.linearVelocity;
+
+            for (int w = 0; w < parkedCompression.Length; w++)
+            {
+                parkedCompression[w] = vehicle.TryGetWheelCompression(w, out float compression) ? compression : 0f;
+            }
+        }
+
+        /// <summary>
+        /// One physics step's worth of the rollover instruments: whether a wheel is off the road, and the
+        /// least any spring is compressed against its parked compression.
+        ///
+        /// <para>Compression is a proxy for load, not the load — the anti-roll bar moves load across an
+        /// axle as well as the springs do — which is why a wheel actually leaving the road is counted
+        /// separately, and why that count is the hard signal. The proxy is what shows a car getting
+        /// close.</para>
+        /// </summary>
+        private void SampleRollover(ref float insideShare, ref int wheelOffSteps)
+        {
+            if (vehicle.GroundedWheelCount < parkedCompression.Length)
+            {
+                wheelOffSteps++;
+            }
+
+            for (int w = 0; w < parkedCompression.Length; w++)
+            {
+                float share = vehicle.TryGetWheelCompression(w, out float compression) && parkedCompression[w] > 0.001f
+                    ? compression / parkedCompression[w]
+                    : 0f;
+
+                insideShare = Mathf.Min(insideShare, share);
+            }
         }
 
         private float Speed => Vector3.Dot(body.linearVelocity, vehicle.transform.forward);
@@ -473,12 +526,16 @@ namespace Horizon.EditorTools
             float yawRate = 0f;
             float speed = 0f;
             float settle = 0f;
+            float skidInside = float.MaxValue;
+            int skidOff = 0;
 
             while (settle < 3f)
             {
                 yield return step;
                 settle += Time.fixedDeltaTime;
                 HoldSpeed(CornerSpeed);
+
+                SampleRollover(ref skidInside, ref skidOff);
 
                 float lateral = Mathf.Abs(LateralG(Time.fixedDeltaTime));
                 if (lateral > peak)
@@ -504,6 +561,8 @@ namespace Horizon.EditorTools
             speed /= samples;
 
             results[index].SkidpadG = peak;
+            results[index].SkidInsidePercent = skidInside * 100f;
+            results[index].SkidWheelOffSteps = skidOff;
             results[index].SkidpadWobbleG = high > low ? high - low : 0f;
 
             float drivenRadius = yawRate > 0.001f ? speed / yawRate : float.NaN;
@@ -551,6 +610,8 @@ namespace Horizon.EditorTools
             float roll = 0f;
             float lateral = 0f;
             float time = 0f;
+            float slalomInside = float.MaxValue;
+            int slalomOff = 0;
 
             while (time < 12f)
             {
@@ -561,6 +622,7 @@ namespace Horizon.EditorTools
                 // 0.5 Hz at 20 m/s is a change of direction every 20 m, which is a tight slalom and
                 // the point: a lazy one is answered by every car in the fleet identically.
                 input.Steer = Mathf.Sin(time * Mathf.PI);
+                SampleRollover(ref slalomInside, ref slalomOff);
 
                 float lean = Mathf.Abs(
                     Vector3.SignedAngle(Vector3.up, vehicle.transform.up, vehicle.transform.forward));
@@ -578,6 +640,67 @@ namespace Horizon.EditorTools
 
             results[index].SlalomRollDegrees = roll;
             results[index].SlalomG = lateral;
+            results[index].SlalomWheelOffSteps = slalomOff;
+        }
+
+        /// <summary>
+        /// Full lock thrown at speed, all at once: the transient the other two cornering tests cannot see.
+        ///
+        /// <para><b>The skidpad ramps its steering over three seconds on purpose</b> — it is measuring what
+        /// a car settles at — and the slalom is a smooth sine. Neither can catch a car that goes over on
+        /// the overshoot of a sudden turn-in, which is how a narrow, tall car actually falls over on a
+        /// hairpin. This asks for full lock in a tenth of a second at the cornering speed and holds it for
+        /// three, with the pedal frozen where it was holding that speed; the car's own
+        /// <c>SteerRate</c> decides how fast the wheels actually get there.</para>
+        ///
+        /// <para>Over is counted when the body passes sixty degrees of roll, which no car recovers from on
+        /// its own.</para>
+        /// </summary>
+        private IEnumerator Hairpin(Result[] results, int index)
+        {
+            yield return Reset();
+
+            float elapsed = 0f;
+            while (Speed < CornerSpeed && elapsed < 60f)
+            {
+                yield return step;
+                elapsed += Time.fixedDeltaTime;
+                HoldSpeed(CornerSpeed);
+            }
+
+            float throttle = input.Throttle;
+            input.Brake = 0f;
+
+            float roll = 0f;
+            float inside = float.MaxValue;
+            int off = 0;
+            bool tipped = false;
+            float time = 0f;
+
+            while (time < 3f)
+            {
+                yield return step;
+                time += Time.fixedDeltaTime;
+
+                input.Throttle = throttle;
+                input.Steer = Mathf.Clamp01(time / 0.1f);
+
+                SampleRollover(ref inside, ref off);
+
+                float lean = Mathf.Abs(
+                    Vector3.SignedAngle(Vector3.up, vehicle.transform.up, vehicle.transform.forward));
+                roll = Mathf.Max(roll, lean);
+
+                if (vehicle.transform.up.y < 0.5f)
+                {
+                    tipped = true;
+                }
+            }
+
+            results[index].HairpinRollDegrees = roll;
+            results[index].HairpinInsidePercent = inside * 100f;
+            results[index].HairpinWheelOffSteps = off;
+            results[index].HairpinTipped = tipped;
         }
 
         /// <summary>
@@ -622,6 +745,64 @@ namespace Horizon.EditorTools
                     Number(r.LiftOffYawChange * 100f, 1),
                     Number(r.SlalomRollDegrees, 1),
                     Number(r.SlalomG, 2)));
+            }
+
+            text.AppendLine();
+            text.AppendLine("Rollover");
+            text.AppendLine(
+                "Car          Tip g   Skid/Tip   Skid in %   Skid off   Slalom off   Hairpin deg   Hairpin in %   Hairpin off   Over");
+
+            string over = null;
+            string lifting = null;
+
+            for (int i = 0; i < results.Length; i++)
+            {
+                Result r = results[i];
+                text.AppendLine(string.Format(
+                    culture,
+                    "{0,-12}{1,6}{2,11}{3,12}{4,11}{5,13}{6,14}{7,15}{8,14}{9,7}",
+                    r.Name,
+                    Number(r.TipG, 2),
+                    Number(r.TipG > 0f ? r.SkidpadG / r.TipG : float.NaN, 2),
+                    Number(r.SkidInsidePercent, 0),
+                    r.SkidWheelOffSteps,
+                    r.SlalomWheelOffSteps,
+                    Number(r.HairpinRollDegrees, 1),
+                    Number(r.HairpinInsidePercent, 0),
+                    r.HairpinWheelOffSteps,
+                    r.HairpinTipped ? "OVER" : "-"));
+
+                if (r.HairpinTipped)
+                {
+                    over = over == null ? r.Name : over + ", " + r.Name;
+                }
+
+                if (r.SkidWheelOffSteps > 0)
+                {
+                    lifting = lifting == null ? r.Name : lifting + ", " + r.Name;
+                }
+            }
+
+            text.AppendLine();
+            text.AppendLine("Tip g is the static tipping point, track / (2 x centre-of-mass height), and Skid/Tip");
+            text.AppendLine("is the settled skidpad g over it. In % is the least any wheel's spring was compressed");
+            text.AppendLine("against its compression parked -- a proxy for load, since the anti-roll bar moves load");
+            text.AppendLine("too. Off counts physics steps with a wheel off the road, and is the hard signal. The");
+            text.AppendLine("hairpin is full lock thrown in 0.1 s at 79 km/h and held for 3 s; Over is past 60 deg.");
+
+            if (over != null)
+            {
+                Debug.LogError(
+                    $"[Horizon] Rolled over in the hairpin step-steer: {over}. A car that goes over on a sudden "
+                    + "turn-in at 79 km/h goes over on the first hairpin a player takes too fast. See the "
+                    + "centre of mass, the track and the anti-roll bars, in that order.");
+            }
+
+            if (lifting != null)
+            {
+                Debug.LogWarning(
+                    $"[Horizon] Lifted a wheel on the settled skidpad circle: {lifting}. Steady cornering "
+                    + "should never do that — the car is being held past its own tipping margin.");
             }
 
             text.AppendLine();

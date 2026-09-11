@@ -295,6 +295,30 @@ namespace Horizon.Vehicle
             return new Vector3((wheel & 1) == 0 ? -half : half, 0f, (front ? Wheelbase : -Wheelbase) * 0.5f);
         }
 
+        /// <summary>
+        /// The lateral acceleration at which this car lifts its inside wheels standing still on its
+        /// springs, in g: <c>track / (2 × centre-of-mass height)</c>.
+        ///
+        /// <para>The wheel anchors sit at the vehicle transform's own height, so the centre of mass stands
+        /// <c>WheelRadius + SuspensionRestLength − static sag + CenterOfMass.y</c> off the ground. It is
+        /// pessimistic by construction — it ignores the load the downforce adds and the grip a lifting
+        /// inside wheel gives up, both of which help — and it is the one number that can silently condemn
+        /// a grip figure: a car tuned for more lateral g than this does not slide, it goes over.</para>
+        ///
+        /// <para>Here rather than in the build tool because two things read it: the build prints it for
+        /// every car, and the handling bench sets it beside what the car actually did. A second copy of
+        /// the formula in the bench would agree with this one until somebody changed either.</para>
+        /// </summary>
+        public float StaticTippingPointG()
+        {
+            float sag = Mass * 0.25f * Mathf.Abs(Physics.gravity.y) / Mathf.Max(1f, SuspensionStiffness);
+
+            float height = WheelRadius + SuspensionRestLength - sag + CenterOfMass.y;
+            float track = 0.5f * (TrackFront + TrackRear);
+
+            return height > 0.01f ? track / (2f * height) : 0f;
+        }
+
         [Tooltip("Spring rate in N per metre of compression.")]
         public float SuspensionStiffness = 42000f;
 

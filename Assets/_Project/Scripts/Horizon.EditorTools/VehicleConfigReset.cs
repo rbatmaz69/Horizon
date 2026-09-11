@@ -142,16 +142,7 @@ namespace Horizon.EditorTools
         /// inside wheel gives up, both of which help. Under about 1.2 times the car's own grip is worth
         /// looking at.</para>
         /// </summary>
-        private static float TippingPoint(VehicleConfig config)
-        {
-            float sag = config.Mass * 0.25f * Mathf.Abs(Physics.gravity.y)
-                        / Mathf.Max(1f, config.SuspensionStiffness);
-
-            float height = config.WheelRadius + config.SuspensionRestLength - sag + config.CenterOfMass.y;
-            float track = 0.5f * (config.TrackFront + config.TrackRear);
-
-            return height > 0.01f ? track / (2f * height) : 0f;
-        }
+        private static float TippingPoint(VehicleConfig config) => config.StaticTippingPointG();
 
         /// <summary>
         /// Checks every config on each domain reload, so a pull that changes what a field means brings the
