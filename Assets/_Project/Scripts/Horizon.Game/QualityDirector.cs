@@ -197,7 +197,7 @@ namespace Horizon.Game
             }
 
             SetCameraAntialiasing(level.CameraAntialiasing);
-            SetAmbientOcclusion(level.AmbientOcclusion);
+            PointAtAmbientOcclusionRenderer(Camera.main, level.AmbientOcclusion);
             SetExhaustEnabled(level.ExhaustParticles);
             SetTyreSmokeEnabled(level.TyreSmokeParticles);
             SetAirRushEnabled(level.AirRushParticles);
@@ -250,13 +250,25 @@ namespace Horizon.Game
         /// <para><c>rendererDataList</c> is the only public way to ask, and asking is the point: the
         /// alternative is a constant here saying how many renderers an asset this file does not own
         /// happens to have.</para>
+        ///
+        /// <para><b>Public, and taking a camera rather than reaching for <c>Camera.main</c>, because
+        /// this setting was invisible to every picture the project takes.</b> Every preview camera here
+        /// is built with a bare <c>AddComponent&lt;Camera&gt;()</c> and therefore renders through
+        /// renderer 0, so the one setting that is High alone appeared in no frame — and what shipped on
+        /// it was an ambient occlusion that stained the player's car and was reported from the car.
+        /// <c>DriverPreviewRenderer</c> photographs it through this method rather than through a copy of
+        /// the guard, which is the argument <c>VehicleCover.RoofedAt</c>, <c>PhotoMode.ShowcaseAt</c>
+        /// and the gauges' <c>LayOutFace</c> each already make: a frame claiming to show what a setting
+        /// does has to be produced by the code that does it, or it is a frame that cannot fail.</para>
+        ///
+        /// <para>Returns whether the ambient occlusion renderer was actually reached, so a caller that
+        /// wants to say "this asset has none" can tell that apart from having pointed at one.</para>
         /// </summary>
-        private static void SetAmbientOcclusion(bool enabled)
+        public static bool PointAtAmbientOcclusionRenderer(Camera camera, bool enabled)
         {
-            Camera camera = Camera.main;
             if (camera == null)
             {
-                return;
+                return false;
             }
 
             UniversalAdditionalCameraData data = camera.GetUniversalAdditionalCameraData();
@@ -264,12 +276,15 @@ namespace Horizon.Game
 
             if (data == null || pipeline == null)
             {
-                return;
+                return false;
             }
 
             int wanted = enabled ? AmbientOcclusionRenderer : PlainRenderer;
+            bool reached = wanted < pipeline.rendererDataList.Length;
 
-            data.SetRenderer(wanted < pipeline.rendererDataList.Length ? wanted : PlainRenderer);
+            data.SetRenderer(reached ? wanted : PlainRenderer);
+
+            return reached && enabled;
         }
 
         /// <summary>Index of the renderer with no ambient occlusion on it.</summary>

@@ -4548,6 +4548,69 @@ namespace Horizon.EditorTools
         /// occlusion, and a list that came back in a different order would put the phone on a renderer
         /// nobody chose.</para>
         /// </summary>
+        /// <summary>
+        /// The ambient occlusion feature's own numbers, or an empty string for any other feature.
+        ///
+        /// <para><b>Every one of these decided what the player saw and appeared in no log and no
+        /// picture.</b> The line above named the feature and stopped there, so an SSAO at four taps
+        /// over a 0.55 m radius composited <i>after opaques</i> — a flat multiply over the finished
+        /// frame, which darkens bodywork in full sunlight and leaves <c>DirectLightingStrength</c>
+        /// inert — read in the build exactly like one that was fine. It stained the player's car on
+        /// High for two commits and was reported from the car.</para>
+        ///
+        /// <para>Read through <c>SerializedObject</c> because the settings are <c>internal</c> to URP.
+        /// The alternative is this file carrying its own copy of numbers it does not own, which is the
+        /// fault <c>TrunkForkBuilder.MouthHalfWidth</c> records: a build reporting a value from its own
+        /// second copy of it, and going on looking right after the first was fixed.</para>
+        /// </summary>
+        private static string DescribeAmbientOcclusion(ScriptableRendererFeature feature)
+        {
+            if (feature is not ScreenSpaceAmbientOcclusion)
+            {
+                return string.Empty;
+            }
+
+            var serialized = new SerializedObject(feature);
+
+            string Read(string field)
+            {
+                SerializedProperty property = serialized.FindProperty("m_Settings." + field);
+                if (property == null)
+                {
+                    return "?";
+                }
+
+                switch (property.propertyType)
+                {
+                    case SerializedPropertyType.Float:
+                        return property.floatValue.ToString("0.00");
+                    case SerializedPropertyType.Boolean:
+                        return property.boolValue ? "yes" : "no";
+                    default:
+                        return property.enumValueIndex.ToString();
+                }
+            }
+
+            // Samples and blur are named rather than printed as the indices URP stores, because 2 is
+            // its *lowest* sample count and 0 its highest — a number nobody reads correctly twice.
+            string[] samples = { "12 taps", "8 taps", "4 taps" };
+            string[] blur = { "bilateral", "gaussian", "kawase" };
+            string[] source = { "depth", "depth-normals" };
+            string[] normals = { "low", "medium", "high" };
+
+            string Pick(string[] names, string field) =>
+                int.TryParse(Read(field), out int index) && index >= 0 && index < names.Length
+                    ? names[index]
+                    : Read(field);
+
+            return $" [intensity {Read("Intensity")}, radius {Read("Radius")} m, "
+                   + $"{Pick(samples, "Samples")}, {Pick(blur, "BlurQuality")} blur, "
+                   + $"{Pick(source, "Source")} source, {Pick(normals, "NormalSamples")} normals, "
+                   + $"after opaque {Read("AfterOpaque")}, half resolution {Read("Downsample")}, "
+                   + $"direct lighting {Read("DirectLightingStrength")}"
+                   + $"{(Read("AfterOpaque") == "yes" ? " (inert after opaque)" : "")}]";
+        }
+
         private static string DescribeRenderers(UniversalRenderPipelineAsset pipeline)
         {
             var described = new List<string>();
@@ -4567,7 +4630,8 @@ namespace Horizon.EditorTools
                     ScriptableRendererFeature feature = data.rendererFeatures[f];
                     if (feature != null)
                     {
-                        features.Add($"{feature.name}{(feature.isActive ? "" : " (off)")}");
+                        features.Add($"{feature.name}{(feature.isActive ? "" : " (off)")}"
+                                     + DescribeAmbientOcclusion(feature));
                     }
                 }
 

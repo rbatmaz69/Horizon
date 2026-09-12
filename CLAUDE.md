@@ -154,15 +154,40 @@ in Play mode and the changes persist — that is the intended tuning loop.
   is short of. **It also ran at half resolution with the cheapest normal reconstruction**, and a throwaway
   probe through this asset showed what that does: half-resolution occlusion from normals rebuilt out
   of a 0.8-scaled depth buffer draws dotted, blocky shading along every crease of a car a metre from
-  the lens. **It was changed for the wrong reason and kept for the right one.** The car had been
-  reported pixelated on High in the editor, and the change was made on the belief that the editor
-  plays through this asset because Android's default quality level is Mobile. It does not: the editor
-  runs `PC_RPAsset`, and the build log's own pipeline line says so. The report was about something
-  else, and the probe is what the change stands on — this is what the phone draws on High. It is full resolution, high
-  reconstruction and the high blur now; all three are per-pixel costs, and none of them scales with
-  triangles. **Its cost is the only number in this area that has not
-  been measured**, because no picture this project takes goes through the mobile renderer. It needs a
-  device. The build prints every renderer and its features for both assets
+  the lens. It is full resolution, high reconstruction and the high blur now; all three are per-pixel
+  costs, and none of them scales with triangles. **Its cost is the only number in this area that has
+  not been measured** — the frames below say what it looks like, not what it costs. That needs a
+  device. The build prints every renderer and its features for both assets, and for an ambient
+  occlusion feature every number on it
+- **That change was made for the wrong reason, kept for the right one, and did not fix the thing that
+  was reported.** The car had been reported pixelated on High in the editor and the report was
+  dismissed, on the argument that the editor runs `PC_RPAsset` rather than this asset. That argument
+  is true — measured again: build target Android, quality level `PC`, one renderer, so the AO column
+  moves nothing in the editor and High and Balanced are the same picture there. **It is also not an
+  argument about the report.** Which asset the *editor* selects says nothing about which one the
+  person driving had selected, and a bug report is not a claim about a project setting. The three
+  things that were changed were all real and none of them was the fault
+- **What the fault was: `Samples` at `Low` — four taps — over a `Radius` of 0.55 m, composited after
+  opaques at `Intensity` 0.5.** After-opaque is a flat multiply over the *finished* frame, so the
+  occlusion darkened bodywork standing in full sunlight, and `DirectLightingStrength` — the one knob
+  that exists to stop exactly that — is **inert** in this mode; it is only read on the in-shader path.
+  Four taps at half a metre is the dither. On a low-poly hull, normals rebuilt from depth are wrong at
+  every facet boundary, which is why it hugged the wing struts and the arches. 8 taps, 0.25 m and 0.28
+  now: on the mobile asset, Balanced to High moved 12.3 % of the frame before and 6.0 % after, and
+  what is left lands on tree feet, bushes and lamp rims rather than on the boot lid
+- **After-opaque stays, and the reason is the world's own shader.** `HorizonVertexTint` declares no
+  `_SCREEN_SPACE_OCCLUSION` and writes `occlusion = 1`, so with the composite off the occlusion would
+  reach the cars — which are URP/Lit — and nothing else in the world, which is the opposite of what it
+  is for. URP would also want a depth prepass over every triangle to run it before opaques, which is
+  the cost this arrangement exists to avoid
+- **For two commits nothing here could photograph it, and that is why it took a driver to find it.**
+  Every preview camera is built with a bare `AddComponent<Camera>()` and renders through renderer 0,
+  and the renderer that carries this is index 1 of an asset the editor is not even on.
+  `DriverPreview_5_NoAmbientOcclusion` and `_6_AmbientOcclusion` are the pair, and taking them means
+  switching the quality level and putting it back — a frame that only works when somebody has happened
+  to flip a project setting by hand is not an instrument. **A build log naming a feature is not a
+  build log reporting it**: `ScreenSpaceAmbientOcclusion` read identically in every build it was
+  ruining the car in
 - **MSAA is off, and this line used to say 2×.** That was true when it was written and stopped being
   true when the renderer went to `RenderScale 0.8`: MSAA there is antialiasing an image that is about to
   be bilinearly upscaled, and on a tile GPU 2× halves the tile and doubles the bins in a world that is
@@ -2396,10 +2421,13 @@ distance, a height and a look-ahead photographs a framing the game does not use.
 of every build because a canvas is cheap and its faults are structural; three diagnostic variants of a
 world frame are a hunt, and a hunt belongs where somebody asks for it.
 
-**Nothing here goes through the mobile pipeline, which is still true and still the gap.** This frame
-is `PC_RPAsset` because that is what the editor runs. The reason the fault was PC-only is understood
-and written above, but it is understood rather than photographed, and the note under the performance
-budget about the mobile renderer's cost needing a device stands unchanged.
+**Two of the six frames go through the mobile pipeline now, and it took a second fault to put them
+there.** Frames 1 to 4 are `PC_RPAsset`, because that is what the editor runs and the shadow fault was
+PC-only. Frames 5 and 6 switch the quality level to reach `Mobile_RPAsset`'s ambient occlusion
+renderer and put it back — the one thing on the High preset that no camera in this project could
+reach, which is how it came to stain the player's car for two commits with every log line reading
+correctly. See the ambient occlusion entries under the performance budget. What is still not
+photographed is the *cost* of any of it; that needs a device.
 
 ## The light in the shade
 
