@@ -42,6 +42,21 @@ namespace Horizon.Vehicle
         /// stamped below this is stale and gets rewritten from the code defaults — see
         /// <c>VehicleConfigReset</c>.
         ///
+        /// <para><b>28: the widebody.</b> <c>CarMeshBuilder.TrackScale</c> takes every track out a
+        /// fifth and <c>WheelScale</c> every wheel with it, so <see cref="TrackFront"/>,
+        /// <see cref="TrackRear"/> and <see cref="WheelRadius"/> all move under an asset that would
+        /// otherwise keep the narrow figures — wheel anchors a hand's width inside each arch, on a car
+        /// whose wheels are drawn 20 % bigger. The three coupled numbers moved with them at
+        /// <c>VehicleConfigPresets.CompensateForStance</c> rather than in the table:
+        /// <see cref="FinalDrive"/> by the radius ratio and <see cref="WheelInertia"/> by its square, or
+        /// every car gains 20 km/h of top speed it was never tuned for, and
+        /// <see cref="AntiRollStiffness"/> by the track expression, or the fleet leans two thirds as far
+        /// as it was tuned to. <see cref="CenterOfMass"/> is deliberately <i>not</i> compensated, and the
+        /// bench says that costs stability rather than buying it: <see cref="TippingPoint"/> measures
+        /// the centre of mass from the road, so the taller ride height is inside it, and the fleet tips
+        /// 4 to 6 % <i>earlier</i> than it did rather than a fifth later. Nothing lifts a wheel and
+        /// nothing rolls in any bench manoeuvre; it is left to be driven.</para>
+        ///
         /// <para><b>27: every car stands on its reference car's track and is its reference car's
         /// width</b>, where all ten stood on one 1.98 m track and came out 2.06 to 2.10 m wide. The centre of
         /// mass came down by the same ratio as the track, which keeps the tipping point and the lateral load
@@ -178,7 +193,7 @@ namespace Horizon.Vehicle
         /// bump the assets keep the short travel and the soft bar together, which is the one combination
         /// that rolls.</para>
         /// </summary>
-        public const int CurrentVersion = 27;
+        public const int CurrentVersion = 28;
 
         /// <summary>
         /// Which set of meanings this asset's numbers were chosen under.

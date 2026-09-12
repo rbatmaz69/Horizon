@@ -2114,13 +2114,21 @@ namespace Horizon.EditorTools
             // line that says so, and the alternative is finding out from a car that no longer fits its
             // own collider.
             //
-            // The height and centre are 22 cm off the original pair, and deliberately: the box no longer
-            // reaches down to the sill. See CarMeshBuilder.ColliderGroundClearance — a hull measured
-            // honestly off the bodywork cannot get over a kerb. Width and length are untouched, and they
-            // are the two that would mean the silhouette had moved.
+            // <b>It had been firing on every build for a fortnight, and nobody answered it.</b> The
+            // figures it carried — 2.26 x 1.13 x 4.74 — were written on 2026-08-19 and PlanScale
+            // arrived on 2026-09-02, so from that day the check reported a silhouette that had moved by
+            // a quarter and was right to. Its own text says "correct if the station table changed and a
+            // bug if it did not", and a question nobody answers is a check nobody reads. The date is
+            // written down here now for the same reason the numbers are.
+            //
+            // What the current figures are: the length and the height are that quarter's, and the width
+            // is the widebody — TrackScale and WheelScale, with the bodywork taking up the widening.
+            // The height and centre also sit off the original pair because the box no longer reaches
+            // down to the sill; see CarMeshBuilder.ColliderGroundClearance, a hull measured honestly off
+            // the bodywork cannot get over a kerb.
             Bounds fastback = bounds[0];
-            var wasCenter = new Vector3(0f, 0.127f, -0.11f);
-            var wasSize = new Vector3(2.26f, 1.13f, 4.74f);
+            var wasCenter = new Vector3(0f, 0.111f, -0.1375f);
+            var wasSize = new Vector3(2.669f, 1.385f, 5.925f);
 
             if (Vector3.Distance(fastback.center, wasCenter) > 0.01f
                 || Vector3.Distance(fastback.size, wasSize) > 0.01f)

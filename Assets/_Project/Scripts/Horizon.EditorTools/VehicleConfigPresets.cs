@@ -109,8 +109,12 @@ namespace Horizon.EditorTools
         /// <summary>
         /// Applies one body's character to a config that already holds the code defaults.
         ///
-        /// <para>The fastback is the identity case and writes nothing — the defaults <i>are</i> the
-        /// fastback, and a preset that restated them would be a second copy to keep in step.</para>
+        /// <para><b>Three steps, and the order is load-bearing.</b> The running gear comes off the shape
+        /// first, then the car's own character, then the compensation for the two scale gates in
+        /// <see cref="CarMeshBuilder"/>. It reads as a wrapper round a switch and it is one, for a
+        /// reason worth stating: <see cref="ApplyCharacter"/>'s every case ends in <c>return</c>, so a
+        /// block appended after it would never run for any car — which is a compensation that silently
+        /// does nothing on all ten.</para>
         /// </summary>
         internal static void Apply(VehicleConfig config, string profile)
         {
@@ -119,9 +123,9 @@ namespace Horizon.EditorTools
                 return;
             }
 
-            // The running gear, from the shape rather than from here. Before the switch, so a case that
-            // reached for either of these would be overwritten rather than quietly winning — and above
-            // the fastback's early return, so the identity case gets them too.
+            // The running gear, from the shape rather than from here. Before the character, so a case
+            // that reached for either of these would be overwritten rather than quietly winning — and
+            // outside the fastback's early return, so the identity case gets them too.
             CarMeshBuilder.CarProfile shape = CarMeshBuilder.ProfileByName(profile);
             config.WheelRadius = shape.WheelRadius;
             config.SuspensionRestLength = shape.SuspensionRestLength;
@@ -129,6 +133,73 @@ namespace Horizon.EditorTools
             config.TrackRear = shape.TrackHalfRear * 2f;
             config.Wheelbase = shape.WheelBaseHalf * 2f;
 
+            ApplyCharacter(config, profile);
+            CompensateForStance(config);
+        }
+
+        /// <summary>
+        /// Puts back what <see cref="CarMeshBuilder.TrackScale"/> and
+        /// <see cref="CarMeshBuilder.WheelScale"/> would otherwise have changed about how a car drives.
+        ///
+        /// <para><b>It exists because three numbers in the table above are derivations off the reference
+        /// car's track and its radius, not measurements of anything.</b> Each carries its own arithmetic
+        /// in a comment — "4.95 on the 0.44 m tyre, × 0.315 / 0.44 for a 245's own", "1.2 × (0.315 /
+        /// 0.44)²", "was 30290: roll stiffness goes as track²". Multiplying those in place would destroy
+        /// the only thing that makes them checkable, which is the argument
+        /// <see cref="CarMeshBuilder.PlanScale"/> already makes about the station tables. So they are
+        /// scaled once, here, at the gate they belong to.</para>
+        ///
+        /// <para><b>The gearing is not optional.</b> <c>VehicleConfig</c> reads top speed as
+        /// <c>RedlineRpm / 60 × 2π × WheelRadius / driveRatio</c>, so a fifth more wheel is a fifth
+        /// longer gearing: every car in the garage would gain 20 km/h it was never tuned for and lose
+        /// the acceleration to pay for it. Wheel inertia goes as the radius squared, which the ten
+        /// comments already say.</para>
+        ///
+        /// <para><b>The bar is the one with a formula rather than a factor.</b> It works on compression
+        /// as a fraction of the travel, so it is not a torque and the exponent is not obvious. The
+        /// expression is the one this file's own numbers were derived with when the tracks came *down*
+        /// to their reference cars' — reproduced against the estate, whose committed 47910 it returns to
+        /// three newtons — run with the ratio the other way. Read off <c>config</c> rather than off the
+        /// defaults, because the off-roader carries its own spring rate.</para>
+        ///
+        /// <para><b>What is deliberately not compensated is <c>CenterOfMass.y</c>, and the effect of
+        /// leaving it is the opposite of what was expected.</b> The argument for touching it would have
+        /// been that a car tips at <c>track / (2 × CoM height)</c>, so a fifth more track raises the
+        /// tipping point by a fifth. It does not: <see cref="VehicleConfig.TippingPoint"/> measures that
+        /// height <i>from the road</i>, as
+        /// <c>WheelRadius + SuspensionRestLength − sag + CenterOfMass.y</c>, so the wheel is inside it
+        /// and growing it lifted every centre of mass by 7.6 to 9.7 cm. The fastback went from 27.0 cm
+        /// over the road on a 1.837 m track, tipping at 3.40 g, to 34.6 cm on 2.205 m tipping at 3.19 —
+        /// <b>down</b> six per cent, with load transfer up seven. <c>Measure Handling</c> is what
+        /// reported that and this paragraph is what it corrected.</para>
+        ///
+        /// <para>It stands, because it is what the car is: a body on bigger wheels sits higher and its
+        /// centre of mass goes with it. Nothing lifts a wheel and nothing rolls in any bench manoeuvre,
+        /// and what changes is left to be driven rather than tuned away.</para>
+        /// </summary>
+        private static void CompensateForStance(VehicleConfig config)
+        {
+            config.FinalDrive *= CarMeshBuilder.WheelScale;
+            config.WheelInertia *= CarMeshBuilder.WheelScale * CarMeshBuilder.WheelScale;
+
+            float travel = config.SuspensionRestLength;
+            float half = config.SuspensionStiffness * 0.5f;
+
+            if (travel > 0.001f)
+            {
+                config.AntiRollStiffness = travel
+                    * ((half + config.AntiRollStiffness / travel) / CarMeshBuilder.TrackScale - half);
+            }
+        }
+
+        /// <summary>
+        /// One body's character: mass, engine, gearing, grip and voice.
+        ///
+        /// <para>The fastback is the identity case and writes nothing — the defaults <i>are</i> the
+        /// fastback, and a preset that restated them would be a second copy to keep in step.</para>
+        /// </summary>
+        private static void ApplyCharacter(VehicleConfig config, string profile)
+        {
             switch (profile)
             {
                 case "Fastback":

@@ -106,8 +106,65 @@ namespace Horizon.EditorTools
         /// </summary>
         public const float HeightScale = 1.15f;
 
-        /// <summary>Scales a station table out of authored metres into built ones.</summary>
-        private static Station[] Scaled(Station[] stations)
+        /// <summary>
+        /// How much wider the track is than the reference car's, on top of <see cref="PlanScale"/>.
+        ///
+        /// <para><b>The track and nothing else.</b> The station tables are untouched, so the body keeps
+        /// the width it was measured at and only the wheels move outwards — which is what a widebody is,
+        /// and what scaling every lateral number instead would have given up: that produces a bigger
+        /// car, not a car with a wider stance. <see cref="FlareAt"/> was already built for this and says
+        /// so in its own remarks; all it needed was a flare that reaches the tyre, which is derived
+        /// rather than scaled (see the constructor).</para>
+        ///
+        /// <para><b>There is a hard ceiling on this number and it is not the road.</b> A carriageway is
+        /// 13.2 m wide against a car under 3; what binds is <c>SurfaceRelief.ShortWavelength</c>, which
+        /// has to stay above the fleet's widest twice-track or that car rides the road as a standing
+        /// wave. The pickup's is 4.33 m at 1.0 against a 5.8 m octave, so anything past about 1.34
+        /// breaks it — and the rule there is to move the octave, never a track. <c>ReportBodies</c>
+        /// prints the margin and errors when it goes.</para>
+        /// </summary>
+        public const float TrackScale = 1.20f;
+
+        /// <summary>
+        /// How much bigger every wheel is than the reference car's, on top of <see cref="HeightScale"/>.
+        ///
+        /// <para><b>It exists because the wheels were on the wrong gate.</b> Radius hangs off
+        /// <see cref="HeightScale"/> for the reason written there — the arch is cut at
+        /// <c>WheelRadius − SuspensionRestLength + ArchGap</c> and the glass starts at the table's
+        /// <c>BeltY</c>, ten millimetres apart on the fastback, so scaling the wheels against anything
+        /// but the body cuts the arch through a side window. That argument is right and it left the
+        /// wheels 8 % smaller in plan than the reference car's, on a body a quarter longer. The cars
+        /// read as long and flat on small wheels, which is what was reported.</para>
+        ///
+        /// <para><b>What deliberately does not move with it.</b> <c>SuspensionRestLength</c> stays,
+        /// because it is suspension travel — <c>VehicleConfig</c> reads it and <c>AntiRollStiffness</c>
+        /// is scaled against it, so shrinking it to hold the ride height would be a handling change
+        /// smuggled in behind a styling one. The cars therefore stand <c>0.2 × WheelRadius</c> taller,
+        /// 7.6 cm on the fastback and 9.7 on the pickup. And <c>ArchGap</c> stays, because it is an
+        /// absolute number of centimetres of daylight: held while the wheel grows a fifth, the opening
+        /// reads tighter for nothing, and where <see cref="BuildRing"/>'s <c>belt - 0.08</c> cap bites
+        /// first the wheel genuinely fills the arch. <c>ReportBodies</c> prints asked against achieved
+        /// for exactly that.</para>
+        /// </summary>
+        public const float WheelScale = 1.20f;
+
+        /// <summary>
+        /// Scales a station table out of authored metres into built ones, and carries the stance
+        /// widening into every section.
+        ///
+        /// <para><b>Added to the whole body rather than blistered over the axles, and that was learned
+        /// from a picture.</b> The first version gave <see cref="TrackScale"/>'s widening the flare's
+        /// own smoothstep, which reaches <see cref="FlareReach"/> either side of an axle and no
+        /// further — so the arches stood 22 cm proud of doors and a tail that had not moved, a 44 cm
+        /// step over a metre of car. It was reported as a narrow rear between enormous arches, and that
+        /// is exactly what it was. A wider track widens the car; only the authored flare is a blister.
+        /// </para>
+        ///
+        /// <para>Carried here rather than added at each reader, because a flank is read in eight places
+        /// — the mirrors, the handles, the nose and tail faces, the tail glass, the roof rails — and
+        /// every one of them has to move with it. Put in the table, the whole file sees one car.</para>
+        /// </summary>
+        private static Station[] Scaled(Station[] stations, float widen)
         {
             var scaled = new Station[stations.Length];
             for (int i = 0; i < stations.Length; i++)
@@ -115,10 +172,10 @@ namespace Horizon.EditorTools
                 Station station = stations[i];
                 scaled[i] = new Station(
                     station.Z * PlanScale,
-                    station.HalfWidth * PlanScale,
+                    station.HalfWidth * PlanScale + widen,
                     station.BeltY * HeightScale,
                     station.TopY * HeightScale,
-                    station.TopHalfWidth * PlanScale,
+                    station.TopHalfWidth * PlanScale + widen,
                     station.SillY * HeightScale);
             }
 
@@ -496,8 +553,37 @@ namespace Horizon.EditorTools
             /// <summary>Tyre width, metres. Purely visual; nothing in the physics reads it.</summary>
             public readonly float TyreWidth;
 
-            /// <summary>How far the widebody arches blister out beyond the flank, metres.</summary>
+            /// <summary>
+            /// How far the authored widebody arch blisters out beyond the flank, metres — the sculpted
+            /// part, drawn from the reference car.
+            /// </summary>
             public readonly float FlareWidth;
+
+            /// <summary>
+            /// How far the track and the tread went out per side when <see cref="TrackScale"/> and
+            /// <see cref="WheelScale"/> were applied, metres — and therefore how much wider the whole
+            /// body is. Already inside every <see cref="Station"/>; see <see cref="Scaled"/>.
+            ///
+            /// <para><b>Kept as a field only so the number can be reported and reasoned about</b> — the
+            /// geometry reads it through the station table, which is what stops eight separate readers
+            /// of the flank from having to be kept in step.</para>
+            ///
+            /// <para><b>It took two wrong answers to get here, and both were visible only in a
+            /// picture.</b> Folded into <see cref="FlareWidth"/>, it inherited the fractions
+            /// <see cref="BuildRing"/> gives a sculpted blister — the rocker takes a third — so the
+            /// widest point of the body tracked the tyre exactly while the rocker fell from 31 cm
+            /// inboard of the tread to 45, and the cars came back standing on visible spacers. Given a
+            /// term of its own but still carrying the flare's smoothstep, it reached
+            /// <see cref="FlareReach"/> either side of an axle and no further: arches 22 cm proud of
+            /// doors and a tail that had not moved, a 44 cm step over a metre of car, reported as a
+            /// narrow rear between enormous arches. <c>TyreProud</c> read as covered through both,
+            /// because it measures the widest point of the section and the wheel is nowhere near
+            /// it.</para>
+            ///
+            /// <para>What is left is the simple thing: a wider track makes a wider car, and only the
+            /// authored flare is a blister on it.</para>
+            /// </summary>
+            public readonly float StanceWiden;
 
             /// <summary>
             /// How much daylight stands between the top of the tyre and the top of its arch, metres.
@@ -630,7 +716,18 @@ namespace Horizon.EditorTools
                 // profiles pass through, which is why the scale is applied here rather than in ten
                 // tables: the numbers below stay readable as the measurements they are.
                 Name = name;
-                Stations = Scaled(stations);
+
+                // Before the table, because the table is what carries it. This is exactly how far the
+                // tread's outer face moved, so the body keeps the relationship to its own wheels that
+                // it was drawn with — which is what TyreProud measures and what must not move.
+                //
+                // Off the wider of the two half-tracks, so a car with an unequal pair gets bodywork
+                // that covers its wide axle and a little to spare on the narrow one. All ten are equal
+                // today and this is exact for every one of them.
+                StanceWiden = (TrackScale - 1f) * Mathf.Max(trackFront, trackRear) * 0.5f * PlanScale
+                              + (WheelScale - 1f) * tyreWidth * 0.5f * PlanScale;
+
+                Stations = Scaled(stations, StanceWiden);
                 CreaseZ = ScaledPlan(creaseZ);
                 WindscreenFrom = windscreenFrom * PlanScale;
                 WindscreenTo = windscreenTo * PlanScale;
@@ -653,8 +750,8 @@ namespace Horizon.EditorTools
 
                 // Halving is exact in binary, so 1.98 x 0.5 x PlanScale is bit for bit the
                 // 0.99 x PlanScale this was as a shared constant, and 2.70 likewise the 1.35.
-                TrackHalfFront = trackFront * 0.5f * PlanScale;
-                TrackHalfRear = trackRear * 0.5f * PlanScale;
+                TrackHalfFront = trackFront * 0.5f * PlanScale * TrackScale;
+                TrackHalfRear = trackRear * 0.5f * PlanScale * TrackScale;
                 WheelBaseHalf = wheelbase * 0.5f * PlanScale;
 
                 TailLampHalfHeight = tailLampHalfHeight * HeightScale;
@@ -667,10 +764,16 @@ namespace Horizon.EditorTools
                 ExhaustSideExit = exhaustSideExit * PlanScale;
                 TailGlassBottom = tailGlassBottom * HeightScale;
                 TailGlassTop = tailGlassTop * HeightScale;
-                WingHalfSpan = wingHalfSpan * PlanScale;
+                // Plus the stance widening, for the reason the station table takes it: a wing is
+                // bolted to a body, and a body that went out 21 cm a side while its wing did not is a
+                // wing that has visibly shrunk. The Coupe's went from 78 % of its own tail half-width
+                // to 64 with the body alone widened; adding it puts it back at 81. The widening rather
+                // than the ratio, because what the eye reads is the gap from the wing tip to the
+                // corner of the boot, and that is a distance.
+                WingHalfSpan = wingHalfSpan * PlanScale + StanceWiden;
                 WingZ = wingZ * PlanScale;
                 WingHeight = wingHeight * HeightScale;
-                SpareWheelRadius = spareWheelRadius * HeightScale;
+                SpareWheelRadius = spareWheelRadius * HeightScale * WheelScale;
                 IndicatorTurrets = indicatorTurrets;
                 BedFrom = bedFrom * PlanScale;
                 BedTo = bedTo * PlanScale;
@@ -681,11 +784,11 @@ namespace Horizon.EditorTools
                 // HeightScale with the station table's Y for the reason given on that constant: the
                 // margin between the arch top and the beltline is one centimetre on the fastback, and it
                 // survives only if all of them move together.
-                WheelRadius = wheelRadius * HeightScale;
+                WheelRadius = wheelRadius * HeightScale * WheelScale;
                 SuspensionRestLength = suspensionRestLength * HeightScale;
                 ArchGap = archGap * HeightScale;
 
-                TyreWidth = tyreWidth * PlanScale;
+                TyreWidth = tyreWidth * PlanScale * WheelScale;
                 FlareWidth = flareWidth * PlanScale;
                 Rim = rim;
             }
@@ -1817,7 +1920,9 @@ namespace Horizon.EditorTools
                 Station station = stations[i];
 
                 // The flare is added at every station rather than only over the axles: it is a maximum,
-                // and a box has to hold the widest part of the car wherever that falls.
+                // and a box has to hold the widest part of the car wherever that falls. The stance
+                // widening needs no term of its own — Scaled put it into station.HalfWidth, and adding
+                // it again here would count it twice.
                 halfX = Mathf.Max(halfX, station.HalfWidth + profile.FlareWidth);
 
                 // Both clamps BuildRing applies to the underside, so an arch that pushes the floor up
@@ -2768,6 +2873,12 @@ namespace Horizon.EditorTools
             // does not look pinched underneath, the point just above the beltline takes under half so
             // the blister tucks back in towards the glasshouse, and the roof takes none at all — a
             // widebody widens the body, never the cabin.
+            //
+            // Only the *authored* flare, which is what these fractions were drawn for. The stance
+            // widening is in `half` and `topHalf` already, because it went into the station table —
+            // see Scaled. Giving it these fractions instead left the rocker 14 cm behind the arch it
+            // sits under, and giving it the flare's smoothstep left doors and a tail that had not
+            // moved between arches that had.
             float flare = FlareAt(profile, z);
             float flank = half + flare;
             float sillX = half * 0.72f + flare * 0.35f;

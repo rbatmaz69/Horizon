@@ -1354,6 +1354,106 @@ argument above runs the other way. The roads stay: a road width is a decision ra
 and a narrower car on the same road is room rather than a fault. `DriverBoxHalfWidth` is measured off the
 widest car every build instead of being written down, which it had been twice.
 
+**And they have gone back out again since, track and body together** — see *The stance*. The widest
+car is a little over 3 m across its arches now against a 13.2 m carriageway, so the roads are still
+not the binding constraint and are still left alone; what binds a width factor in this world is
+`SurfaceRelief.ShortWavelength`, not the tarmac.
+
+## The stance
+
+The cars read as long and flat on small wheels, and it was arithmetic rather than taste.
+`CarMeshBuilder.PlanScale` is 1.25 and `HeightScale` is 1.15, and **`WheelRadius` hangs off the
+vertical one** — so every car is a quarter longer and wider than the real vehicle it was measured
+from while its wheel is only 15 % bigger, which is 8 % smaller in plan than the reference car's.
+`TrackScale` and `WheelScale` are 1.20 each: the track goes out a fifth and the wheels grow with it,
+and the station tables are untouched, so the bodies keep the widths they were measured at.
+
+**The widening goes into the station table, and it took two wrong answers to get there.** Both were
+invisible to every number the build prints and obvious in a picture, and both are worth keeping.
+
+- *Folded into `FlareWidth`.* `BuildRing` gives its flank points the whole flare and its rocker only
+  a third of it — "so the arch does not look pinched underneath" — which is right for a sculpted
+  blister of five to sixteen centimetres and wrong for twenty-two of track. The widest point of the
+  section tracked the tyre exactly while the rocker fell from 31 cm inboard of the tread to 45, and
+  the cars came back **standing on visible spacers**: correct from dead astern, where the flank
+  covers the tyre, and wrong from every angle that sees past it.
+- *Given a term of its own, but still carrying the flare's smoothstep.* That reaches `FlareReach`
+  either side of an axle and no further, so the arches stood 22 cm proud of doors and a tail that
+  had not moved — a 44 cm step over a metre of car. It was reported from the garage as **a narrow
+  rear between enormous arches**, which is exactly what it was.
+
+What is left is the simple thing, and it should have been the first thing: **a wider track makes a
+wider car.** `Scaled` adds the widening to every station's `HalfWidth` and `TopHalfWidth` as the
+table is scaled, so the nose, the doors, the tail and the roof all move out together and only the
+authored flare is still a blister. Measured against the same build with both gates at 1.0, every
+car's arch-to-door and arch-to-tail step is back within 0.3 cm of where it was while the body is
+21 cm wider a side.
+
+**It is in the table rather than at each reader because a flank is read in eight places** — the
+mirrors, the door handles, the nose and tail faces, the tail glass, the roof rails, the section
+itself — and a widening applied at some of them is a car that disagrees with itself. `HullBounds`
+proved that the hard way: it read `FlareWidth` directly, so while the widening was a separate term it
+gave the fastback a **2.25 m collider around a 2.67 m car**, a hull the world can be driven through
+and one that appears in no picture this project takes.
+
+**`TyreProud` is the invariant and it held through all three attempts, which is the point and also
+the warning.** It is exactly how far the tread's outer face moved, so the body keeps the relationship
+to its own wheels that it was drawn with, and `ReportBodies` prints it per axle unmoved on all ten to
+the millimetre. It also read as perfectly healthy while the cars were on spacers and while the rear
+was pinched, because it measures the widest point of the section and the wheel is 20 to 28 cm below
+that, at the arch lip. A check that cannot reach its subject finds nothing wrong, which is the
+argument `ValidateSurfaces` already makes about its own rays.
+
+**Three numbers in `VehicleConfigPresets` are derivations off the reference car's track and radius
+rather than measurements**, and they are scaled at a gate of their own rather than in the table, for
+the reason `PlanScale` gives about the station tables. `FinalDrive` by the radius ratio, or every car
+gains 20 km/h of top speed it was never tuned for — the fastback reads 235 km/h before and after,
+which is what says the compensation landed. `WheelInertia` by its square. `AntiRollStiffness` by the
+expression this file's own numbers were derived with when the tracks came *down* to their
+references', run the other way; it reproduces the estate's committed 47910 to three newtons.
+`Apply` is a wrapper now, because every case of the switch it wraps ends in `return` and a
+compensation appended after it would have run for no car at all.
+
+**`CenterOfMass.y` is deliberately not compensated, and what that did is the opposite of what was
+predicted — the bench is what said so.** The plan for this change reasoned that a car tips at
+`track / (2 × CoM height)`, so a fifth more track would raise the whole fleet's tipping point by a
+fifth and drop its lateral load transfer with it. That is wrong, and the mistake is in the second
+term: `VehicleConfig.TippingPoint` measures the height **from the road** —
+`WheelRadius + SuspensionRestLength − sag + CenterOfMass.y` — so the wheel is inside it. Growing the
+wheel raised every centre of mass by 7.6 to 9.7 cm, which outweighs the wider track. Measured on the
+fastback: 27.0 cm over the road on a 1.837 m track, tipping at 3.40 g, against 34.6 cm on 2.205 m
+tipping at **3.19**. `h / track` went *up* 7 %, so load transfer rose rather than fell — the bench's
+inside-wheel figure fell from 80–89 % of static to 71–84 and peak skid g slipped about half a per
+cent.
+
+**It is accepted rather than tuned away, because it is what the car actually is.** A body on bigger
+wheels sits higher and its centre of mass goes with it; holding the number would mean asserting the
+car did not rise when it did. Nothing lifts a wheel and nothing rolls over in any of the bench's
+manoeuvres — every `off` column is still zero on all ten — and top speeds, 0–100 and braking
+distances are unchanged to the decimal, which is what says the three compensations landed. What is
+left is a fleet a few per cent closer to its own limit and a lot wider, which is a thing to drive
+rather than a number to fix.
+
+**The ceiling is not the road.** A carriageway is 13.2 m wide against a widest car of 3.04 m; what
+binds is `SurfaceRelief.ShortWavelength`, which has to stay above the fleet's widest twice-track or
+that car rides the road as a standing wave. The pickup's went from 4.33 m to 5.19 against a 5.8 m
+octave — 34 % of clearance down to 12 — so about 1.34 is the most a global factor can ever be, and
+the rule there is to move the octave rather than a track. `ReportBodies` prints the margin and errors
+when it goes.
+
+**The cars stand 7.6 to 9.7 cm taller, and that is the wheel rather than a decision.**
+`SuspensionRestLength` is suspension travel, which `VehicleConfig` reads and `AntiRollStiffness` is
+normalised against, so shrinking it to hold the ride height would have been a handling change
+smuggled in behind a styling one. `ArchGap` is left alone for the opposite reason: it is an absolute
+number of centimetres of daylight, so held while the wheel grows a fifth the opening reads tighter
+for nothing. Every bumper clearance went up with it, which the kerb check likes.
+
+**`ReportBodies`' fastback collider literal had been firing on every build for a fortnight and nobody
+answered it.** Its figures were written on 2026-08-19 and `PlanScale` arrived on 2026-09-02, so from
+that day the check was correctly reporting a silhouette that had moved by a quarter — and its own
+text says "correct if the station table changed and a bug if it did not". A question nobody answers
+is a check nobody reads. The date is written beside the numbers now.
+
 ## Where roads meet
 
 Fourteen courses, four towns, two circuits and one motorway, and until now **nothing in this project
