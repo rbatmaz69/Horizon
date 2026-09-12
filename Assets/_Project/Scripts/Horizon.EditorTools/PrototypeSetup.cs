@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Text.RegularExpressions;
 using Horizon.Atmosphere;
 using Horizon.Core;
 using Horizon.Game;
@@ -133,6 +134,8 @@ namespace Horizon.EditorTools
             // After both scenes are on disk, because the question it asks is which sky each of them
             // saved and there is no moment before this when both answers exist.
             ValidateSky(LoadTimeOfDayProfile(), TimeOfDayController.DefaultEnvironmentInterval);
+
+            ValidateScriptReferences();
 
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
@@ -4385,6 +4388,67 @@ namespace Horizon.EditorTools
         /// paid for a stale document five times now, and a line in the log is what lets the budget in
         /// CLAUDE.md and the asset on disk be compared without opening either.</para>
         /// </summary>
+        /// <summary>
+        /// Reads both saved scenes and reports any <c>MonoBehaviour</c> whose <c>m_Script</c> carries no
+        /// asset guid.
+        ///
+        /// <para><b>Unity already says this, and it is one line in a log nobody reads.</b> The photo
+        /// page's <c>DragSurface</c> shipped in <c>Bootstrap.unity</c> with an <i>embedded</i>
+        /// <c>!u!115 MonoScript</c> stub and a <c>m_Script</c> that was a local fileID with no guid,
+        /// because <c>PhotoDragArea</c> was declared inside <c>PhotoMode.cs</c> — Unity makes one
+        /// MonoScript asset per file, named after the file, so a <c>MonoBehaviour</c> in a file of
+        /// another name has nothing for a scene to point at. The drag therefore never worked, in the
+        /// editor or on a phone, from the day it was written, and the build said
+        /// "Script attached to 'DragSurface' … is missing or no valid script is attached" every time,
+        /// four thousand lines deep.</para>
+        ///
+        /// <para><b>The file rather than the loaded scene, which is the opposite of the rule
+        /// <c>ValidateSurfaces</c> states for itself</b>, and for two reasons. Opening the world scene
+        /// costs minutes on every rebuild, and opening it <c>Single</c> here would leave it active over
+        /// the car thumbnails and the HUD frames that are rendered a few lines below — which take their
+        /// sky, fog and ambient from whatever scene is open. The YAML is also unambiguous about the one
+        /// thing asked: a component with no script guid cannot resolve anywhere. What this does not
+        /// catch is a guid that points at a script since deleted; that reads as a normal reference here
+        /// and only a load would find it.</para>
+        /// </summary>
+        private static void ValidateScriptReferences()
+        {
+            foreach (string path in new[] { BootstrapScenePath, WorldScenePath })
+            {
+                string text = System.IO.File.ReadAllText(path);
+                var broken = new List<string>();
+
+                foreach (Match block in Regex.Matches(
+                    text, @"--- !u!114 &\d+\r?\n(.*?)(?=\r?\n--- !u!|\z)", RegexOptions.Singleline))
+                {
+                    Match script = Regex.Match(block.Groups[1].Value, @"m_Script: \{fileID: -?\d+(, guid: )?");
+                    if (!script.Success || script.Groups[1].Success)
+                    {
+                        continue;
+                    }
+
+                    Match name = Regex.Match(block.Groups[1].Value, @"m_EditorClassIdentifier: (\S+)");
+                    broken.Add(name.Success ? name.Groups[1].Value : "unnamed");
+                }
+
+                string file = System.IO.Path.GetFileName(path);
+
+                if (broken.Count > 0)
+                {
+                    Debug.LogError(
+                        $"[Horizon] {file} carries {broken.Count} component(s) whose script has no asset "
+                        + $"guid: {string.Join(", ", broken)}. In a player build that component does not "
+                        + "exist. The usual cause is a MonoBehaviour declared in a .cs file of another "
+                        + "name — Unity makes one MonoScript asset per file, so a scene has nothing to "
+                        + "point at.");
+                }
+                else
+                {
+                    Debug.Log($"[Horizon] {file}: every component points at a script asset.");
+                }
+            }
+        }
+
         private static void ValidatePostStack(Camera camera)
         {
             UniversalAdditionalCameraData data = camera != null

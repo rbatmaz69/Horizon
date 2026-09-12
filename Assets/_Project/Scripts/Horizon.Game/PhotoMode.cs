@@ -424,48 +424,4 @@ namespace Horizon.Game
             shooting = false;
         }
     }
-
-    /// <summary>
-    /// The full-screen surface behind the photo controls that turns a drag into an orbit.
-    ///
-    /// <para>A component of its own rather than an interface on <see cref="PhotoMode"/>, because uGUI
-    /// delivers a drag to the graphic that was hit and the thing that was hit has to be a
-    /// <c>Graphic</c> covering the screen — which the controls panel is not, and must not become. It
-    /// sits as the first child of the page so every button drawn after it wins the raycast: uGUI walks
-    /// front to back, and the buttons are in front.</para>
-    /// </summary>
-    public sealed class PhotoDragArea : MonoBehaviour, IDragHandler
-    {
-        [SerializeField] private PhotoMode photo;
-
-        /// <summary>Cached rather than walked for. A drag is every frame a finger is down.</summary>
-        private CanvasScaler scaler;
-
-        /// <summary>Hands the surface its target. Called by the setup tool.</summary>
-        public void SetPhotoMode(PhotoMode value)
-        {
-            photo = value;
-        }
-
-        public void OnDrag(PointerEventData eventData)
-        {
-            if (photo == null)
-            {
-                return;
-            }
-
-            if (scaler == null)
-            {
-                scaler = GetComponentInParent<CanvasScaler>();
-            }
-
-            // Scaled out of screen pixels into canvas units, so the same swipe turns the camera by the
-            // same amount on a phone and on a tablet. The scaler's reference height is 1080.
-            float scale = scaler != null && Screen.height > 0
-                ? scaler.referenceResolution.y / Screen.height
-                : 1f;
-
-            photo.Drag(eventData.delta * scale);
-        }
-    }
 }
