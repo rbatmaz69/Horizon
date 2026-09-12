@@ -180,6 +180,23 @@ in Play mode and the changes persist — that is the intended tuning loop.
   reach the cars — which are URP/Lit — and nothing else in the world, which is the opposite of what it
   is for. URP would also want a depth prepass over every triangle to run it before opaques, which is
   the cost this arrangement exists to avoid
+- **And it is switched off on High, pending a device, because 0.8.4 would not start on the phone.**
+  The app died right after the Unity splash, on a player whose saved preset is High. This column is
+  the only rendering change in those 45 commits that is new, Android-only and gated on exactly that
+  preset: `Mobile_Renderer_AO` did not exist in 0.8.3, `Mobile_RPAsset` carried one renderer there
+  and two after, and the second composites SSAO *after opaques* from a depth source on an asset with
+  `m_RequireDepthTexture: 0`, through renderers with `m_UseNativeRenderPass: 1`. That is the kind of
+  arrangement that kills a tile-GPU driver rather than logging a C# exception, and the sequence fits —
+  the preset is applied before the first frame, so a player on High never reaches a menu to escape it.
+  **It is a suspicion and not a measurement, which is the whole reason it is one boolean**: nothing
+  else is reverted, so the next build answers a single question. If it starts, this was it; if it
+  still dies, this was not, and that is worth as much. What was eliminated first, and how: the player
+  settings are identical to 0.8.3 bar the version number; the quality settings carry no semantic
+  change at all; `Bootstrap` gained four C# components and C# logs rather than killing a process; all
+  four JNI call sites are inside `try`/`catch` behind `#if UNITY_ANDROID`, and the multicast lock only
+  runs when hosting; the manifest, the launch activity, the permissions and the native libraries are
+  byte-identical in shape to 0.8.3; and the uncompressed data payload went from 1468 MB to 1475. One
+  logcat would have replaced all of that, and the device was not available
 - **For two commits nothing here could photograph it, and that is why it took a driver to find it.**
   Every preview camera is built with a bare `AddComponent<Camera>()` and renders through renderer 0,
   and the renderer that carries this is index 1 of an asset the editor is not even on.

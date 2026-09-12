@@ -6262,6 +6262,22 @@ namespace Horizon.EditorTools
                 // measure. It is an extra full-screen pass and a blur on a tile GPU; everything else in
                 // this table was chosen against a number the build prints. Balanced is the setting this
                 // game is meant to be played at, so it is the one that does not get an experiment.
+                //
+                // <b>And it is off on High too, pending a device.</b> 0.8.4 crashed on the phone right
+                // after the Unity splash, on a player whose saved preset is High. This column is the
+                // only rendering change in that release that is new, Android-only and gated on exactly
+                // that preset: Mobile_Renderer_AO did not exist in 0.8.3, Mobile_RPAsset carried one
+                // renderer there and carries two now, and the second one composites SSAO after opaques
+                // from a depth source on an asset with m_RequireDepthTexture 0, through renderers with
+                // m_UseNativeRenderPass 1. That is the kind of arrangement that kills a tile-GPU driver
+                // rather than logging a C# exception, and the sequence fits — the preset is applied
+                // before the first frame, so a player on High never reaches a menu to escape it.
+                //
+                // <b>This is a suspicion and not a measurement, which is the whole reason it is one
+                // boolean.</b> Nothing else is reverted, so the next build answers a single question:
+                // if it starts, this was it; if it still dies, this was not, and that is worth as much.
+                // The renderer asset and QualityDirector's guard are left in place for the device test
+                // that settles it. What would settle it in one line is a logcat.
                 Set((int)QualityPreset.Low, "Low",
                     380f, 500f, 140f, 24, 320f, 460f,
                     false, false, false, false, true, false, 0.33f, 0f, 30);
@@ -6272,7 +6288,7 @@ namespace Horizon.EditorTools
 
                 Set((int)QualityPreset.High, "High",
                     820f, 1000f, 260f, TrafficPoolSize, 800f, 1050f,
-                    true, true, true, true, true, true, 1f, 1f, 60);
+                    true, true, false, true, true, true, 1f, 1f, 60);
             });
         }
 
