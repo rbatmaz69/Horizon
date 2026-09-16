@@ -168,7 +168,7 @@ namespace Horizon.EditorTools
             // Every kind the platform declares, asked for rather than named. AndroidPlatformIconKind
             // lives in an Android-only editor assembly and its members change between versions; the
             // layer count is the only thing this has to know, and each icon carries its own.
-            foreach (PlatformIconKind kind in PlayerSettings.GetSupportedIconKindsForPlatform(BuildTargetGroup.Android))
+            foreach (PlatformIconKind kind in PlayerSettings.GetSupportedIconKinds(NamedBuildTarget.Android))
             {
                 PlatformIcon[] icons = PlayerSettings.GetPlatformIcons(NamedBuildTarget.Android, kind);
 
@@ -232,7 +232,7 @@ namespace Horizon.EditorTools
             int filled = 0;
             int slots = 0;
 
-            foreach (PlatformIconKind kind in PlayerSettings.GetSupportedIconKindsForPlatform(BuildTargetGroup.Android))
+            foreach (PlatformIconKind kind in PlayerSettings.GetSupportedIconKinds(NamedBuildTarget.Android))
             {
                 PlatformIcon[] icons = PlayerSettings.GetPlatformIcons(NamedBuildTarget.Android, kind);
                 int kindFilled = 0;
