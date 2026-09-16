@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Text;
 using System.Text.RegularExpressions;
 using UnityEditor;
 using UnityEditor.Android;
@@ -68,6 +69,28 @@ namespace Horizon.EditorTools
         /// </summary>
         private const string ApplicationId = "com.batmaz.horizon";
 
+        /// <summary>
+        /// The publisher.
+        ///
+        /// <para>Not <c>DefaultCompany</c>, which is what Unity leaves behind and which is visible to a
+        /// player: it is the second component of <c>Application.persistentDataPath</c>, which is where
+        /// the photo mode writes and where the file name it prints on screen is rooted.</para>
+        /// </summary>
+        private const string CompanyName = "Batmaz";
+
+        /// <summary>Where the generated icon and splash artwork live.</summary>
+        private const string IconFolder = "Assets/_Project/Art/Icon";
+
+        /// <summary>
+        /// The launch screen's background — <c>TouchUiSetup.PanelTint</c> without its alpha.
+        ///
+        /// <para>Written out rather than read from that class: <c>Horizon.EditorTools</c> can see it, but
+        /// the value there carries a panel's transparency and this is an opaque fill, so a reference
+        /// would be a number that looks shared and is not. The two are meant to match and the comment is
+        /// what says so.</para>
+        /// </summary>
+        private static readonly Color SplashBackground = new Color(0.11f, 0.085f, 0.075f, 1f);
+
         [MenuItem("Tools/Horizon/Configure Android Player", priority = 60)]
         public static void Configure()
         {
@@ -96,6 +119,10 @@ namespace Horizon.EditorTools
             // cycle to notice and another to fix.
             PlayerSettings.Android.forceInternetPermission = true;
 
+            // The icon, the launch screen and the company name. Late, because it writes assets and the
+            // settings above are the ones a failed build would need to have taken effect anyway.
+            ConfigureAppearance();
+
             // An APK to sideload or push over USB, not an App Store bundle.
             EditorUserBuildSettings.buildAppBundle = false;
 
@@ -103,6 +130,152 @@ namespace Horizon.EditorTools
 
             Debug.Log($"[Horizon] Android player: {ApplicationId}, ARM64, IL2CPP, landscape, "
                       + $"min SDK {PlayerSettings.Android.minSdkVersion}, INTERNET, VIBRATE. APK, not AAB.");
+        }
+
+        /// <summary>
+        /// The icon, the launch screen and the company name.
+        ///
+        /// <para><b>Every icon slot in <c>ProjectSettings.asset</c> was empty for the life of the
+        /// project</b>, so the game stood on a home screen as Unity's grey Android robot, launched
+        /// through Unity's stock splash on Unity's stock background, under a company called
+        /// <c>DefaultCompany</c>. That is the first thing anybody ever sees of this game and the one
+        /// thing no preview frame here photographs.</para>
+        ///
+        /// <para><b>Here rather than in the Inspector, for this class's own reason</b> — a setting
+        /// nobody wrote down is a setting nobody can review. It is also what makes the icon regenerable:
+        /// the three textures are drawn by <c>HorizonAssetUtility</c> and handed back untouched if they
+        /// already exist, so a hand-retouched icon survives a rebuild exactly as a hand-tuned config
+        /// does.</para>
+        ///
+        /// <para><b>What cannot be done from here:</b> <c>showUnitySplashLogo</c> is a licensed setting
+        /// and a Personal licence may not turn it off. What is available is the background, the logo
+        /// beside Unity's and the style of Unity's own, which is the difference between a launch that
+        /// looks like this game and one that looks like any Unity project.</para>
+        /// </summary>
+        private static void ConfigureAppearance()
+        {
+            PlayerSettings.companyName = CompanyName;
+
+            HorizonAssetUtility.EnsureFolder(IconFolder);
+
+            Texture2D background = HorizonAssetUtility.LoadOrCreateAppIcon(
+                $"{IconFolder}/AppIcon_Background.png", HorizonAssetUtility.AppIconLayer.Background);
+            Texture2D foreground = HorizonAssetUtility.LoadOrCreateAppIcon(
+                $"{IconFolder}/AppIcon_Foreground.png", HorizonAssetUtility.AppIconLayer.Foreground);
+            Texture2D flattened = HorizonAssetUtility.LoadOrCreateAppIcon(
+                $"{IconFolder}/AppIcon.png", HorizonAssetUtility.AppIconLayer.Composite);
+
+            // Every kind the platform declares, asked for rather than named. AndroidPlatformIconKind
+            // lives in an Android-only editor assembly and its members change between versions; the
+            // layer count is the only thing this has to know, and each icon carries its own.
+            foreach (PlatformIconKind kind in PlayerSettings.GetSupportedIconKindsForPlatform(BuildTargetGroup.Android))
+            {
+                PlatformIcon[] icons = PlayerSettings.GetPlatformIcons(NamedBuildTarget.Android, kind);
+
+                foreach (PlatformIcon icon in icons)
+                {
+                    if (icon.maxLayerCount >= 2)
+                    {
+                        icon.SetTextures(background, foreground);
+                    }
+                    else
+                    {
+                        icon.SetTextures(flattened);
+                    }
+                }
+
+                PlayerSettings.SetPlatformIcons(NamedBuildTarget.Android, kind, icons);
+            }
+
+            ConfigureSplash();
+            ReportIcons();
+        }
+
+        /// <summary>
+        /// The launch screen: this game's colours behind its own mark.
+        ///
+        /// <para>The background is the menu's own <c>PanelTint</c> rather than black, for the reason the
+        /// menu palette was changed: every surface in this world is warm, and a neutral launch reads as
+        /// a different application starting. <c>LightOnDark</c> follows from that and is not a taste —
+        /// Unity's logo drawn dark on this background is unreadable.</para>
+        /// </summary>
+        private static void ConfigureSplash()
+        {
+            Sprite logo = HorizonAssetUtility.LoadOrCreateSplashLogo($"{IconFolder}/SplashLogo.png");
+
+            PlayerSettings.SplashScreen.show = true;
+            PlayerSettings.SplashScreen.backgroundColor = SplashBackground;
+            PlayerSettings.SplashScreen.unityLogoStyle = PlayerSettings.SplashScreen.UnityLogoStyle.LightOnDark;
+            PlayerSettings.SplashScreen.animationMode = PlayerSettings.SplashScreen.AnimationMode.Static;
+            PlayerSettings.SplashScreen.drawMode = PlayerSettings.SplashScreen.DrawMode.UnityLogoBelow;
+
+            // Two seconds is Unity's own floor for a logo; asking for less is silently raised to it.
+            PlayerSettings.SplashScreen.logos = new[] { PlayerSettings.SplashScreenLogo.Create(2f, logo) };
+        }
+
+        /// <summary>
+        /// Prints every icon slot the player settings now hold, and <b>errors when none of them holds a
+        /// texture</b>.
+        ///
+        /// <para>Because an app with no icon builds, installs, launches and runs exactly like one that
+        /// has one. No other number in any log this project prints would move, and no frame it takes
+        /// would show it — the only place the fault is visible is a home screen. That is the same
+        /// argument the snow line, the wind and the tagged surfaces each make for their own counter.</para>
+        ///
+        /// <para>It reads the settings back rather than counting what was just assigned, for the reason
+        /// <c>TrunkForkBuilder.MouthHalfWidth</c> records: a build that reports its own intention goes on
+        /// reporting it long after the thing it describes has stopped being true.</para>
+        /// </summary>
+        private static void ReportIcons()
+        {
+            var report = new StringBuilder();
+            int filled = 0;
+            int slots = 0;
+
+            foreach (PlatformIconKind kind in PlayerSettings.GetSupportedIconKindsForPlatform(BuildTargetGroup.Android))
+            {
+                PlatformIcon[] icons = PlayerSettings.GetPlatformIcons(NamedBuildTarget.Android, kind);
+                int kindFilled = 0;
+
+                foreach (PlatformIcon icon in icons)
+                {
+                    slots++;
+
+                    bool any = false;
+                    for (int layer = 0; layer < icon.maxLayerCount; layer++)
+                    {
+                        any |= icon.GetTexture(layer) != null;
+                    }
+
+                    if (any)
+                    {
+                        filled++;
+                        kindFilled++;
+                    }
+                }
+
+                if (report.Length > 0)
+                {
+                    report.Append(", ");
+                }
+
+                report.Append($"{kind} {kindFilled}/{icons.Length}");
+            }
+
+            if (filled == 0)
+            {
+                Debug.LogError(
+                    $"[Horizon] Not one of the {slots} Android icon slots holds a texture. The app will "
+                    + "install as Unity's default robot, and nothing else in this log or in any preview "
+                    + $"frame would say so. The icons are generated into {IconFolder}; check they were "
+                    + "written and imported as Texture2D.");
+                return;
+            }
+
+            Debug.Log($"[Horizon] App icon: {filled} of {slots} slots filled — {report}. "
+                      + $"Splash: {PlayerSettings.SplashScreen.logos.Length} logo over "
+                      + $"{ColorUtility.ToHtmlStringRGB(SplashBackground)}, Unity's own "
+                      + $"{(PlayerSettings.SplashScreen.showUnityLogo ? "shown (Personal licence)" : "hidden")}.");
         }
 
         [MenuItem("Tools/Horizon/Build Android APK", priority = 61)]

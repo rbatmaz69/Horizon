@@ -1065,6 +1065,308 @@ namespace Horizon.EditorTools
             return Mathf.Clamp01(-outside / pixel);
         }
 
+        // --- The app icon.
+        //
+        // Drawn here rather than authored, for the reason every other picture in Assets/_Project/Art/UI
+        // is: this project has no way to commit a hand-drawn file and review it, and a shape written as
+        // arithmetic is a shape the next person can argue with.
+
+        /// <summary>
+        /// Which part of the icon a generator is asked for.
+        ///
+        /// <para><b>An adaptive icon is two layers and a legacy one is a single square, and the two are
+        /// not the same picture.</b> Android's adaptive layers are 108 dp of which only the middle
+        /// 72 — two thirds — is guaranteed to survive the launcher's mask, so a composition drawn to fit
+        /// the canvas comes out with its horizon cropped off and its sun on the rim. The legacy and round
+        /// kinds have no mask of their own and are full bleed. So the design is painted in its own
+        /// coordinates and each layer says how much of the canvas those coordinates fill — see
+        /// <see cref="IconContentScale"/> — rather than three generators quietly disagreeing about
+        /// where the middle is.</para>
+        /// </summary>
+        public enum AppIconLayer
+        {
+            /// <summary>The sky alone, full bleed. The background half of an adaptive icon.</summary>
+            Background = 0,
+
+            /// <summary>Sun, ridge, ground and road, over nothing. The foreground half.</summary>
+            Foreground = 1,
+
+            /// <summary>Both, flattened and opaque. Every icon kind that takes one texture.</summary>
+            Composite = 2,
+        }
+
+        /// <summary>
+        /// How much of the canvas the design fills, per layer.
+        ///
+        /// <para>0.667 for the two adaptive layers, which is Android's own 72-of-108: the design lands
+        /// inside the guaranteed-visible square and the rest of the canvas is the sky and the ground
+        /// carrying on, which is exactly what a mask should be free to eat. 1 for the flattened one,
+        /// which nothing crops.</para>
+        /// </summary>
+        private static float IconContentScale(AppIconLayer layer)
+        {
+            return layer == AppIconLayer.Composite ? 1f : 72f / 108f;
+        }
+
+        /// <summary>Where the skyline sits in design coordinates. Below the middle, so the sky leads.</summary>
+        private const float IconHorizon = -0.10f;
+
+        /// <summary>
+        /// Writes one layer of the app icon, and hands back an existing file untouched.
+        ///
+        /// <para><b>Silhouette and gradient, and no text anywhere.</b> An icon is read at 48 pixels on a
+        /// home screen among thirty others, which is smaller than any frame this project takes of
+        /// itself. That is the argument <c>MapGraphic</c> already makes for drawing its marks as shapes
+        /// rather than as four colours of one diamond, and the argument <c>RoadSignMeshes</c> makes for
+        /// pictograms — a shape survives being small and needs no language.</para>
+        ///
+        /// <para>The colours are the world's own: <c>TouchUiSetup.AccentTint</c>'s orange at the skyline
+        /// and <c>PanelTint</c>'s warm near-black in the ground. A neutral grey icon over a game whose
+        /// whole identity is warm light would read as a different application, which is the fault the
+        /// menu's own palette was changed to fix.</para>
+        /// </summary>
+        public static Texture2D LoadOrCreateAppIcon(string assetPath, AppIconLayer layer, int size = 512)
+        {
+            var existing = AssetDatabase.LoadAssetAtPath<Texture2D>(assetPath);
+            if (existing != null)
+            {
+                return existing;
+            }
+
+            var texture = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            float half = size * 0.5f;
+            float scale = 1f / IconContentScale(layer);
+
+            // One texture pixel, in design units. The shapes below are all resolved against this, so the
+            // same drawing comes out anti-aliased at 48 and at 512 rather than sharpening as it grows.
+            float pixel = scale / half;
+
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float u = (x + 0.5f - half) / half * scale;
+                    float v = (y + 0.5f - half) / half * scale;
+
+                    texture.SetPixel(x, y, IconPixel(layer, u, v, pixel));
+                }
+            }
+
+            return SaveIconTexture(texture, assetPath);
+        }
+
+        /// <summary>
+        /// The splash logo, as a sprite because that is what <c>SplashScreenLogo.Create</c> takes.
+        ///
+        /// <para>The flattened design inside a disc, so it sits on the splash background as an emblem
+        /// rather than as a photograph with corners. Same painter as the icon — a second drawing of the
+        /// same mark would agree until the first retune.</para>
+        /// </summary>
+        public static Sprite LoadOrCreateSplashLogo(string assetPath, int size = 512)
+        {
+            var existing = AssetDatabase.LoadAssetAtPath<Sprite>(assetPath);
+            if (existing != null)
+            {
+                return existing;
+            }
+
+            var texture = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            float half = size * 0.5f;
+            float pixel = 1f / half;
+
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float u = (x + 0.5f - half) / half;
+                    float v = (y + 0.5f - half) / half;
+
+                    Color pixelColour = IconPixel(AppIconLayer.Composite, u, v, pixel);
+                    pixelColour.a *= Disc(u, v, 0.97f, pixel);
+
+                    texture.SetPixel(x, y, pixelColour);
+                }
+            }
+
+            return SaveSpriteTexture(texture, assetPath);
+        }
+
+        /// <summary>One pixel of the icon, composited front to back in source-over order.</summary>
+        private static Color IconPixel(AppIconLayer layer, float u, float v, float pixel)
+        {
+            Color sky = IconSky(v);
+
+            if (layer == AppIconLayer.Background)
+            {
+                return sky;
+            }
+
+            Color mark = IconMark(u, v, pixel);
+
+            if (layer == AppIconLayer.Foreground)
+            {
+                return mark;
+            }
+
+            return IconOver(mark, sky);
+        }
+
+        /// <summary>
+        /// The sky, as one vertical ramp through the skyline colour.
+        ///
+        /// <para>It runs on below the skyline as well, where the ground covers it in the flattened icon
+        /// and nothing does in the background layer. That is deliberate: an adaptive background is the
+        /// one part a launcher is allowed to shift and scale for its parallax, so anything with a
+        /// feature in it moves under the foreground. A ramp cannot.</para>
+        /// </summary>
+        private static Color IconSky(float v)
+        {
+            var zenith = new Color(0.20f, 0.11f, 0.19f);
+            var skyline = new Color(0.97f, 0.62f, 0.28f);
+            var ember = new Color(0.52f, 0.24f, 0.13f);
+
+            if (v >= IconHorizon)
+            {
+                float t = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(IconHorizon, 1.15f, v));
+                return Color.Lerp(skyline, zenith, t);
+            }
+
+            float below = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(IconHorizon, -1.15f, v));
+            return Color.Lerp(skyline, ember, below);
+        }
+
+        /// <summary>
+        /// Sun, ridge, ground and road, in that order, over nothing.
+        ///
+        /// <para>The sun sits to one side and the ridge falls away from the other, so the road runs into
+        /// the gap between them. Centred, the three would be one symmetrical target and the road would
+        /// have nowhere to go.</para>
+        /// </summary>
+        private static Color IconMark(float u, float v, float pixel)
+        {
+            var sunCore = new Color(1f, 0.91f, 0.64f);
+            var ridgeTint = new Color(0.31f, 0.19f, 0.21f);
+            var groundTint = new Color(0.14f, 0.095f, 0.085f);
+            var roadTint = new Color(0.78f, 0.66f, 0.56f);
+            var lineTint = new Color(0.98f, 0.89f, 0.68f);
+
+            Color mark = Color.clear;
+
+            // The sun, low and half-set. Its halo is a fading alpha rather than an added brightness, for
+            // the reason Horizon/Sky gives about its own: an additive halo on a bright frame is what puts
+            // a whole quadrant over the bloom threshold.
+            float sunU = u - 0.28f;
+            float sunV = v - (IconHorizon + 0.11f);
+            float sunR = new Vector2(sunU, sunV).magnitude;
+
+            float halo = Mathf.Clamp01(1f - Mathf.InverseLerp(0.16f, 0.52f, sunR));
+
+            // Cubed, and deliberately reaching 1 at the disc's own edge. Scaled to anything less than
+            // that, the glow starts at a lower alpha than the disc it surrounds and the seam between the
+            // two draws as a hard ring around the sun — which is what the first masked preview came back
+            // with, and which no amount of looking at the source PNG would have explained.
+            float sunAlpha = Mathf.Max(Disc(sunU, sunV, 0.16f, pixel), halo * halo * halo);
+            mark = IconOver(new Color(sunCore.r, sunCore.g, sunCore.b, sunAlpha), mark);
+
+            // The ridge: one shoulder falling in from the left, so the skyline is not a sea horizon.
+            float shoulder = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.14f, -1.1f, u));
+            float ridgeTop = IconHorizon + 0.46f * shoulder;
+            float ridgeAlpha = Mathf.Clamp01((ridgeTop - v) / pixel);
+            mark = IconOver(new Color(ridgeTint.r, ridgeTint.g, ridgeTint.b, ridgeAlpha), mark);
+
+            float groundAlpha = Mathf.Clamp01((IconHorizon - v) / pixel);
+            mark = IconOver(new Color(groundTint.r, groundTint.g, groundTint.b, groundAlpha), mark);
+
+            // The road, as a wedge on the vanishing point rather than a shape of its own, so the taper is
+            // the perspective rather than a number that has to be kept in step with one.
+            const float vanishU = 0.02f;
+            const float roadFoot = -1.35f;
+
+            float taper = Mathf.InverseLerp(IconHorizon, roadFoot, v);
+            float halfWidth = 0.66f * taper;
+            float across = Mathf.Abs(u - vanishU);
+
+            float onRoad = Mathf.Min(
+                Mathf.Clamp01((halfWidth - across) / pixel),
+                Mathf.Clamp01((IconHorizon - v) / pixel));
+            mark = IconOver(new Color(roadTint.r, roadTint.g, roadTint.b, onRoad), mark);
+
+            // One centre line, tapering with the road it is painted on. It is what says "road" rather
+            // than "path": at the size this is read, a plain wedge is a beam of light.
+            float lineHalf = halfWidth * 0.055f + 0.004f;
+            float onLine = Mathf.Min(
+                Mathf.Clamp01((lineHalf - across) / pixel),
+                onRoad);
+            mark = IconOver(new Color(lineTint.r, lineTint.g, lineTint.b, onLine), mark);
+
+            return mark;
+        }
+
+        /// <summary>
+        /// Source-over, with the alpha kept straight rather than premultiplied.
+        ///
+        /// <para>Written out rather than done with <c>Color.Lerp</c>, which is the spelling that looks
+        /// right and is wrong over a transparent destination: lerping towards a colour from
+        /// <c>Color.clear</c> drags its rgb towards black, so every soft edge in the foreground layer
+        /// would come out with a dark fringe on it — visible only once the launcher composites it over
+        /// the background, which is nowhere any picture is taken.</para>
+        /// </summary>
+        private static Color IconOver(Color source, Color destination)
+        {
+            float alpha = source.a + destination.a * (1f - source.a);
+            if (alpha <= 0f)
+            {
+                return Color.clear;
+            }
+
+            float keep = destination.a * (1f - source.a);
+
+            return new Color(
+                (source.r * source.a + destination.r * keep) / alpha,
+                (source.g * source.a + destination.g * keep) / alpha,
+                (source.b * source.a + destination.b * keep) / alpha,
+                alpha);
+        }
+
+        /// <summary>
+        /// Writes a generated icon out and imports it as a plain texture.
+        ///
+        /// <para>Not through <see cref="SaveSpriteTexture"/>: an app icon is never drawn by a
+        /// <c>CanvasRenderer</c> and is handed to <c>PlayerSettings</c> as a <c>Texture2D</c>.
+        /// Uncompressed and un-mipped because Unity rescales it into the APK itself, and a DXT block at
+        /// 48 pixels is the difference between a clean rim and a smeared one.</para>
+        /// </summary>
+        private static Texture2D SaveIconTexture(Texture2D texture, string assetPath)
+        {
+            texture.Apply();
+            File.WriteAllBytes(assetPath, texture.EncodeToPNG());
+            UnityEngine.Object.DestroyImmediate(texture);
+
+            AssetDatabase.ImportAsset(assetPath, ImportAssetOptions.ForceSynchronousImport);
+
+            if (AssetImporter.GetAtPath(assetPath) is TextureImporter importer)
+            {
+                importer.textureType = TextureImporterType.Default;
+                importer.alphaIsTransparency = true;
+                importer.wrapMode = TextureWrapMode.Clamp;
+                importer.mipmapEnabled = false;
+                importer.npotScale = TextureImporterNPOTScale.None;
+                importer.textureCompression = TextureImporterCompression.Uncompressed;
+                importer.SaveAndReimport();
+            }
+
+            var imported = AssetDatabase.LoadAssetAtPath<Texture2D>(assetPath);
+            if (imported == null)
+            {
+                throw new InvalidOperationException(
+                    $"[Horizon] Generated '{assetPath}' but the importer would not hand back a Texture2D. "
+                    + "Letting it through would ship an app with no icon on it, which looks exactly like "
+                    + "an app that was never given one.");
+            }
+
+            return imported;
+        }
+
         /// <summary>
         /// Loads the sprite a generator has just written, and <b>refuses to return null</b>.
         ///

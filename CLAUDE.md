@@ -3492,6 +3492,64 @@ and it looks for a file at `Assets/_Project/Art/UI/Horizon.ttf` before falling b
 arrives the whole change is a path. It falls back silently on purpose: a build that refused to run
 without a font nobody has yet is worse than one that looks like it does today.
 
+## Before it starts
+
+**The game had no icon.** Not a placeholder one — `ProjectSettings.asset` carried `m_Textures: []` in
+all eighteen Android icon slots for the life of the project, so on a home screen this was Unity's grey
+robot, launching through Unity's stock splash on Unity's stock background, published by
+`DefaultCompany`. It is the first thing anybody ever sees, and **it is the one thing in this project no
+frame photographed.** Every renderer here stands a camera in the world, in the HUD or in the garage.
+
+**It is drawn rather than authored, and `AndroidBuild.Configure` is where it is written down.** That
+class exists to keep player settings in code — *a setting nobody wrote down is a setting nobody can
+review* — and it had the application id, the architecture, the orientation and the permissions while
+saying nothing about how the app looks before any of them matter.
+`HorizonAssetUtility.LoadOrCreateAppIcon` is the same per-pixel machinery the touch glyphs and the car
+marker already use, and it hands an existing file back untouched, so a retouched icon survives a
+rebuild exactly as a hand-tuned config does.
+
+**The kinds are asked for, never named.** `PlayerSettings.GetSupportedIconKindsForPlatform` returns
+Adaptive, Round and Legacy; `AndroidPlatformIconKind` lives in an Android-only editor assembly whose
+members move between versions, and the only thing this has to know is each icon's own `maxLayerCount`.
+Two layers gets the background and the foreground, one gets the flattened picture. (The kinds call
+takes a `BuildTargetGroup` while the icons either side of it take a `NamedBuildTarget` — that is
+Unity's API, not a slip.)
+
+**An adaptive icon and a legacy one are not the same picture, and that is the trap.** Android's layers
+are 108 dp of which only the middle 72 survives the launcher's mask, so a composition drawn to fill the
+canvas loses its horizon and puts its sun on the rim. `AppIconLayer` carries a content scale for this
+— two thirds for the adaptive pair, one for the flattened — and the painter simply keeps drawing past
+its own edge, which is what a mask should be free to eat.
+
+**The background is a bare vertical ramp on purpose.** It is the one part a launcher may shift and
+scale for its parallax, so anything with a feature in it slides under the foreground. A ramp cannot.
+
+**`Tools > Horizon > Render Icon Preview` is the instrument, and it earns its place twice over.** What
+a phone draws is a fourth image that exists nowhere on disk: the foreground over the background,
+cropped to the guaranteed two thirds, masked. `IconPreview_Thumb.png` is that frame resampled to
+**48 pixels** and blown back up without smoothing, because 48 is the size an icon is read at and at 432
+every icon looks fine — `DriverPreviewRenderer`'s argument for shooting at 1920, run the other way.
+
+**Both faults this feature has had were found there, and one of them was in the instrument.** The sun
+came back with a hard ring round it, because the halo was scaled to 0.55 where the disc inside it was
+1 — a step in alpha at exactly the disc's edge, invisible in the source PNG and obvious the moment the
+layers were composited. And every diagonal came back with a staircase on it while the icon was
+perfectly smooth: cropping 512 to its middle two thirds leaves 341, writing that at 432 is an
+*upscale*, and a box filter whose footprint is under a pixel wide is nearest-neighbour. *Fix the
+instrument before trusting the reading.*
+
+**The build counts the slots and errors at zero**, reading the settings back rather than counting what
+it just assigned — `TrunkForkBuilder.MouthHalfWidth`'s lesson. An app with no icon builds, installs,
+launches and runs exactly like one that has one, and no other number anywhere would move.
+
+**What cannot be done from here:** `showUnitySplashLogo` is licensed and a Personal licence may not
+turn it off. The background, the logo beside Unity's and the style of Unity's own are available, and
+that is the difference between a launch that looks like this game and one that looks like any Unity
+project. The log says which of the two it is rather than leaving it to be assumed.
+
+`companyName` is not cosmetic either: it is the second component of `Application.persistentDataPath`,
+which is where the photo mode writes and where the file name it prints on screen is rooted.
+
 ## Two things nothing was watching
 
 **The coast road had no roadside furniture at all, and it is the only driven road that did not.** It
