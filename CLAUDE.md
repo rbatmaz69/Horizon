@@ -3756,6 +3756,52 @@ cannot say whether the two states differ enough to read; one frame with both in 
 is opened additively for the shot, because without it there are no `LapTiming` components and the lap
 rows correctly hide themselves, leaving half the page a picture of nothing.
 
+## A connection that stopped short
+
+**`ConnectTo` promises in its own remarks that "the tangent points are exact, so the walk ends on the
+target rather than near it", and since `Turn` learned to skip a micro-arc that had not been true.** The
+Bahçe Ring's pit road ended **2.651 m** from the junction mark on the circuit it leaves, against 0.000
+for the Stadtfeld's fork and 0.000 for the Weissjochring's. `BuildTrunkFork` reported it — that check
+exists because a fork is the one feature two courses have to agree about — and the fix took a
+measurement to find, not a reading.
+
+**The mechanism is the guard doing exactly what it was built to do.** A Dubins solve is arc, straight,
+arc, so a connection always *ends* on an arc; `Turn` emits nothing for an arc under `PointSpacing × 0.4`
+and carries the pose across it instead, which is what stops a two-point corner half a metre wide
+appearing between ten-metre neighbours. So the builder's `position` arrives and the last control point
+does not, and **the better the road above it is aimed, the smaller that last arc is and the more likely
+it is to be skipped.** A well-authored approach is what triggers this.
+
+**The arithmetic closes exactly, which is what turned a suspicion into a cause.** 2.651 m of arc at the
+320 m radius that connection asks for is 0.4747°, and the probe measured the emitted heading 0.476° off
+the one it was aiming at. The Weissjochring's final arc is 1.087° at 260 m — 4.93 m, a metre clear of
+the 4 m threshold — so it emits and lands exactly. **One of the two was right by luck**, and nothing
+about either course said which.
+
+**The last point is moved onto the target, never a new one appended.** Appending would put a control
+point two and a half metres from a ten-metre neighbour, which is precisely the spacing `Turn`'s
+threshold exists to prevent — the Catmull-Rom's parameterisation stops resembling arc length across a
+span that short, and `GetRadiusAtDistance` then reports centimetres to a `RoadShape` that banks on the
+strength of it. Moving it stretched one span from 9.91 m to 12.56 m and bent it by half a degree; the
+other two forks came back identical to the digit.
+
+**`Close` is unaffected, and that was measured rather than argued.** It calls `ConnectTo` and then
+removes the last control point, because a looping `RoadPath` draws the segment back to `points[0]`
+itself — so whether that removed point sat on the target or two metres short of it, the surviving
+geometry is the same. The reasoning says so and the build agrees: both circuits report their closure
+identically to the digit either side of the change, 9.4 m and 1.3° on the Weissjochring and 10.6 m and
+0.3° on the Bahçe.
+
+**What it cost, against the same world built the day before:** the access road grew 2345 m to 2348, its
+ribbon trim 50.7 m to 51.3, and the throat's seam against the paved edge got *better*, 29 mm to 26. The
+vegetation moved by one grass tuft and four wildflowers, which is three metres of extra road shifting a
+scatter grid. The heaviest tile, the draw calls, the tree line and both other forks are unchanged, and
+the build has no `LogError` in it at all.
+
+**`ArriveOn` errors past one point spacing rather than nudging.** A gap of a couple of metres is a
+carried arc; a gap of twenty is the solve not having done what it reported, and moving a point that far
+would paper over it.
+
 ## Two things nothing was watching
 
 **The coast road had no roadside furniture at all, and it is the only driven road that did not.** It

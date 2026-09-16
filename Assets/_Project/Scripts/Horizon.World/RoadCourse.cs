@@ -624,7 +624,71 @@ namespace Horizon.World
             Straight(straight, grade);
             Turn(radius, secondAngle, grade);
 
+            // The pose now says the walk arrived; the last control point may not. See ArriveOn.
+            ArriveOn(target);
+
             return this;
+        }
+
+        /// <summary>
+        /// How far short of its target a connection may finish and still be nudged onto it.
+        ///
+        /// <para>One control point's spacing. A gap under that is a final arc <see cref="Turn"/> carried
+        /// rather than emitted; a gap over it is a solve that did not do what it said, and moving a point
+        /// that far would be papering over it.</para>
+        /// </summary>
+        private const float ArrivalSlack = PointSpacing;
+
+        /// <summary>
+        /// Puts the last emitted control point exactly on the target a connection was asked for.
+        ///
+        /// <para><b><see cref="ConnectTo"/> promises in its own remarks that "the tangent points are
+        /// exact, so the walk ends on the target rather than near it", and since <see cref="Turn"/>
+        /// learned to skip a micro-arc that has not been true.</b> A Dubins solve ends with an arc, and
+        /// a well-authored approach makes that arc small — so the better the road above it is aimed, the
+        /// more likely the last arc falls under the emit threshold, the pose is carried across it and the
+        /// <i>geometry</i> stops short while the builder's position says it arrived. The Bahçe Ring's pit
+        /// road ended 2.65 m from the mark on the circuit it leaves, which is 0.475° of a 320 m radius to
+        /// three decimal places; the Weissjochring's final arc is 4.9 m, clears the threshold by a metre
+        /// and lands exactly. One of the two was right by luck.</para>
+        ///
+        /// <para><b>The last point is moved rather than a new one appended</b>, and that is the whole
+        /// reason this is a method and not a line. Appending the target would put a control point two and
+        /// a half metres from a ten-metre neighbour, which is precisely the spacing <see cref="Turn"/>'s
+        /// threshold exists to prevent — the Catmull-Rom's parameterisation stops resembling arc length
+        /// across a span that short and every reader of the curve believes there is a corner there. Moving
+        /// it stretches one span from ten metres to twelve and a half and bends it by half a degree.</para>
+        ///
+        /// <para>It is deliberately silent in the ordinary case, because the ordinary case is a gap of
+        /// nought: a connection whose final arc was long enough to emit already ends where it was
+        /// told.</para>
+        /// </summary>
+        private void ArriveOn(Vector3 target)
+        {
+            if (points.Count == 0)
+            {
+                return;
+            }
+
+            Vector3 last = points[points.Count - 1];
+            float gap = new Vector2(target.x - last.x, target.z - last.z).magnitude;
+
+            if (gap < 0.001f)
+            {
+                return;
+            }
+
+            if (gap > ArrivalSlack)
+            {
+                Debug.LogError(
+                    $"[Horizon] A connection finished {gap:0.00} m from the ({target.x:0}, {target.z:0}) "
+                    + "it was asked to reach, which is further than one control point's spacing. A "
+                    + "carried micro-arc is a couple of metres; this is the solve itself not having done "
+                    + "what it reported, and the road now ends short of wherever it is grafted on.");
+                return;
+            }
+
+            points[points.Count - 1] = target;
         }
 
         /// <summary>
