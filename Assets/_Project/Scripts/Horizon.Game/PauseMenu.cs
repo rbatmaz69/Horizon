@@ -24,6 +24,10 @@ namespace Horizon.Game
         [Tooltip("The free camera. On the canvas with everything else, so it is wired rather than found.")]
         [SerializeField] private PhotoMode photo;
 
+        [Tooltip("The sheet that covers a teleport. Every path here that moves the car by kilometres "
+               + "cuts through it rather than snapping.")]
+        [SerializeField] private ScreenFade fade;
+
         [Header("Panels")]
         [Tooltip("Owns which page is up. See MenuPanels for why that is no longer done here.")]
         [SerializeField] private MenuPanels panels;
@@ -317,6 +321,7 @@ namespace Horizon.Game
         /// </summary>
         public void StartAt(int index)
         {
+            fade?.Cut();
             MoveTo(index);
             PlayerChoices.Spawn = index;
             PlayerChoices.Save();
@@ -583,6 +588,10 @@ namespace Horizon.Game
                 position = spawnPosition;
                 rotation = spawnRotation;
             }
+
+            // Behind the sheet. The car moves, the tank fills and the rig snaps in this one frame —
+            // which is what a respawn has always done, and what it has always looked like.
+            fade?.Cut();
 
             vehicle.Teleport(position, rotation);
             FillTank();

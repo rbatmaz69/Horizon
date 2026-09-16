@@ -3508,12 +3508,13 @@ saying nothing about how the app looks before any of them matter.
 marker already use, and it hands an existing file back untouched, so a retouched icon survives a
 rebuild exactly as a hand-tuned config does.
 
-**The kinds are asked for, never named.** `PlayerSettings.GetSupportedIconKindsForPlatform` returns
-Adaptive, Round and Legacy; `AndroidPlatformIconKind` lives in an Android-only editor assembly whose
-members move between versions, and the only thing this has to know is each icon's own `maxLayerCount`.
-Two layers gets the background and the foreground, one gets the flattened picture. (The kinds call
-takes a `BuildTargetGroup` while the icons either side of it take a `NamedBuildTarget` — that is
-Unity's API, not a slip.)
+**The kinds are asked for, never named.** `PlayerSettings.GetSupportedIconKinds` returns Adaptive,
+Round and Legacy; `AndroidPlatformIconKind` lives in an Android-only editor assembly whose members
+move between versions, and the only thing this has to know is each icon’s own `maxLayerCount`. Two
+layers gets the background and the foreground, one gets the flattened picture. The obsolete
+`GetSupportedIconKindsForPlatform` is the spelling the first version found and the one every older
+example uses; the compiler is what said so, which is the argument for reading its warnings rather
+than the error list alone.
 
 **An adaptive icon and a legacy one are not the same picture, and that is the trap.** Android's layers
 are 108 dp of which only the middle 72 survives the launcher's mask, so a composition drawn to fill the
@@ -3549,6 +3550,73 @@ project. The log says which of the two it is rather than leaving it to be assume
 
 `companyName` is not cosmetic either: it is the second component of `Application.persistentDataPath`,
 which is where the photo mode writes and where the file name it prints on screen is rooted.
+
+## Cuts
+
+**Nothing in this project faded anything.** Pressing Drive, choosing a different start place, pressing
+Respawn and being fished out of a lake all move the car by kilometres and snap the camera after it in
+the same frame. So did the launch, where `Bootstrap` carries no camera of its own and the world arrives
+from an additive load — until it lands there is nothing to render at all, and what is on screen is
+whatever the device last had in its buffer. Five hard cuts, and a hard cut is what a game does when it
+has not been finished.
+
+**`ScreenFade` covers rather than gates, and that is a deliberate limit on what it may do.** The
+obvious build is a coroutine that fades out, moves the car and fades back in, and it cannot be had here
+without rewriting the callers: `PauseMenu.MoveTo` is synchronous and `StartScreen.ApplyPlace` calls
+`ChaseCamera.SnapToTarget` on the line after it, so a deferred teleport snaps the rig to a car that has
+not moved yet. The move therefore happens exactly when it always did and the sheet goes opaque in the
+same frame, which hides the identical thing. What the player sees is a cut and a reveal, which is what
+a cut is supposed to look like.
+
+**Unscaled time throughout**, because all of this happens at `timeScale` zero and a ramp integrated
+against `Time.deltaTime` there moves by exactly nothing. `PhotoMode` and `NetSession` already follow
+this rule and for the same reason.
+
+**Not black.** Every surface in this world is warm, and a neutral cut reads as the application having
+gone away rather than as the game moving you. The sheet is the menu's own `PanelTint` and the class
+does not know that — it writes an alpha onto whatever colour the setup tool painted, so there is one
+copy of the number.
+
+**Which transitions get one is a decision, not a hook on `MoveTo`.** A place, a respawn, a recovery
+and handing over to the drive all cut. **Choosing a car or a paint deliberately does not**, although
+`ApplyCar` calls `ApplyPlace` too: what you want to see there is the car you just chose, standing where
+it already was, and blacking the screen to show it to you is the opposite of the feature.
+
+**It is revealed by `GameBootstrap` and not by the start screen, and that is the failure mode rather
+than a preference.** `WireUpWorld` returns early when it finds no `VehicleController` — so hanging the
+reveal off `StartScreen.OnWorldReady` would leave a player staring at a covered screen over an error
+message they cannot see. The reveal is unconditional, after the load, whatever came of it: showing
+somebody a broken world is strictly better than showing them nothing and calling it a loading screen.
+
+**`WaterHazard` finds the sheet instead of being wired to it**, because it is built into the world
+scene and the canvas is in `Bootstrap`, and Unity has no serialized reference across two scenes. It
+resolves once, on the first recovery, exactly as it already resolves the traffic network. It also cuts
+only *inside* the branch that found a road — cutting first and then finding none would black the screen
+out over a car still sinking, which reads as the game having crashed.
+
+**The sheet takes no raycast and is switched off when it is clear.** A full-screen graphic that takes
+one is a menu in which nothing can be pressed, and an invisible one is that with no explanation. At
+alpha zero it is still a full-screen transparent quad in the canvas mesh, which on a tile GPU is a
+screen of overdraw for something nobody can see.
+
+**It is built outside the safe area, and last.** Outside, because a phone's notch is part of the
+screen and a sheet inset from it leaves a bright strip of world down one edge of every transition —
+which reads as the fade being broken rather than as a fade. Last, because it has to be over every page,
+the notice line and the driving controls alike, and `MenuUiSetup.Build` is what runs after all of them.
+
+**It is serialized clear, and the preview drives it by hand.** `HudPreviewRenderer` photographs a saved
+scene in which no `Awake` has run, so a sheet serialized opaque would make every picture of this HUD a
+picture of a rectangle — and one left to itself appears in no picture at all, which is the failure the
+boost gauge's own notes are about. `HudPreview_Fade` sets it to **half**: full says nothing about what
+is underneath, where half comes back with the wheel, the pedals and the minimap visibly dimmed, which
+is what says the sheet is over the instruments rather than under them.
+
+**That frame cannot answer the notch, and saying so is the point.** A preview is 1920 × 1080 with no
+cut-out in it and `SafeAreaPanel` insets nothing at that aspect, so whether the sheet reaches into a
+phone's bezel is settled by where it is parented and by nothing in any picture here. It was written up
+as something the frame showed before the frame was looked at; it is not, and a frame credited with an
+answer it cannot give is worse than one that admits it — which is the same call `_8_Face` on the
+Weissjoch and `_3_Fork` on the two circuits already got.
 
 ## Two things nothing was watching
 

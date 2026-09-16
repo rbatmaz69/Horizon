@@ -106,6 +106,24 @@ namespace Horizon.EditorTools
 
                 Restore();
 
+                // --- The fade, half down over the driving HUD.
+                //
+                // It has to be driven by hand: the sheet is serialized clear and ScreenFade covers it in
+                // Awake, which never runs here. Half rather than full, because a picture of a fully
+                // opaque sheet is a picture of a rectangle and says nothing about what it is covering —
+                // at half it shows the tint, that it reaches past the safe area into the notch, and that
+                // it is over the instruments rather than under them.
+                AimTheMinimap(canvas);
+                LayOutTheDials(canvas);
+                ShowOneScheme(canvas);
+                ShowTheFade(canvas, 0.5f);
+
+                Canvas.ForceUpdateCanvases();
+                MapPreviewRenderer.Shoot(camera, Width, Height, Path.Combine(directory, FadeShot), Msaa);
+
+                ShowTheFade(canvas, 0f);
+                Restore();
+
                 // --- The full-screen map, which is the only way to see the key.
                 ShowTheMap(canvas);
 
@@ -150,7 +168,7 @@ namespace Horizon.EditorTools
                 CaptureStart(canvas, camera, directory);
 
                 Debug.Log($"[Horizon] HUD preview written to {directory}: {DrivingShot}, {MapShot}, "
-                          + $"{MultiplayerShot}, {RoomShot}, {PhotoShot}, {GarageShot} and "
+                          + $"{FadeShot}, {MultiplayerShot}, {RoomShot}, {PhotoShot}, {GarageShot} and "
                           + $"{StartShot}");
             }
             finally
@@ -166,6 +184,24 @@ namespace Horizon.EditorTools
         private const string DrivingShot = "HudPreview_Driving.png";
 
         private const string MapShot = "HudPreview_Map.png";
+
+        /// <summary>
+        /// The transition, half down over the driving HUD.
+        ///
+        /// <para><b>The only picture anywhere of a thing that is by nature never still.</b> A fade is
+        /// a third of a second long and every other frame this project takes is of a saved scene in
+        /// which no <c>Update</c> has ever run — so left to itself the sheet appears in no picture at
+        /// all, which is precisely the failure the boost gauge's own notes are about. What it answers:
+        /// is the tint the world's own warm dark rather than black, and is the sheet over the
+        /// instruments rather than under them — at half opacity the wheel, the pedals and the minimap
+        /// come out visibly dimmed, and if the sheet were under the safe area they would not.</para>
+        ///
+        /// <para><b>What it cannot answer is the notch.</b> A preview is 1920 x 1080 with no cut-out in
+        /// it and <c>SafeAreaPanel</c> insets nothing at this aspect, so whether the sheet reaches into
+        /// a phone's bezel is settled by where it is parented and by nothing here. Said rather than
+        /// left to be assumed from a frame that looks like an answer.</para>
+        /// </summary>
+        private const string FadeShot = "HudPreview_Fade.png";
 
         /// <summary>
         /// The two room pages.
@@ -305,6 +341,50 @@ namespace Horizon.EditorTools
 
             Hidden.Clear();
             Shown.Clear();
+        }
+
+
+        /// <summary>
+        /// Drives the fade sheet to an opacity, because nothing else here will.
+        ///
+        /// <para><c>ScreenFade</c> covers the screen in <c>Awake</c> and clears it over the following
+        /// third of a second, and a saved scene has run neither. The sheet is serialized clear and
+        /// disabled on purpose — see <c>MenuUiSetup.BuildFade</c> — so without this the one frame that
+        /// exists to show a transition would show no transition, and would go on showing none after the
+        /// fade had broken. A frame that cannot fail is not a check.</para>
+        /// </summary>
+        private static void ShowTheFade(Canvas canvas, float opacity)
+        {
+            Transform sheet = null;
+            Transform[] all = canvas.GetComponentsInChildren<Transform>(true);
+
+            for (int i = 0; i < all.Length; i++)
+            {
+                if (all[i].name == "ScreenFade" && all[i].GetComponent<Image>() != null)
+                {
+                    sheet = all[i];
+                    break;
+                }
+            }
+
+            if (sheet == null)
+            {
+                Debug.LogWarning(
+                    "[Horizon] No ScreenFade on the canvas, so the transition cannot be photographed. "
+                    + "MenuUiSetup.BuildFade is what puts it there.");
+                return;
+            }
+
+            var image = sheet.GetComponent<Image>();
+            if (image == null)
+            {
+                return;
+            }
+
+            Color colour = image.color;
+            colour.a = opacity;
+            image.color = colour;
+            image.enabled = opacity > 0f;
         }
 
         /// <summary>

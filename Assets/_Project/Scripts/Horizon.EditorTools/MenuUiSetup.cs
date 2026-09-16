@@ -214,6 +214,16 @@ namespace Horizon.EditorTools
 
             EditorUtility.SetDirty(together);
 
+            // Last of everything, so the sheet is over every page and every driving control. See
+            // BuildFade on why it is not in the safe area and why it starts clear.
+            ScreenFade fade = BuildFade(canvas);
+
+            HorizonAssetUtility.Configure(menu, serialized =>
+                serialized.FindProperty("fade").objectReferenceValue = fade);
+
+            HorizonAssetUtility.Configure(start, serialized =>
+                serialized.FindProperty("fade").objectReferenceValue = fade);
+
             // Everything starts hidden. StartScreen shows its own first page in Start().
             for (int i = 0; i < panelList.Count; i++)
             {
@@ -227,6 +237,7 @@ namespace Horizon.EditorTools
                 Panels = panels,
                 StartScreen = start,
                 Multiplayer = together,
+                Fade = fade,
             };
         }
 
@@ -1009,6 +1020,43 @@ namespace Horizon.EditorTools
             }
 
             panels.Add(panel.gameObject);
+        }
+
+        /// <summary>
+        /// The sheet that covers a teleport, and the component that clears it.
+        ///
+        /// <para><b>Built last and parented to the canvas rather than to the safe area.</b> Last because
+        /// it has to be over every page, the notice line and the driving controls alike — and this
+        /// method runs after all of them. Outside the safe area because a phone's notch is part of the
+        /// screen: a sheet inset from it leaves a bright strip of world down one edge of every
+        /// transition, which reads as the fade being broken rather than as a fade.</para>
+        ///
+        /// <para><b>It starts clear and takes no raycast.</b> Clear, because a preview frame is rendered
+        /// from a saved scene in which no <c>Awake</c> has run, so whatever is serialized here is what
+        /// every picture of this HUD would show — and a sheet serialized opaque is a set of previews of
+        /// a black rectangle. No raycast, because a full-screen graphic that takes one is a menu in
+        /// which nothing can be pressed, and an invisible one is that with no explanation.</para>
+        /// </summary>
+        private static ScreenFade BuildFade(Canvas canvas)
+        {
+            var go = new GameObject("ScreenFade", typeof(RectTransform));
+            go.transform.SetParent(canvas.transform, false);
+
+            TouchUiSetup.Stretch((RectTransform)go.transform);
+
+            Image image = go.AddComponent<Image>();
+            image.color = new Color(
+                TouchUiSetup.PanelTint.r, TouchUiSetup.PanelTint.g, TouchUiSetup.PanelTint.b, 0f);
+            image.raycastTarget = false;
+            image.enabled = false;
+
+            go.transform.SetAsLastSibling();
+
+            ScreenFade fade = canvas.gameObject.AddComponent<ScreenFade>();
+            HorizonAssetUtility.Configure(fade, serialized =>
+                serialized.FindProperty("sheet").objectReferenceValue = image);
+
+            return fade;
         }
 
         /// <summary>

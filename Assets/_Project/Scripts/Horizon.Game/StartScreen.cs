@@ -42,6 +42,10 @@ namespace Horizon.Game
         [Tooltip("The free camera, borrowed to orbit the parked car while the menu is up.")]
         [SerializeField] private PhotoMode showcase;
 
+        [Tooltip("The sheet that covers a teleport. Cut through when the player picks a different "
+               + "place, and when they hand over to the drive.")]
+        [SerializeField] private ScreenFade fade;
+
         [Header("Garage")]
         [Tooltip("Row backgrounds on the car page, tinted to show which one is chosen.")]
         [SerializeField] private Image[] carRows = new Image[0];
@@ -191,6 +195,11 @@ namespace Horizon.Game
 
         public void SelectPlace(int index)
         {
+            // A different place is a different part of the world, so it gets the cut a respawn gets.
+            // Choosing a car or a colour deliberately does not: what you want to see there is the car
+            // you just chose, standing where it already was.
+            fade?.Cut();
+
             PlayerChoices.Spawn = index;
             ApplyPlace();
             RefreshAll();
@@ -232,6 +241,7 @@ namespace Horizon.Game
         /// </summary>
         public void Drive()
         {
+            fade?.Cut();
             PlayerChoices.Save();
 
             // Defensively, in case the world arrived after the last selection was made — which it can,

@@ -30,6 +30,10 @@ namespace Horizon.Game
         [Tooltip("The start screen, if the scene has one. Told when the world is ready.")]
         [SerializeField] private StartScreen startScreen;
 
+        [Tooltip("The sheet that covers the screen until the world has arrived. On the canvas, which "
+               + "lives in this scene, so it is wired rather than found.")]
+        [SerializeField] private ScreenFade fade;
+
         [Tooltip("Playing with other people. Told when the world is ready, for the same reason the "
                + "start screen is: the car it reports to the room does not exist until then.")]
         [SerializeField] private NetSession netSession;
@@ -74,6 +78,17 @@ namespace Horizon.Game
             }
 
             WireUpWorld();
+
+            // Whatever came of that. The sheet has been down since ScreenFade.Awake, because until the
+            // additive load finishes there is no camera in this scene and nothing to render; revealing
+            // only on success would leave a player staring at a covered screen over an error message
+            // they cannot see, which is strictly worse than showing them the broken world.
+            if (fade == null)
+            {
+                fade = GetComponentInChildren<ScreenFade>();
+            }
+
+            fade?.Reveal();
         }
 
         /// <summary>

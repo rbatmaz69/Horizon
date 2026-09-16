@@ -6142,6 +6142,7 @@ namespace Horizon.EditorTools
                 serialized.FindProperty("inputRouter").objectReferenceValue = router;
                 serialized.FindProperty("qualityDirector").objectReferenceValue = quality;
                 serialized.FindProperty("startScreen").objectReferenceValue = ui.StartScreen;
+                serialized.FindProperty("fade").objectReferenceValue = ui.Fade;
                 serialized.FindProperty("netSession").objectReferenceValue = session;
             });
 

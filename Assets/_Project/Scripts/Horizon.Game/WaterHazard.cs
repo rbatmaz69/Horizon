@@ -76,6 +76,17 @@ namespace Horizon.Game
         private Rigidbody body;
         private TrafficNetwork routes;
 
+        /// <summary>
+        /// The sheet a recovery cuts through.
+        ///
+        /// <para>Found rather than wired, and that is not laziness: this component is built into the
+        /// world scene and the canvas is in <c>Bootstrap</c>, so there is no serialized reference to be
+        /// had across the two. Resolved once, on the first recovery, the way <see cref="routes"/>
+        /// already is.</para>
+        /// </summary>
+        private ScreenFade fade;
+        private bool fadeResolved;
+
         private float dryDamping;
         private float dryAngularDamping;
         private bool wet;
@@ -220,9 +231,19 @@ namespace Horizon.Game
             // wallowing on dry land.
             Dry();
 
+            if (!fadeResolved)
+            {
+                fade = FindFirstObjectByType<ScreenFade>();
+                fadeResolved = true;
+            }
+
             if (RoadRespawn.TryNearest(routes, vehicle.transform.position,
                     RoadRespawn.RideHeight(vehicle), out Vector3 position, out Quaternion rotation))
             {
+                // Only where there is somewhere to go. Cutting first and then finding no road would
+                // black the screen out over a car still sinking, which reads as the game having
+                // crashed.
+                fade?.Cut();
                 vehicle.Teleport(position, rotation);
             }
         }

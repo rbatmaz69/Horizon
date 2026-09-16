@@ -119,6 +119,10 @@ namespace Horizon.EditorTools
 
             /// <summary>The two room pages. Its NetSession reference is filled in by the scene builder.</summary>
             public MultiplayerScreen Multiplayer;
+
+            /// <summary>The sheet that covers a teleport. Wired into GameBootstrap by the scene builder,
+            /// which is what reveals it once the additive load has finished.</summary>
+            public ScreenFade Fade;
         }
 
         /// <summary>
