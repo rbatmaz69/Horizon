@@ -6102,6 +6102,10 @@ namespace Horizon.EditorTools
             DriveDebugOverlay overlay = root.AddComponent<DriveDebugOverlay>();
             QualityDirector quality = root.AddComponent<QualityDirector>();
 
+            // On the Bootstrap object, because what it counts has to survive a zone change and because
+            // the car it reads does not exist until the additive load has finished.
+            root.AddComponent<Odometer>();
+
             // On the Bootstrap object rather than in the world, for the same reason the menus are: a
             // room outlives a zone change, and the multiplayer page has to exist before there is a car
             // to report. The lap board is beside it because it reads LapTiming the way LapTimer does —

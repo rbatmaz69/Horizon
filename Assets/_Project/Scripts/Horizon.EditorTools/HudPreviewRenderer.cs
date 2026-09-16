@@ -165,11 +165,13 @@ namespace Horizon.EditorTools
 
                 Restore();
 
+                CaptureJourney(canvas, camera, directory);
+
                 CaptureStart(canvas, camera, directory);
 
                 Debug.Log($"[Horizon] HUD preview written to {directory}: {DrivingShot}, {MapShot}, "
-                          + $"{FadeShot}, {MultiplayerShot}, {RoomShot}, {PhotoShot}, {GarageShot} and "
-                          + $"{StartShot}");
+                          + $"{FadeShot}, {MultiplayerShot}, {RoomShot}, {PhotoShot}, {GarageShot}, "
+                          + $"{JourneyShot} and {StartShot}");
             }
             finally
             {
@@ -313,7 +315,95 @@ namespace Horizon.EditorTools
             }
         }
 
-        /// <summary>Where the world lives, for the one shot here that needs it.</summary>
+        /// <summary>
+        /// What the player has done, with the collection half finished.
+        ///
+        /// <para><b>Both halves of this page are states no picture here could otherwise reach.</b>
+        /// <c>PlayerChoices.Load</c> has never run at edit time, so every viewpoint comes out unreached
+        /// and the half a player earns would ship unphotographed — which is the failure the boost
+        /// gauge's notes are about, and the one <c>MapPreviewRenderer</c> already solves with
+        /// <c>SeedVisited</c>. Every third place is seeded rather than all of them, so the reached tint
+        /// and the unreached one are in the same frame: two frames that each show one state cannot say
+        /// whether they differ enough to read.</para>
+        ///
+        /// <para><b>And the circuits need the world open.</b> A best lap is keyed by the name
+        /// <c>LapTiming</c> carries, and those components live in the world scene — so without it the
+        /// lap rows hide themselves, correctly, and half the page is a frame of nothing. Opened
+        /// additively and closed again, never Single, for the reason this tool's entry point gives.</para>
+        /// </summary>
+        private const string JourneyShot = "HudPreview_Journey.png";
+
+        private static void CaptureJourney(Canvas canvas, Camera camera, string directory)
+        {
+            Scene world = SceneManager.GetSceneByPath(WorldScenePath);
+            bool openedHere = !world.isLoaded;
+
+            if (openedHere)
+            {
+                world = EditorSceneManager.OpenScene(WorldScenePath, OpenSceneMode.Additive);
+            }
+
+            var map = AssetDatabase.LoadAssetAtPath<WorldMap>(PrototypeSetup.WorldMapPath);
+
+            PlayerChoices.ClearVisited();
+
+            if (map != null)
+            {
+                int seen = 0;
+
+                for (int i = 0; i < map.MarkerCount; i++)
+                {
+                    if (map.MarkerKindOf(i) != MapMarkerKind.Viewpoint)
+                    {
+                        continue;
+                    }
+
+                    if (seen % 3 == 0)
+                    {
+                        PlayerChoices.SeedVisited(map.MarkerNameOf(i));
+                    }
+
+                    seen++;
+                }
+            }
+
+            try
+            {
+                ShowMenuPage(canvas, "JourneyPanel");
+
+                // By hand, because OnEnable does not run in the editor — the same reason MapScreen.Open
+                // and the gauges' LayOutFace are public. Without it the page photographs as twenty empty
+                // rows, which is a picture of nothing that looks like a picture of a fault.
+                var screen = Object.FindFirstObjectByType<JourneyScreen>(FindObjectsInactive.Include);
+
+                if (screen == null)
+                {
+                    Debug.LogWarning(
+                        "[Horizon] No JourneyScreen on the canvas, so the journey page was not filled in "
+                        + "and the frame shows empty rows. MenuUiSetup.BuildJourneyPage puts it there.");
+                }
+                else
+                {
+                    screen.Open();
+                }
+
+                Canvas.ForceUpdateCanvases();
+                MapPreviewRenderer.Shoot(
+                    camera, Width, Height, Path.Combine(directory, JourneyShot), Msaa);
+            }
+            finally
+            {
+                PlayerChoices.ClearVisited();
+                Restore();
+
+                if (openedHere)
+                {
+                    EditorSceneManager.CloseScene(world, true);
+                }
+            }
+        }
+
+        /// <summary>Where the world lives, for the two shots here that need it.</summary>
         private const string WorldScenePath = "Assets/_Project/Scenes/World_MountainPass.unity";
 
         /// <summary>What a shot switched off or on, and puts back.</summary>

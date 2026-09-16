@@ -96,6 +96,14 @@ namespace Horizon.Game
         private const string BestLapPrefix = "Horizon.Best.";
 
         /// <summary>
+        /// How far this player has driven, in metres.
+        ///
+        /// <para>A float and not a double: at a hundred thousand kilometres a float32 still resolves
+        /// about eight metres, and this is written in five-hundred-metre steps.</para>
+        /// </summary>
+        private const string DistanceKey = "Horizon.Distance";
+
+        /// <summary>
         /// Where a viewpoint's name is stored, and the one thing that has to survive a launch here.
         ///
         /// <para>A set rather than a list, because the only two questions asked of it are "has this one
@@ -204,6 +212,36 @@ namespace Horizon.Game
             visited.Clear();
         }
 
+        /// <summary>
+        /// How far this player has driven, metres.
+        ///
+        /// <para>Earned rather than chosen, like the visited set and the lap times, so it is written
+        /// when it changes rather than at the next <c>Save</c>. <c>Odometer</c> is the only writer and
+        /// it batches, so what an app kill costs is the last few hundred metres.</para>
+        /// </summary>
+        public static float Distance { get; private set; }
+
+        /// <summary>
+        /// Adds to the odometer and writes it out.
+        ///
+        /// <para><b>Metres rather than a position delta, and that is the whole reason this takes a
+        /// number rather than reading the car itself.</b> Every start, every respawn and every recovery
+        /// from the water moves the car by kilometres, and an odometer fed positions would bill the
+        /// driver for all of them — a player who spent an afternoon tapping through the start places
+        /// would have driven further than one who crossed the world.</para>
+        /// </summary>
+        public static void AddDistance(float metres)
+        {
+            if (metres <= 0f || float.IsNaN(metres))
+            {
+                return;
+            }
+
+            Distance += metres;
+            PlayerPrefs.SetFloat(DistanceKey, Distance);
+            PlayerPrefs.Save();
+        }
+
         /// <summary>The best lap on this circuit, seconds, or zero where none has been driven.</summary>
         public static float BestLap(string circuit)
         {
@@ -288,6 +326,8 @@ namespace Horizon.Game
                 (int)QualityPreset.Low, (int)QualityPreset.High);
 
             Name = PlayerPrefs.GetString(NameKey, string.Empty);
+
+            Distance = PlayerPrefs.GetFloat(DistanceKey, 0f);
 
             visited.Clear();
             string stored = PlayerPrefs.GetString(VisitedKey, string.Empty);

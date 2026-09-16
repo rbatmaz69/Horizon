@@ -73,6 +73,11 @@ namespace Horizon.EditorTools
             // otherwise be looking for buttons the first one destroyed.
             BackButtons.Clear();
 
+            // The map key already loads this one; the journey page uses the same triangle for the same
+            // thing, which is the rule that key states about itself.
+            Sprite journeyArrow = HorizonAssetUtility.LoadOrCreateGlyphSprite(
+                $"{SpriteFolder}/UI_Right.png", "right");
+
             GameObject backdrop = BuildBackdrop(canvas);
 
             PauseMenu menu = canvas.gameObject.AddComponent<PauseMenu>();
@@ -121,6 +126,9 @@ namespace Horizon.EditorTools
 
             PhotoPage photo = BuildPhotoPage(safe, box);
             Register(panelList, MenuPage.Photo, photo.Panel);
+
+            JourneyPage journey = BuildJourneyPage(safe, box, journeyArrow, map);
+            Register(panelList, MenuPage.Journey, journey.Panel);
 
             HorizonAssetUtility.Configure(panels, serialized =>
                 HorizonAssetUtility.SetObjectArray(serialized, "panels", panelList.ToArray()));
@@ -184,6 +192,8 @@ namespace Horizon.EditorTools
             WireControls(controls, menu, panels);
             WireQuality(quality, start, panels);
             WirePaused(paused, start, menu, panels, pauseButton, together);
+
+            BindBack(journey.Back, panels);
 
             Bind(photo.Shutter, photo.Mode, nameof(PhotoMode.Shoot));
             Bind(photo.Back, menu, nameof(PauseMenu.ClosePhoto));
@@ -250,6 +260,178 @@ namespace Horizon.EditorTools
             };
         }
 
+
+        private sealed class JourneyPage
+        {
+            public RectTransform Panel;
+            public JourneyScreen Screen;
+            public Button Back;
+        }
+
+        /// <summary>How tall one viewpoint row is. Shorter than a menu row: nothing on it is pressed.</summary>
+        private const float JourneyRowHeight = 42f;
+
+        /// <summary>
+        /// How many circuit rows are laid out.
+        ///
+        /// <para>A fixed pool filled from the top and hidden from where it runs out, which is the map's
+        /// label pool one page along. The world has two circuits, so three is one spare — a third
+        /// arrives on this page by having been built rather than by anybody remembering this
+        /// number.</para>
+        ///
+        /// <para><b>Three and not four, and the reason is the page height rather than optimism.</b> The
+        /// rows are built <i>active</i> so <c>ValidatePageHeights</c> measures the pool full, which
+        /// makes its number the worst case this page can ever reach rather than the case it happens to
+        /// be in — <c>JourneyScreen</c> then hides the spares and the running page is always shorter. At
+        /// four the full pool comes to 1022 against the thousand that check allows, and a page that
+        /// only fits because a circuit has not been built yet is a page nothing is measuring.</para>
+        /// </summary>
+        private const int LapRows = 3;
+
+        /// <summary>
+        /// What this player has done.
+        ///
+        /// <para><b>The rows are built from the baked map</b>, so there is exactly one per viewpoint and
+        /// no count is written down anywhere. <c>JourneyScreen</c> walks the same array in the same
+        /// order to fill them, which is what makes the page's length and its contents one decision
+        /// rather than two.</para>
+        ///
+        /// <para><b>Five viewpoints show at a time and the rest scroll.</b> Sixteen rows of 42 is 860
+        /// units on its own, which is most of the canvas — the fault the garage page reported on every
+        /// build for a fortnight. <c>ScrollList</c> caps on height, so what is passed here is what the
+        /// page can afford rather than what the list holds, and five is what is left once the lap pool
+        /// is measured full: at six the page came out 1086 units tall and the check said so.</para>
+        /// </summary>
+        private static JourneyPage BuildJourneyPage(
+            RectTransform parent, Sprite box, Sprite arrow, WorldMap map)
+        {
+            var page = new JourneyPage();
+            page.Panel = TouchUiSetup.StackPanel(parent, "JourneyPanel", box, PanelWidth);
+
+            TouchUiSetup.MenuLabel(page.Panel, "JOURNEY", 44, 60f);
+
+            Text heading = TouchUiSetup.MenuLabel(page.Panel, string.Empty, 26, 34f);
+            heading.color = TouchUiSetup.AccentTint;
+
+            int viewpoints = 0;
+            if (map != null)
+            {
+                for (int i = 0; i < map.MarkerCount; i++)
+                {
+                    if (map.MarkerKindOf(i) == MapMarkerKind.Viewpoint)
+                    {
+                        viewpoints++;
+                    }
+                }
+            }
+
+            var marks = new Image[viewpoints];
+            var names = new Text[viewpoints];
+
+            RectTransform list = TouchUiSetup.ScrollList(
+                page.Panel, "Viewpoints", Mathf.Min(5, Mathf.Max(1, viewpoints)), JourneyRowHeight);
+
+            for (int i = 0; i < viewpoints; i++)
+            {
+                JourneyRow(list, arrow, $"Viewpoint{i}", out marks[i], out names[i]);
+            }
+
+            Text lapHeading = TouchUiSetup.MenuLabel(page.Panel, "BEST LAP", 26, 34f);
+            lapHeading.color = new Color(1f, 1f, 1f, 0.55f);
+
+            var lapNames = new Text[LapRows];
+            var lapTimes = new Text[LapRows];
+            var lapRows = new GameObject[LapRows];
+
+            for (int i = 0; i < LapRows; i++)
+            {
+                lapRows[i] = ValueRow(page.Panel, $"Lap{i}", out lapNames[i], out lapTimes[i]);
+            }
+
+            ValueRow(page.Panel, "Driven", out Text drivenCaption, out Text driven);
+            drivenCaption.text = "DRIVEN";
+
+            page.Screen = page.Panel.gameObject.AddComponent<JourneyScreen>();
+
+            HorizonAssetUtility.Configure(page.Screen, serialized =>
+            {
+                serialized.FindProperty("map").objectReferenceValue = map;
+                serialized.FindProperty("heading").objectReferenceValue = heading;
+                serialized.FindProperty("distance").objectReferenceValue = driven;
+
+                HorizonAssetUtility.SetObjectArray(serialized, "marks", marks);
+                HorizonAssetUtility.SetObjectArray(serialized, "names", names);
+                HorizonAssetUtility.SetObjectArray(serialized, "lapNames", lapNames);
+                HorizonAssetUtility.SetObjectArray(serialized, "lapTimes", lapTimes);
+                HorizonAssetUtility.SetObjectArray(serialized, "lapRows", lapRows);
+            });
+
+            page.Back = TouchUiSetup.MenuButton(page.Panel, "Back", box, "Back");
+            return page;
+        }
+
+        /// <summary>
+        /// One viewpoint: the map's own triangle, and the name beside it.
+        ///
+        /// <para>The same shape the map draws for a viewpoint, for the reason its key gives — a mark
+        /// that is not the one on the map is a second symbol for one thing. Filled or dim rather than
+        /// present or absent, because a place you have not been to is still a place, and a row with
+        /// nothing on it reads as a fault.</para>
+        /// </summary>
+        private static void JourneyRow(
+            RectTransform parent, Sprite arrow, string name, out Image mark, out Text label)
+        {
+            var rowObject = new GameObject(name, typeof(RectTransform));
+            rowObject.transform.SetParent(parent, false);
+            TouchUiSetup.Row(rowObject, JourneyRowHeight);
+
+            var row = (RectTransform)rowObject.transform;
+
+            RectTransform swatch = TouchUiSetup.Panel(row, "Mark", arrow, Color.white,
+                new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(20f, 20f),
+                new Vector2(26f, 0f));
+
+            swatch.localRotation = Quaternion.Euler(0f, 0f, 90f);
+
+            mark = swatch.GetComponent<Image>();
+            mark.type = Image.Type.Simple;
+            mark.raycastTarget = false;
+
+            label = TouchUiSetup.Label(
+                TouchUiSetup.StretchChild(row, "Name", 62f, 0f), string.Empty, 24);
+            label.alignment = TextAnchor.MiddleLeft;
+        }
+
+        /// <summary>
+        /// A caption on the left and a number on the right. Not a button: nothing to press.
+        ///
+        /// <para>Hands back the <b>row</b> and not just its two labels, because the row is what has to
+        /// be switched off when there is nothing to put in it. <c>TouchUiSetup.Label</c> parents a child
+        /// of its own, so the obvious <c>label.transform.parent</c> is one level short of the row and
+        /// hiding it leaves an empty forty-two units standing in the layout — which is exactly what the
+        /// first version did, and what the first frame of this page showed as a gap above DRIVEN.</para>
+        /// </summary>
+        private static GameObject ValueRow(
+            RectTransform parent, string name, out Text caption, out Text value)
+        {
+            var rowObject = new GameObject(name, typeof(RectTransform));
+            rowObject.transform.SetParent(parent, false);
+            TouchUiSetup.Row(rowObject, JourneyRowHeight);
+
+            var row = (RectTransform)rowObject.transform;
+
+            caption = TouchUiSetup.Label(
+                TouchUiSetup.StretchChild(row, "Caption", 26f, 0f), string.Empty, 24);
+            caption.alignment = TextAnchor.MiddleLeft;
+            caption.color = new Color(1f, 1f, 1f, 0.82f);
+
+            value = TouchUiSetup.Label(
+                TouchUiSetup.StretchChild(row, "Value", 26f, 0f), string.Empty, 24);
+            value.alignment = TextAnchor.MiddleRight;
+            value.color = TouchUiSetup.AccentTint;
+
+            return rowObject;
+        }
 
         private sealed class MultiplayerPage
         {
@@ -1524,6 +1706,7 @@ namespace Horizon.EditorTools
         private sealed class PausedPage
         {
             public RectTransform Panel;
+            public Button Journey;
             public Button Resume;
             public Button Place;
             public Button Conditions;
@@ -1553,9 +1736,15 @@ namespace Horizon.EditorTools
             page.Controls = TouchUiSetup.MenuButton(page.Panel, "Controls", box, "Controls");
             // Side by side, so the room is reachable from a paused game without the page growing a
             // ninth row — it already stands at about 984 units against a thousand of usable canvas.
-            Button[] pair = ButtonPair(page.Panel, box, "Map", "Map", "Together", "Together");
+            // Three across rather than two, which costs no height at all — the move this page and the
+            // front page have each already made once. Where the journey goes: not on the start screen,
+            // whose own job is to be the way out of itself and which stands at 988 units, but here,
+            // because what you have done is what you look at when you stop doing it.
+            Button[] pair = ButtonRow(
+                page.Panel, box, "Map", "Map", "Journey", "Journey", "Together", "Together");
             page.Map = pair[0];
-            page.Together = pair[1];
+            page.Journey = pair[1];
+            page.Together = pair[2];
 
             // Paired with Respawn rather than given a row, because this page already stands at about
             // 984 units against the thousand ValidatePageHeights allows — the same arithmetic that put
@@ -1692,6 +1881,7 @@ namespace Horizon.EditorTools
             BindPage(page.Conditions, panels, MenuPage.Conditions);
             BindPage(page.Controls, panels, MenuPage.Controls);
             BindPage(page.Map, panels, MenuPage.Map);
+            BindPage(page.Journey, panels, MenuPage.Journey);
 
             // Straight to the room when there is one, and to the page that opens one when there is
             // not. MultiplayerScreen decides which — a button cannot, because the answer changes while

@@ -87,5 +87,20 @@ namespace Horizon.Game
         /// it means something.</para>
         /// </summary>
         Photo = 12,
+
+        /// <summary>
+        /// What this player has done: the viewpoints they have stood at, their best laps, and how far
+        /// they have driven.
+        ///
+        /// <para><b>The game kept all three and showed none of them together.</b>
+        /// <c>PlayerChoices.VisitedCount</c> had no reader at all; a best lap was on screen only while
+        /// standing on the circuit it belongs to; and nothing counted distance. In a game with no
+        /// objective, what a player has accumulated is the only thing that makes a save theirs, and it
+        /// was spread across three places that never met.</para>
+        ///
+        /// <para><b>Appended at 13, behind <c>Photo</c>.</b> The page a button opens is a bare integer
+        /// in a saved <c>UnityEvent</c>, which this enum's own remarks now say six times.</para>
+        /// </summary>
+        Journey = 13,
     }
 }

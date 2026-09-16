@@ -3671,6 +3671,91 @@ gone silent looks exactly like one that has not, in every frame this project tak
 `HapticsDirector`, and it is a second thing the player may want to turn off on its own; that is a
 setting and a decision, not a line appended to this one.
 
+## What you have done
+
+Three things this game kept and never showed together. `PlayerChoices.VisitedCount` **had no reader
+anywhere in the project** — twenty viewpoints collected and no total on any screen. A best lap was on
+the HUD only while the car stood on the circuit it belongs to, so one driven a week ago was invisible.
+And distance was not counted at all. In a game with no objective, what a player has accumulated is most
+of what makes a save theirs, and it was spread over three places that never met.
+
+**The viewpoints come out of the baked map, which is where they already live.** `Viewpoints` reads the
+same array to decide where the car may stop, and its own remarks give the reason: a second bake would
+be a second opinion about where a viewpoint is and what it is called, and the mark on the map and the
+place you stop at could then be different places. This is a second *reader* of one source, which is not
+the same thing — and the page's **length** comes from that array too, so there is exactly one row per
+viewpoint and no count written down anywhere.
+
+**The circuits come from the circuits, because there is no list of them.** A lap time is keyed by the
+name `LapTiming.SetCircuit` was given, and nothing bakes those. So the page finds every `LapTiming` in
+the world and asks each what it is called — which is what `LapTimer` already does, and for the reason
+recorded there: two circuits turn a `FindFirstObjectByType` into a coin toss. The rows are a fixed pool
+of four filled from the top and hidden from where it runs out, so a third circuit arrives on this page
+by having been built.
+
+**An undriven lap is an em dash and not a zero.** Nought seconds is a lap somebody drove, and it is the
+fastest one there could ever be — which is exactly what an empty board must not look like.
+
+**A viewpoint not yet reached is dim, never absent.** A place you have not been to is still a place,
+and a list that grows as you collect it cannot show you what is left. It is the map's own triangle at
+the map's own accent, which is the rule that key states about itself: a mark that is not the one on the
+map is a second symbol for one thing.
+
+**Five show and the rest scroll.** Sixteen rows of 42 units is 860 on its own, which is most of the
+canvas — the fault the garage page reported on every build for a fortnight. `ScrollList` caps on the
+height a list may take rather than on a count, so what is passed to it is what the page can afford
+rather than what the list holds. At six the page came out **1086 units** against the thousand
+`ValidatePageHeights` allows, and the check said so on the build that introduced it.
+
+**The lap pool is built active and three deep, and both halves of that are one decision.** Active, so
+the height check measures the pool full and its number is the worst case this page can ever reach
+rather than the case it happens to be in; `JourneyScreen` then hides the spares and the running page is
+always shorter. Three, because four measured full comes to 1022 — and a page that only fits because a
+circuit has not been built yet is a page nothing is measuring.
+
+**Hiding a label is not hiding a row, and the first frame of this page is what said so.**
+`TouchUiSetup.Label` parents a child of its own, so `label.transform.parent` is the caption's own
+container and one level short of the row — switching that off leaves forty-two units of nothing
+standing in the layout, and it came back as a gap above DRIVEN. `ValueRow` hands back the row itself
+now: the thing that built it is what knows which object it is.
+
+
+**And the page found something nothing else could: the courses author nineteen viewpoints and sixteen
+reach the map.** `Viewpoints` walks the baked markers to decide where the car may stop, so three places
+have had a 38 m hole cut in the forest and a lay-by built for them that the player can never be
+credited for reaching. The likely filter is `WorldMapBuilder.IsAlreadyAPlace`, which is right about
+drawing — a name printed twice over itself is the fault it exists for — and says nothing about
+crediting. It is recorded rather than fixed here: this page is the instrument that made it visible, and
+a fix belongs to the map bake rather than to a menu page. **A total on a screen is worth a great deal
+more than the same number in a log**, which is what "16" is here and what nobody had read.
+
+**The odometer integrates speed and never position, and that is the whole of its design.** Every start,
+every respawn and every recovery from the water moves the car by kilometres in one frame; fed positions,
+a player who spent an afternoon tapping through the start places would come out having driven further
+than one who crossed the world. It runs on **scaled** time — the opposite of the rule `ScreenFade`,
+`PhotoMode` and `NetSession` follow, and for the opposite reason: they have to work while the world is
+stopped, and this is a measurement *of* the world. A paused game adds nothing, for free.
+
+It is written in five-hundred-metre steps rather than continuously, because `PlayerPrefs.Save` touches
+the disk and doing that sixty times a second in the driving loop is what the performance budget here
+forbids outright. What an app kill costs is the last few hundred metres, which is the right side to be
+wrong on.
+
+**The way in is the pause menu, and it is a row widened rather than a row added.** Map and Together
+became Map, Journey and Together — three across at 273 units each, which is what the front page's own
+bottom row already is. **Not the start screen**, although that is the obvious place: it stands at 988
+units against a thousand, its bottom row is already three wide, and four across at this panel width is
+200 units a button. Its job is also to be the way out of itself. What you have done is what you look at
+when you stop doing it.
+
+**`HudPreview_Journey` seeds every third place rather than all of them.** Both halves of this page are
+states no picture here could otherwise reach — `PlayerChoices.Load` has never run at edit time, so
+every mark comes out unreached — and that is the failure the boost gauge's notes are about, solved the
+way `MapPreviewRenderer` already solves it. Every third, because two frames that each show one state
+cannot say whether the two states differ enough to read; one frame with both in it can. The world scene
+is opened additively for the shot, because without it there are no `LapTiming` components and the lap
+rows correctly hide themselves, leaving half the page a picture of nothing.
+
 ## Two things nothing was watching
 
 **The coast road had no roadside furniture at all, and it is the only driven road that did not.** It
