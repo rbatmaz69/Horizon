@@ -69,6 +69,10 @@ namespace Horizon.EditorTools
         {
             var panelList = new List<GameObject>();
 
+            // A static list outlives a rebuild, and a second run in the same editor session would
+            // otherwise be looking for buttons the first one destroyed.
+            BackButtons.Clear();
+
             GameObject backdrop = BuildBackdrop(canvas);
 
             PauseMenu menu = canvas.gameObject.AddComponent<PauseMenu>();
@@ -183,6 +187,7 @@ namespace Horizon.EditorTools
 
             Bind(photo.Shutter, photo.Mode, nameof(PhotoMode.Shoot));
             Bind(photo.Back, menu, nameof(PauseMenu.ClosePhoto));
+            GoesBack(photo.Back);
 
             HorizonAssetUtility.Configure(menu, m =>
                 m.FindProperty("photo").objectReferenceValue = photo.Mode);
@@ -223,6 +228,10 @@ namespace Horizon.EditorTools
 
             HorizonAssetUtility.Configure(start, serialized =>
                 serialized.FindProperty("fade").objectReferenceValue = fade);
+
+            // After every page is wired, because the sweep has to know which buttons go back and
+            // BindBack is what says so.
+            WireSounds(canvas, BuildAudio(canvas));
 
             // Everything starts hidden. StartScreen shows its own first page in Start().
             for (int i = 0; i < panelList.Count; i++)
@@ -1007,6 +1016,7 @@ namespace Horizon.EditorTools
             Bind(page.World, page.Screen, nameof(MapScreen.Fit));
 
             Bind(page.Back, menu, nameof(PauseMenu.CloseSettings));
+            GoesBack(page.Back);
         }
 
         private static void Register(List<GameObject> panels, MenuPage page, RectTransform panel)
@@ -1733,6 +1743,103 @@ namespace Horizon.EditorTools
             BindBack(room.Back, panels);
         }
 
+        /// <summary>
+        /// Every button whose job is to go back, recorded as it is wired.
+        ///
+        /// <para>Static, so it is cleared at the top of <see cref="Build"/> — a static list in an editor
+        /// tool lives for the whole session and a second rebuild would otherwise be wiring sounds to
+        /// buttons destroyed by the first.</para>
+        /// </summary>
+        private static readonly List<Button> BackButtons = new List<Button>();
+
+        /// <summary>
+        /// Records that a button's job is to go back, whatever it happens to be wired to.
+        ///
+        /// <para>Called from <see cref="BindBack"/>, which is most of them, and by hand from the two
+        /// that close a page through <c>PauseMenu</c> rather than through <c>MenuPanels</c>. The
+        /// alternative is matching on the name "Back", which would be a rule about a string where this
+        /// is a rule about what the button does — and the two would agree until somebody renamed
+        /// one.</para>
+        /// </summary>
+        private static void GoesBack(Button button)
+        {
+            if (button != null)
+            {
+                BackButtons.Add(button);
+            }
+        }
+
+        /// <summary>
+        /// The source and the component that owns the two menu clips.
+        ///
+        /// <para>On the canvas object itself, beside <c>PauseMenu</c> and the rest, so the fallback in
+        /// <c>UiAudio.Awake</c> finds it. 2D — <c>spatialBlend</c> zero — because a button is not
+        /// anywhere, and the only <c>AudioListener</c> in this game is on the chase camera out in the
+        /// world.</para>
+        /// </summary>
+        private static UiAudio BuildAudio(Canvas canvas)
+        {
+            AudioSource source = canvas.gameObject.AddComponent<AudioSource>();
+            source.playOnAwake = false;
+            source.loop = false;
+            source.spatialBlend = 0f;
+            source.dopplerLevel = 0f;
+
+            UiAudio audio = canvas.gameObject.AddComponent<UiAudio>();
+
+            HorizonAssetUtility.Configure(audio, serialized =>
+                serialized.FindProperty("source").objectReferenceValue = source);
+
+            return audio;
+        }
+
+        /// <summary>
+        /// Gives every button on the canvas a sound.
+        ///
+        /// <para><b>Swept rather than wired one at a time.</b> There are sixty-odd of them across
+        /// fourteen pages and they are built by a dozen different helpers; a call beside each is a
+        /// dozen places to forget one, and what that produces is a single silent button nobody can
+        /// account for. The sweep takes every <c>Button</c> under the canvas, so a page added later is
+        /// covered by having been built.</para>
+        ///
+        /// <para><b>No picture can check this</b>, so it is a count and a warning at nought — the same
+        /// argument the wind, the forks and the tagged surfaces each make for their own. A menu that has
+        /// gone silent looks exactly like one that has not.</para>
+        /// </summary>
+        private static void WireSounds(Canvas canvas, UiAudio audio)
+        {
+            Button[] buttons = canvas.GetComponentsInChildren<Button>(true);
+            int forward = 0;
+
+            for (int i = 0; i < buttons.Length; i++)
+            {
+                if (BackButtons.Contains(buttons[i]))
+                {
+                    continue;
+                }
+
+                Bind(buttons[i], audio, nameof(UiAudio.Tap));
+                forward++;
+            }
+
+            for (int i = 0; i < BackButtons.Count; i++)
+            {
+                Bind(BackButtons[i], audio, nameof(UiAudio.Back));
+            }
+
+            if (buttons.Length == 0)
+            {
+                Debug.LogWarning(
+                    "[Horizon] No buttons on the canvas took a sound. A silent menu is indistinguishable "
+                    + "from one that works, so this is a count rather than something a picture could "
+                    + "say. MenuUiSetup.WireSounds is the sweep.");
+                return;
+            }
+
+            Debug.Log($"[Horizon] Menu sounds: {forward} buttons tap, {BackButtons.Count} go back, "
+                      + "both clips synthesised at load.");
+        }
+
         private static void Bind(Button button, MonoBehaviour target, string method)
         {
             var call = System.Delegate.CreateDelegate(
@@ -1764,6 +1871,7 @@ namespace Horizon.EditorTools
         private static void BindBack(Button button, MenuPanels panels)
         {
             Bind(button, panels, nameof(MenuPanels.Back));
+            GoesBack(button);
         }
 
         // --- Row builders.

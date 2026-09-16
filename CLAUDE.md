@@ -3618,6 +3618,59 @@ as something the frame showed before the frame was looked at; it is not, and a f
 answer it cannot give is worse than one that admits it — which is the same call `_8_Face` on the
 Weissjoch and `_3_Fork` on the two circuits already got.
 
+## A menu that answers
+
+**Every button in this game was silent.** `Assets/_Project/Audio/` is empty and the only `AudioSource`s
+in the project are the eleven on the car, so sixty-odd controls across fourteen pages made no sound at
+all — on a game played by touching glass, where a tap gives no travel, no click and no resistance. A
+control that answers nothing reads as one that did not register, which is why people press it twice.
+
+**Synthesised, like everything else audible here**, and the rule about loop points does not apply: a
+one-shot is over before it can meet its own tail. What does apply is that it has to *end* at silence,
+or `PlayOneShot` cuts it into a click of its own — the note against the exhaust bang, which is the
+only other one-shot in the project.
+
+**Two sounds and not three, and that is an argument rather than a shortcut.** The obvious third is a
+confirmation on Drive and Resume, and those already have one: the screen cuts. `ScreenFade` is the
+answer to *did that commit to something*, so a sound saying it again is the second opinion this project
+keeps refusing. What a sound can say that the picture cannot is **which way you moved** — so: forward,
+and back.
+
+**They are told apart by register and by shape, never by level.** Fourth time this has been paid for
+here, after the scrape against the rumble, the wind against the water and gravel against grass. Forward
+is a noise transient and two decaying partials a fifth apart, the upper dying several times faster —
+which is the impact thud's construction two registers up, and it is what makes a tap sound struck
+rather than beeped. Back **inverts the interval**, putting the second partial *under* the first, and
+has no transient at all: a contact is what says something was struck, and going back is not a
+commitment to anything. Dropping the pitch alone would have given a tap on a bigger button.
+
+**They are swept on rather than wired one at a time.** Sixty buttons built by a dozen helpers is a
+dozen places to forget one, and what that produces is a single silent control nobody can account for.
+`MenuUiSetup.WireSounds` takes every `Button` under the canvas, so a page added later is covered by
+having been built.
+
+**Which buttons go back is recorded where that decision is already made, not matched on a name.**
+`BindBack` calls `GoesBack`, and so do the two buttons that close a page through `PauseMenu` rather
+than through `MenuPanels` — `photo.Back` and the settings page's. Matching on the name "Back" would
+have been a rule about a string where this is a rule about what a button does, and the two agree right
+up until somebody renames one. The list is static and therefore **cleared at the top of `Build`**: an
+editor session outlives a rebuild, and the second run would have been wiring sounds onto buttons the
+first one destroyed.
+
+**On the canvas and not on the car.** `EngineAudio` re-synthesises its clips whenever the player
+changes car, because a diesel and a turbocharged six are different notes; a button does not care what
+is in the garage, so putting these there would mean rebuilding two clips that cannot change every time
+somebody opened it. The source is 2D, because a button is not anywhere and the only `AudioListener` in
+this game is on the chase camera out in the world.
+
+**No picture can check any of this**, so the build counts what it wired and warns at nought — the same
+argument the wind, the forks and the tagged surfaces each make for their own counter. A menu that has
+gone silent looks exactly like one that has not, in every frame this project takes.
+
+**A haptic tick on the same tap is deliberately not here.** It would be nearly free through
+`HapticsDirector`, and it is a second thing the player may want to turn off on its own; that is a
+setting and a decision, not a line appended to this one.
+
 ## Two things nothing was watching
 
 **The coast road had no roadside furniture at all, and it is the only driven road that did not.** It
